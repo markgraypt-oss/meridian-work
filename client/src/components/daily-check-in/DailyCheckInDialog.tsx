@@ -605,7 +605,7 @@ export default function DailyCheckInDialog({ open, onOpenChange, checkInToEdit }
             disabled={checkInMutation.isPending} 
             className="w-full h-12 text-base font-medium bg-[#0cc9a9] hover:bg-[#0aa0e0] disabled:opacity-50"
           >
-            {checkInMutation.isPending ? "Saving..." : "Complete Daily Check-In"}
+            {checkInMutation.isPending ? "Saving..." : "Complete Check-In"}
           </Button>
         </div>
       </div>

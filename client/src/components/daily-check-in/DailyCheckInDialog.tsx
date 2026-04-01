@@ -298,9 +298,9 @@ export default function DailyCheckInDialog({ open, onOpenChange, checkInToEdit }
 
   // Main check-in page
   return (
-    <div className="fixed inset-0 z-[100] bg-background" style={{ display: 'flex', flexDirection: 'column', height: '100vh', width: '100vw' }}>
+    <div className="fixed inset-0 z-[100] bg-background flex flex-col" style={{ height: '100dvh', width: '100vw' }}>
       {/* Header with X button */}
-      <div className="p-4 flex items-center border-b border-border relative" style={{ flexShrink: 0 }}>
+      <div className="p-4 flex items-center border-b border-border relative shrink-0">
         <button 
           onClick={handleCloseClick}
           className="p-2 rounded-full hover:bg-muted transition-colors absolute left-2"
@@ -311,7 +311,7 @@ export default function DailyCheckInDialog({ open, onOpenChange, checkInToEdit }
       </div>
 
       {/* Scrollable content */}
-      <div className="px-5 pb-6" style={{ flex: 1, overflowY: 'auto', overflowX: 'hidden', WebkitOverflowScrolling: 'touch', minHeight: 0 }}>
+      <div className="px-5 pb-6 flex-1 overflow-y-auto overflow-x-hidden min-h-0" style={{ WebkitOverflowScrolling: 'touch' }}>
         <div className="max-w-lg mx-auto space-y-10">
           
           {/* SECTION 1: Mood & Energy */}
@@ -598,7 +598,7 @@ export default function DailyCheckInDialog({ open, onOpenChange, checkInToEdit }
       </div>
 
       {/* Sticky Submit Button */}
-      <div className="px-5 py-4 border-t border-border bg-background" style={{ flexShrink: 0 }}>
+      <div className="px-5 py-4 pb-[max(1rem,env(safe-area-inset-bottom))] border-t border-border bg-background shrink-0">
         <div className="max-w-lg mx-auto">
           <Button 
             onClick={handleSubmit} 

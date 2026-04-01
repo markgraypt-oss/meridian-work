@@ -119,7 +119,7 @@ export default function ViewCheckInCard({ checkIn, onEdit, initialDate }: ViewCh
   }
 
   return (
-    <div className="fixed inset-0 z-50 bg-background">
+    <div className="fixed inset-0 z-[100] bg-background" style={{ height: '100dvh' }}>
       <div className="flex flex-col h-full">
         <div className="flex items-center justify-between p-4">
           <Button

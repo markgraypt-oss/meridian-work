@@ -782,7 +782,7 @@ export default function Dashboard() {
               data-testid="button-open-check-in"
             >
               <CheckCircle className="mr-2 h-5 w-5" />
-              Daily Check-In
+              Complete Daily Check-In
             </Button>
           </div>
         )}

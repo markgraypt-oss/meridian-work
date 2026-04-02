@@ -332,7 +332,7 @@ export function ExerciseSelector({ exercises, onAddExercise, hideMovementFilters
                 <div
                   key={exercise.id}
                   onClick={() => handleExerciseTap(exercise.id)}
-                  className="flex items-center gap-3 p-3 border rounded-lg cursor-pointer transition-all bg-white dark:bg-card hover:bg-accent active:bg-primary/10"
+                  className="flex items-center gap-3 p-3 border rounded-lg cursor-pointer transition-all bg-card hover:bg-accent active:bg-primary/10"
                   data-testid={`exercise-item-${exercise.id}`}
                 >
                   <div className="flex-shrink-0 w-12 h-12 bg-muted rounded-md overflow-hidden">

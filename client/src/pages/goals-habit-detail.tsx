@@ -117,7 +117,7 @@ export default function GoalsHabitDetail() {
       <TopHeader title="Goal Template" onBack={() => window.history.back()} />
 
       <div className="px-6 pt-6 space-y-6">
-        <div className="bg-white dark:bg-card rounded-xl border border-border shadow-sm p-5 space-y-3">
+        <div className="bg-card rounded-xl border border-border shadow-sm p-5 space-y-3">
           <div className="flex items-center gap-3">
             <div className={`h-12 w-12 rounded-full flex items-center justify-center flex-shrink-0 ${habit.color}`}>
               {habit.icon}

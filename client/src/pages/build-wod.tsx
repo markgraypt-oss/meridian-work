@@ -827,7 +827,7 @@ export default function BuildWodPage() {
                 )}
 
                 <div 
-                  className={`flex items-center gap-3 px-4 py-3 mx-4 bg-white dark:bg-card rounded-lg border mb-3 ${draggedIndex === globalIdx ? 'opacity-50 bg-muted' : ''}`}
+                  className={`flex items-center gap-3 px-4 py-3 mx-4 bg-card rounded-lg border mb-3 ${draggedIndex === globalIdx ? 'opacity-50 bg-muted' : ''}`}
                   draggable={exercise.blockType === 'single'}
                   onDragStart={() => {
                     if (exercise.blockType === 'single') {

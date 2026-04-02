@@ -1283,7 +1283,7 @@ export default function ActiveWorkout() {
       </div>
 
       {/* Workout Title */}
-      <div className="mx-2 mt-4 mb-1 bg-white dark:bg-card rounded-xl shadow-sm overflow-hidden border border-border/50">
+      <div className="mx-2 mt-4 mb-1 bg-card rounded-xl shadow-sm overflow-hidden border border-border/50">
         <div className="px-4 pt-4 pb-3">
           <h1 className="text-2xl font-bold text-foreground" data-testid="text-workout-title">
             {workoutLog.workoutName}
@@ -1512,7 +1512,7 @@ export default function ActiveWorkout() {
               )}
 
               {/* Exercise Card */}
-              <div className="relative z-10 bg-white dark:bg-card rounded-xl shadow-sm overflow-hidden border border-border/50">
+              <div className="relative z-10 bg-card rounded-xl shadow-sm overflow-hidden border border-border/50">
 
               {/* Exercise Header */}
               <div className="flex items-center gap-3 p-4 pb-2">

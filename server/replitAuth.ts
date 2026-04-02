@@ -24,7 +24,7 @@ async function sendPasswordResetEmail(email: string, token: string, baseUrl: str
   }
 
   const resetUrl = `${baseUrl}/reset-password?token=${token}`;
-  
+
   try {
     const { error } = await resend.emails.send({
       from: "MeridianWork <no-reply@meridian.work>",
@@ -44,7 +44,7 @@ async function sendPasswordResetEmail(email: string, token: string, baseUrl: str
         </div>
       `,
     });
-    
+
     if (error) {
       console.error("Failed to send password reset email:", error);
       return false;
@@ -64,7 +64,7 @@ export async function sendUserInviteEmail(email: string, token: string, baseUrl:
 
   const setupUrl = `${baseUrl}/reset-password?token=${token}&invite=true`;
   const greeting = firstName ? `Hi ${firstName},` : "Hi,";
-  
+
   try {
     const { error } = await resend.emails.send({
       from: "MeridianWork <no-reply@meridian.work>",
@@ -85,7 +85,7 @@ export async function sendUserInviteEmail(email: string, token: string, baseUrl:
         </div>
       `,
     });
-    
+
     if (error) {
       console.error("Failed to send invite email:", error);
       return false;
@@ -186,7 +186,7 @@ export async function setupAuth(app: Express) {
     console.log("[LOGIN] Attempt received:", { email: req.body?.email });
     try {
       const { email, password } = req.body;
-      
+
       if (!email || !password) {
         console.log("[LOGIN] Missing email or password");
         return res.status(400).json({ message: "Email and password are required" });
@@ -194,7 +194,7 @@ export async function setupAuth(app: Express) {
 
       const user = await storage.getUserByEmailWithPassword(email);
       console.log("[LOGIN] User found:", user ? { id: user.id, email: user.email, hasPassword: !!user.password } : null);
-      
+
       if (!user) {
         console.log("[LOGIN] No user with password found for email:", email);
         return res.status(401).json({ message: "Invalid email or password" });
@@ -202,7 +202,7 @@ export async function setupAuth(app: Express) {
 
       const isValidPassword = await bcrypt.compare(password, user.password!);
       console.log("[LOGIN] Password valid:", isValidPassword);
-      
+
       if (!isValidPassword) {
         return res.status(401).json({ message: "Invalid email or password" });
       }
@@ -224,14 +224,13 @@ export async function setupAuth(app: Express) {
           return res.status(500).json({ message: "Login failed" });
         }
         handleFirstLoginCheck(user.id).catch(e => console.error("[FIRST-LOGIN] Check failed:", e));
-        res.json({ success: true, user: { id: user.id, email: user.email, firstName: user.firstName, lastName: user.lastName, isAdmin: user.isAdmin } });
+        res.json({ success: true, sessionId: req.sessionID, user: { id: user.id, email: user.email, firstName: user.firstName, lastName: user.lastName, isAdmin: user.isAdmin } });
       });
     } catch (error) {
       console.error("Login error:", error);
       res.status(500).json({ message: "Login failed" });
     }
   });
-
 
   app.get("/api/logout", (req, res) => {
     req.logout(() => {
@@ -248,13 +247,13 @@ export async function setupAuth(app: Express) {
   app.post("/api/forgot-password", async (req, res) => {
     try {
       const { email } = req.body;
-      
+
       if (!email) {
         return res.status(400).json({ message: "Email is required" });
       }
 
       const user = await storage.getUserByEmail(email);
-      
+
       if (!user) {
         return res.json({ success: true, message: "If an account exists with this email, a reset link has been sent." });
       }
@@ -271,7 +270,7 @@ export async function setupAuth(app: Express) {
 
       const protocol = req.secure || req.headers["x-forwarded-proto"] === "https" ? "https" : "http";
       const baseUrl = `${protocol}://${req.headers.host}`;
-      
+
       const emailSent = await sendPasswordResetEmail(email, token, baseUrl);
       if (!emailSent) {
         console.error("Failed to send password reset email to:", email);
@@ -287,14 +286,14 @@ export async function setupAuth(app: Express) {
   app.get("/api/verify-reset-token", async (req, res) => {
     try {
       const { token } = req.query;
-      
+
       if (!token || typeof token !== "string") {
         return res.status(400).json({ valid: false, message: "Token is required" });
       }
 
       const hashedToken = hashToken(token);
       const resetToken = await storage.getPasswordResetToken(hashedToken);
-      
+
       if (!resetToken) {
         return res.json({ valid: false, message: "Invalid or expired reset link" });
       }
@@ -317,7 +316,7 @@ export async function setupAuth(app: Express) {
   app.post("/api/reset-password", async (req: any, res) => {
     try {
       const { token, password, isInvite } = req.body;
-      
+
       if (!token || !password) {
         return res.status(400).json({ message: "Token and password are required" });
       }
@@ -333,7 +332,7 @@ export async function setupAuth(app: Express) {
 
       const hashedToken = hashToken(token);
       const resetToken = await storage.getPasswordResetToken(hashedToken);
-      
+
       if (!resetToken) {
         return res.status(400).json({ message: "Invalid or expired reset link" });
       }
@@ -381,16 +380,26 @@ export async function setupAuth(app: Express) {
 }
 
 export const isAuthenticated: RequestHandler = async (req, res, next) => {
+  const mobileSessionId = req.headers['x-session-id'] as string;
+  if (mobileSessionId) {
+    (req as any).sessionStore.get(mobileSessionId, (err: any, session: any) => {
+      if (err || !session) return res.status(401).json({ message: "Unauthorized" });
+      const sessionUser = session?.passport?.user;
+      if (!sessionUser?.expires_at) return res.status(401).json({ message: "Unauthorized" });
+      const now = Math.floor(Date.now() / 1000);
+      if (now > sessionUser.expires_at) return res.status(401).json({ message: "Session expired" });
+      (req as any).user = sessionUser;
+      return next();
+    });
+    return;
+  }
   const user = req.user as any;
-
   if (!req.isAuthenticated() || !user?.expires_at) {
     return res.status(401).json({ message: "Unauthorized" });
   }
-
   const now = Math.floor(Date.now() / 1000);
   if (now <= user.expires_at) {
     return next();
   }
-
   return res.status(401).json({ message: "Session expired" });
 };

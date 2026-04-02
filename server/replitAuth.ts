@@ -242,30 +242,39 @@ export async function setupAuth(app: Express) {
         return res.status(404).json({ message: "No data restore file found" });
       }
       const sql = fs.readFileSync(sqlFile, "utf-8");
-      const statements = sql.split(";\n").filter(s => s.trim() && !s.trim().startsWith("--") && !s.trim().startsWith("SET ") && !s.trim().startsWith("SELECT "));
       
       const client = new pg.Client({ connectionString: process.env.DATABASE_URL });
       await client.connect();
       
+      await client.query("SET session_replication_role = 'replica'");
+      
+      const statements = sql.split(";\n").filter(s => {
+        const t = s.trim();
+        return t && t.startsWith("INSERT ");
+      });
+      
       let inserted = 0;
+      let skipped = 0;
       let errors = 0;
       for (const stmt of statements) {
         const trimmed = stmt.trim();
-        if (!trimmed || trimmed.length < 10) continue;
+        if (!trimmed) continue;
         try {
-          await client.query(trimmed);
+          await client.query(trimmed + ";");
           inserted++;
         } catch(e: any) {
           if (e.message?.includes("duplicate key") || e.message?.includes("already exists")) {
+            skipped++;
             continue;
           }
           errors++;
-          if (errors < 10) console.log("Restore error:", e.message?.substring(0, 100));
+          if (errors < 20) console.log("Restore error:", e.message?.substring(0, 200));
         }
       }
       
+      await client.query("SET session_replication_role = 'origin'");
       await client.end();
-      res.json({ message: `Data restored: ${inserted} statements executed, ${errors} errors (duplicates skipped)` });
+      res.json({ message: `Data restored: ${inserted} inserted, ${skipped} duplicates skipped, ${errors} errors` });
     } catch (error: any) {
       console.error("Restore error:", error);
       res.status(500).json({ message: "Restore failed: " + error.message });

@@ -232,28 +232,6 @@ export async function setupAuth(app: Express) {
     }
   });
 
-  app.get("/api/setup-admin", async (req, res) => {
-    try {
-      const existing = await storage.getUserByEmailWithPassword("markgraypt@gmail.com");
-      if (existing) {
-        return res.json({ message: "Admin account already exists" });
-      }
-      const hashedPassword = await bcrypt.hash("admin123", 10);
-      await storage.createUser({
-        id: "admin-001",
-        email: "markgraypt@gmail.com",
-        firstName: "Mark",
-        lastName: "Gray",
-        password: hashedPassword,
-        isAdmin: true,
-      });
-      res.json({ message: "Admin account created successfully. You can now log in." });
-    } catch (error) {
-      console.error("Setup admin error:", error);
-      res.status(500).json({ message: "Failed to create admin account" });
-    }
-  });
-
   app.get("/api/logout", (req, res) => {
     req.logout(() => {
       res.redirect("/");

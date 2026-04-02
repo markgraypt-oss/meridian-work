@@ -8463,37 +8463,19 @@ Rules:
     try {
       const programId = parseInt(req.params.programId);
       const enrollmentId = req.query.enrollmentId ? parseInt(req.query.enrollmentId as string) : null;
-      const workouts = await storage.getProgrammeWorkouts(programId);
-
+      
+      let workouts: any[];
+      
       if (enrollmentId && !isNaN(enrollmentId)) {
-        // Use enrolled workout exercise counts (total exercises per unique name, from week 1)
-        const enrolledCountMap = new Map<string, number>();
-        const enrolledWorkouts = await db
-          .select({ id: enrollmentWorkouts.id, name: enrollmentWorkouts.name, weekNumber: enrollmentWorkouts.weekNumber })
-          .from(enrollmentWorkouts)
-          .where(and(eq(enrollmentWorkouts.enrollmentId, enrollmentId), eq(enrollmentWorkouts.weekNumber, 1)));
-
-        for (const ew of enrolledWorkouts) {
-          const blocks = await db.select({ id: enrollmentWorkoutBlocks.id })
-            .from(enrollmentWorkoutBlocks)
-            .where(eq(enrollmentWorkoutBlocks.enrollmentWorkoutId, ew.id));
-          let total = 0;
-          for (const b of blocks) {
-            const exs = await db.select({ id: enrollmentBlockExercises.id })
-              .from(enrollmentBlockExercises)
-              .where(eq(enrollmentBlockExercises.enrollmentBlockId, b.id));
-            total += exs.length;
-          }
-          enrolledCountMap.set(ew.name, total);
-        }
-
-        for (const w of workouts) {
-          const enrolledCount = enrolledCountMap.get(w.name);
-          if (enrolledCount !== undefined) {
-            w.exerciseCount = enrolledCount;
-            w.estimatedDuration = Math.round(enrolledCount * 1.75);
-          }
-        }
+        // Return enrollment-specific workouts with their correct day numbers from week 1
+        workouts = await storage.getEnrollmentWorkoutsForUser(enrollmentId);
+        // Only return unique workout names (deduplicated across weeks)
+        workouts = Array.from(
+          new Map(workouts.map((w) => [w.name, w])).values()
+        );
+      } else {
+        // Return template workouts
+        workouts = await storage.getProgrammeWorkouts(programId);
       }
 
       res.json(workouts);

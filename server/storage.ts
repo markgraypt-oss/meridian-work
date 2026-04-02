@@ -2092,7 +2092,7 @@ export class DatabaseStorage implements IStorage {
               enrollmentId,
               templateWorkoutId: templateWorkout.id,
               weekNumber: weekNum, // Use the current week number, not Week 1
-              dayNumber: day.position,
+              dayNumber: day.position + 1, // Convert 0-indexed position to 1-indexed day number
               name: templateWorkout.name,
               description: templateWorkout.description,
               workoutType: templateWorkout.workoutType,

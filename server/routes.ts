@@ -8468,11 +8468,25 @@ Rules:
       
       if (enrollmentId && !isNaN(enrollmentId)) {
         // Return enrollment-specific workouts with their correct day numbers from week 1
-        workouts = await storage.getEnrollmentWorkoutsForUser(enrollmentId);
-        // Only return unique workout names (deduplicated across weeks)
-        workouts = Array.from(
-          new Map(workouts.map((w) => [w.name, w])).values()
-        );
+        let enrollmentWorkouts = await storage.getEnrollmentWorkoutsForUser(enrollmentId);
+        
+        // Add exercise counts for each enrollment workout
+        for (const w of enrollmentWorkouts) {
+          const blocks = await db.select({ id: enrollmentWorkoutBlocks.id })
+            .from(enrollmentWorkoutBlocks)
+            .where(eq(enrollmentWorkoutBlocks.enrollmentWorkoutId, w.id));
+          let totalCount = 0;
+          for (const b of blocks) {
+            const exs = await db.select({ id: enrollmentBlockExercises.id })
+              .from(enrollmentBlockExercises)
+              .where(eq(enrollmentBlockExercises.enrollmentBlockId, b.id));
+            totalCount += exs.length;
+          }
+          w.exerciseCount = totalCount;
+          w.estimatedDuration = Math.round(totalCount * 1.75);
+        }
+        
+        workouts = enrollmentWorkouts;
       } else {
         // Return template workouts
         workouts = await storage.getProgrammeWorkouts(programId);

@@ -2706,6 +2706,7 @@ export class DatabaseStorage implements IStorage {
   }
 
   async getEnrollmentWorkoutsForUser(enrollmentId: number): Promise<any[]> {
+    // Get unique workouts from Week 1 of the enrollment (use as template for schedule)
     const workouts = await db
       .select({
         id: enrollmentWorkouts.id,
@@ -2721,16 +2722,10 @@ export class DatabaseStorage implements IStorage {
         duration: enrollmentWorkouts.duration,
       })
       .from(enrollmentWorkouts)
-      .where(eq(enrollmentWorkouts.enrollmentId, enrollmentId))
-      .orderBy(enrollmentWorkouts.weekNumber, enrollmentWorkouts.dayNumber, enrollmentWorkouts.position);
+      .where(and(eq(enrollmentWorkouts.enrollmentId, enrollmentId), eq(enrollmentWorkouts.weekNumber, 1)))
+      .orderBy(enrollmentWorkouts.dayNumber, enrollmentWorkouts.position);
     
-    const uniqueWorkouts = new Map<number, any>();
-    for (const w of workouts) {
-      if (!uniqueWorkouts.has(w.templateWorkoutId)) {
-        uniqueWorkouts.set(w.templateWorkoutId, w);
-      }
-    }
-    return Array.from(uniqueWorkouts.values());
+    return workouts;
   }
 
   async addExerciseToEnrollmentWorkouts(

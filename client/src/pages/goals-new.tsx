@@ -198,7 +198,7 @@ export default function GoalsNew() {
               className={`w-full p-6 rounded-xl flex items-center gap-4 transition-all shadow-sm border ${
                 hasBodyweightGoal
                   ? "bg-muted/50 border-border cursor-not-allowed opacity-60"
-                  : "bg-white dark:bg-card hover:shadow-md hover:border-[#0cc9a9] border-border"
+                  : "bg-card hover:shadow-md hover:border-[#0cc9a9] border-border"
               }`}
               data-testid="button-goal-type-bodyweight"
             >
@@ -207,7 +207,7 @@ export default function GoalsNew() {
               </div>
               <div className="text-left flex-1">
                 <div className="flex items-center gap-2">
-                  <span className="font-semibold">Bodyweight Goal</span>
+                  <span className="font-semibold text-foreground">Bodyweight Goal</span>
                   {hasBodyweightGoal && (
                     <span className="text-xs bg-green-100 text-green-700 px-2 py-0.5 rounded-full font-medium">Active</span>
                   )}
@@ -225,7 +225,7 @@ export default function GoalsNew() {
               className={`w-full p-6 rounded-xl flex items-center gap-4 transition-all shadow-sm border ${
                 hasNutritionGoal
                   ? "bg-muted/50 border-border cursor-not-allowed opacity-60"
-                  : "bg-white dark:bg-card hover:shadow-md hover:border-[#0cc9a9] border-border"
+                  : "bg-card hover:shadow-md hover:border-[#0cc9a9] border-border"
               }`}
               data-testid="button-goal-type-nutrition"
             >
@@ -234,7 +234,7 @@ export default function GoalsNew() {
               </div>
               <div className="text-left flex-1">
                 <div className="flex items-center gap-2">
-                  <span className="font-semibold">Nutrition Goal</span>
+                  <span className="font-semibold text-foreground">Nutrition Goal</span>
                   {hasNutritionGoal && (
                     <span className="text-xs bg-green-100 text-green-700 px-2 py-0.5 rounded-full font-medium">Active</span>
                   )}
@@ -248,14 +248,14 @@ export default function GoalsNew() {
             <button
               type="button"
               onClick={() => setLocation("/goals/habits")}
-              className="w-full p-6 bg-white dark:bg-card rounded-xl flex items-center gap-4 transition-all shadow-sm hover:shadow-md hover:border-[#0cc9a9] border border-border"
+              className="w-full p-6 bg-card rounded-xl flex items-center gap-4 transition-all shadow-sm hover:shadow-md hover:border-[#0cc9a9] border border-border"
               data-testid="button-goal-type-habits"
             >
               <div className="h-12 w-12 rounded-full bg-violet-500/10 flex items-center justify-center">
                 <ListChecks className="h-6 w-6 text-violet-500" />
               </div>
               <div className="text-left flex-1">
-                <div className="font-semibold">Goal Templates</div>
+                <div className="font-semibold text-foreground">Goal Templates</div>
                 <div className="text-sm text-muted-foreground">Pick from a curated set of proven goals</div>
               </div>
             </button>
@@ -263,14 +263,14 @@ export default function GoalsNew() {
             <button
               type="button"
               onClick={() => setGoalType("custom")}
-              className="w-full p-6 bg-white dark:bg-card rounded-xl flex items-center gap-4 transition-all shadow-sm hover:shadow-md hover:border-[#0cc9a9] border border-border"
+              className="w-full p-6 bg-card rounded-xl flex items-center gap-4 transition-all shadow-sm hover:shadow-md hover:border-[#0cc9a9] border border-border"
               data-testid="button-goal-type-custom"
             >
               <div className="h-12 w-12 rounded-full bg-[#0cc9a9]/10 flex items-center justify-center">
                 <Target className="h-6 w-6 text-[#0cc9a9]" />
               </div>
               <div className="text-left flex-1">
-                <div className="font-semibold">Custom Goal</div>
+                <div className="font-semibold text-foreground">Custom Goal</div>
                 <div className="text-sm text-muted-foreground">Create your own goal from templates</div>
               </div>
             </button>

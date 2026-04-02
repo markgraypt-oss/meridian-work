@@ -246,35 +246,75 @@ export async function setupAuth(app: Express) {
       const client = new pg.Client({ connectionString: process.env.DATABASE_URL });
       await client.connect();
       
-      await client.query("SET session_replication_role = 'replica'");
-      
       const statements = sql.split(";\n").filter(s => {
         const t = s.trim();
         return t && t.startsWith("INSERT ");
       });
-      
+
+      const tableOrder = [
+        'companies', 'departments', 'videos', 'exercise_library', 'supplements', 
+        'badges', 'habit_templates', 'breath_techniques', 'breath_routine_phases',
+        'learn_topics', 'learning_paths', 'body_map_areas', 'body_map_outcomes',
+        'body_map_guidance_rules', 'body_map_recovery_templates', 'body_map_template_rules',
+        'body_map_questions', 'body_map_answer_options', 'body_map_movement_options',
+        'workday_positions', 'workday_micro_resets', 'workday_aches_fixes', 
+        'workday_desk_setups', 'workday_desk_tips',
+        'ai_coaching_settings', 'burnout_settings', 'daily_quotes', 'recipes',
+        'workouts', 'workout_blocks', 'block_exercises',
+        'programs', 'program_weeks', 'program_days', 'program_exercises',
+        'learn_content_library', 'learning_path_content', 'path_content_items', 'topic_content_items',
+        'programme_workouts', 'programme_workout_blocks', 'programme_block_exercises'
+      ];
+
+      const grouped: Record<string, string[]> = {};
+      for (const stmt of statements) {
+        const match = stmt.match(/INSERT INTO (public\.)?(\w+)/i);
+        if (match) {
+          const table = match[2];
+          if (!grouped[table]) grouped[table] = [];
+          grouped[table].push(stmt.trim());
+        }
+      }
+
       let inserted = 0;
       let skipped = 0;
       let errors = 0;
-      for (const stmt of statements) {
-        const trimmed = stmt.trim();
-        if (!trimmed) continue;
+      const errorDetails: string[] = [];
+
+      const allTables = [...new Set([...tableOrder, ...Object.keys(grouped)])];
+      
+      for (const table of allTables) {
+        const stmts = grouped[table];
+        if (!stmts || stmts.length === 0) continue;
+        
         try {
-          await client.query(trimmed + ";");
-          inserted++;
-        } catch(e: any) {
-          if (e.message?.includes("duplicate key") || e.message?.includes("already exists")) {
-            skipped++;
-            continue;
+          await client.query(`ALTER TABLE ${table} DISABLE TRIGGER ALL`);
+        } catch(e) {}
+        
+        for (const s of stmts) {
+          try {
+            await client.query(s + ";");
+            inserted++;
+          } catch(e: any) {
+            if (e.message?.includes("duplicate key") || e.message?.includes("already exists")) {
+              skipped++;
+            } else {
+              errors++;
+              if (errors <= 10) errorDetails.push(`${table}: ${e.message?.substring(0, 100)}`);
+            }
           }
-          errors++;
-          if (errors < 20) console.log("Restore error:", e.message?.substring(0, 200));
         }
+        
+        try {
+          await client.query(`ALTER TABLE ${table} ENABLE TRIGGER ALL`);
+        } catch(e) {}
       }
       
-      await client.query("SET session_replication_role = 'origin'");
       await client.end();
-      res.json({ message: `Data restored: ${inserted} inserted, ${skipped} duplicates skipped, ${errors} errors` });
+      res.json({ 
+        message: `Data restored: ${inserted} inserted, ${skipped} duplicates skipped, ${errors} errors`,
+        errors: errorDetails
+      });
     } catch (error: any) {
       console.error("Restore error:", error);
       res.status(500).json({ message: "Restore failed: " + error.message });

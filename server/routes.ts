@@ -749,8 +749,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Serve attached assets
   app.use(express.static(path.resolve(import.meta.dirname, "..", "attached_assets")));
   
-  // Serve uploaded files
+  // Serve uploaded files (try uploads/ first, then public/uploads/ as fallback for deployed images)
   app.use("/uploads", express.static(path.resolve(process.cwd(), "uploads")));
+  app.use("/uploads", express.static(path.resolve(process.cwd(), "public", "uploads")));
   
   // Serve videos from uploads/videos at /videos path for legacy video URLs
   app.use("/videos", express.static(path.resolve(process.cwd(), "uploads", "videos")));
@@ -2112,9 +2113,6 @@ export async function registerRoutes(app: Express): Promise<Server> {
       res.status(500).json({ message: "Failed to upload profile image" });
     }
   });
-
-  // Serve uploaded files
-  app.use('/uploads', express.static(path.join(process.cwd(), 'uploads')));
 
   // Exercise Library routes
   app.get('/api/exercises', async (req, res) => {

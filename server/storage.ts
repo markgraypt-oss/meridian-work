@@ -6275,7 +6275,8 @@ export class DatabaseStorage implements IStorage {
   // Get all programme workouts for a programme (across all weeks and days)
   // Uses ONLY block-based tables (legacy removed)
   async getProgrammeWorkouts(programId: number): Promise<any[]> {
-    const results = await db
+    // Get all workouts for this programme, including those linked to days
+    const linkedResults = await db
       .select({
         workout: programmeWorkouts,
         weekNumber: programWeeks.weekNumber,
@@ -6286,6 +6287,23 @@ export class DatabaseStorage implements IStorage {
       .innerJoin(programWeeks, eq(programDays.weekId, programWeeks.id))
       .where(eq(programWeeks.programId, programId))
       .orderBy(asc(programWeeks.weekNumber), asc(programDays.position));
+    
+    // Also get unlinked workouts (dayId is NULL) - these are missing sessions
+    const unlinkedResults = await db
+      .select({
+        workout: programmeWorkouts,
+        weekNumber: sql<number>`1`, // Default to week 1 for unlinked workouts
+        dayPosition: sql<number>`null`,
+      })
+      .from(programmeWorkouts)
+      .where(
+        and(
+          eq(programmeWorkouts.programId, programId),
+          isNull(programmeWorkouts.dayId)
+        )
+      );
+    
+    const results = [...linkedResults, ...unlinkedResults];
     
     const templateExerciseCounts = new Map<string, number>();
     const templateTotalExerciseCounts = new Map<string, number>();

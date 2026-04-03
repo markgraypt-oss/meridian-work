@@ -1102,6 +1102,12 @@ export default function Dashboard() {
               selectedDate={selectedDate}
             />
 
+            {todayWorkouts.filter(w => w.workoutName !== 'Rest Day').length === 0 && completedWorkoutLogs.length === 0 && !activeRecoveryPlan && enrolledLearningPaths.length === 0 && (
+              <Card className="p-4">
+                <p className="text-muted-foreground text-center text-sm">No workouts or learning paths set yet</p>
+              </Card>
+            )}
+
           </div>
         </div>
 

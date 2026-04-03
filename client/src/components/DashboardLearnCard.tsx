@@ -118,25 +118,7 @@ export default function DashboardLearnCard({ enrolledPaths, onTileClick, onShowP
   });
 
   if (enrolledPaths.length === 0) {
-    return (
-      <Card 
-        className="p-4 flex items-start justify-between hover:bg-foreground/5 active:bg-foreground/10 transition-colors cursor-pointer" 
-        onClick={() => navigate("/education-lab")} 
-        data-testid="card-learn"
-      >
-        <div className="flex-1 min-w-0">
-          <div className="flex items-center gap-3">
-            <Circle className="h-6 w-6 text-indigo-500 flex-shrink-0" />
-            <p className="text-lg font-medium text-foreground truncate">The Lab</p>
-          </div>
-          <p className="text-sm text-muted-foreground truncate mt-1">Enrol in a learning path</p>
-          <span className="inline-block mt-2 px-2 py-0.5 rounded text-xs font-medium bg-indigo-500 text-white">
-            Education
-          </span>
-        </div>
-        <ChevronRight className="h-5 w-5 text-muted-foreground ml-4 flex-shrink-0 mt-0.5" />
-      </Card>
-    );
+    return null;
   }
 
   return (

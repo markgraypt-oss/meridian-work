@@ -361,6 +361,9 @@ import {
   insertUsageAlertSchema,
   type UsageAlert,
   type InsertUsageAlert,
+  mindfulnessTools,
+  type MindfulnessTool,
+  type InsertMindfulnessTool,
 } from "@shared/schema";
 import { db } from "./db";
 import { eq, desc, and, ilike, or, gte, lte, inArray, lt, asc, sql, isNull, isNotNull, aliasedTable } from "drizzle-orm";
@@ -1106,6 +1109,13 @@ export interface IStorage {
   getUsageAlerts(companyId: number): Promise<UsageAlert[]>;
   createUsageAlert(data: InsertUsageAlert): Promise<UsageAlert>;
   markAlertRead(id: number): Promise<void>;
+
+  // Mindfulness Tools
+  getMindfulnessTools(): Promise<MindfulnessTool[]>;
+  getMindfulnessToolById(id: number): Promise<MindfulnessTool | undefined>;
+  createMindfulnessTool(tool: InsertMindfulnessTool): Promise<MindfulnessTool>;
+  updateMindfulnessTool(id: number, tool: Partial<InsertMindfulnessTool>): Promise<MindfulnessTool>;
+  deleteMindfulnessTool(id: number): Promise<void>;
 }
 
 export class DatabaseStorage implements IStorage {
@@ -11155,6 +11165,32 @@ export class DatabaseStorage implements IStorage {
 
   async markAlertRead(id: number): Promise<void> {
     await db.update(usageAlerts).set({ isRead: true }).where(eq(usageAlerts.id, id));
+  }
+
+  async getMindfulnessTools(): Promise<MindfulnessTool[]> {
+    return await db.select().from(mindfulnessTools).orderBy(asc(mindfulnessTools.orderIndex));
+  }
+
+  async getMindfulnessToolById(id: number): Promise<MindfulnessTool | undefined> {
+    const [tool] = await db.select().from(mindfulnessTools).where(eq(mindfulnessTools.id, id));
+    return tool;
+  }
+
+  async createMindfulnessTool(tool: InsertMindfulnessTool): Promise<MindfulnessTool> {
+    const [created] = await db.insert(mindfulnessTools).values(tool).returning();
+    return created;
+  }
+
+  async updateMindfulnessTool(id: number, tool: Partial<InsertMindfulnessTool>): Promise<MindfulnessTool> {
+    const [updated] = await db.update(mindfulnessTools)
+      .set({ ...tool, updatedAt: new Date() })
+      .where(eq(mindfulnessTools.id, id))
+      .returning();
+    return updated;
+  }
+
+  async deleteMindfulnessTool(id: number): Promise<void> {
+    await db.delete(mindfulnessTools).where(eq(mindfulnessTools.id, id));
   }
 }
 

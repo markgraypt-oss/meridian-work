@@ -2652,5 +2652,24 @@ export type BurnoutCalibrationEvent = typeof burnoutCalibrationEvents.$inferSele
 export type InsertBurnoutCalibrationEvent = typeof burnoutCalibrationEvents.$inferInsert;
 export const insertBurnoutCalibrationEventSchema = createInsertSchema(burnoutCalibrationEvents).omit({ id: true, createdAt: true });
 
+// Mindfulness Tools
+export const mindfulnessTools = pgTable("mindfulness_tools", {
+  id: serial("id").primaryKey(),
+  title: text("title").notNull(),
+  description: text("description").notNull(),
+  category: text("category").notNull(),
+  duration: integer("duration"),
+  instructions: text("instructions"),
+  imageUrl: text("image_url"),
+  orderIndex: integer("order_index").default(0),
+  isActive: boolean("is_active").default(true),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+});
+
+export type MindfulnessTool = typeof mindfulnessTools.$inferSelect;
+export type InsertMindfulnessTool = typeof mindfulnessTools.$inferInsert;
+export const insertMindfulnessToolSchema = createInsertSchema(mindfulnessTools).omit({ id: true, createdAt: true, updatedAt: true });
+
 // Chat models for AI conversations
 export * from "./models/chat";

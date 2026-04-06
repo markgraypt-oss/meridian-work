@@ -180,6 +180,8 @@ import {
   insertWorkdayDeskScanSchema,
   insertMeditationSessionLogSchema,
   insertGratitudeEntrySchema,
+  insertMindfulnessToolSchema,
+  mindfulnessTools,
 } from "@shared/schema";
 import { z } from "zod";
 
@@ -16680,6 +16682,70 @@ RULES:
     } catch (error) {
       console.error("Error generating level explanation:", error);
       res.json({ explanation: null });
+    }
+  });
+
+  // Mindfulness Tools - User-facing routes
+  app.get('/api/mindfulness', isAuthenticated, async (req: any, res) => {
+    try {
+      const tools = await storage.getMindfulnessTools();
+      res.json(tools.filter(t => t.isActive));
+    } catch (error) {
+      console.error("Error fetching mindfulness tools:", error);
+      res.status(500).json({ message: "Failed to fetch mindfulness tools" });
+    }
+  });
+
+  app.get('/api/mindfulness/:id', isAuthenticated, async (req: any, res) => {
+    try {
+      const tool = await storage.getMindfulnessToolById(parseInt(req.params.id));
+      if (!tool) return res.status(404).json({ message: "Mindfulness tool not found" });
+      res.json(tool);
+    } catch (error) {
+      console.error("Error fetching mindfulness tool:", error);
+      res.status(500).json({ message: "Failed to fetch mindfulness tool" });
+    }
+  });
+
+  // Mindfulness Tools - Admin CRUD
+  app.get('/api/admin/mindfulness', isAuthenticated, async (req: any, res) => {
+    try {
+      const tools = await storage.getMindfulnessTools();
+      res.json(tools);
+    } catch (error) {
+      console.error("Error fetching mindfulness tools:", error);
+      res.status(500).json({ message: "Failed to fetch mindfulness tools" });
+    }
+  });
+
+  app.post('/api/admin/mindfulness', isAuthenticated, async (req: any, res) => {
+    try {
+      const validated = insertMindfulnessToolSchema.parse(req.body);
+      const tool = await storage.createMindfulnessTool(validated);
+      res.json(tool);
+    } catch (error) {
+      console.error("Error creating mindfulness tool:", error);
+      res.status(500).json({ message: "Failed to create mindfulness tool" });
+    }
+  });
+
+  app.patch('/api/admin/mindfulness/:id', isAuthenticated, async (req: any, res) => {
+    try {
+      const tool = await storage.updateMindfulnessTool(parseInt(req.params.id), req.body);
+      res.json(tool);
+    } catch (error) {
+      console.error("Error updating mindfulness tool:", error);
+      res.status(500).json({ message: "Failed to update mindfulness tool" });
+    }
+  });
+
+  app.delete('/api/admin/mindfulness/:id', isAuthenticated, async (req: any, res) => {
+    try {
+      await storage.deleteMindfulnessTool(parseInt(req.params.id));
+      res.json({ message: "Mindfulness tool deleted" });
+    } catch (error) {
+      console.error("Error deleting mindfulness tool:", error);
+      res.status(500).json({ message: "Failed to delete mindfulness tool" });
     }
   });
 

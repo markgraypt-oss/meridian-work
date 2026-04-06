@@ -20,6 +20,7 @@ import { useToast } from "@/hooks/use-toast";
 import type { Video, Recipe, ExerciseLibraryItem, Workout } from "@shared/schema";
 import { ExerciseManager } from "@/components/admin/ExerciseManager";
 import { MAIN_MUSCLE_OPTIONS, EQUIPMENT_OPTIONS, MOVEMENT_PATTERN_OPTIONS, MOVEMENT_TYPE_OPTIONS, MECHANICS_OPTIONS, LEVEL_OPTIONS } from "@/components/admin/exerciseFilterConstants";
+import AdminMindfulnessTab from "@/pages/admin/AdminMindfulnessTools";
 
 // Type for program data
 type Program = {
@@ -408,7 +409,7 @@ export default function AdminPanel() {
   });
 
   const { data: mindfulnessTools = [] } = useQuery({
-    queryKey: ["/api/mindfulness"],
+    queryKey: ["/api/admin/mindfulness"],
     retry: false,
   });
 
@@ -2095,30 +2096,7 @@ export default function AdminPanel() {
         </TabsContent>
 
         <TabsContent value="mindfulness">
-          <div className="space-y-6">
-            <div className="flex justify-between items-center">
-              <h2 className="text-xl font-bold text-foreground">Mindfulness Tools</h2>
-              <Button><Plus className="h-4 w-4 mr-2" />Add Tool</Button>
-            </div>
-            {(mindfulnessTools as any[]).length > 0 ? (
-              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-                {(mindfulnessTools as any[]).map((tool: any) => (
-                  <Card key={tool.id}>
-                    <CardHeader>
-                      <CardTitle className="text-lg">{tool.title || tool.name}</CardTitle>
-                    </CardHeader>
-                    <CardContent>
-                      <p className="text-sm text-muted-foreground">{tool.description || 'No description'}</p>
-                    </CardContent>
-                  </Card>
-                ))}
-              </div>
-            ) : (
-              <Card className="p-12 text-center">
-                <p className="text-muted-foreground">No mindfulness tools found yet.</p>
-              </Card>
-            )}
-          </div>
+          <AdminMindfulnessTab tools={mindfulnessTools as any[]} />
         </TabsContent>
 
         <TabsContent value="desk-health">

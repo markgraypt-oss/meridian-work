@@ -5,7 +5,7 @@ import { storage } from "./storage";
 import { db } from "./db";
 import { setupAuth, isAuthenticated, generateResetToken, hashToken, sendUserInviteEmail } from "./replitAuth";
 import { eq, and, like, inArray, desc, or, isNull, asc, gte, lte, lt } from "drizzle-orm";
-import { users, userProgramEnrollments, programWeeks, programDays, programmeWorkouts, programmeWorkoutBlocks, pathContentItems, topicContentItems, learningPaths, programmeModificationRecords, exerciseSubstitutionMappings, programmeBlockExercises, enrollmentWorkouts, enrollmentWorkoutBlocks, enrollmentBlockExercises, programs, userExtraWorkoutSessions, scheduledWorkouts, workoutLogs, learnContentLibrary, exerciseLibrary, workoutExerciseLogs, workoutSetLogs, aiFeedback, workouts } from "@shared/schema";
+import { users, userProgramEnrollments, programWeeks, programDays, programmeWorkouts, programmeWorkoutBlocks, pathContentItems, topicContentItems, learningPaths, programmeModificationRecords, exerciseSubstitutionMappings, programmeBlockExercises, enrollmentWorkouts, enrollmentWorkoutBlocks, enrollmentBlockExercises, programs, userExtraWorkoutSessions, scheduledWorkouts, workoutLogs, learnContentLibrary, exerciseLibrary, workoutExerciseLogs, workoutSetLogs, aiFeedback, workouts, stepEntries, sleepEntries, bodyweightEntries, bodyFatEntries, restingHREntries, caloricBurnEntries, exerciseMinutesEntries } from "@shared/schema";
 import { calculateProgramEquipment, updateProgramEquipmentAuto } from "./equipmentDetection";
 import multer from "multer";
 import path from "path";
@@ -16746,6 +16746,62 @@ RULES:
     } catch (error) {
       console.error("Error deleting mindfulness tool:", error);
       res.status(500).json({ message: "Failed to delete mindfulness tool" });
+    }
+  });
+
+  // TEMPORARY: Seed progress data for admin user
+  app.post('/api/seed-progress-data', async (req: any, res) => {
+    try {
+      const userId = 'admin-001';
+      const now = new Date();
+      const results: string[] = [];
+
+      // Generate 30 days of data
+      for (let i = 30; i >= 0; i--) {
+        const date = new Date(now);
+        date.setDate(date.getDate() - i);
+        date.setHours(12, 0, 0, 0);
+        const dateStr = date.toISOString();
+
+        // Steps: 6000-13000 range with realistic variation
+        const steps = Math.round(6000 + Math.random() * 7000);
+        await db.insert(stepEntries).values({ userId, date: new Date(dateStr), steps }).onConflictDoNothing();
+
+        // Sleep: 5.5-8.5 hours
+        const sleepHours = 5.5 + Math.random() * 3;
+        const durationMinutes = Math.round(sleepHours * 60);
+        const quality = Math.round(4 + Math.random() * 6);
+        await db.insert(sleepEntries).values({ userId, date: new Date(dateStr), durationMinutes, quality }).onConflictDoNothing();
+
+        // Body weight: gradual decrease from 82 to 79 with noise
+        const weight = 82 - (i <= 30 ? (30 - i) * 0.1 : 0) + (Math.random() - 0.5) * 0.6;
+        await db.insert(bodyweightEntries).values({ userId, date: new Date(dateStr), weight: Math.round(weight * 10) / 10 }).onConflictDoNothing();
+
+        // Body fat: gradual decrease from 19% to 17%
+        if (i % 3 === 0) {
+          const bodyFat = 19 - (30 - i) * 0.07 + (Math.random() - 0.5) * 0.4;
+          await db.insert(bodyFatEntries).values({ userId, date: new Date(dateStr), percentage: Math.round(bodyFat * 10) / 10 }).onConflictDoNothing();
+        }
+
+        // Resting HR: 58-68 bpm
+        const bpm = Math.round(58 + Math.random() * 10);
+        await db.insert(restingHREntries).values({ userId, date: new Date(dateStr), bpm }).onConflictDoNothing();
+
+        // Caloric burn: 2100-2900
+        const burnCals = Math.round(2100 + Math.random() * 800);
+        await db.insert(caloricBurnEntries).values({ userId, date: new Date(dateStr), calories: burnCals }).onConflictDoNothing();
+
+        // Exercise minutes: 0-75 (some rest days)
+        const isRestDay = Math.random() < 0.15;
+        const exMinutes = isRestDay ? 0 : Math.round(20 + Math.random() * 55);
+        await db.insert(exerciseMinutesEntries).values({ userId, date: new Date(dateStr), minutes: exMinutes }).onConflictDoNothing();
+      }
+
+      results.push('Seeded 31 days of steps, sleep, bodyweight, body fat, resting HR, caloric burn, exercise minutes');
+      res.json({ success: true, results });
+    } catch (error) {
+      console.error("Error seeding progress data:", error);
+      res.status(500).json({ message: "Failed to seed progress data", error: String(error) });
     }
   });
 

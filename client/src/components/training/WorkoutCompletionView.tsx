@@ -411,7 +411,7 @@ export function WorkoutCompletionView({ workoutLog, onDelete, isEditing: externa
                                 </div>
                               </div>
                             ) : (
-                              <div className="flex-1">
+                              <div className="w-24">
                                 <label className="text-xs text-muted-foreground">Reps</label>
                                 <Input type="number" value={currentReps} onChange={(e) => handleSetChange(set.id, 'actualReps', parseInt(e.target.value) || 0)} className="h-8" />
                               </div>

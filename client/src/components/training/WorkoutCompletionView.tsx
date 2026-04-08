@@ -364,45 +364,56 @@ export function WorkoutCompletionView({ workoutLog, onDelete, isEditing: externa
                     </div>
                   </div>
                   <div className="space-y-1 pl-10">
-                    {setsToShow.map((set) => {
-                      const edited = editedSets[set.id] || {};
-                      const currentReps = edited.actualReps ?? set.actualReps ?? '';
-                      const currentWeight = edited.actualWeight ?? set.actualWeight ?? '';
+                    {(() => {
                       const isTimerExercise = exercise.durationType === 'timer' || exercise.durationType === 'time' || exercise.exerciseType === 'general';
-                      return (
-                        <div key={set.id} className="flex items-center gap-2 py-1">
-                          <span className="text-xs text-muted-foreground w-4">{set.setNumber}</span>
-                          {isTimerExercise ? (
-                            <div className="w-32">
-                              <Select
-                                value={edited.actualDuration ?? set.actualDuration ?? set.targetDuration ?? '30 sec'}
-                                onValueChange={(value) => handleSetChange(set.id, 'actualDuration', value)}
-                              >
-                                <SelectTrigger className="h-8">
-                                  <SelectValue />
-                                </SelectTrigger>
-                                <SelectContent>
-                                  {DURATION_OPTIONS.map((option) => (
-                                    <SelectItem key={option} value={option}>{option}</SelectItem>
-                                  ))}
-                                </SelectContent>
-                              </Select>
-                            </div>
-                          ) : (
-                            <div className="flex-1 flex gap-2">
-                              <div className="flex-1">
-                                <label className="text-xs text-muted-foreground">Weight ({weightUnit})</label>
-                                <Input type="number" step="0.5" value={currentWeight} onChange={(e) => handleSetChange(set.id, 'actualWeight', parseFloat(e.target.value) || 0)} className="h-8" />
+                      const hasWeightData = setsToShow.some(s => 
+                        (s.actualWeight !== undefined && s.actualWeight !== null && s.actualWeight > 0) ||
+                        (s.targetWeight !== undefined && s.targetWeight !== null && s.targetWeight > 0)
+                      );
+                      return setsToShow.map((set) => {
+                        const edited = editedSets[set.id] || {};
+                        const currentReps = edited.actualReps ?? set.actualReps ?? '';
+                        const currentWeight = edited.actualWeight ?? set.actualWeight ?? '';
+                        return (
+                          <div key={set.id} className="flex items-center gap-2 py-1">
+                            <span className="text-xs text-muted-foreground w-4">{set.setNumber}</span>
+                            {isTimerExercise ? (
+                              <div className="w-32">
+                                <Select
+                                  value={edited.actualDuration ?? set.actualDuration ?? set.targetDuration ?? '30 sec'}
+                                  onValueChange={(value) => handleSetChange(set.id, 'actualDuration', value)}
+                                >
+                                  <SelectTrigger className="h-8">
+                                    <SelectValue />
+                                  </SelectTrigger>
+                                  <SelectContent>
+                                    {DURATION_OPTIONS.map((option) => (
+                                      <SelectItem key={option} value={option}>{option}</SelectItem>
+                                    ))}
+                                  </SelectContent>
+                                </Select>
                               </div>
+                            ) : hasWeightData ? (
+                              <div className="flex-1 flex gap-2">
+                                <div className="flex-1">
+                                  <label className="text-xs text-muted-foreground">Weight ({weightUnit})</label>
+                                  <Input type="number" step="0.5" value={currentWeight} onChange={(e) => handleSetChange(set.id, 'actualWeight', parseFloat(e.target.value) || 0)} className="h-8" />
+                                </div>
+                                <div className="flex-1">
+                                  <label className="text-xs text-muted-foreground">Reps</label>
+                                  <Input type="number" value={currentReps} onChange={(e) => handleSetChange(set.id, 'actualReps', parseInt(e.target.value) || 0)} className="h-8" />
+                                </div>
+                              </div>
+                            ) : (
                               <div className="flex-1">
                                 <label className="text-xs text-muted-foreground">Reps</label>
                                 <Input type="number" value={currentReps} onChange={(e) => handleSetChange(set.id, 'actualReps', parseInt(e.target.value) || 0)} className="h-8" />
                               </div>
-                            </div>
-                          )}
-                        </div>
-                      );
-                    })}
+                            )}
+                          </div>
+                        );
+                      });
+                    })()}
                   </div>
                 </Card>
               );

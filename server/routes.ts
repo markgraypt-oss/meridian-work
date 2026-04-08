@@ -5,7 +5,7 @@ import { storage } from "./storage";
 import { db } from "./db";
 import { setupAuth, isAuthenticated, generateResetToken, hashToken, sendUserInviteEmail } from "./replitAuth";
 import { eq, and, like, inArray, desc, or, isNull, asc, gte, lte, lt } from "drizzle-orm";
-import { users, userProgramEnrollments, programWeeks, programDays, programmeWorkouts, programmeWorkoutBlocks, pathContentItems, topicContentItems, learningPaths, programmeModificationRecords, exerciseSubstitutionMappings, programmeBlockExercises, enrollmentWorkouts, enrollmentWorkoutBlocks, enrollmentBlockExercises, programs, userExtraWorkoutSessions, scheduledWorkouts, workoutLogs, learnContentLibrary, exerciseLibrary, workoutExerciseLogs, workoutSetLogs, aiFeedback, workouts, stepEntries, sleepEntries, bodyweightEntries, bodyFatEntries, restingHREntries, caloricBurnEntries, exerciseMinutesEntries, bloodPressureEntries, leanBodyMassEntries, caloricIntakeEntries, hydrationLogs } from "@shared/schema";
+import { users, userProgramEnrollments, programWeeks, programDays, programmeWorkouts, programmeWorkoutBlocks, pathContentItems, topicContentItems, learningPaths, programmeModificationRecords, exerciseSubstitutionMappings, programmeBlockExercises, enrollmentWorkouts, enrollmentWorkoutBlocks, enrollmentBlockExercises, programs, userExtraWorkoutSessions, scheduledWorkouts, workoutLogs, learnContentLibrary, exerciseLibrary, workoutExerciseLogs, workoutSetLogs, aiFeedback, workouts, stepEntries, sleepEntries, bodyweightEntries, bodyFatEntries, restingHREntries, caloricBurnEntries, exerciseMinutesEntries, bloodPressureEntries, leanBodyMassEntries, caloricIntakeEntries, hydrationLogs, userMealCategories } from "@shared/schema";
 import { calculateProgramEquipment, updateProgramEquipmentAuto } from "./equipmentDetection";
 import multer from "multer";
 import path from "path";
@@ -16746,6 +16746,24 @@ RULES:
     } catch (error) {
       console.error("Error deleting mindfulness tool:", error);
       res.status(500).json({ message: "Failed to delete mindfulness tool" });
+    }
+  });
+
+  // TEMPORARY: Rename meal categories to match dev
+  app.post('/api/fix-meal-names', async (req: any, res) => {
+    try {
+      const renames = [
+        { id: 1, name: 'Meal 1' },
+        { id: 2, name: 'Meal 2' },
+        { id: 3, name: 'Meal 3' },
+        { id: 4, name: 'Meal 4' },
+      ];
+      for (const r of renames) {
+        await db.update(userMealCategories).set({ name: r.name }).where(eq(userMealCategories.id, r.id));
+      }
+      res.json({ success: true, renamed: renames });
+    } catch (error) {
+      res.status(500).json({ message: "Failed", error: String(error) });
     }
   });
 

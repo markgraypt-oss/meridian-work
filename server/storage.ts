@@ -9781,10 +9781,10 @@ export class DatabaseStorage implements IStorage {
     }
     
     const defaults = [
-      { userId, name: 'Breakfast', displayOrder: 0, isDefault: true },
-      { userId, name: 'Lunch', displayOrder: 1, isDefault: true },
-      { userId, name: 'Dinner', displayOrder: 2, isDefault: true },
-      { userId, name: 'Snack', displayOrder: 3, isDefault: true },
+      { userId, name: 'Meal 1', displayOrder: 0, isDefault: true },
+      { userId, name: 'Meal 2', displayOrder: 1, isDefault: true },
+      { userId, name: 'Meal 3', displayOrder: 2, isDefault: true },
+      { userId, name: 'Meal 4', displayOrder: 3, isDefault: true },
     ];
     
     const created = await db.insert(userMealCategories).values(defaults).returning();

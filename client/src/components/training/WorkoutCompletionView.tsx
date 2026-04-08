@@ -343,129 +343,110 @@ export function WorkoutCompletionView({ workoutLog, onDelete, isEditing: externa
             return `${blockNumber}${String.fromCharCode(65 + indexInGroup)}`; // Superset: 1A, 1B, etc.
           };
           
-          const renderExerciseCard = (exercise: ExerciseLog, exercises: ExerciseLog[], isWarmup: boolean) => (
-            <Card key={exercise.id} className="p-4 space-y-3">
-              <div className="flex items-start gap-3">
-                <div className="flex items-center justify-center w-8 h-8 rounded-full bg-primary/20 text-primary text-sm font-bold">
-                  {getExerciseLabel(exercise, exercises, isWarmup)}
-                </div>
-                <div className="flex-1">
-                  <h4 className="font-medium text-foreground">{exercise.exerciseName}</h4>
-                </div>
-              </div>
+          const renderExerciseCard = (exercise: ExerciseLog, exercises: ExerciseLog[], isWarmup: boolean) => {
+            const workoutStyle = (workoutLog as any).workoutStyle;
+            const isCircuitWorkout = workoutStyle === 'circuit';
+            const mainExs = workoutLog.exercises.filter(ex => ex.section !== 'warmup');
+            const derivedRounds = (workoutLog as any).intervalRounds || 
+              (isCircuitWorkout && mainExs[0]?.sets?.length) || exercise.sets.length;
+            const maxSets = (isCircuitWorkout && !isWarmup) ? derivedRounds : exercise.sets.length;
+            const setsToShow = exercise.sets.slice(0, maxSets);
 
-              <div className="space-y-0.5 pl-11">
-                {(() => {
-                  // For circuit workouts, limit sets to the configured rounds
-                  const workoutStyle = (workoutLog as any).workoutStyle;
-                  const isCircuitWorkout = workoutStyle === 'circuit';
-                  // Get rounds from intervalRounds or derive from first main exercise's set count
-                  const mainExs = workoutLog.exercises.filter(ex => ex.section !== 'warmup');
-                  const derivedRounds = (workoutLog as any).intervalRounds || 
-                    (isCircuitWorkout && mainExs[0]?.sets?.length) || exercise.sets.length;
-                  const maxSets = (isCircuitWorkout && !isWarmup) ? derivedRounds : exercise.sets.length;
-                  const setsToShow = exercise.sets.slice(0, maxSets);
-                  
-                  return setsToShow.map((set) => {
-                  const edited = editedSets[set.id] || {};
-                  const currentReps = edited.actualReps ?? set.actualReps ?? '';
-                  const currentWeight = edited.actualWeight ?? set.actualWeight ?? '';
-                  const isTimerExercise = exercise.durationType === 'timer' || exercise.durationType === 'time' || exercise.exerciseType === 'general';
-                  
-                  return (
-                    <div 
-                      key={set.id} 
-                      className={`flex items-center gap-2 py-1 px-2 rounded-lg ${
-                        set.isCompleted ? 'bg-muted/50' : 'bg-muted/20'
-                      }`}
-                    >
-                      <div className="w-5 h-5 flex items-center justify-center rounded-full bg-muted text-xs font-medium">
-                        {set.setNumber}
-                      </div>
-                      
-                      {isEditing ? (
-                        isTimerExercise ? (
-                          <div className="w-32">
-                            <label className="text-xs text-muted-foreground">Duration</label>
-                            <Select
-                              value={edited.actualDuration ?? set.actualDuration ?? set.targetDuration ?? '30 sec'}
-                              onValueChange={(value) => handleSetChange(set.id, 'actualDuration', value)}
-                            >
-                              <SelectTrigger className="h-8">
-                                <SelectValue />
-                              </SelectTrigger>
-                              <SelectContent>
-                                {DURATION_OPTIONS.map((option) => (
-                                  <SelectItem key={option} value={option}>{option}</SelectItem>
-                                ))}
-                              </SelectContent>
-                            </Select>
-                          </div>
-                        ) : (
-                          <div className="flex-1 flex gap-2">
-                            <div className="flex-1">
-                              <label className="text-xs text-muted-foreground">Weight ({weightUnit})</label>
-                              <Input
-                                type="number"
-                                step="0.5"
-                                value={currentWeight}
-                                onChange={(e) => handleSetChange(set.id, 'actualWeight', parseFloat(e.target.value) || 0)}
-                                className="h-8"
-                              />
-                            </div>
-                            <div className="flex-1">
-                              <label className="text-xs text-muted-foreground">Reps</label>
-                              <Input
-                                type="number"
-                                value={currentReps}
-                                onChange={(e) => handleSetChange(set.id, 'actualReps', parseInt(e.target.value) || 0)}
-                                className="h-8"
-                              />
-                            </div>
-                          </div>
-                        )
-                      ) : (
-                        <div className="flex-1 text-sm">
-                          <span className={set.isCompleted ? 'text-foreground' : 'text-muted-foreground'}>
-                            {formatSetDisplay(set, exercise.exerciseType, exercise.durationType, weightUnit)}
-                          </span>
-                        </div>
-                      )}
-                      
-                      <div className="flex gap-1">
-                        {set.setDifficultyRating && (
-                          <Badge 
-                            variant="outline" 
-                            className={`text-xs ${
-                              set.setDifficultyRating === 'hard' ? 'border-red-500 text-red-500' :
-                              set.setDifficultyRating === 'medium' ? 'border-[#0cc9a9] text-[#0cc9a9]' :
-                              'border-green-500 text-green-500'
-                            }`}
-                          >
-                            {set.setDifficultyRating}
-                          </Badge>
-                        )}
-                        {set.painFlag && (
-                          <Badge variant="outline" className="text-xs border-orange-500 text-orange-500">
-                            Pain
-                          </Badge>
-                        )}
-                        {set.failureFlag && (
-                          <Badge variant="outline" className="text-xs border-purple-500 text-purple-500">
-                            Failure
-                          </Badge>
-                        )}
-                        {set.isCompleted && (
-                          <CheckCircle2 className="h-4 w-4 text-green-500" />
-                        )}
-                      </div>
+            if (isEditing) {
+              return (
+                <Card key={exercise.id} className="p-3 bg-card border-border/50 space-y-3">
+                  <div className="flex items-center gap-3">
+                    <div className="w-7 h-7 rounded-full bg-primary/10 flex items-center justify-center shrink-0">
+                      <span className="text-xs font-semibold text-primary">{getExerciseLabel(exercise, exercises, isWarmup)}</span>
                     </div>
-                  );
-                });
-                })()}
-              </div>
-            </Card>
-          );
+                    <div className="flex-1">
+                      <h4 className="font-medium text-foreground">{exercise.exerciseName}</h4>
+                    </div>
+                  </div>
+                  <div className="space-y-1 pl-10">
+                    {setsToShow.map((set) => {
+                      const edited = editedSets[set.id] || {};
+                      const currentReps = edited.actualReps ?? set.actualReps ?? '';
+                      const currentWeight = edited.actualWeight ?? set.actualWeight ?? '';
+                      const isTimerExercise = exercise.durationType === 'timer' || exercise.durationType === 'time' || exercise.exerciseType === 'general';
+                      return (
+                        <div key={set.id} className="flex items-center gap-2 py-1">
+                          <span className="text-xs text-muted-foreground w-4">{set.setNumber}</span>
+                          {isTimerExercise ? (
+                            <div className="w-32">
+                              <Select
+                                value={edited.actualDuration ?? set.actualDuration ?? set.targetDuration ?? '30 sec'}
+                                onValueChange={(value) => handleSetChange(set.id, 'actualDuration', value)}
+                              >
+                                <SelectTrigger className="h-8">
+                                  <SelectValue />
+                                </SelectTrigger>
+                                <SelectContent>
+                                  {DURATION_OPTIONS.map((option) => (
+                                    <SelectItem key={option} value={option}>{option}</SelectItem>
+                                  ))}
+                                </SelectContent>
+                              </Select>
+                            </div>
+                          ) : (
+                            <div className="flex-1 flex gap-2">
+                              <div className="flex-1">
+                                <label className="text-xs text-muted-foreground">Weight ({weightUnit})</label>
+                                <Input type="number" step="0.5" value={currentWeight} onChange={(e) => handleSetChange(set.id, 'actualWeight', parseFloat(e.target.value) || 0)} className="h-8" />
+                              </div>
+                              <div className="flex-1">
+                                <label className="text-xs text-muted-foreground">Reps</label>
+                                <Input type="number" value={currentReps} onChange={(e) => handleSetChange(set.id, 'actualReps', parseInt(e.target.value) || 0)} className="h-8" />
+                              </div>
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })}
+                  </div>
+                </Card>
+              );
+            }
+
+            return (
+              <Card key={exercise.id} className="p-3 bg-card border-border/50">
+                <div className="flex items-start gap-3">
+                  <div className="w-7 h-7 rounded-full bg-primary/10 flex items-center justify-center shrink-0 mt-0.5">
+                    <span className="text-xs font-semibold text-primary">{getExerciseLabel(exercise, exercises, isWarmup)}</span>
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <h4 className="font-medium text-foreground">{exercise.exerciseName}</h4>
+                    <div className="space-y-0.5 mt-1">
+                      {setsToShow.map((set) => (
+                        <div key={set.id} className="flex items-center gap-2 text-sm text-muted-foreground">
+                          <span className="w-4 text-xs">{set.setNumber}</span>
+                          <span>{formatSetDisplay(set, exercise.exerciseType, exercise.durationType, weightUnit)}</span>
+                          {set.setDifficultyRating && (
+                            <Badge 
+                              variant="outline" 
+                              className={`text-xs py-0 h-4 ${
+                                set.setDifficultyRating === 'hard' ? 'border-red-500 text-red-500' :
+                                set.setDifficultyRating === 'medium' ? 'border-[#0cc9a9] text-[#0cc9a9]' :
+                                'border-green-500 text-green-500'
+                              }`}
+                            >
+                              {set.setDifficultyRating}
+                            </Badge>
+                          )}
+                          {set.painFlag && (
+                            <Badge variant="outline" className="text-xs py-0 h-4 border-orange-500 text-orange-500">Pain</Badge>
+                          )}
+                          {set.failureFlag && (
+                            <Badge variant="outline" className="text-xs py-0 h-4 border-purple-500 text-purple-500">Failure</Badge>
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+              </Card>
+            );
+          };
           
           return (
             <>

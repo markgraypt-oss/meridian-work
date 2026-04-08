@@ -365,11 +365,17 @@ export function WorkoutCompletionView({ workoutLog, onDelete, isEditing: externa
                   </div>
                   <div className="space-y-1 pl-10">
                     {(() => {
-                      const isTimerExercise = exercise.durationType === 'timer' || exercise.durationType === 'time' || exercise.exerciseType === 'general';
-                      const hasWeightData = setsToShow.some(s => 
-                        (s.actualWeight !== undefined && s.actualWeight !== null && s.actualWeight > 0) ||
-                        (s.targetWeight !== undefined && s.targetWeight !== null && s.targetWeight > 0)
-                      );
+                      const exType = exercise.exerciseType || 'strength';
+                      const isGeneralExercise = exType === 'general';
+                      const isEnduranceExercise = exType === 'endurance';
+                      const isCardioOrTimedExercise = exType === 'cardio' || exType === 'timed';
+                      const isTimedStrengthExercise = exType === 'timed_strength';
+                      const isTimeBasedExercise = exercise.durationType === 'timer' || exercise.durationType === 'time';
+                      const hasTargetReps = setsToShow.some(s => s.targetReps && s.targetReps !== '0');
+                      const isTimedOnlyExercise = isGeneralExercise || (isTimeBasedExercise && !hasTargetReps && !isCardioOrTimedExercise && !isTimedStrengthExercise);
+                      const showWeight = exType === 'strength' || isTimedStrengthExercise;
+                      const showRepsOnly = isEnduranceExercise || isCardioOrTimedExercise;
+
                       return setsToShow.map((set) => {
                         const edited = editedSets[set.id] || {};
                         const currentReps = edited.actualReps ?? set.actualReps ?? '';
@@ -377,7 +383,7 @@ export function WorkoutCompletionView({ workoutLog, onDelete, isEditing: externa
                         return (
                           <div key={set.id} className="flex items-center gap-2 py-1">
                             <span className="text-xs text-muted-foreground w-4">{set.setNumber}</span>
-                            {isTimerExercise ? (
+                            {isTimedOnlyExercise ? (
                               <div className="w-32">
                                 <Select
                                   value={edited.actualDuration ?? set.actualDuration ?? set.targetDuration ?? '30 sec'}
@@ -393,7 +399,7 @@ export function WorkoutCompletionView({ workoutLog, onDelete, isEditing: externa
                                   </SelectContent>
                                 </Select>
                               </div>
-                            ) : hasWeightData ? (
+                            ) : showWeight ? (
                               <div className="flex-1 flex gap-2">
                                 <div className="flex-1">
                                   <label className="text-xs text-muted-foreground">Weight ({weightUnit})</label>

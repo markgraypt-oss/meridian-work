@@ -5,7 +5,7 @@ import { storage } from "./storage";
 import { db } from "./db";
 import { setupAuth, isAuthenticated, generateResetToken, hashToken, sendUserInviteEmail } from "./replitAuth";
 import { eq, and, like, inArray, desc, or, isNull, asc, gte, lte, lt } from "drizzle-orm";
-import { users, userProgramEnrollments, programWeeks, programDays, programmeWorkouts, programmeWorkoutBlocks, pathContentItems, topicContentItems, learningPaths, programmeModificationRecords, exerciseSubstitutionMappings, programmeBlockExercises, enrollmentWorkouts, enrollmentWorkoutBlocks, enrollmentBlockExercises, programs, userExtraWorkoutSessions, scheduledWorkouts, workoutLogs, learnContentLibrary, exerciseLibrary, workoutExerciseLogs, workoutSetLogs, aiFeedback, workouts, stepEntries, sleepEntries, bodyweightEntries, bodyFatEntries, restingHREntries, caloricBurnEntries, exerciseMinutesEntries, bloodPressureEntries, leanBodyMassEntries, caloricIntakeEntries, hydrationLogs, userMealCategories } from "@shared/schema";
+import { users, userProgramEnrollments, programWeeks, programDays, programmeWorkouts, programmeWorkoutBlocks, pathContentItems, topicContentItems, learningPaths, programmeModificationRecords, exerciseSubstitutionMappings, programmeBlockExercises, enrollmentWorkouts, enrollmentWorkoutBlocks, enrollmentBlockExercises, programs, userExtraWorkoutSessions, scheduledWorkouts, workoutLogs, learnContentLibrary, exerciseLibrary, workoutExerciseLogs, workoutSetLogs, aiFeedback, workouts, stepEntries, sleepEntries, bodyweightEntries, bodyFatEntries, restingHREntries, caloricBurnEntries, exerciseMinutesEntries, bloodPressureEntries, leanBodyMassEntries, caloricIntakeEntries, hydrationLogs } from "@shared/schema";
 import { calculateProgramEquipment, updateProgramEquipmentAuto } from "./equipmentDetection";
 import multer from "multer";
 import path from "path";
@@ -16746,122 +16746,6 @@ RULES:
     } catch (error) {
       console.error("Error deleting mindfulness tool:", error);
       res.status(500).json({ message: "Failed to delete mindfulness tool" });
-    }
-  });
-
-  // TEMPORARY: Fix duplicate meal categories
-  app.post('/api/fix-duplicate-meals', async (req: any, res) => {
-    try {
-      const targetUserId = 'd6932281-15e3-4266-851c-5c8e9b12268c';
-      const categories = await db
-        .select()
-        .from(userMealCategories)
-        .where(eq(userMealCategories.userId, targetUserId))
-        .orderBy(asc(userMealCategories.displayOrder), asc(userMealCategories.id));
-      
-      const seen = new Map<string, number>();
-      const toDelete: number[] = [];
-      for (const cat of categories) {
-        const key = `${cat.name}-${cat.displayOrder}`;
-        if (seen.has(key)) {
-          toDelete.push(cat.id);
-        } else {
-          seen.set(key, cat.id);
-        }
-      }
-      
-      if (toDelete.length > 0) {
-        await db.delete(userMealCategories).where(inArray(userMealCategories.id, toDelete));
-      }
-      
-      res.json({ success: true, deleted: toDelete.length, deletedIds: toDelete });
-    } catch (error) {
-      console.error("Error fixing meal categories:", error);
-      res.status(500).json({ message: "Failed to fix meal categories", error: String(error) });
-    }
-  });
-
-  // TEMPORARY: Seed all progress data for production user
-  app.post('/api/seed-all-progress', async (req: any, res) => {
-    try {
-      const userId = 'd6932281-15e3-4266-851c-5c8e9b12268c';
-      const now = new Date();
-      const seeded: string[] = [];
-
-      for (let i = 30; i >= 0; i--) {
-        const date = new Date(now);
-        date.setDate(date.getDate() - i);
-        date.setHours(12, 0, 0, 0);
-
-        // Steps
-        const steps = Math.round(6000 + Math.random() * 7000);
-        await db.insert(stepEntries).values({ userId, date, steps }).onConflictDoNothing();
-
-        // Sleep
-        const sleepHours = 5.5 + Math.random() * 3;
-        const durationMinutes = Math.round(sleepHours * 60);
-        const quality = Math.round(4 + Math.random() * 6);
-        await db.insert(sleepEntries).values({ userId, date, durationMinutes, quality }).onConflictDoNothing();
-
-        // Body weight - gradual decrease 82->79
-        const weight = 82 - (30 - i) * 0.1 + (Math.random() - 0.5) * 0.6;
-        await db.insert(bodyweightEntries).values({ userId, date, weight: Math.round(weight * 10) / 10 }).onConflictDoNothing();
-
-        // Body fat - every 3 days, 19->17%
-        if (i % 3 === 0) {
-          const bodyFat = 19 - (30 - i) * 0.07 + (Math.random() - 0.5) * 0.4;
-          await db.insert(bodyFatEntries).values({ userId, date, percentage: Math.round(bodyFat * 10) / 10 }).onConflictDoNothing();
-        }
-
-        // Resting HR - 58-68 bpm
-        const bpm = Math.round(58 + Math.random() * 10);
-        await db.insert(restingHREntries).values({ userId, date, bpm }).onConflictDoNothing();
-
-        // Caloric burn - 2100-2900
-        const burnCals = Math.round(2100 + Math.random() * 800);
-        await db.insert(caloricBurnEntries).values({ userId, date, calories: burnCals }).onConflictDoNothing();
-
-        // Exercise minutes - 0-75
-        const isRestDay = Math.random() < 0.15;
-        const exMinutes = isRestDay ? 0 : Math.round(20 + Math.random() * 55);
-        await db.insert(exerciseMinutesEntries).values({ userId, date, minutes: exMinutes }).onConflictDoNothing();
-
-        // Blood pressure - systolic 115-130, diastolic 70-85
-        const systolic = Math.round(115 + Math.random() * 15);
-        const diastolic = Math.round(70 + Math.random() * 15);
-        await db.insert(bloodPressureEntries).values({ userId, date, systolic, diastolic }).onConflictDoNothing();
-
-        // Lean body mass - gradual increase 65->67kg
-        if (i % 3 === 0) {
-          const lbm = 65 + (30 - i) * 0.07 + (Math.random() - 0.5) * 0.3;
-          await db.insert(leanBodyMassEntries).values({ userId, date, mass: Math.round(lbm * 10) / 10 }).onConflictDoNothing();
-        }
-
-        // Caloric intake - 1800-2600
-        const intakeCals = Math.round(1800 + Math.random() * 800);
-        await db.insert(caloricIntakeEntries).values({ userId, date, calories: intakeCals }).onConflictDoNothing();
-
-        // Hydration - 2-4 logs per day, 200-500ml each
-        try {
-          const logsPerDay = Math.round(2 + Math.random() * 2);
-          for (let j = 0; j < logsPerDay; j++) {
-            const dayStart = new Date(date);
-            dayStart.setHours(0, 0, 0, 0);
-            const amountMl = Math.round(200 + Math.random() * 300);
-            const timeOptions = ['morning', 'afternoon', 'evening'];
-            const timeOfDay = timeOptions[Math.min(j, 2)];
-            await db.insert(hydrationLogs).values({ userId, date: dayStart, amountMl, timeOfDay, fluidType: 'water' }).onConflictDoNothing();
-          }
-        } catch (e) {
-          // Skip hydration if FK constraint fails
-        }
-      }
-
-      seeded.push('Seeded 31 days: steps, sleep, bodyweight, body fat, resting HR, caloric burn, exercise minutes, blood pressure, lean body mass, caloric intake, hydration');
-      res.json({ success: true, results: seeded });
-    } catch (error) {
-      console.error("Error seeding progress data:", error);
-      res.status(500).json({ message: "Failed to seed progress data", error: String(error) });
     }
   });
 

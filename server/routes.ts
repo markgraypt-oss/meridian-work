@@ -182,6 +182,8 @@ import {
   insertGratitudeEntrySchema,
   insertMindfulnessToolSchema,
   mindfulnessTools,
+  breathTechniques,
+  recipes,
 } from "@shared/schema";
 import { z } from "zod";
 
@@ -16749,21 +16751,145 @@ RULES:
     }
   });
 
-  // TEMPORARY: Rename meal categories to match dev
-  app.post('/api/fix-meal-names', async (req: any, res) => {
+  // TEMPORARY: Sync missing data from dev to production
+  app.post('/api/sync-missing-data', async (req: any, res) => {
     try {
-      const renames = [
-        { id: 1, name: 'Meal 1' },
-        { id: 2, name: 'Meal 2' },
-        { id: 3, name: 'Meal 3' },
-        { id: 4, name: 'Meal 4' },
-      ];
-      for (const r of renames) {
-        await db.update(userMealCategories).set({ name: r.name }).where(eq(userMealCategories.id, r.id));
+      const results: string[] = [];
+
+      // 1. Fix missing Box Breathing technique
+      const existingBox = await db.select().from(breathTechniques).where(eq(breathTechniques.slug, 'box-breathing'));
+      if (existingBox.length === 0) {
+        await db.insert(breathTechniques).values({
+          name: "Box Breathing",
+          slug: "box-breathing",
+          description: "A powerful stress-relief technique used by Navy SEALs. Equal parts inhale, hold, exhale, and hold create a 'box' pattern that calms the nervous system.",
+          category: "relaxation",
+          difficulty: "beginner",
+          inhaleSeconds: 4,
+          holdAfterInhaleSeconds: 4,
+          exhaleSeconds: 4,
+          holdAfterExhaleSeconds: 4,
+          defaultRounds: 4,
+          defaultDurationMinutes: 5,
+          benefits: ["Reduces stress and anxiety", "Improves focus and concentration", "Lowers blood pressure", "Promotes mental clarity"],
+          instructions: ["Find a comfortable seated position", "Breathe in through your nose for 4 seconds", "Hold your breath for 4 seconds", "Exhale slowly for 4 seconds", "Hold empty for 4 seconds", "Repeat the cycle"],
+        });
+        results.push("Added Box Breathing technique");
+      } else {
+        results.push("Box Breathing already exists");
       }
-      res.json({ success: true, renamed: renames });
+
+      // 2. Fix missing exercise 882
+      const existingEx = await db.select().from(exerciseLibrary).where(eq(exerciseLibrary.name, 'Knees Bent Inverted TRX Row'));
+      if (existingEx.length === 0) {
+        await db.insert(exerciseLibrary).values({
+          name: "Knees Bent Inverted TRX Row",
+          instructions: null,
+          videoUrl: null,
+          imageUrl: null,
+          equipment: ["TRX"],
+          mainMuscle: ["Biceps", "Lats", "Middle Back"],
+          movement: ["Horizontal Pull", "Bilateral (2 Arms and/or 2 Legs)"],
+          mechanics: ["Compound"],
+          level: "Intermediate",
+          exerciseType: "endurance",
+          laterality: "bilateral",
+          muxPlaybackId: "nEMqi2L2YXr8iY7fhzd5Km1nWdV8vkQG00Vu8qLI3LyU",
+        });
+        results.push("Added Knees Bent Inverted TRX Row exercise");
+      } else {
+        results.push("Exercise already exists");
+      }
+
+      // 3. Fix missing recipe 225
+      const existingRecipe = await db.select().from(recipes).where(eq(recipes.title, 'Nandos Sweet Potato Chips'));
+      if (existingRecipe.length === 0) {
+        await db.insert(recipes).values({
+          title: "Nandos Sweet Potato Chips",
+          description: "Crispy, seasoned sweet potato chips coated in coconut flour and Nandos seasoning. A healthier take on a classic side.",
+          calories: 259,
+          protein: 5,
+          carbs: 33,
+          fat: 10,
+          imageUrl: null,
+          ingredients: ["400g sweet potato, cut into 1cm thick chips", "2 tbsp olive oil", "80g coconut flour", "2 tbsp Nandos seasoning", "2 tbsp arrowroot flour"],
+          instructions: [
+            "Preheat oven to 180C/350F gas 5. Line 1-2 baking trays with baking paper.",
+            "Toss the sweet potato chips in the olive oil.",
+            "In a separate bowl mix together the coconut flour, Nandos seasoning and arrowroot flour.",
+            "Cover the chips in the flour mix and place on the baking tray.",
+            "Cook for 18-20 minutes, remove from the oven and flip, return to the oven and cook for another 18-20 minutes.",
+            "Season with salt & pepper and serve hot."
+          ],
+          tags: ["side", "chips", "sweet potato", "nandos"],
+          category: "side",
+          servings: 4,
+          allergens: ["gluten-free"],
+          dietaryPreferences: ["vegan", "dairy-free", "gluten-free"],
+          keyIngredients: ["sweet potato", "coconut flour", "nandos seasoning"],
+          totalTime: 60,
+        });
+        results.push("Added Nandos Sweet Potato Chips recipe");
+      } else {
+        results.push("Recipe already exists");
+      }
+
+      // 4. Add nutrition goals for production user
+      const prodUserId = 'd6932281-15e3-4266-851c-5c8e9b12268c';
+      const existingGoals = await db.select().from(nutritionGoals).where(eq(nutritionGoals.userId, prodUserId));
+      if (existingGoals.length === 0) {
+        await db.insert(nutritionGoals).values({
+          userId: prodUserId,
+          calorieTarget: 3370,
+          proteinTarget: 180,
+          carbsTarget: 451,
+          fatTarget: 94,
+          isActive: true,
+        });
+        results.push("Added nutrition goals for production user");
+      } else {
+        results.push("Nutrition goals already exist");
+      }
+
+      // 5. Sync missing learn content items
+      const learnItems = [
+        { title: "Blue Light and Sleep Quality", description: "How screens affect melatonin and recovery", contentType: "video", contentUrl: "/videos/blue-light.mp4", duration: 540, topicId: 1 },
+        { title: "Sleep and Brain Health", description: "How sleep clears metabolic waste and builds memories", contentType: "video", contentUrl: "/videos/brain-health.mp4", duration: 660, topicId: 1 },
+        { title: "Understanding Your Sleep Cycles", description: "Deep dive into NREM and REM sleep stages", contentType: "video", contentUrl: "/videos/cycles.mp4", duration: 660, topicId: 1 },
+        { title: "Immunity and Sleep", description: "Connection between sleep quality and immune function", contentType: "video", contentUrl: "/videos/immunity.mp4", duration: 480, topicId: 1 },
+        { title: "Dealing with Insomnia", description: "Cognitive behavioral techniques for sleep onset", contentType: "video", contentUrl: "/videos/insomnia.mp4", duration: 780, topicId: 1 },
+        { title: "Longevity Through Sleep", description: "Research on sleep's role in lifespan and healthspan", contentType: "video", contentUrl: "/videos/longevity.mp4", duration: 600, topicId: 1 },
+        { title: "Power Napping Mastery", description: "Optimize daytime sleep for performance gains", contentType: "video", contentUrl: "/videos/napping.mp4", duration: 480, topicId: 1 },
+        { title: "Sleep for Performance", description: "Why elite athletes prioritize recovery sleep", contentType: "video", contentUrl: "/videos/performance.mp4", duration: 540, topicId: 1 },
+        { title: "Recovery Acceleration", description: "Advanced techniques for maximizing sleep efficiency", contentType: "video", contentUrl: "/videos/recovery.mp4", duration: 720, topicId: 1 },
+        { title: "Optimize Your Sleep Environment", description: "Temperature, light, and sound considerations for quality sleep", contentType: "video", contentUrl: "/videos/sleep-env.mp4", duration: 600, topicId: 1 },
+        { title: "The Science of Sleep Onset", description: "Understanding your circadian rhythm and optimal sleep timing", contentType: "video", contentUrl: "/videos/sleep-onset.mp4", duration: 480, topicId: 1 },
+        { title: "Supplements and Sleep", description: "Evidence-based recommendations for sleep-supporting nutrients", contentType: "video", contentUrl: "/videos/supplements.mp4", duration: 540, topicId: 1 },
+        { title: "Sleep Tracking Essentials", description: "What to measure and how to interpret data", contentType: "video", contentUrl: "/videos/tracking.mp4", duration: 600, topicId: 1 },
+        { title: "Sleep Troubleshooting Toolkit", description: "Quick fixes for common sleep disruptions", contentType: "video", contentUrl: "/videos/troubleshoot.mp4", duration: 360, topicId: 1 },
+        { title: "Create An Impactful Wind-Down Routine", description: "Step-by-step guide to an effective pre-sleep routine", contentType: "video", contentUrl: "mux:Qzj2IlUu61kGL84Ph2l201ucdqV52sPdO9tPYROPpLhs", duration: 328, topicId: 1, muxPlaybackId: "Qzj2IlUu61kGL84Ph2l201ucdqV52sPdO9tPYROPpLhs" },
+        { title: "Using RPE", description: "Understanding Rate of Perceived Exertion", contentType: "video", contentUrl: "mux:q7h6vinOFtbGpCBTnFzBjDC3O7Y3cOXeaQUAqPXEkpQ", duration: 326, topicId: 3, muxPlaybackId: "q7h6vinOFtbGpCBTnFzBjDC3O7Y3cOXeaQUAqPXEkpQ" },
+        { title: "Why Sleep Lays The Foundations For Your Success", description: null, contentType: "video", contentUrl: "mux:9r014V02d9ou1mKQmmvf00Lvu8wOmyRHCoK9J003BjTtA8g", duration: 1718, topicId: 1, muxPlaybackId: "9r014V02d9ou1mKQmmvf00Lvu8wOmyRHCoK9J003BjTtA8g" },
+        { title: "Sleep Optimisation Tips", description: null, contentType: "video", contentUrl: "mux:Xmb00oHDEPeS7x5jzyNJRYmpPOLA02uPRxO6CQUVO7MEg", duration: 490, topicId: 1, muxPlaybackId: "Xmb00oHDEPeS7x5jzyNJRYmpPOLA02uPRxO6CQUVO7MEg" },
+        { title: "How To Instantly Start Sleeping Better", description: null, contentType: "video", contentUrl: "mux:Gy01OOmHCAvTT4501VeY02k9mOOPAtLzGMI5i6JTcEEt9Y", duration: 209, topicId: 1, muxPlaybackId: "Gy01OOmHCAvTT4501VeY02k9mOOPAtLzGMI5i6JTcEEt9Y" },
+        { title: "Understanding The value & Importance Of Sleep", description: null, contentType: "video", contentUrl: "mux:2eJgqU17284olqtaVjzd802EBB009DD4jCG2VySlWRDwo", duration: 359, topicId: 1, muxPlaybackId: "2eJgqU17284olqtaVjzd802EBB009DD4jCG2VySlWRDwo" },
+        { title: "How Much Sleep Do You Need?", description: null, contentType: "video", contentUrl: "mux:301c1kCOsb92w7MbSf3TluNc5LTCkazmTt7xXsbacTfA", duration: 192, topicId: 1, muxPlaybackId: "301c1kCOsb92w7MbSf3TluNc5LTCkazmTt7xXsbacTfA" },
+      ];
+
+      let learnAdded = 0;
+      for (const item of learnItems) {
+        const existing = await db.select().from(learnContentLibrary).where(eq(learnContentLibrary.title, item.title));
+        if (existing.length === 0) {
+          await db.insert(learnContentLibrary).values(item as any);
+          learnAdded++;
+        }
+      }
+      results.push(`Added ${learnAdded} learn content items`);
+
+      res.json({ success: true, results });
     } catch (error) {
-      res.status(500).json({ message: "Failed", error: String(error) });
+      console.error("Error syncing data:", error);
+      res.status(500).json({ message: "Failed to sync data", error: String(error) });
     }
   });
 

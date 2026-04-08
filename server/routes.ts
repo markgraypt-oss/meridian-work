@@ -5,7 +5,7 @@ import { storage } from "./storage";
 import { db } from "./db";
 import { setupAuth, isAuthenticated, generateResetToken, hashToken, sendUserInviteEmail } from "./replitAuth";
 import { eq, and, like, inArray, desc, or, isNull, asc, gte, lte, lt } from "drizzle-orm";
-import { users, userProgramEnrollments, programWeeks, programDays, programmeWorkouts, programmeWorkoutBlocks, pathContentItems, topicContentItems, learningPaths, programmeModificationRecords, exerciseSubstitutionMappings, programmeBlockExercises, enrollmentWorkouts, enrollmentWorkoutBlocks, enrollmentBlockExercises, programs, userExtraWorkoutSessions, scheduledWorkouts, workoutLogs, learnContentLibrary, exerciseLibrary, workoutExerciseLogs, workoutSetLogs, aiFeedback, workouts, stepEntries, sleepEntries, bodyweightEntries, bodyFatEntries, restingHREntries, caloricBurnEntries, exerciseMinutesEntries, bloodPressureEntries, leanBodyMassEntries, caloricIntakeEntries, hydrationLogs } from "@shared/schema";
+import { users, userProgramEnrollments, programWeeks, programDays, programmeWorkouts, programmeWorkoutBlocks, pathContentItems, topicContentItems, learningPaths, programmeModificationRecords, exerciseSubstitutionMappings, programmeBlockExercises, enrollmentWorkouts, enrollmentWorkoutBlocks, enrollmentBlockExercises, programs, userExtraWorkoutSessions, scheduledWorkouts, workoutLogs, learnContentLibrary, exerciseLibrary, workoutExerciseLogs, workoutSetLogs, aiFeedback, workouts, stepEntries, sleepEntries, bodyweightEntries, bodyFatEntries, restingHREntries, caloricBurnEntries, exerciseMinutesEntries, bloodPressureEntries, leanBodyMassEntries, caloricIntakeEntries, hydrationLogs, userMealCategories } from "@shared/schema";
 import { calculateProgramEquipment, updateProgramEquipmentAuto } from "./equipmentDetection";
 import multer from "multer";
 import path from "path";
@@ -16749,10 +16749,42 @@ RULES:
     }
   });
 
-  // TEMPORARY: Seed all progress data for admin user
+  // TEMPORARY: Fix duplicate meal categories
+  app.post('/api/fix-duplicate-meals', async (req: any, res) => {
+    try {
+      const targetUserId = 'd6932281-15e3-4266-851c-5c8e9b12268c';
+      const categories = await db
+        .select()
+        .from(userMealCategories)
+        .where(eq(userMealCategories.userId, targetUserId))
+        .orderBy(asc(userMealCategories.displayOrder), asc(userMealCategories.id));
+      
+      const seen = new Map<string, number>();
+      const toDelete: number[] = [];
+      for (const cat of categories) {
+        const key = `${cat.name}-${cat.displayOrder}`;
+        if (seen.has(key)) {
+          toDelete.push(cat.id);
+        } else {
+          seen.set(key, cat.id);
+        }
+      }
+      
+      if (toDelete.length > 0) {
+        await db.delete(userMealCategories).where(inArray(userMealCategories.id, toDelete));
+      }
+      
+      res.json({ success: true, deleted: toDelete.length, deletedIds: toDelete });
+    } catch (error) {
+      console.error("Error fixing meal categories:", error);
+      res.status(500).json({ message: "Failed to fix meal categories", error: String(error) });
+    }
+  });
+
+  // TEMPORARY: Seed all progress data for production user
   app.post('/api/seed-all-progress', async (req: any, res) => {
     try {
-      const userId = 'admin-001';
+      const userId = 'd6932281-15e3-4266-851c-5c8e9b12268c';
       const now = new Date();
       const seeded: string[] = [];
 
@@ -16810,14 +16842,18 @@ RULES:
         await db.insert(caloricIntakeEntries).values({ userId, date, calories: intakeCals }).onConflictDoNothing();
 
         // Hydration - 2-4 logs per day, 200-500ml each
-        const logsPerDay = Math.round(2 + Math.random() * 2);
-        for (let j = 0; j < logsPerDay; j++) {
-          const dayStart = new Date(date);
-          dayStart.setHours(0, 0, 0, 0);
-          const amountMl = Math.round(200 + Math.random() * 300);
-          const timeOptions = ['morning', 'afternoon', 'evening'];
-          const timeOfDay = timeOptions[Math.min(j, 2)];
-          await db.insert(hydrationLogs).values({ userId, date: dayStart, amountMl, timeOfDay, fluidType: 'water' }).onConflictDoNothing();
+        try {
+          const logsPerDay = Math.round(2 + Math.random() * 2);
+          for (let j = 0; j < logsPerDay; j++) {
+            const dayStart = new Date(date);
+            dayStart.setHours(0, 0, 0, 0);
+            const amountMl = Math.round(200 + Math.random() * 300);
+            const timeOptions = ['morning', 'afternoon', 'evening'];
+            const timeOfDay = timeOptions[Math.min(j, 2)];
+            await db.insert(hydrationLogs).values({ userId, date: dayStart, amountMl, timeOfDay, fluidType: 'water' }).onConflictDoNothing();
+          }
+        } catch (e) {
+          // Skip hydration if FK constraint fails
         }
       }
 

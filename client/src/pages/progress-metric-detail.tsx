@@ -2532,8 +2532,11 @@ export default function ProgressMetricDetail() {
                         return (
                           <div 
                             key={entry.id} 
-                            className="py-3 flex items-center justify-between border-b border-border cursor-pointer hover:bg-muted/30 transition-colors"
+                            className={`py-3 flex items-center justify-between border-b border-border transition-colors ${metricKey === "hydration" ? "" : "cursor-pointer hover:bg-muted/30"}`}
                             onClick={() => {
+                              if (metricKey === "hydration") {
+                                return;
+                              }
                               if (hasDetailPage) {
                                 if (isMeasurement) {
                                   const entryDate = format(parseISO(entry.date), "yyyy-MM-dd");

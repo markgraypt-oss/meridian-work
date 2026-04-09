@@ -184,6 +184,7 @@ import {
   mindfulnessTools,
   breathTechniques,
   recipes,
+  learnTopics,
 } from "@shared/schema";
 import { z } from "zod";
 
@@ -16851,29 +16852,51 @@ RULES:
         results.push("Nutrition goals already exist");
       }
 
-      // 5. Sync missing learn content items
+      // 5. Fix missing Sleep topic (ID 1)
+      const existingSleepTopic = await db.select().from(learnTopics).where(eq(learnTopics.slug, 'sleep'));
+      if (existingSleepTopic.length === 0) {
+        await db.insert(learnTopics).values({
+          title: "Sleep",
+          slug: "sleep",
+          description: "Master sleep quality and recovery for peak performance",
+          icon: "😴",
+          orderIndex: 1,
+          isActive: true,
+          imageUrl: "/7_1763710544106.png",
+        });
+        results.push("Added Sleep topic");
+      } else {
+        results.push("Sleep topic already exists");
+      }
+
+      // 6. Sync missing learn content items - resolve topic IDs dynamically
+      const sleepTopic = await db.select().from(learnTopics).where(eq(learnTopics.slug, 'sleep'));
+      const movementTopic = await db.select().from(learnTopics).where(eq(learnTopics.slug, 'movement'));
+      const sleepTopicId = sleepTopic[0]?.id;
+      const movementTopicId = movementTopic[0]?.id;
+
       const learnItems = [
-        { title: "Blue Light and Sleep Quality", description: "How screens affect melatonin and recovery", contentType: "video", contentUrl: "/videos/blue-light.mp4", duration: 540, topicId: 1 },
-        { title: "Sleep and Brain Health", description: "How sleep clears metabolic waste and builds memories", contentType: "video", contentUrl: "/videos/brain-health.mp4", duration: 660, topicId: 1 },
-        { title: "Understanding Your Sleep Cycles", description: "Deep dive into NREM and REM sleep stages", contentType: "video", contentUrl: "/videos/cycles.mp4", duration: 660, topicId: 1 },
-        { title: "Immunity and Sleep", description: "Connection between sleep quality and immune function", contentType: "video", contentUrl: "/videos/immunity.mp4", duration: 480, topicId: 1 },
-        { title: "Dealing with Insomnia", description: "Cognitive behavioral techniques for sleep onset", contentType: "video", contentUrl: "/videos/insomnia.mp4", duration: 780, topicId: 1 },
-        { title: "Longevity Through Sleep", description: "Research on sleep's role in lifespan and healthspan", contentType: "video", contentUrl: "/videos/longevity.mp4", duration: 600, topicId: 1 },
-        { title: "Power Napping Mastery", description: "Optimize daytime sleep for performance gains", contentType: "video", contentUrl: "/videos/napping.mp4", duration: 480, topicId: 1 },
-        { title: "Sleep for Performance", description: "Why elite athletes prioritize recovery sleep", contentType: "video", contentUrl: "/videos/performance.mp4", duration: 540, topicId: 1 },
-        { title: "Recovery Acceleration", description: "Advanced techniques for maximizing sleep efficiency", contentType: "video", contentUrl: "/videos/recovery.mp4", duration: 720, topicId: 1 },
-        { title: "Optimize Your Sleep Environment", description: "Temperature, light, and sound considerations for quality sleep", contentType: "video", contentUrl: "/videos/sleep-env.mp4", duration: 600, topicId: 1 },
-        { title: "The Science of Sleep Onset", description: "Understanding your circadian rhythm and optimal sleep timing", contentType: "video", contentUrl: "/videos/sleep-onset.mp4", duration: 480, topicId: 1 },
-        { title: "Supplements and Sleep", description: "Evidence-based recommendations for sleep-supporting nutrients", contentType: "video", contentUrl: "/videos/supplements.mp4", duration: 540, topicId: 1 },
-        { title: "Sleep Tracking Essentials", description: "What to measure and how to interpret data", contentType: "video", contentUrl: "/videos/tracking.mp4", duration: 600, topicId: 1 },
-        { title: "Sleep Troubleshooting Toolkit", description: "Quick fixes for common sleep disruptions", contentType: "video", contentUrl: "/videos/troubleshoot.mp4", duration: 360, topicId: 1 },
-        { title: "Create An Impactful Wind-Down Routine", description: "Step-by-step guide to an effective pre-sleep routine", contentType: "video", contentUrl: "mux:Qzj2IlUu61kGL84Ph2l201ucdqV52sPdO9tPYROPpLhs", duration: 328, topicId: 1, muxPlaybackId: "Qzj2IlUu61kGL84Ph2l201ucdqV52sPdO9tPYROPpLhs" },
-        { title: "Using RPE", description: "Understanding Rate of Perceived Exertion", contentType: "video", contentUrl: "mux:q7h6vinOFtbGpCBTnFzBjDC3O7Y3cOXeaQUAqPXEkpQ", duration: 326, topicId: 3, muxPlaybackId: "q7h6vinOFtbGpCBTnFzBjDC3O7Y3cOXeaQUAqPXEkpQ" },
-        { title: "Why Sleep Lays The Foundations For Your Success", description: null, contentType: "video", contentUrl: "mux:9r014V02d9ou1mKQmmvf00Lvu8wOmyRHCoK9J003BjTtA8g", duration: 1718, topicId: 1, muxPlaybackId: "9r014V02d9ou1mKQmmvf00Lvu8wOmyRHCoK9J003BjTtA8g" },
-        { title: "Sleep Optimisation Tips", description: null, contentType: "video", contentUrl: "mux:Xmb00oHDEPeS7x5jzyNJRYmpPOLA02uPRxO6CQUVO7MEg", duration: 490, topicId: 1, muxPlaybackId: "Xmb00oHDEPeS7x5jzyNJRYmpPOLA02uPRxO6CQUVO7MEg" },
-        { title: "How To Instantly Start Sleeping Better", description: null, contentType: "video", contentUrl: "mux:Gy01OOmHCAvTT4501VeY02k9mOOPAtLzGMI5i6JTcEEt9Y", duration: 209, topicId: 1, muxPlaybackId: "Gy01OOmHCAvTT4501VeY02k9mOOPAtLzGMI5i6JTcEEt9Y" },
-        { title: "Understanding The value & Importance Of Sleep", description: null, contentType: "video", contentUrl: "mux:2eJgqU17284olqtaVjzd802EBB009DD4jCG2VySlWRDwo", duration: 359, topicId: 1, muxPlaybackId: "2eJgqU17284olqtaVjzd802EBB009DD4jCG2VySlWRDwo" },
-        { title: "How Much Sleep Do You Need?", description: null, contentType: "video", contentUrl: "mux:301c1kCOsb92w7MbSf3TluNc5LTCkazmTt7xXsbacTfA", duration: 192, topicId: 1, muxPlaybackId: "301c1kCOsb92w7MbSf3TluNc5LTCkazmTt7xXsbacTfA" },
+        { title: "Blue Light and Sleep Quality", description: "How screens affect melatonin and recovery", contentType: "video", contentUrl: "/videos/blue-light.mp4", duration: 540, topicId: sleepTopicId },
+        { title: "Sleep and Brain Health", description: "How sleep clears metabolic waste and builds memories", contentType: "video", contentUrl: "/videos/brain-health.mp4", duration: 660, topicId: sleepTopicId },
+        { title: "Understanding Your Sleep Cycles", description: "Deep dive into NREM and REM sleep stages", contentType: "video", contentUrl: "/videos/cycles.mp4", duration: 660, topicId: sleepTopicId },
+        { title: "Immunity and Sleep", description: "Connection between sleep quality and immune function", contentType: "video", contentUrl: "/videos/immunity.mp4", duration: 480, topicId: sleepTopicId },
+        { title: "Dealing with Insomnia", description: "Cognitive behavioral techniques for sleep onset", contentType: "video", contentUrl: "/videos/insomnia.mp4", duration: 780, topicId: sleepTopicId },
+        { title: "Longevity Through Sleep", description: "Research on sleep's role in lifespan and healthspan", contentType: "video", contentUrl: "/videos/longevity.mp4", duration: 600, topicId: sleepTopicId },
+        { title: "Power Napping Mastery", description: "Optimize daytime sleep for performance gains", contentType: "video", contentUrl: "/videos/napping.mp4", duration: 480, topicId: sleepTopicId },
+        { title: "Sleep for Performance", description: "Why elite athletes prioritize recovery sleep", contentType: "video", contentUrl: "/videos/performance.mp4", duration: 540, topicId: sleepTopicId },
+        { title: "Recovery Acceleration", description: "Advanced techniques for maximizing sleep efficiency", contentType: "video", contentUrl: "/videos/recovery.mp4", duration: 720, topicId: sleepTopicId },
+        { title: "Optimize Your Sleep Environment", description: "Temperature, light, and sound considerations for quality sleep", contentType: "video", contentUrl: "/videos/sleep-env.mp4", duration: 600, topicId: sleepTopicId },
+        { title: "The Science of Sleep Onset", description: "Understanding your circadian rhythm and optimal sleep timing", contentType: "video", contentUrl: "/videos/sleep-onset.mp4", duration: 480, topicId: sleepTopicId },
+        { title: "Supplements and Sleep", description: "Evidence-based recommendations for sleep-supporting nutrients", contentType: "video", contentUrl: "/videos/supplements.mp4", duration: 540, topicId: sleepTopicId },
+        { title: "Sleep Tracking Essentials", description: "What to measure and how to interpret data", contentType: "video", contentUrl: "/videos/tracking.mp4", duration: 600, topicId: sleepTopicId },
+        { title: "Sleep Troubleshooting Toolkit", description: "Quick fixes for common sleep disruptions", contentType: "video", contentUrl: "/videos/troubleshoot.mp4", duration: 360, topicId: sleepTopicId },
+        { title: "Create An Impactful Wind-Down Routine", description: "Step-by-step guide to an effective pre-sleep routine", contentType: "video", contentUrl: "mux:Qzj2IlUu61kGL84Ph2l201ucdqV52sPdO9tPYROPpLhs", duration: 328, topicId: sleepTopicId, muxPlaybackId: "Qzj2IlUu61kGL84Ph2l201ucdqV52sPdO9tPYROPpLhs" },
+        { title: "Using RPE", description: "Understanding Rate of Perceived Exertion", contentType: "video", contentUrl: "mux:q7h6vinOFtbGpCBTnFzBjDC3O7Y3cOXeaQUAqPXEkpQ", duration: 326, topicId: movementTopicId, muxPlaybackId: "q7h6vinOFtbGpCBTnFzBjDC3O7Y3cOXeaQUAqPXEkpQ" },
+        { title: "Why Sleep Lays The Foundations For Your Success", description: null, contentType: "video", contentUrl: "mux:9r014V02d9ou1mKQmmvf00Lvu8wOmyRHCoK9J003BjTtA8g", duration: 1718, topicId: sleepTopicId, muxPlaybackId: "9r014V02d9ou1mKQmmvf00Lvu8wOmyRHCoK9J003BjTtA8g" },
+        { title: "Sleep Optimisation Tips", description: null, contentType: "video", contentUrl: "mux:Xmb00oHDEPeS7x5jzyNJRYmpPOLA02uPRxO6CQUVO7MEg", duration: 490, topicId: sleepTopicId, muxPlaybackId: "Xmb00oHDEPeS7x5jzyNJRYmpPOLA02uPRxO6CQUVO7MEg" },
+        { title: "How To Instantly Start Sleeping Better", description: null, contentType: "video", contentUrl: "mux:Gy01OOmHCAvTT4501VeY02k9mOOPAtLzGMI5i6JTcEEt9Y", duration: 209, topicId: sleepTopicId, muxPlaybackId: "Gy01OOmHCAvTT4501VeY02k9mOOPAtLzGMI5i6JTcEEt9Y" },
+        { title: "Understanding The value & Importance Of Sleep", description: null, contentType: "video", contentUrl: "mux:2eJgqU17284olqtaVjzd802EBB009DD4jCG2VySlWRDwo", duration: 359, topicId: sleepTopicId, muxPlaybackId: "2eJgqU17284olqtaVjzd802EBB009DD4jCG2VySlWRDwo" },
+        { title: "How Much Sleep Do You Need?", description: null, contentType: "video", contentUrl: "mux:301c1kCOsb92w7MbSf3TluNc5LTCkazmTt7xXsbacTfA", duration: 192, topicId: sleepTopicId, muxPlaybackId: "301c1kCOsb92w7MbSf3TluNc5LTCkazmTt7xXsbacTfA" },
       ];
 
       let learnAdded = 0;

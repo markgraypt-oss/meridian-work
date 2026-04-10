@@ -339,6 +339,25 @@ const addEntrySchemas: Record<MetricKey, z.ZodObject<any>> = {
   }),
 };
 
+function formatTooltipValue(value: number, metricKey: MetricKey): string {
+  if (metricKey === "sleep") {
+    const hours = Math.floor(value);
+    const mins = Math.round((value - hours) * 60);
+    return mins > 0 ? `${hours}h ${mins}m` : `${hours}h`;
+  }
+  if (metricKey === "steps") return value.toLocaleString();
+  if (metricKey === "caloricBurn" || metricKey === "caloricIntake") return value.toLocaleString();
+  if (metricKey === "bodyWeight" || metricKey === "leanBodyMass" || metricKey === "bodyFat") {
+    return Number.isInteger(value) ? String(value) : value.toFixed(1);
+  }
+  return String(value);
+}
+
+function getTooltipUnit(metricKey: MetricKey, configUnit: string): string {
+  if (metricKey === "sleep") return "";
+  return configUnit;
+}
+
 function getValueFromEntry(entry: any, metricKey: MetricKey): number {
   switch (metricKey) {
     case "steps": return entry.steps;
@@ -1770,7 +1789,7 @@ export default function ProgressMetricDetail() {
                             {formatDate(new Date(data.timestamp), "short")}
                           </p>
                           <p style={{ color: '#0cc9a9', fontSize: '22px', fontWeight: 'bold', margin: 0 }}>
-                            {data.value}<span style={{ fontSize: '12px', fontWeight: 'normal' }}>{config.unit}</span>
+                            {formatTooltipValue(data.value, metricKey)}<span style={{ fontSize: '12px', fontWeight: 'normal' }}>{getTooltipUnit(metricKey, config.unit)}</span>
                           </p>
                         </div>
                       );
@@ -2525,7 +2544,8 @@ export default function ProgressMetricDetail() {
                     {allGroupedByMonth[month]
                       .sort((a: any, b: any) => new Date(b.date).getTime() - new Date(a.date).getTime())
                       .map((entry: any) => {
-                        const displayValue = getValueFromEntry(entry, metricKey);
+                        const rawValue = getValueFromEntry(entry, metricKey);
+                        const displayValue = formatTooltipValue(rawValue, metricKey);
                         const measurementMetrics = ["neck", "chest", "shoulder", "leftBicep", "rightBicep", "leftForearm", "rightForearm", "waist", "hips", "leftThigh", "rightThigh", "leftCalf", "rightCalf"];
                         const isMeasurement = measurementMetrics.includes(metricKey);
                         const hasDetailPage = metricKey === "bodyWeight" || metricKey === "bodyFat" || isMeasurement;
@@ -2555,7 +2575,7 @@ export default function ProgressMetricDetail() {
                             </p>
                             <p className="text-foreground text-right" data-testid={`text-entry-value-${entry.id}`}>
                               <span className="font-bold">{displayValue}</span>
-                              <span className="text-xs text-muted-foreground ml-0.5">{config.unit}</span>
+                              <span className="text-xs text-muted-foreground ml-0.5">{getTooltipUnit(metricKey, config.unit)}</span>
                             </p>
                           </div>
                         );

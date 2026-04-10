@@ -1,7 +1,7 @@
 import { useState, useMemo } from "react";
 import { useParams, useLocation } from "wouter";
 import { useQuery, useMutation } from "@tanstack/react-query";
-import { format, subDays, subMonths, isAfter, isBefore, parseISO, isSameDay, startOfDay, startOfWeek, endOfWeek, addWeeks, parse } from "date-fns";
+import { format, subDays, subMonths, addMonths, isAfter, isBefore, parseISO, isSameDay, startOfDay, startOfWeek, endOfWeek, addWeeks, startOfMonth, endOfMonth, parse } from "date-fns";
 import { useFormattedDate } from "@/hooks/useFormattedDate";
 import { useUserPreferences } from "@/contexts/UserPreferencesContext";
 import { formatWeightValue, getWeightUnitLabel, parseWeightToKg } from "@/lib/unitConversions";
@@ -216,18 +216,42 @@ function MetricDropdown({ currentMetricKey, currentLabel, isOpen, onToggle, onSe
 
 const timeRanges: TimeRange[] = ["1W", "1M", "3M", "6M", "1Y"];
 
-function getDateCutoff(range: TimeRange, weekOffset?: Date): Date {
+function getPeriodRange(range: TimeRange, weekStart?: Date, offset: number = 0): { start: Date; end: Date } {
   const now = new Date();
   switch (range) {
     case "1W": {
-      const weekStart = weekOffset || startOfWeek(now, { weekStartsOn: 1 });
-      return weekStart;
+      const ws = weekStart || startOfWeek(now, { weekStartsOn: 1 });
+      return { start: ws, end: endOfWeek(ws, { weekStartsOn: 1 }) };
     }
-    case "1M": return subMonths(now, 1);
-    case "3M": return subMonths(now, 3);
-    case "6M": return subMonths(now, 6);
-    case "1Y": return subMonths(now, 12);
+    case "1M": {
+      const endMonth = startOfMonth(addMonths(now, offset));
+      const end = offset === 0 ? now : endOfMonth(endMonth);
+      const start = startOfMonth(addMonths(now, offset));
+      return { start, end };
+    }
+    case "3M": {
+      const blockEnd = addMonths(now, offset * 3);
+      const end = offset === 0 ? now : blockEnd;
+      const start = subMonths(end, 3);
+      return { start: startOfDay(start), end: startOfDay(end) };
+    }
+    case "6M": {
+      const blockEnd = addMonths(now, offset * 6);
+      const end = offset === 0 ? now : blockEnd;
+      const start = subMonths(end, 6);
+      return { start: startOfDay(start), end: startOfDay(end) };
+    }
+    case "1Y": {
+      const blockEnd = addMonths(now, offset * 12);
+      const end = offset === 0 ? now : blockEnd;
+      const start = subMonths(end, 12);
+      return { start: startOfDay(start), end: startOfDay(end) };
+    }
   }
+}
+
+function getDateCutoff(range: TimeRange, weekOffset?: Date): Date {
+  return getPeriodRange(range, weekOffset).start;
 }
 
 function getWeekEnd(weekStart: Date): Date {
@@ -1388,6 +1412,7 @@ export default function ProgressMetricDetail() {
   const [sleepScoreExpanded, setSleepScoreExpanded] = useState(false);
   const [sleepStagesAboutExpanded, setSleepStagesAboutExpanded] = useState(false);
   const [selectedWeekStart, setSelectedWeekStart] = useState<Date>(() => startOfWeek(new Date(), { weekStartsOn: 1 }));
+  const [periodOffset, setPeriodOffset] = useState(0);
   const { toast } = useToast();
 
   const handleMetricSelect = (key: MetricKey) => {
@@ -1491,20 +1516,18 @@ export default function ProgressMetricDetail() {
     updateMutation.mutate({ id: editingEntry.id, data: updateData });
   };
 
-  const cutoffDate = getDateCutoff(timeRange, selectedWeekStart);
+  const currentPeriod = getPeriodRange(timeRange, selectedWeekStart, periodOffset);
+  const cutoffDate = currentPeriod.start;
   const filteredEntries = entries.filter(entry => {
     const entryDate = startOfDay(parseISO(entry.date));
-    const cutoff = startOfDay(cutoffDate);
-    if (timeRange === "1W") {
-      const weekEnd = startOfDay(getWeekEnd(selectedWeekStart));
-      return (isAfter(entryDate, cutoff) || isSameDay(entryDate, cutoff)) && (isBefore(entryDate, weekEnd) || isSameDay(entryDate, weekEnd));
-    }
-    return isAfter(entryDate, cutoff) || isSameDay(entryDate, cutoff);
+    const cutoff = startOfDay(currentPeriod.start);
+    const end = startOfDay(currentPeriod.end);
+    return (isAfter(entryDate, cutoff) || isSameDay(entryDate, cutoff)) && (isBefore(entryDate, end) || isSameDay(entryDate, end));
   });
 
   const now = new Date();
-  const rangeStartDate = startOfDay(cutoffDate);
-  const rangeEndDate = timeRange === "1W" ? startOfDay(getWeekEnd(selectedWeekStart)) : startOfDay(now);
+  const rangeStartDate = startOfDay(currentPeriod.start);
+  const rangeEndDate = startOfDay(currentPeriod.end);
 
   const chartData = [...filteredEntries]
     .sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime())
@@ -1668,6 +1691,7 @@ export default function ProgressMetricDetail() {
           <div className="space-y-3">
             <Tabs value={timeRange} onValueChange={(v) => {
               setTimeRange(v as TimeRange);
+              setPeriodOffset(0);
               if (v === "1W") {
                 setSelectedWeekStart(startOfWeek(new Date(), { weekStartsOn: 1 }));
               }
@@ -1685,35 +1709,72 @@ export default function ProgressMetricDetail() {
                 ))}
               </TabsList>
             </Tabs>
-            {timeRange === "1W" && (
-              <div className="flex items-center justify-between bg-card border border-border rounded-xl px-4 py-2.5">
-                <button
-                  onClick={() => setSelectedWeekStart(prev => addWeeks(prev, -1))}
-                  className="p-1.5 rounded-lg hover:bg-muted/50 active:scale-95 transition-all"
-                >
-                  <ChevronLeft className="w-5 h-5 text-foreground" />
-                </button>
-                <div className="text-center">
-                  <p className="text-sm font-semibold text-foreground">
-                    {format(selectedWeekStart, "MMM d")} — {format(getWeekEnd(selectedWeekStart), "MMM d, yyyy")}
-                  </p>
-                  {isSameDay(selectedWeekStart, startOfWeek(new Date(), { weekStartsOn: 1 })) && (
-                    <p className="text-xs text-[#0cc9a9] font-medium">This Week</p>
-                  )}
+            {(() => {
+              const navigatePrev = () => {
+                if (timeRange === "1W") {
+                  setSelectedWeekStart(prev => addWeeks(prev, -1));
+                } else {
+                  setPeriodOffset(prev => prev - 1);
+                }
+              };
+              const navigateNext = () => {
+                if (timeRange === "1W") {
+                  const nextWeek = addWeeks(selectedWeekStart, 1);
+                  if (!isAfter(nextWeek, startOfWeek(new Date(), { weekStartsOn: 1 }))) {
+                    setSelectedWeekStart(nextWeek);
+                  }
+                } else {
+                  if (periodOffset < 0) setPeriodOffset(prev => prev + 1);
+                }
+              };
+              const isAtCurrent = timeRange === "1W"
+                ? isSameDay(selectedWeekStart, startOfWeek(new Date(), { weekStartsOn: 1 }))
+                : periodOffset === 0;
+              const canGoNext = !isAtCurrent;
+
+              const periodRange = currentPeriod;
+              let dateLabel = "";
+              let currentLabel = "";
+              if (timeRange === "1W") {
+                dateLabel = `${format(selectedWeekStart, "MMM d")} --- ${format(getWeekEnd(selectedWeekStart), "MMM d, yyyy")}`;
+                currentLabel = "This Week";
+              } else if (timeRange === "1M") {
+                dateLabel = format(periodRange.start, "MMMM yyyy");
+                currentLabel = "This Month";
+              } else if (timeRange === "3M") {
+                dateLabel = `${format(periodRange.start, "MMM d")} --- ${format(periodRange.end, "MMM d, yyyy")}`;
+                currentLabel = "Current Quarter";
+              } else if (timeRange === "6M") {
+                dateLabel = `${format(periodRange.start, "MMM d")} --- ${format(periodRange.end, "MMM d, yyyy")}`;
+                currentLabel = "Last 6 Months";
+              } else {
+                dateLabel = `${format(periodRange.start, "MMM yyyy")} --- ${format(periodRange.end, "MMM yyyy")}`;
+                currentLabel = "This Year";
+              }
+
+              return (
+                <div className="flex items-center justify-between bg-card border border-border rounded-xl px-4 py-2.5">
+                  <button
+                    onClick={navigatePrev}
+                    className="p-1.5 rounded-lg hover:bg-muted/50 active:scale-95 transition-all"
+                  >
+                    <ChevronLeft className="w-5 h-5 text-foreground" />
+                  </button>
+                  <div className="text-center">
+                    <p className="text-sm font-semibold text-foreground">{dateLabel}</p>
+                    {isAtCurrent && (
+                      <p className="text-xs text-[#0cc9a9] font-medium">{currentLabel}</p>
+                    )}
+                  </div>
+                  <button
+                    onClick={navigateNext}
+                    className={`p-1.5 rounded-lg transition-all ${!canGoNext ? 'opacity-30 cursor-not-allowed' : 'hover:bg-muted/50 active:scale-95'}`}
+                  >
+                    <ChevronRight className="w-5 h-5 text-foreground" />
+                  </button>
                 </div>
-                <button
-                  onClick={() => {
-                    const nextWeek = addWeeks(selectedWeekStart, 1);
-                    if (!isAfter(nextWeek, startOfWeek(new Date(), { weekStartsOn: 1 }))) {
-                      setSelectedWeekStart(nextWeek);
-                    }
-                  }}
-                  className={`p-1.5 rounded-lg transition-all ${isAfter(addWeeks(selectedWeekStart, 1), startOfWeek(new Date(), { weekStartsOn: 1 })) ? 'opacity-30 cursor-not-allowed' : 'hover:bg-muted/50 active:scale-95'}`}
-                >
-                  <ChevronRight className="w-5 h-5 text-foreground" />
-                </button>
-              </div>
-            )}
+              );
+            })()}
           </div>
         )}
 
@@ -1936,19 +1997,16 @@ export default function ProgressMetricDetail() {
           })() : null;
 
           const getPreviousPeriodEntries = () => {
-            const currentCutoff = cutoffDate;
-            let prevStart: Date, prevEnd: Date;
+            let prevRange: { start: Date; end: Date };
             if (timeRange === "1W") {
-              prevStart = addWeeks(selectedWeekStart, -1);
-              prevEnd = getWeekEnd(prevStart);
+              const prevWeekStart = addWeeks(selectedWeekStart, -1);
+              prevRange = { start: prevWeekStart, end: getWeekEnd(prevWeekStart) };
             } else {
-              const periodDays = Math.round((now.getTime() - currentCutoff.getTime()) / (1000 * 60 * 60 * 24));
-              prevEnd = subDays(currentCutoff, 1);
-              prevStart = subDays(currentCutoff, periodDays);
+              prevRange = getPeriodRange(timeRange, selectedWeekStart, periodOffset - 1);
             }
             return entries.filter((e: any) => {
               const d = startOfDay(parseISO(e.date));
-              return (isAfter(d, startOfDay(prevStart)) || isSameDay(d, startOfDay(prevStart))) && (isBefore(d, startOfDay(prevEnd)) || isSameDay(d, startOfDay(prevEnd)));
+              return (isAfter(d, startOfDay(prevRange.start)) || isSameDay(d, startOfDay(prevRange.start))) && (isBefore(d, startOfDay(prevRange.end)) || isSameDay(d, startOfDay(prevRange.end)));
             });
           };
           const prevEntries = getPreviousPeriodEntries();

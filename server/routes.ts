@@ -16749,6 +16749,67 @@ RULES:
     }
   });
 
+  app.post('/api/reseed-sleep-data', async (req: any, res) => {
+    try {
+      await db.delete(sleepEntries);
+      const allUsers = await db.select({ id: users.id }).from(users);
+      const userId = allUsers.length > 0 ? allUsers[0].id : 'admin-001';
+      const now = new Date();
+      const entries = [];
+      
+      for (let i = 364; i >= 0; i--) {
+        if (Math.random() < 0.08) continue;
+        
+        const date = new Date(now);
+        date.setDate(date.getDate() - i);
+        date.setHours(12, 0, 0, 0);
+        
+        const dayOfWeek = date.getDay();
+        const isWeekend = dayOfWeek === 0 || dayOfWeek === 6;
+        const monthProgress = i / 365;
+        const improvementFactor = (1 - monthProgress) * 0.15;
+        const seasonalFactor = Math.sin((i / 365) * 2 * Math.PI) * 0.08;
+        
+        let baseDuration = isWeekend ? 470 : 410;
+        baseDuration += improvementFactor * 40;
+        baseDuration += seasonalFactor * 30;
+        baseDuration += (Math.random() - 0.5) * 120;
+        const durationMinutes = Math.max(280, Math.min(560, Math.round(baseDuration)));
+        
+        let baseQuality = 6.5 + improvementFactor * 2 + seasonalFactor;
+        baseQuality += (Math.random() - 0.5) * 3;
+        const quality = Math.max(2, Math.min(10, Math.round(baseQuality)));
+        
+        const durScore = durationMinutes >= 420 ? 40 : (durationMinutes / 420) * 40;
+        const qualScore = (quality / 10) * 35;
+        const baseScore = durScore + qualScore + 15 + (Math.random() * 8 - 4);
+        const sleepScore = Math.max(30, Math.min(98, Math.round(baseScore)));
+        
+        const awakeMinutes = Math.round(5 + Math.random() * 25);
+        const actualSleep = durationMinutes - awakeMinutes;
+        const deepPct = 0.13 + Math.random() * 0.12;
+        const remPct = 0.18 + Math.random() * 0.08;
+        const deepSleepMinutes = Math.round(actualSleep * deepPct);
+        const remSleepMinutes = Math.round(actualSleep * remPct);
+        const lightSleepMinutes = actualSleep - deepSleepMinutes - remSleepMinutes;
+        
+        entries.push({
+          userId, date, durationMinutes, quality, sleepScore,
+          deepSleepMinutes, lightSleepMinutes, remSleepMinutes, awakeMinutes,
+        });
+      }
+      
+      for (const entry of entries) {
+        await db.insert(sleepEntries).values(entry);
+      }
+      
+      res.json({ success: true, created: entries.length });
+    } catch (error) {
+      console.error("Error reseeding sleep:", error);
+      res.status(500).json({ message: "Failed", error: String(error) });
+    }
+  });
+
   const httpServer = createServer(app);
   return httpServer;
 }

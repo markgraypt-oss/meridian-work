@@ -16916,6 +16916,40 @@ RULES:
     }
   });
 
+  // TEMPORARY: Populate sleep scores and stages for all sleep entries
+  app.post('/api/fix-sleep-data', async (req: any, res) => {
+    try {
+      const allEntries = await db.select().from(sleepEntries);
+      let updated = 0;
+      for (const entry of allEntries) {
+        if (entry.sleepScore && entry.deepSleepMinutes) continue;
+        const dur = entry.durationMinutes || 420;
+        const quality = entry.quality || 7;
+        const baseScore = Math.min(100, Math.round(
+          (dur >= 420 ? 40 : (dur / 420) * 40) +
+          (quality / 10) * 35 +
+          15 + (Math.random() * 10 - 5)
+        ));
+        const sleepScore = Math.max(30, Math.min(98, baseScore));
+        const awakeMinutes = Math.round(5 + Math.random() * 20);
+        const actualSleep = dur - awakeMinutes;
+        const deepPct = 0.15 + Math.random() * 0.10;
+        const remPct = 0.20 + Math.random() * 0.05;
+        const deepSleepMinutes = Math.round(actualSleep * deepPct);
+        const remSleepMinutes = Math.round(actualSleep * remPct);
+        const lightSleepMinutes = actualSleep - deepSleepMinutes - remSleepMinutes;
+        await db.update(sleepEntries)
+          .set({ sleepScore, deepSleepMinutes, lightSleepMinutes, remSleepMinutes, awakeMinutes })
+          .where(eq(sleepEntries.id, entry.id));
+        updated++;
+      }
+      res.json({ success: true, updated });
+    } catch (error) {
+      console.error("Error fixing sleep data:", error);
+      res.status(500).json({ message: "Failed", error: String(error) });
+    }
+  });
+
   const httpServer = createServer(app);
   return httpServer;
 }

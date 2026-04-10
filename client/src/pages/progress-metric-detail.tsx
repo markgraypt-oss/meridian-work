@@ -2493,7 +2493,7 @@ export default function ProgressMetricDetail() {
                               </span>
                             </div>
                             <div>
-                              <p className="font-semibold text-foreground text-base">{entry.hours?.toFixed(1)}h</p>
+                              <p className="font-semibold text-foreground text-base">{(() => { const h = entry.hours || 0; const hrs = Math.floor(h); const mins = Math.round((h - hrs) * 60); return mins > 0 ? `${hrs}h ${mins}m` : `${hrs}h`; })()}</p>
                               {entry.bedTime && entry.wakeTime && (
                                 <p className="text-xs text-muted-foreground mt-0.5">{entry.bedTime} — {entry.wakeTime}</p>
                               )}

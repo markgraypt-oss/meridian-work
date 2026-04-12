@@ -501,26 +501,26 @@ function ProgressTile({ config, onClick, selectedDate }: ProgressTileProps) {
             </p>
             
             {config.showRing && ringData && (() => {
-              const ringSize = 44;
-              const ringStroke = 3.5;
+              const ringSize = 56;
+              const ringStroke = 4;
               const ringRadius = (ringSize - ringStroke) / 2;
               const ringCirc = ringRadius * 2 * Math.PI;
               const ringProgress = Math.min(ringData.value / ringData.max, 1);
               const ringOffset = ringCirc - ringProgress * ringCirc;
               const scoreColor = ringData.value >= 85 ? "#22c55e" : ringData.value >= 70 ? "#3b82f6" : ringData.value >= 50 ? "#0cc9a9" : "#ef4444";
               return (
-                <div className="flex items-center justify-end gap-2 mt-1">
-                  <span className="text-[9px] text-muted-foreground leading-tight text-right">Avg Sleep<br/>Score</span>
-                  <div className="relative flex-shrink-0">
+                <div className="flex items-center gap-2.5" style={{ height: 28, marginTop: 8 }}>
+                  <div className="relative flex-shrink-0" style={{ width: ringSize, height: ringSize, marginTop: -14, marginBottom: -14 }}>
                     <svg width={ringSize} height={ringSize} className="transform -rotate-90">
                       <circle cx={ringSize/2} cy={ringSize/2} r={ringRadius} fill="none" stroke="currentColor" strokeWidth={ringStroke} className="text-gray-700" />
                       <circle cx={ringSize/2} cy={ringSize/2} r={ringRadius} fill="none" stroke={scoreColor} strokeWidth={ringStroke} strokeDasharray={ringCirc} strokeDashoffset={ringOffset} strokeLinecap="round" className="transition-all duration-300" />
                     </svg>
                     <div className="absolute inset-0 flex flex-col items-center justify-center">
-                      <span className="text-[10px] font-bold text-foreground leading-none">{ringData.value}</span>
-                      <span className="text-[7px] text-muted-foreground leading-none">of {ringData.max}</span>
+                      <span className="text-xs font-bold text-foreground leading-none">{ringData.value}</span>
+                      <span className="text-[7px] text-muted-foreground leading-none mt-0.5">of {ringData.max}</span>
                     </div>
                   </div>
+                  <span className="text-[10px] text-muted-foreground whitespace-nowrap">Avg Sleep Score</span>
                 </div>
               );
             })()}

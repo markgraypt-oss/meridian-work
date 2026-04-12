@@ -446,7 +446,7 @@ function ProgressTile({ config, onClick, selectedDate }: ProgressTileProps) {
 
   return (
     <Card 
-      className="p-4 cursor-pointer hover:bg-foreground/5 active:bg-foreground/10 transition-colors"
+      className="p-4 cursor-pointer hover:bg-foreground/5 active:bg-foreground/10 transition-colors relative overflow-hidden"
       onClick={onClick}
       data-testid={`tile-progress-${config.key}`}
     >
@@ -501,7 +501,7 @@ function ProgressTile({ config, onClick, selectedDate }: ProgressTileProps) {
             </p>
             
             {config.showRing && ringData && (() => {
-              const ringSize = 56;
+              const ringSize = 62;
               const ringStroke = 4;
               const ringRadius = (ringSize - ringStroke) / 2;
               const ringCirc = ringRadius * 2 * Math.PI;
@@ -509,16 +509,16 @@ function ProgressTile({ config, onClick, selectedDate }: ProgressTileProps) {
               const ringOffset = ringCirc - ringProgress * ringCirc;
               const scoreColor = ringData.value >= 85 ? "#22c55e" : ringData.value >= 70 ? "#3b82f6" : ringData.value >= 50 ? "#0cc9a9" : "#ef4444";
               return (
-                <div className="flex items-center justify-end gap-2" style={{ height: 28, marginTop: 8 }}>
+                <div className="absolute bottom-2 right-3 flex items-center gap-1.5">
                   <span className="text-[10px] text-muted-foreground whitespace-nowrap">Avg Sleep Score</span>
-                  <div className="relative flex-shrink-0" style={{ width: ringSize, height: ringSize, marginTop: -14, marginBottom: -14 }}>
+                  <div className="relative flex-shrink-0">
                     <svg width={ringSize} height={ringSize} className="transform -rotate-90">
                       <circle cx={ringSize/2} cy={ringSize/2} r={ringRadius} fill="none" stroke="currentColor" strokeWidth={ringStroke} className="text-gray-700" />
                       <circle cx={ringSize/2} cy={ringSize/2} r={ringRadius} fill="none" stroke={scoreColor} strokeWidth={ringStroke} strokeDasharray={ringCirc} strokeDashoffset={ringOffset} strokeLinecap="round" className="transition-all duration-300" />
                     </svg>
                     <div className="absolute inset-0 flex flex-col items-center justify-center">
-                      <span className="text-xs font-bold text-foreground leading-none">{ringData.value}</span>
-                      <span className="text-[7px] text-muted-foreground leading-none mt-0.5">of {ringData.max}</span>
+                      <span className="text-sm font-bold text-foreground leading-none">{ringData.value}</span>
+                      <span className="text-[8px] text-muted-foreground leading-none mt-0.5">of {ringData.max}</span>
                     </div>
                   </div>
                 </div>

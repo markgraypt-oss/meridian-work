@@ -491,6 +491,39 @@ function ProgressTile({ config, onClick, selectedDate }: ProgressTileProps) {
               </div>
             )}
           </>
+        ) : config.showRing && ringData ? (
+          <div className="flex items-center justify-between">
+            <p 
+              className={`text-lg font-semibold ${hasData ? "text-foreground" : "text-muted-foreground"}`}
+              data-testid={`text-progress-value-${config.key}`}
+            >
+              {isLoading ? "..." : value}
+            </p>
+            {(() => {
+              const ringSize = 56;
+              const ringStroke = 4;
+              const ringRadius = (ringSize - ringStroke) / 2;
+              const ringCirc = ringRadius * 2 * Math.PI;
+              const ringProgress = Math.min(ringData.value / ringData.max, 1);
+              const ringOffset = ringCirc - ringProgress * ringCirc;
+              const scoreColor = ringData.value >= 85 ? "#22c55e" : ringData.value >= 70 ? "#3b82f6" : ringData.value >= 50 ? "#0cc9a9" : "#ef4444";
+              return (
+                <div className="flex flex-col items-center gap-0.5">
+                  <div className="relative flex-shrink-0">
+                    <svg width={ringSize} height={ringSize} className="transform -rotate-90">
+                      <circle cx={ringSize/2} cy={ringSize/2} r={ringRadius} fill="none" stroke="currentColor" strokeWidth={ringStroke} className="text-gray-700" />
+                      <circle cx={ringSize/2} cy={ringSize/2} r={ringRadius} fill="none" stroke={scoreColor} strokeWidth={ringStroke} strokeDasharray={ringCirc} strokeDashoffset={ringOffset} strokeLinecap="round" className="transition-all duration-300" />
+                    </svg>
+                    <div className="absolute inset-0 flex flex-col items-center justify-center">
+                      <span className="text-[11px] font-bold text-foreground leading-none">{ringData.value}</span>
+                      <span className="text-[7px] text-muted-foreground leading-none">of {ringData.max}</span>
+                    </div>
+                  </div>
+                  <span className="text-[8px] text-muted-foreground leading-none">Avg Sleep Score</span>
+                </div>
+              );
+            })()}
+          </div>
         ) : (
           <>
             <p 
@@ -500,28 +533,6 @@ function ProgressTile({ config, onClick, selectedDate }: ProgressTileProps) {
               {isLoading ? "..." : value}
             </p>
             
-            {config.showRing && ringData && (() => {
-              const ringSize = 48;
-              const ringStroke = 4;
-              const ringRadius = (ringSize - ringStroke) / 2;
-              const ringCirc = ringRadius * 2 * Math.PI;
-              const ringProgress = Math.min(ringData.value / ringData.max, 1);
-              const ringOffset = ringCirc - ringProgress * ringCirc;
-              const scoreColor = ringData.value >= 85 ? "#22c55e" : ringData.value >= 70 ? "#3b82f6" : ringData.value >= 50 ? "#0cc9a9" : "#ef4444";
-              return (
-                <div className="flex items-center gap-3 mt-2">
-                  <div className="relative flex-shrink-0">
-                    <svg width={ringSize} height={ringSize} className="transform -rotate-90">
-                      <circle cx={ringSize/2} cy={ringSize/2} r={ringRadius} fill="none" stroke="currentColor" strokeWidth={ringStroke} className="text-gray-700" />
-                      <circle cx={ringSize/2} cy={ringSize/2} r={ringRadius} fill="none" stroke={scoreColor} strokeWidth={ringStroke} strokeDasharray={ringCirc} strokeDashoffset={ringOffset} strokeLinecap="round" className="transition-all duration-300" />
-                    </svg>
-                    <span className="absolute inset-0 flex items-center justify-center text-xs font-bold text-foreground">{ringData.value}</span>
-                  </div>
-                  <span className="text-xs text-muted-foreground">{ringData.label}</span>
-                </div>
-              );
-            })()}
-
             {config.showMiniGraph && hasData && graphData.length > 0 && (() => {
               const values = graphData.map(d => d.value);
               const minVal = Math.min(...values);

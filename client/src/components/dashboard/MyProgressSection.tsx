@@ -29,6 +29,7 @@ interface SleepEntry {
   id: number;
   durationMinutes: number;
   quality: number | null;
+  sleepScore: number | null;
   date: string;
 }
 
@@ -123,6 +124,8 @@ interface MetricConfig {
   showPhotoThumbnails?: boolean;
   showMiniGraph?: boolean;
   getGraphData?: (data: any[]) => { value: number; timestamp: number }[];
+  showRing?: boolean;
+  getRingData?: (data: any[]) => { value: number; max: number; label: string } | null;
 }
 
 const allMetricConfigs: MetricConfig[] = [
@@ -169,18 +172,15 @@ const allMetricConfigs: MetricConfig[] = [
     },
     getProgressPercent: () => 0,
     hideProgressBar: true,
-    showMiniGraph: true,
-    getGraphData: (data: SleepEntry[]) => {
-      if (!data?.length) return [];
+    showRing: true,
+    getRingData: (data: SleepEntry[]) => {
+      if (!data?.length) return null;
       const now = new Date();
       const threeMonthsAgo = new Date(now.getFullYear(), now.getMonth() - 3, now.getDate());
-      const filtered = data.filter(entry => {
-        const entryDate = new Date(entry.date);
-        return entryDate >= threeMonthsAgo;
-      });
-      return filtered
-        .sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime())
-        .map(entry => ({ value: entry.durationMinutes / 60, timestamp: new Date(entry.date).getTime() }));
+      const recent = data.filter(e => new Date(e.date) >= threeMonthsAgo && e.sleepScore);
+      if (!recent.length) return null;
+      const avgScore = Math.round(recent.reduce((s, e) => s + (e.sleepScore || 0), 0) / recent.length);
+      return { value: avgScore, max: 100, label: "Avg Score" };
     },
   },
   {
@@ -432,15 +432,16 @@ function ProgressTile({ config, onClick, selectedDate }: ProgressTileProps) {
     ? data && (data as any).totalMl > 0
     : data && Array.isArray(data) && data.length > 0;
 
-  // Calculate graph data for mini charts
   const graphData = useMemo(() => {
     if (!config.showMiniGraph || !config.getGraphData || !hasData) {
-      console.log(`[MiniGraph] ${config.key}: skipping - showMiniGraph=${config.showMiniGraph}, hasGetGraphData=${!!config.getGraphData}, hasData=${hasData}`);
       return [];
     }
-    const result = config.getGraphData(data ?? []);
-    console.log(`[MiniGraph] ${config.key}: graphData length=${result.length}`, result);
-    return result;
+    return config.getGraphData(data ?? []);
+  }, [config, data, hasData]);
+
+  const ringData = useMemo(() => {
+    if (!config.showRing || !config.getRingData || !hasData) return null;
+    return config.getRingData(data ?? []);
   }, [config, data, hasData]);
 
   return (
@@ -499,6 +500,28 @@ function ProgressTile({ config, onClick, selectedDate }: ProgressTileProps) {
               {isLoading ? "..." : value}
             </p>
             
+            {config.showRing && ringData && (() => {
+              const ringSize = 48;
+              const ringStroke = 4;
+              const ringRadius = (ringSize - ringStroke) / 2;
+              const ringCirc = ringRadius * 2 * Math.PI;
+              const ringProgress = Math.min(ringData.value / ringData.max, 1);
+              const ringOffset = ringCirc - ringProgress * ringCirc;
+              const scoreColor = ringData.value >= 85 ? "#22c55e" : ringData.value >= 70 ? "#3b82f6" : ringData.value >= 50 ? "#0cc9a9" : "#ef4444";
+              return (
+                <div className="flex items-center gap-3 mt-2">
+                  <div className="relative flex-shrink-0">
+                    <svg width={ringSize} height={ringSize} className="transform -rotate-90">
+                      <circle cx={ringSize/2} cy={ringSize/2} r={ringRadius} fill="none" stroke="currentColor" strokeWidth={ringStroke} className="text-gray-700" />
+                      <circle cx={ringSize/2} cy={ringSize/2} r={ringRadius} fill="none" stroke={scoreColor} strokeWidth={ringStroke} strokeDasharray={ringCirc} strokeDashoffset={ringOffset} strokeLinecap="round" className="transition-all duration-300" />
+                    </svg>
+                    <span className="absolute inset-0 flex items-center justify-center text-xs font-bold text-foreground">{ringData.value}</span>
+                  </div>
+                  <span className="text-xs text-muted-foreground">{ringData.label}</span>
+                </div>
+              );
+            })()}
+
             {config.showMiniGraph && hasData && graphData.length > 0 && (() => {
               const values = graphData.map(d => d.value);
               const minVal = Math.min(...values);

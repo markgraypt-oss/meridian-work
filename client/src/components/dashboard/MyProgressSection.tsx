@@ -509,8 +509,7 @@ function ProgressTile({ config, onClick, selectedDate }: ProgressTileProps) {
               const ringOffset = ringCirc - ringProgress * ringCirc;
               const scoreColor = ringData.value >= 85 ? "#22c55e" : ringData.value >= 70 ? "#3b82f6" : ringData.value >= 50 ? "#0cc9a9" : "#ef4444";
               return (
-                <div className="absolute bottom-2 right-3 flex items-center gap-1.5">
-                  <span className="text-[10px] text-muted-foreground whitespace-nowrap">Avg Sleep Score</span>
+                <div className="absolute bottom-2 right-3 flex flex-col items-center gap-0.5">
                   <div className="relative flex-shrink-0">
                     <svg width={ringSize} height={ringSize} className="transform -rotate-90">
                       <circle cx={ringSize/2} cy={ringSize/2} r={ringRadius} fill="none" stroke="currentColor" strokeWidth={ringStroke} className="text-gray-700" />
@@ -521,6 +520,7 @@ function ProgressTile({ config, onClick, selectedDate }: ProgressTileProps) {
                       <span className="text-[8px] text-muted-foreground leading-none mt-0.5">of {ringData.max}</span>
                     </div>
                   </div>
+                  <span className="text-[9px] text-muted-foreground whitespace-nowrap">Avg Sleep Score</span>
                 </div>
               );
             })()}

@@ -70,7 +70,6 @@ interface NutritionData {
   };
 }
 
-// Circular progress component for nutrition metrics
 function CircularProgress({ value, max, size = 56, strokeWidth = 4, color = "#0cc9a9" }: {
   value: number;
   max: number;
@@ -80,8 +79,13 @@ function CircularProgress({ value, max, size = 56, strokeWidth = 4, color = "#0c
 }) {
   const radius = (size - strokeWidth) / 2;
   const circumference = radius * 2 * Math.PI;
-  const progress = Math.min(value / max, 1);
-  const offset = circumference - progress * circumference;
+  const ratio = max > 0 ? value / max : 0;
+  const firstLap = Math.min(ratio, 1);
+  const overflowLap = ratio > 1 ? Math.min(ratio - 1, 1) : 0;
+  const firstOffset = circumference - firstLap * circumference;
+  const overflowOffset = circumference - overflowLap * circumference;
+
+  const darkerColor = color === "#0cc9a9" ? "#088f77" : color;
 
   return (
     <svg width={size} height={size} className="transform -rotate-90">
@@ -102,10 +106,25 @@ function CircularProgress({ value, max, size = 56, strokeWidth = 4, color = "#0c
         stroke={color}
         strokeWidth={strokeWidth}
         strokeDasharray={circumference}
-        strokeDashoffset={offset}
+        strokeDashoffset={firstOffset}
         strokeLinecap="round"
         className="transition-all duration-300"
       />
+      {overflowLap > 0 && (
+        <circle
+          cx={size / 2}
+          cy={size / 2}
+          r={radius}
+          fill="none"
+          stroke={darkerColor}
+          strokeWidth={strokeWidth + 2}
+          strokeDasharray={circumference}
+          strokeDashoffset={overflowOffset}
+          strokeLinecap="round"
+          className="transition-all duration-300"
+          opacity={0.7}
+        />
+      )}
     </svg>
   );
 }

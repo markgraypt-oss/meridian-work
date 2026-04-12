@@ -149,89 +149,50 @@ function NutritionGoalCard({ goal, nutritionData }: {
     fat: Math.round(rawCurrent.fat),
   };
 
+  const getMacroColor = (value: number, target: number) => {
+    if (target === 0) return "text-foreground";
+    const pct = value / target;
+    if (pct >= 1.10) return "text-red-500";
+    if (pct >= 1.05) return "text-yellow-500";
+    if (pct >= 0.95) return "text-green-500";
+    return "text-foreground";
+  };
+
+  const macros = [
+    { key: "calories", label: "Calories", value: current.calories, target: targets.calories, unit: "", targetLabel: `${targets.calories} Cal` },
+    { key: "protein", label: "Protein", value: current.protein, target: targets.protein, unit: "g", targetLabel: `${targets.protein}g` },
+    { key: "carbs", label: "Carbs", value: current.carbs, target: targets.carbs, unit: "g", targetLabel: `${targets.carbs}g` },
+    { key: "fat", label: "Fat", value: current.fat, target: targets.fat, unit: "g", targetLabel: `${targets.fat}g` },
+  ];
+
   return (
     <Card 
       className="p-4"
       data-testid={`card-goal-${goal.id}`}
     >
-      {/* Header */}
       <div className="flex items-center justify-between mb-4">
         <span className="font-medium text-foreground">Daily nutrition goal</span>
       </div>
       
-      {/* Macro circles - larger, evenly spaced */}
       <div className="flex justify-around">
-        {/* Calories */}
-        <div className="flex flex-col items-center">
-          <div className="relative">
-            <CircularProgress 
-              value={current.calories} 
-              max={targets.calories} 
-              size={82} 
-              strokeWidth={5}
-              color="#0cc9a9"
-            />
-            <div className="absolute inset-0 flex flex-col items-center justify-center">
-              <span className="text-lg font-semibold text-foreground">{current.calories}</span>
-              <span className="text-[10px] text-muted-foreground">Calories</span>
+        {macros.map(m => (
+          <div key={m.key} className="flex flex-col items-center">
+            <div className="relative">
+              <CircularProgress 
+                value={m.value} 
+                max={m.target} 
+                size={82} 
+                strokeWidth={5}
+                color="#0cc9a9"
+              />
+              <div className="absolute inset-0 flex flex-col items-center justify-center">
+                <span className={`text-lg font-semibold ${getMacroColor(m.value, m.target)}`}>{m.value}{m.unit}</span>
+                <span className="text-[10px] text-muted-foreground">{m.label}</span>
+              </div>
             </div>
+            <span className="text-xs text-black font-medium -mt-1 px-2 py-0.5 rounded-full bg-[#0cc9a9] relative z-10">{m.targetLabel}</span>
           </div>
-          <span className="text-xs text-black font-medium -mt-1 px-2 py-0.5 rounded-full bg-[#0cc9a9] relative z-10">{targets.calories} Cal</span>
-        </div>
-        
-        {/* Protein */}
-        <div className="flex flex-col items-center">
-          <div className="relative">
-            <CircularProgress 
-              value={current.protein} 
-              max={targets.protein} 
-              size={82} 
-              strokeWidth={5}
-              color="#0cc9a9"
-            />
-            <div className="absolute inset-0 flex flex-col items-center justify-center">
-              <span className="text-lg font-semibold text-foreground">{current.protein}g</span>
-              <span className="text-[10px] text-muted-foreground">Protein</span>
-            </div>
-          </div>
-          <span className="text-xs text-black font-medium -mt-1 px-2 py-0.5 rounded-full bg-[#0cc9a9] relative z-10">{targets.protein}g</span>
-        </div>
-        
-        {/* Carbs */}
-        <div className="flex flex-col items-center">
-          <div className="relative">
-            <CircularProgress 
-              value={current.carbs} 
-              max={targets.carbs} 
-              size={82} 
-              strokeWidth={5}
-              color="#0cc9a9"
-            />
-            <div className="absolute inset-0 flex flex-col items-center justify-center">
-              <span className="text-lg font-semibold text-foreground">{current.carbs}g</span>
-              <span className="text-[10px] text-muted-foreground">Carbs</span>
-            </div>
-          </div>
-          <span className="text-xs text-black font-medium -mt-1 px-2 py-0.5 rounded-full bg-[#0cc9a9] relative z-10">{targets.carbs}g</span>
-        </div>
-        
-        {/* Fat */}
-        <div className="flex flex-col items-center">
-          <div className="relative">
-            <CircularProgress 
-              value={current.fat} 
-              max={targets.fat} 
-              size={82} 
-              strokeWidth={5}
-              color="#0cc9a9"
-            />
-            <div className="absolute inset-0 flex flex-col items-center justify-center">
-              <span className="text-lg font-semibold text-foreground">{current.fat}g</span>
-              <span className="text-[10px] text-muted-foreground">Fat</span>
-            </div>
-          </div>
-          <span className="text-xs text-black font-medium -mt-1 px-2 py-0.5 rounded-full bg-[#0cc9a9] relative z-10">{targets.fat}g</span>
-        </div>
+        ))}
       </div>
     </Card>
   );

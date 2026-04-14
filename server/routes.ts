@@ -16749,6 +16749,34 @@ RULES:
     }
   });
 
+  app.post('/api/admin/fix-sequences', async (req, res) => {
+    try {
+      const tables = [
+        'programs', 'program_weeks', 'program_days', 'programme_workouts',
+        'programme_workout_blocks', 'programme_block_exercises'
+      ];
+      const results: Record<string, string> = {};
+      for (const table of tables) {
+        try {
+          const maxResult = await db.execute(
+            `SELECT COALESCE(MAX(id), 0) as max_id FROM ${table}`
+          );
+          const maxId = Number((maxResult as any).rows?.[0]?.max_id || 0);
+          const newVal = maxId + 1;
+          await db.execute(
+            `SELECT setval(pg_get_serial_sequence('${table}', 'id'), ${newVal}, false)`
+          );
+          results[table] = `reset to ${newVal}`;
+        } catch (e: any) {
+          results[table] = `error: ${e.message}`;
+        }
+      }
+      res.json({ success: true, results });
+    } catch (error: any) {
+      res.status(500).json({ error: error.message });
+    }
+  });
+
   const httpServer = createServer(app);
   return httpServer;
 }

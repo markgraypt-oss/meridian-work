@@ -520,7 +520,7 @@ export default function WorkoutDetail() {
     ? groupExercisesByBlock(workout.exercises, workout.blocks)
     : { warmup: [], miniCircuits: [] };
 
-  const exerciseCounts = useMemo(() => {
+  const exerciseCounts = (() => {
     const total = workout.exercises?.length || 0;
     if (workout.blocks && workout.blocks.length > 0) {
       const wBlocks = workout.blocks.filter((b: any) => b.section === 'warmup' || b.section === 'warm_up');
@@ -537,7 +537,7 @@ export default function WorkoutDetail() {
       return { total, warmup: warmupCount, main: mainCount };
     }
     return { total, warmup: 0, main: total };
-  }, [workout]);
+  })();
 
   return (
     <div className="min-h-screen bg-background relative">

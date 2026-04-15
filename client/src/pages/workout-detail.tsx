@@ -520,6 +520,25 @@ export default function WorkoutDetail() {
     ? groupExercisesByBlock(workout.exercises, workout.blocks)
     : { warmup: [], miniCircuits: [] };
 
+  const exerciseCounts = useMemo(() => {
+    const total = workout.exercises?.length || 0;
+    if (workout.blocks && workout.blocks.length > 0) {
+      const wBlocks = workout.blocks.filter((b: any) => b.section === 'warmup' || b.section === 'warm_up');
+      const mBlocks = workout.blocks.filter((b: any) => b.section !== 'warmup' && b.section !== 'warm_up');
+      const warmupCount = wBlocks.reduce((sum: number, b: any) => sum + (b.exercises?.length || 0), 0);
+      const mainCount = mBlocks.reduce((sum: number, b: any) => sum + (b.exercises?.length || 0), 0);
+      if (warmupCount > 0 || mainCount > 0) {
+        return { total: warmupCount + mainCount, warmup: warmupCount, main: mainCount };
+      }
+    }
+    if (workout.exercises) {
+      const warmupCount = workout.exercises.filter((ex: any) => ex.section === 'warmup' || ex.section === 'warm_up').length;
+      const mainCount = total - warmupCount;
+      return { total, warmup: warmupCount, main: mainCount };
+    }
+    return { total, warmup: 0, main: total };
+  }, [workout]);
+
   return (
     <div className="min-h-screen bg-background relative">
       <TopHeader 
@@ -711,7 +730,11 @@ export default function WorkoutDetail() {
           <div className="border-t border-gray-200 dark:border-gray-700" />
           <div className="flex items-center gap-2 text-muted-foreground py-2">
             <Dumbbell className="h-4 w-4" />
-            <span className="text-sm">{workout.exercises?.length || 0} Exercises</span>
+            <span className="text-sm">
+              {exerciseCounts.total} Exercises{exerciseCounts.warmup > 0 && exerciseCounts.main > 0 && (
+                <span className="text-muted-foreground"> ({exerciseCounts.warmup} Warm Up + {exerciseCounts.main} Main Body)</span>
+              )}
+            </span>
           </div>
         </div>
 

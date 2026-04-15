@@ -7991,38 +7991,34 @@ Rules:
         return res.status(404).json({ message: "Enrollment not found" });
       }
 
-      // Get all enrollment workouts for Week 1 (the template for all weeks)
-      const enrollmentWorkoutsForWeek = await db
+      // Get all enrollment workouts for this enrollment
+      const allEnrollmentWorkouts = await db
         .select()
         .from(enrollmentWorkouts)
-        .where(
-          and(
-            eq(enrollmentWorkouts.enrollmentId, enrollmentId),
-            eq(enrollmentWorkouts.weekNumber, 1)
-          )
-        );
+        .where(eq(enrollmentWorkouts.enrollmentId, enrollmentId));
 
-      // Build a map of workout name to workout for easy lookup
-      const workoutsByName = new Map<string, typeof enrollmentWorkoutsForWeek[0]>();
-      for (const workout of enrollmentWorkoutsForWeek) {
+      // Build a map from Week 1 workout names to their current day numbers
+      const week1Workouts = allEnrollmentWorkouts.filter(w => w.weekNumber === 1);
+      const workoutsByName = new Map<string, typeof week1Workouts[0]>();
+      for (const workout of week1Workouts) {
         workoutsByName.set(workout.name, workout);
       }
 
-      // Process schedule: update day numbers for each workout
+      // Build a map of workout name -> new day number from the schedule
+      const nameToNewDay = new Map<string, number>();
       for (const [dayStr, workoutName] of Object.entries(schedule)) {
         const targetDayNum = parseInt(dayStr);
+        if (!workoutName || workoutName === 'rest' || workoutName === '') continue;
+        nameToNewDay.set(workoutName as string, targetDayNum);
+      }
 
-        if (!workoutName || workoutName === 'rest' || workoutName === '') {
-          continue;
-        }
-
-        // Find the workout by name
-        const workout = workoutsByName.get(workoutName as string);
-        if (workout && workout.dayNumber !== targetDayNum) {
-          // Update the workout's day number
+      // Update ALL weeks - the weekly schedule is a repeating pattern
+      for (const workout of allEnrollmentWorkouts) {
+        const newDayNum = nameToNewDay.get(workout.name);
+        if (newDayNum !== undefined && workout.dayNumber !== newDayNum) {
           await db
             .update(enrollmentWorkouts)
-            .set({ dayNumber: targetDayNum })
+            .set({ dayNumber: newDayNum })
             .where(eq(enrollmentWorkouts.id, workout.id));
         }
       }
@@ -16746,6 +16742,37 @@ RULES:
     } catch (error) {
       console.error("Error deleting mindfulness tool:", error);
       res.status(500).json({ message: "Failed to delete mindfulness tool" });
+    }
+  });
+
+  app.post('/api/admin/fix-enrollment-schedule/:enrollmentId', async (req, res) => {
+    try {
+      const enrollmentId = parseInt(req.params.enrollmentId);
+      const allWorkouts = await db
+        .select()
+        .from(enrollmentWorkouts)
+        .where(eq(enrollmentWorkouts.enrollmentId, enrollmentId));
+
+      const week1Workouts = allWorkouts.filter(w => w.weekNumber === 1);
+      const nameToDayMap = new Map<string, number>();
+      for (const w of week1Workouts) {
+        nameToDayMap.set(w.name, w.dayNumber);
+      }
+
+      let updated = 0;
+      for (const w of allWorkouts) {
+        if (w.weekNumber === 1) continue;
+        const correctDay = nameToDayMap.get(w.name);
+        if (correctDay !== undefined && w.dayNumber !== correctDay) {
+          await db.update(enrollmentWorkouts)
+            .set({ dayNumber: correctDay })
+            .where(eq(enrollmentWorkouts.id, w.id));
+          updated++;
+        }
+      }
+      res.json({ success: true, updated, schedule: Object.fromEntries(nameToDayMap) });
+    } catch (error: any) {
+      res.status(500).json({ error: error.message });
     }
   });
 

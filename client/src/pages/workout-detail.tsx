@@ -75,6 +75,7 @@ export default function WorkoutDetail() {
   const sourceContext = urlParams.get('source');
   const displayWeekStr = urlParams.get('displayWeek');
   const isFromCalendar = sourceContext === 'calendar';
+  const isFromLibrary = sourceContext === 'library';
   const scheduledDate = scheduledDateStr ? parse(scheduledDateStr, 'yyyy-MM-dd', new Date()) : null;
   const displayWeek = displayWeekStr ? parseInt(displayWeekStr) : parseInt(week || '1');
 
@@ -164,7 +165,7 @@ export default function WorkoutDetail() {
       if (!response.ok) throw new Error('Failed to fetch schedule');
       return response.json();
     },
-    enabled: isAuthenticated && !!enrollmentId && !!day,
+    enabled: isAuthenticated && !!enrollmentId && !!day && !isFromLibrary,
   });
 
   // Check for completed workout log - ONLY when navigating from calendar with a specific date
@@ -524,9 +525,9 @@ export default function WorkoutDetail() {
       <TopHeader 
         onBack={() => window.history.back()}
         title={isFromCalendar && scheduledDate ? formatDate(scheduledDate, 'short') : undefined}
-        rightActionLabel={isFromCalendar ? undefined : "Schedule"}
-        rightActionIcon={isFromCalendar ? undefined : <Calendar className="h-4 w-4" />}
-        onRightAction={isFromCalendar ? undefined : () => setShowScheduleDialog(true)}
+        rightActionLabel={isFromCalendar || isFromLibrary ? undefined : "Schedule"}
+        rightActionIcon={isFromCalendar || isFromLibrary ? undefined : <Calendar className="h-4 w-4" />}
+        onRightAction={isFromCalendar || isFromLibrary ? undefined : () => setShowScheduleDialog(true)}
         rightMenuButton={
           <Drawer open={showActionSheet} onOpenChange={setShowActionSheet}>
             <DrawerTrigger asChild>
@@ -1013,7 +1014,7 @@ export default function WorkoutDetail() {
         )}
       </div>
 
-      {canStartWorkout && !completedLogLoading && !isWorkoutCompleted && (
+      {canStartWorkout && !completedLogLoading && !isWorkoutCompleted && !isFromLibrary && (
         <Button 
           onClick={handleStartWorkout}
           disabled={startWorkoutMutation.isPending}

@@ -310,7 +310,7 @@ export default function ProgrammeHub() {
                   {distinctWorkouts.map((workout: any) => (
                     <button
                       key={`${workout.week}-${workout.day}`}
-                      onClick={() => navigate(`/workout-detail/${id}/${workout.week}/${workout.day}`)}
+                      onClick={() => navigate(`/workout-detail/${id}/${workout.week}/${workout.day}?source=library`)}
                       className="w-full text-left bg-muted rounded-lg border border-border hover:border-primary hover:bg-slate-650 transition-colors cursor-pointer flex gap-3 items-stretch overflow-hidden h-[72px]"
                       data-testid={`card-workout-${workout.name}`}
                     >

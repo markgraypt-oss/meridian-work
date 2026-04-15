@@ -16745,37 +16745,6 @@ RULES:
     }
   });
 
-  app.post('/api/admin/fix-enrollment-schedule/:enrollmentId', async (req, res) => {
-    try {
-      const enrollmentId = parseInt(req.params.enrollmentId);
-      const allWorkouts = await db
-        .select()
-        .from(enrollmentWorkouts)
-        .where(eq(enrollmentWorkouts.enrollmentId, enrollmentId));
-
-      const week1Workouts = allWorkouts.filter(w => w.weekNumber === 1);
-      const nameToDayMap = new Map<string, number>();
-      for (const w of week1Workouts) {
-        nameToDayMap.set(w.name, w.dayNumber);
-      }
-
-      let updated = 0;
-      for (const w of allWorkouts) {
-        if (w.weekNumber === 1) continue;
-        const correctDay = nameToDayMap.get(w.name);
-        if (correctDay !== undefined && w.dayNumber !== correctDay) {
-          await db.update(enrollmentWorkouts)
-            .set({ dayNumber: correctDay })
-            .where(eq(enrollmentWorkouts.id, w.id));
-          updated++;
-        }
-      }
-      res.json({ success: true, updated, schedule: Object.fromEntries(nameToDayMap) });
-    } catch (error: any) {
-      res.status(500).json({ error: error.message });
-    }
-  });
-
   const httpServer = createServer(app);
   return httpServer;
 }

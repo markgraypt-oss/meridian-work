@@ -2776,9 +2776,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const source = await storage.getWorkoutById(sourceId);
       if (!source) return res.status(404).json({ message: "Workout not found" });
 
-      // Allow forking library workouts (userId null) or your own; block forking someone else's personal workout
-      const requester = await storage.getUser(userId);
-      if (source.userId != null && source.userId !== userId && !requester?.isAdmin) {
+      // Allow forking library workouts (userId null) or your own; nobody (not even admins) can copy someone else's personal workout
+      if (source.userId != null && source.userId !== userId) {
         return res.status(403).json({ message: "You can't copy another user's workout" });
       }
 

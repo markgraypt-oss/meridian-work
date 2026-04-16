@@ -834,7 +834,7 @@ export default function TrainingWorkoutDetail() {
                   className="w-full text-left py-4 px-2 text-foreground text-lg hover:bg-muted/50 rounded-lg transition-colors"
                   onClick={() => {
                     setShowActionSheet(false);
-                    navigate(`/training/workout/${workoutId}/edit`);
+                    toast({ title: "Edit workout coming soon" });
                   }}
                 >
                   Edit This Workout

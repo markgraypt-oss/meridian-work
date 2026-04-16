@@ -2097,19 +2097,32 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  // Profile image upload
-  app.post('/api/user/profile-image', isAuthenticated, uploadImage.single('profileImage'), async (req: any, res) => {
+  // Profile image upload - stores as base64 data URL in database for persistence across deployments
+  const profileImageUpload = multer({
+    storage: multer.memoryStorage(),
+    limits: { fileSize: 2 * 1024 * 1024 },
+    fileFilter: (_req, file, cb) => {
+      if (file.mimetype.startsWith('image/')) {
+        cb(null, true);
+      } else {
+        cb(new Error('Only image files are allowed'));
+      }
+    }
+  });
+
+  app.post('/api/user/profile-image', isAuthenticated, profileImageUpload.single('profileImage'), async (req: any, res) => {
     try {
       if (!req.file) {
         return res.status(400).json({ message: "No image file provided" });
       }
 
       const userId = req.user.claims.sub;
-      const imageUrl = `/uploads/images/${req.file.filename}`;
-      
-      await storage.updateUser(userId, { profileImageUrl: imageUrl });
-      
-      res.json({ profileImageUrl: imageUrl });
+      const base64 = req.file.buffer.toString('base64');
+      const dataUrl = `data:${req.file.mimetype};base64,${base64}`;
+
+      await storage.updateUser(userId, { profileImageUrl: dataUrl });
+
+      res.json({ profileImageUrl: dataUrl });
     } catch (error) {
       console.error("Profile image upload error:", error);
       res.status(500).json({ message: "Failed to upload profile image" });

@@ -5,7 +5,7 @@ import { storage } from "./storage";
 import { db } from "./db";
 import { setupAuth, isAuthenticated, generateResetToken, hashToken, sendUserInviteEmail } from "./replitAuth";
 import { eq, and, like, inArray, desc, or, isNull, asc, gte, lte, lt } from "drizzle-orm";
-import { users, userProgramEnrollments, programWeeks, programDays, programmeWorkouts, programmeWorkoutBlocks, pathContentItems, topicContentItems, learningPaths, programmeModificationRecords, exerciseSubstitutionMappings, programmeBlockExercises, enrollmentWorkouts, enrollmentWorkoutBlocks, enrollmentBlockExercises, programs, userExtraWorkoutSessions, scheduledWorkouts, workoutLogs, learnContentLibrary, exerciseLibrary, workoutExerciseLogs, workoutSetLogs, aiFeedback, workouts, stepEntries, sleepEntries, bodyweightEntries, bodyFatEntries, restingHREntries, caloricBurnEntries, exerciseMinutesEntries, bloodPressureEntries, leanBodyMassEntries, caloricIntakeEntries, hydrationLogs } from "@shared/schema";
+import { users, userProgramEnrollments, programWeeks, programDays, programmeWorkouts, programmeWorkoutBlocks, pathContentItems, topicContentItems, learningPaths, programmeModificationRecords, exerciseSubstitutionMappings, programmeBlockExercises, enrollmentWorkouts, enrollmentWorkoutBlocks, enrollmentBlockExercises, programs, userExtraWorkoutSessions, scheduledWorkouts, workoutLogs, learnContentLibrary, exerciseLibrary, workoutExerciseLogs, workoutSetLogs, aiFeedback, workouts, workoutBlocks, blockExercises, stepEntries, sleepEntries, bodyweightEntries, bodyFatEntries, restingHREntries, caloricBurnEntries, exerciseMinutesEntries, bloodPressureEntries, leanBodyMassEntries, caloricIntakeEntries, hydrationLogs } from "@shared/schema";
 import { calculateProgramEquipment, updateProgramEquipmentAuto } from "./equipmentDetection";
 import multer from "multer";
 import path from "path";
@@ -742,6 +742,83 @@ function calculateServerWorkoutDuration(workout: any): number {
   const minutes = Math.ceil(totalSeconds / 60);
   const exerciseCountForMin = isBlockFormat ? rawExercises.length : flatExercises.length;
   return Math.max(minutes, exerciseCountForMin * 2);
+}
+
+// --- Authorization helpers for workouts and programmes ---
+// A user can mutate a workout if: it's a library workout (userId null) AND they're admin,
+// OR it's their own personal workout, OR they're an admin.
+async function canEditWorkout(workoutId: number, userId: string): Promise<{ ok: boolean; status?: number; message?: string }> {
+  const w = await storage.getWorkoutById(workoutId);
+  if (!w) return { ok: false, status: 404, message: "Workout not found" };
+  const requester = await storage.getUser(userId);
+  if (w.userId == null) {
+    if (!requester?.isAdmin) return { ok: false, status: 403, message: "Only admins can edit library workouts" };
+  } else if (w.userId !== userId && !requester?.isAdmin) {
+    return { ok: false, status: 403, message: "You can only edit your own workouts" };
+  }
+  return { ok: true };
+}
+
+async function workoutIdForBlock(blockId: number): Promise<number | null> {
+  const [row] = await db.select({ workoutId: workoutBlocks.workoutId }).from(workoutBlocks).where(eq(workoutBlocks.id, blockId));
+  return row?.workoutId ?? null;
+}
+
+async function workoutIdForBlockExercise(exId: number): Promise<number | null> {
+  const [row] = await db
+    .select({ workoutId: workoutBlocks.workoutId })
+    .from(blockExercises)
+    .innerJoin(workoutBlocks, eq(blockExercises.blockId, workoutBlocks.id))
+    .where(eq(blockExercises.id, exId));
+  return row?.workoutId ?? null;
+}
+
+// Programmes: admins can edit any; users can only edit their own (sourceType === 'user_created').
+async function canEditProgramme(programId: number, userId: string): Promise<{ ok: boolean; status?: number; message?: string }> {
+  const [prog] = await db.select().from(programs).where(eq(programs.id, programId));
+  if (!prog) return { ok: false, status: 404, message: "Programme not found" };
+  const requester = await storage.getUser(userId);
+  if (prog.sourceType === 'user_created') {
+    if (prog.createdByUserId !== userId && !requester?.isAdmin) {
+      return { ok: false, status: 403, message: "You can only edit your own programmes" };
+    }
+  } else {
+    if (!requester?.isAdmin) return { ok: false, status: 403, message: "Only admins can edit library programmes" };
+  }
+  return { ok: true };
+}
+
+async function programIdForProgrammeWorkout(pwId: number): Promise<number | null> {
+  const [row] = await db
+    .select({ programId: programWeeks.programId })
+    .from(programmeWorkouts)
+    .innerJoin(programDays, eq(programmeWorkouts.dayId, programDays.id))
+    .innerJoin(programWeeks, eq(programDays.weekId, programWeeks.id))
+    .where(eq(programmeWorkouts.id, pwId));
+  return row?.programId ?? null;
+}
+
+async function programIdForProgrammeBlock(blockId: number): Promise<number | null> {
+  const [row] = await db
+    .select({ programId: programWeeks.programId })
+    .from(programmeWorkoutBlocks)
+    .innerJoin(programmeWorkouts, eq(programmeWorkoutBlocks.workoutId, programmeWorkouts.id))
+    .innerJoin(programDays, eq(programmeWorkouts.dayId, programDays.id))
+    .innerJoin(programWeeks, eq(programDays.weekId, programWeeks.id))
+    .where(eq(programmeWorkoutBlocks.id, blockId));
+  return row?.programId ?? null;
+}
+
+async function programIdForProgrammeBlockExercise(exId: number): Promise<number | null> {
+  const [row] = await db
+    .select({ programId: programWeeks.programId })
+    .from(programmeBlockExercises)
+    .innerJoin(programmeWorkoutBlocks, eq(programmeBlockExercises.blockId, programmeWorkoutBlocks.id))
+    .innerJoin(programmeWorkouts, eq(programmeWorkoutBlocks.workoutId, programmeWorkouts.id))
+    .innerJoin(programDays, eq(programmeWorkouts.dayId, programDays.id))
+    .innerJoin(programWeeks, eq(programDays.weekId, programWeeks.id))
+    .where(eq(programmeBlockExercises.id, exId));
+  return row?.programId ?? null;
 }
 
 export async function registerRoutes(app: Express): Promise<Server> {
@@ -2705,62 +2782,66 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(403).json({ message: "You can't copy another user's workout" });
       }
 
-      const forked = await storage.createWorkout({
-        title: source.title,
-        description: source.description || null,
-        category: source.category,
-        difficulty: source.difficulty,
-        duration: source.duration,
-        equipment: source.equipment || [],
-        exercises: source.exercises,
-        imageUrl: source.imageUrl || null,
-        routineType: source.routineType || 'workout',
-        workoutType: source.workoutType || 'regular',
-        intervalRounds: source.intervalRounds ?? 4,
-        intervalRestAfterRound: source.intervalRestAfterRound || '60 sec',
-        muxPlaybackId: source.muxPlaybackId || null,
-        userId,
-        sourceType: 'user',
-      } as any);
+      const { forked, repointed } = await db.transaction(async (tx) => {
+        const [newWorkout] = await tx.insert(workouts).values({
+          title: source.title,
+          description: source.description || null,
+          category: source.category,
+          difficulty: source.difficulty,
+          duration: source.duration,
+          equipment: source.equipment || [],
+          exercises: source.exercises as any,
+          imageUrl: source.imageUrl || null,
+          routineType: source.routineType || 'workout',
+          workoutType: source.workoutType || 'regular',
+          intervalRounds: source.intervalRounds ?? 4,
+          intervalRestAfterRound: source.intervalRestAfterRound || '60 sec',
+          muxPlaybackId: source.muxPlaybackId || null,
+          userId,
+          sourceType: 'user',
+        }).returning();
 
-      // Copy normalized blocks and block exercises
-      const sourceBlocks = await storage.getWorkoutBlocks(sourceId);
-      for (const block of sourceBlocks) {
-        const newBlock = await storage.createWorkoutBlock({
-          workoutId: forked.id,
-          section: block.section || 'main',
-          blockType: block.blockType,
-          position: block.position,
-          rest: block.rest || null,
-          rounds: block.rounds ?? null,
-          restAfterRound: block.restAfterRound || null,
-        });
-        const exs = await storage.getBlockExercises(block.id);
-        for (const ex of exs) {
-          await storage.createBlockExercise({
-            blockId: newBlock.id,
-            exerciseLibraryId: ex.exerciseLibraryId || null,
-            position: ex.position,
-            sets: ex.sets,
-            durationType: ex.durationType || null,
-            tempo: ex.tempo || null,
-            load: ex.load || null,
-            notes: ex.notes || null,
-          });
+        // Copy normalized blocks and block exercises
+        const sourceBlocks = await tx.select().from(workoutBlocks).where(eq(workoutBlocks.workoutId, sourceId));
+        for (const block of sourceBlocks) {
+          const [newBlock] = await tx.insert(workoutBlocks).values({
+            workoutId: newWorkout.id,
+            section: block.section || 'main',
+            blockType: block.blockType,
+            position: block.position,
+            rest: block.rest || null,
+            rounds: block.rounds ?? null,
+            restAfterRound: block.restAfterRound || null,
+          }).returning();
+          const exs = await tx.select().from(blockExercises).where(eq(blockExercises.blockId, block.id));
+          if (exs.length > 0) {
+            await tx.insert(blockExercises).values(exs.map((ex) => ({
+              blockId: newBlock.id,
+              exerciseLibraryId: ex.exerciseLibraryId || null,
+              position: ex.position,
+              sets: ex.sets as any,
+              durationType: ex.durationType || null,
+              tempo: ex.tempo || null,
+              load: ex.load || null,
+              notes: ex.notes || null,
+            })));
+          }
         }
-      }
 
-      // If this fork was initiated from a scheduled workout, repoint that schedule to the copy
-      let repointed = false;
-      if (scheduledWorkoutId) {
-        const schedId = parseInt(scheduledWorkoutId);
-        const result = await db
-          .update(scheduledWorkouts)
-          .set({ workoutId: forked.id, updatedAt: new Date() })
-          .where(and(eq(scheduledWorkouts.id, schedId), eq(scheduledWorkouts.userId, userId)))
-          .returning({ id: scheduledWorkouts.id });
-        repointed = result.length > 0;
-      }
+        // If this fork was initiated from a scheduled workout, repoint that schedule to the copy
+        let didRepoint = false;
+        if (scheduledWorkoutId) {
+          const schedId = parseInt(scheduledWorkoutId);
+          const result = await tx
+            .update(scheduledWorkouts)
+            .set({ workoutId: newWorkout.id, updatedAt: new Date() })
+            .where(and(eq(scheduledWorkouts.id, schedId), eq(scheduledWorkouts.userId, userId)))
+            .returning({ id: scheduledWorkouts.id });
+          didRepoint = result.length > 0;
+        }
+
+        return { forked: newWorkout, repointed: didRepoint };
+      });
 
       res.status(201).json({ ...forked, repointed });
     } catch (error) {
@@ -2781,9 +2862,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.post('/api/workouts/:workoutId/blocks', isAuthenticated, async (req, res) => {
+  app.post('/api/workouts/:workoutId/blocks', isAuthenticated, async (req: any, res) => {
     try {
       const workoutId = parseInt(req.params.workoutId);
+      const authz = await canEditWorkout(workoutId, req.user.claims.sub);
+      if (!authz.ok) return res.status(authz.status!).json({ message: authz.message });
       const blockData = {
         workoutId,
         section: req.body.section || 'main',
@@ -2799,9 +2882,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.patch('/api/blocks/:id', isAuthenticated, async (req, res) => {
+  app.patch('/api/blocks/:id', isAuthenticated, async (req: any, res) => {
     try {
       const id = parseInt(req.params.id);
+      const wid = await workoutIdForBlock(id);
+      if (!wid) return res.status(404).json({ message: "Block not found" });
+      const authz = await canEditWorkout(wid, req.user.claims.sub);
+      if (!authz.ok) return res.status(authz.status!).json({ message: authz.message });
       const block = await storage.updateWorkoutBlock(id, req.body);
       res.json(block);
     } catch (error) {
@@ -2810,9 +2897,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.delete('/api/blocks/:id', isAuthenticated, async (req, res) => {
+  app.delete('/api/blocks/:id', isAuthenticated, async (req: any, res) => {
     try {
       const id = parseInt(req.params.id);
+      const wid = await workoutIdForBlock(id);
+      if (!wid) return res.status(404).json({ message: "Block not found" });
+      const authz = await canEditWorkout(wid, req.user.claims.sub);
+      if (!authz.ok) return res.status(authz.status!).json({ message: authz.message });
       await storage.deleteWorkoutBlock(id);
       res.json({ success: true });
     } catch (error) {
@@ -2822,9 +2913,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Block exercises routes
-  app.post('/api/blocks/:blockId/exercises', isAuthenticated, async (req, res) => {
+  app.post('/api/blocks/:blockId/exercises', isAuthenticated, async (req: any, res) => {
     try {
       const blockId = parseInt(req.params.blockId);
+      const wid = await workoutIdForBlock(blockId);
+      if (!wid) return res.status(404).json({ message: "Block not found" });
+      const authz = await canEditWorkout(wid, req.user.claims.sub);
+      if (!authz.ok) return res.status(authz.status!).json({ message: authz.message });
       const exerciseData = {
         blockId,
         exerciseLibraryId: req.body.exerciseLibraryId,
@@ -2842,9 +2937,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.patch('/api/block-exercises/:id', isAuthenticated, async (req, res) => {
+  app.patch('/api/block-exercises/:id', isAuthenticated, async (req: any, res) => {
     try {
       const id = parseInt(req.params.id);
+      const wid = await workoutIdForBlockExercise(id);
+      if (!wid) return res.status(404).json({ message: "Exercise not found" });
+      const authz = await canEditWorkout(wid, req.user.claims.sub);
+      if (!authz.ok) return res.status(authz.status!).json({ message: authz.message });
       const exercise = await storage.updateBlockExercise(id, req.body);
       res.json(exercise);
     } catch (error) {
@@ -2853,9 +2952,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.delete('/api/block-exercises/:id', isAuthenticated, async (req, res) => {
+  app.delete('/api/block-exercises/:id', isAuthenticated, async (req: any, res) => {
     try {
       const id = parseInt(req.params.id);
+      const wid = await workoutIdForBlockExercise(id);
+      if (!wid) return res.status(404).json({ message: "Exercise not found" });
+      const authz = await canEditWorkout(wid, req.user.claims.sub);
+      if (!authz.ok) return res.status(authz.status!).json({ message: authz.message });
       await storage.deleteBlockExercise(id);
       res.json({ success: true });
     } catch (error) {
@@ -3119,9 +3222,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.post('/api/programme-workouts/:id/blocks', isAuthenticated, async (req, res) => {
+  app.post('/api/programme-workouts/:id/blocks', isAuthenticated, async (req: any, res) => {
     try {
       const workoutId = parseInt(req.params.id);
+      const pid = await programIdForProgrammeWorkout(workoutId);
+      if (!pid) return res.status(404).json({ message: "Programme workout not found" });
+      const authz = await canEditProgramme(pid, req.user.claims.sub);
+      if (!authz.ok) return res.status(authz.status!).json({ message: authz.message });
       const block = await storage.createProgrammeWorkoutBlock({
         workoutId,
         ...req.body,
@@ -3133,9 +3240,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.put('/api/programme-blocks/:id', isAuthenticated, async (req, res) => {
+  app.put('/api/programme-blocks/:id', isAuthenticated, async (req: any, res) => {
     try {
       const id = parseInt(req.params.id);
+      const pid = await programIdForProgrammeBlock(id);
+      if (!pid) return res.status(404).json({ message: "Block not found" });
+      const authz = await canEditProgramme(pid, req.user.claims.sub);
+      if (!authz.ok) return res.status(authz.status!).json({ message: authz.message });
       const block = await storage.updateProgrammeWorkoutBlock(id, req.body);
       res.json(block);
     } catch (error) {
@@ -3144,9 +3255,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.delete('/api/programme-blocks/:id', isAuthenticated, async (req, res) => {
+  app.delete('/api/programme-blocks/:id', isAuthenticated, async (req: any, res) => {
     try {
       const id = parseInt(req.params.id);
+      const pid = await programIdForProgrammeBlock(id);
+      if (!pid) return res.status(404).json({ message: "Block not found" });
+      const authz = await canEditProgramme(pid, req.user.claims.sub);
+      if (!authz.ok) return res.status(authz.status!).json({ message: authz.message });
       await storage.deleteProgrammeWorkoutBlock(id);
       res.json({ success: true });
     } catch (error) {
@@ -3155,9 +3270,14 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.post('/api/programme-blocks/swap-positions', isAuthenticated, async (req, res) => {
+  app.post('/api/programme-blocks/swap-positions', isAuthenticated, async (req: any, res) => {
     try {
       const { blockId1, blockId2 } = req.body;
+      const pid1 = await programIdForProgrammeBlock(blockId1);
+      const pid2 = await programIdForProgrammeBlock(blockId2);
+      if (!pid1 || !pid2 || pid1 !== pid2) return res.status(400).json({ message: "Invalid blocks" });
+      const authz = await canEditProgramme(pid1, req.user.claims.sub);
+      if (!authz.ok) return res.status(authz.status!).json({ message: authz.message });
       await storage.swapProgrammeBlockPositions(blockId1, blockId2);
       res.json({ success: true });
     } catch (error) {
@@ -3166,20 +3286,26 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.put('/api/programme-workouts/:workoutId/blocks/batch', isAuthenticated, async (req, res) => {
+  app.put('/api/programme-workouts/:workoutId/blocks/batch', isAuthenticated, async (req: any, res) => {
     try {
       const workoutId = parseInt(req.params.workoutId);
       const { blocks, programId } = req.body;
+      const derivedPid = await programIdForProgrammeWorkout(workoutId);
+      if (!derivedPid) return res.status(404).json({ message: "Programme workout not found" });
+      if (programId && programId !== derivedPid) {
+        return res.status(400).json({ message: "programId does not match workout" });
+      }
+      const authz = await canEditProgramme(derivedPid, req.user.claims.sub);
+      if (!authz.ok) return res.status(authz.status!).json({ message: authz.message });
+      const pid = derivedPid;
       
       // Use batch function that saves to ALL workouts with the same name
-      const savedBlocks = await storage.batchUpdateAllSameNamedWorkouts(workoutId, programId, blocks);
+      const savedBlocks = await storage.batchUpdateAllSameNamedWorkouts(workoutId, pid, blocks);
       
-      if (programId) {
-        try {
-          await updateProgramEquipmentAuto(programId);
-        } catch (eqErr) {
-          console.error("Auto equipment recalc error:", eqErr);
-        }
+      try {
+        await updateProgramEquipmentAuto(pid);
+      } catch (eqErr) {
+        console.error("Auto equipment recalc error:", eqErr);
       }
       
       res.json(savedBlocks);
@@ -3231,9 +3357,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Programme block exercises routes
-  app.post('/api/programme-blocks/:blockId/exercises', isAuthenticated, async (req, res) => {
+  app.post('/api/programme-blocks/:blockId/exercises', isAuthenticated, async (req: any, res) => {
     try {
       const blockId = parseInt(req.params.blockId);
+      const pid = await programIdForProgrammeBlock(blockId);
+      if (!pid) return res.status(404).json({ message: "Block not found" });
+      const authz = await canEditProgramme(pid, req.user.claims.sub);
+      if (!authz.ok) return res.status(authz.status!).json({ message: authz.message });
       const exercise = await storage.createProgrammeBlockExercise({
         blockId,
         ...req.body,
@@ -3245,9 +3375,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.put('/api/programme-block-exercises/:id', isAuthenticated, async (req, res) => {
+  app.put('/api/programme-block-exercises/:id', isAuthenticated, async (req: any, res) => {
     try {
       const id = parseInt(req.params.id);
+      const pid = await programIdForProgrammeBlockExercise(id);
+      if (!pid) return res.status(404).json({ message: "Exercise not found" });
+      const authz = await canEditProgramme(pid, req.user.claims.sub);
+      if (!authz.ok) return res.status(authz.status!).json({ message: authz.message });
       const exercise = await storage.updateProgrammeBlockExercise(id, req.body);
       res.json(exercise);
     } catch (error) {
@@ -3256,9 +3390,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.delete('/api/programme-block-exercises/:id', isAuthenticated, async (req, res) => {
+  app.delete('/api/programme-block-exercises/:id', isAuthenticated, async (req: any, res) => {
     try {
       const id = parseInt(req.params.id);
+      const pid = await programIdForProgrammeBlockExercise(id);
+      if (!pid) return res.status(404).json({ message: "Exercise not found" });
+      const authz = await canEditProgramme(pid, req.user.claims.sub);
+      if (!authz.ok) return res.status(authz.status!).json({ message: authz.message });
       await storage.deleteProgrammeBlockExercise(id);
       res.json({ success: true });
     } catch (error) {
@@ -6803,9 +6941,14 @@ Return format: {"category": "strength|cardio|hiit|mobility|recovery", "difficult
   });
 
   // Admin routes - Programs
-  app.post('/api/programs', isAuthenticated, async (req, res) => {
+  app.post('/api/programs', isAuthenticated, async (req: any, res) => {
     try {
-      const programData = insertProgramSchema.parse(req.body);
+      const userId = req.user.claims.sub;
+      const requester = await storage.getUser(userId);
+      const parsed = insertProgramSchema.parse(req.body);
+      const programData = requester?.isAdmin
+        ? { ...parsed, sourceType: parsed.sourceType ?? 'manual', createdByUserId: parsed.createdByUserId ?? null }
+        : { ...parsed, sourceType: 'user_created', createdByUserId: userId };
       const program = await storage.createProgram(programData);
       res.status(201).json(program);
     } catch (error) {
@@ -6814,9 +6957,11 @@ Return format: {"category": "strength|cardio|hiit|mobility|recovery", "difficult
     }
   });
 
-  app.put('/api/programs/:id', isAuthenticated, async (req, res) => {
+  app.put('/api/programs/:id', isAuthenticated, async (req: any, res) => {
     try {
       const id = parseInt(req.params.id);
+      const authz = await canEditProgramme(id, req.user.claims.sub);
+      if (!authz.ok) return res.status(authz.status!).json({ message: authz.message });
       const programData = insertProgramSchema.partial().parse(req.body);
       const program = await storage.updateProgram(id, programData);
       res.json(program);
@@ -6826,9 +6971,11 @@ Return format: {"category": "strength|cardio|hiit|mobility|recovery", "difficult
     }
   });
 
-  app.delete('/api/programs/:id', isAuthenticated, async (req, res) => {
+  app.delete('/api/programs/:id', isAuthenticated, async (req: any, res) => {
     try {
       const id = parseInt(req.params.id);
+      const authz = await canEditProgramme(id, req.user.claims.sub);
+      if (!authz.ok) return res.status(authz.status!).json({ message: authz.message });
       await storage.deleteProgram(id);
       res.json({ success: true });
     } catch (error) {
@@ -7192,6 +7339,11 @@ Return format: {"category": "strength|cardio|hiit|mobility|recovery", "difficult
       if (!existing) {
         return res.status(404).json({ message: "Programme not found or not yours" });
       }
+      // Verify the workout actually belongs to this programme
+      const workoutProgramId = await programIdForProgrammeWorkout(workoutId);
+      if (workoutProgramId !== programId) {
+        return res.status(404).json({ message: "Workout not found in this programme" });
+      }
 
       const { name, description, workoutType, category, difficulty, duration } = req.body;
       const updates: any = {};
@@ -7224,6 +7376,10 @@ Return format: {"category": "strength|cardio|hiit|mobility|recovery", "difficult
       if (!existing) {
         return res.status(404).json({ message: "Programme not found or not yours" });
       }
+      const workoutProgramId = await programIdForProgrammeWorkout(workoutId);
+      if (workoutProgramId !== programId) {
+        return res.status(404).json({ message: "Workout not found in this programme" });
+      }
 
       await db.delete(programmeWorkouts).where(eq(programmeWorkouts.id, workoutId));
       res.json({ success: true });
@@ -7237,6 +7393,10 @@ Return format: {"category": "strength|cardio|hiit|mobility|recovery", "difficult
   app.post('/api/user-programmes/workouts/:workoutId/blocks', isAuthenticated, async (req: any, res) => {
     try {
       const workoutId = parseInt(req.params.workoutId);
+      const pid = await programIdForProgrammeWorkout(workoutId);
+      if (!pid) return res.status(404).json({ message: "Programme workout not found" });
+      const authz = await canEditProgramme(pid, req.user.claims.sub);
+      if (!authz.ok) return res.status(authz.status!).json({ message: authz.message });
       const { section, blockType, position, rest, exercises } = req.body;
 
       const [block] = await db.insert(programmeWorkoutBlocks)
@@ -7282,6 +7442,10 @@ Return format: {"category": "strength|cardio|hiit|mobility|recovery", "difficult
   app.put('/api/user-programmes/workouts/:workoutId/blocks/batch', isAuthenticated, async (req: any, res) => {
     try {
       const workoutId = parseInt(req.params.workoutId);
+      const pid = await programIdForProgrammeWorkout(workoutId);
+      if (!pid) return res.status(404).json({ message: "Programme workout not found" });
+      const authz = await canEditProgramme(pid, req.user.claims.sub);
+      if (!authz.ok) return res.status(authz.status!).json({ message: authz.message });
       const { blocks } = req.body;
 
       if (!blocks || !Array.isArray(blocks)) {
@@ -8639,9 +8803,11 @@ Rules:
   });
 
   // Create a new programme workout
-  app.post('/api/programs/:programId/workouts', isAuthenticated, async (req, res) => {
+  app.post('/api/programs/:programId/workouts', isAuthenticated, async (req: any, res) => {
     try {
       const programId = parseInt(req.params.programId);
+      const authz = await canEditProgramme(programId, req.user.claims.sub);
+      if (!authz.ok) return res.status(authz.status!).json({ message: authz.message });
       const { name, description, workoutType, category, difficulty, duration, intervalRounds, intervalRestAfterRound, imageUrl, blocks, enrollmentId, targetDayPosition } = req.body;
       
       if (!name || name.trim() === '') {
@@ -8742,9 +8908,13 @@ Rules:
   });
 
   // Update a programme workout's details
-  app.patch('/api/programme-workouts/:id', isAuthenticated, async (req, res) => {
+  app.patch('/api/programme-workouts/:id', isAuthenticated, async (req: any, res) => {
     try {
       const id = parseInt(req.params.id);
+      const pid = await programIdForProgrammeWorkout(id);
+      if (!pid) return res.status(404).json({ message: "Programme workout not found" });
+      const authz = await canEditProgramme(pid, req.user.claims.sub);
+      if (!authz.ok) return res.status(authz.status!).json({ message: authz.message });
       const { name, description, workoutType, category, difficulty, duration, intervalRounds, intervalRestAfterRound, imageUrl } = req.body;
       
       const workout = await storage.updateProgrammeWorkout(id, { 
@@ -8766,9 +8936,13 @@ Rules:
   });
 
   // Delete a programme workout
-  app.delete('/api/programme-workouts/:id', isAuthenticated, async (req, res) => {
+  app.delete('/api/programme-workouts/:id', isAuthenticated, async (req: any, res) => {
     try {
       const id = parseInt(req.params.id);
+      const pid = await programIdForProgrammeWorkout(id);
+      if (!pid) return res.status(404).json({ message: "Programme workout not found" });
+      const authz = await canEditProgramme(pid, req.user.claims.sub);
+      if (!authz.ok) return res.status(authz.status!).json({ message: authz.message });
       await storage.deleteProgrammeWorkout(id);
       res.status(204).send();
     } catch (error) {
@@ -8889,10 +9063,14 @@ Rules:
   });
 
   // Update a workout's day assignment
-  app.patch('/api/programme-workouts/:id/assign-day', isAuthenticated, async (req, res) => {
+  app.patch('/api/programme-workouts/:id/assign-day', isAuthenticated, async (req: any, res) => {
     try {
       const workoutId = parseInt(req.params.id);
       const { dayId } = req.body;
+      const pid = await programIdForProgrammeWorkout(workoutId);
+      if (!pid) return res.status(404).json({ message: "Programme workout not found" });
+      const authz = await canEditProgramme(pid, req.user.claims.sub);
+      if (!authz.ok) return res.status(authz.status!).json({ message: authz.message });
       
       if (!dayId) {
         return res.status(400).json({ message: "Day ID is required" });

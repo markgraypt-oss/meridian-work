@@ -834,7 +834,28 @@ export default function TrainingWorkoutDetail() {
                   className="w-full text-left py-4 px-2 text-foreground text-lg hover:bg-muted/50 rounded-lg transition-colors"
                   onClick={() => {
                     setShowActionSheet(false);
-                    toast({ title: "Edit workout coming soon" });
+                    if (!workout) return;
+                    sessionStorage.removeItem('workoutEditContext');
+                    sessionStorage.setItem('workoutFormData', JSON.stringify({
+                      id: workout.id,
+                      title: workout.title,
+                      description: workout.description || "",
+                      workoutType: workout.workoutType || "regular",
+                      category: workout.category,
+                      difficulty: workout.difficulty,
+                      duration: workout.duration,
+                      equipment: workout.equipment || [],
+                      exercises: workout.exercises || [],
+                      blocks: (workout as any).blocks || workout.exercises || [],
+                      imageUrl: workout.imageUrl || "",
+                      muxPlaybackId: (workout as any).muxPlaybackId || "",
+                      videoUrl: (workout as any).videoUrl || "",
+                      routineType: (workout as any).routineType || "",
+                      intervalRounds: (workout as any).intervalRounds || 3,
+                      intervalRestAfterRound: (workout as any).intervalRestAfterRound || "60 sec",
+                    }));
+                    sessionStorage.setItem('workoutStep', '2');
+                    navigate('/admin/create-workout');
                   }}
                 >
                   Edit This Workout

@@ -16745,6 +16745,39 @@ RULES:
     }
   });
 
+  app.post('/api/admin/normalize-programme-tags', async (_req, res) => {
+    try {
+      const tagMap: Record<string, string> = {
+        "Full Body": "full_body",
+        "Upper Body": "upper_body",
+        "Lower Body": "lower_body",
+        "Time Efficient": "time_efficient",
+        "Free Weights Only": "free_weights_only",
+        "Cardio": "cardio",
+        "HIIT": "hiit",
+        "Executive": "executive",
+        "fat loss": "fat_loss",
+        "beginner": "beginner",
+      };
+
+      const allPrograms = await db.select({ id: programs.id, tags: programs.tags }).from(programs);
+      let updated = 0;
+
+      for (const prog of allPrograms) {
+        if (!prog.tags || prog.tags.length === 0) continue;
+        const normalized = prog.tags.map((t: string) => tagMap[t] || t.toLowerCase().replace(/\s+/g, '_'));
+        const changed = JSON.stringify(normalized) !== JSON.stringify(prog.tags);
+        if (changed) {
+          await db.update(programs).set({ tags: normalized }).where(eq(programs.id, prog.id));
+          updated++;
+        }
+      }
+      res.json({ success: true, updated });
+    } catch (error: any) {
+      res.status(500).json({ error: error.message });
+    }
+  });
+
   const httpServer = createServer(app);
   return httpServer;
 }

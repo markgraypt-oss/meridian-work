@@ -33,12 +33,26 @@ const equipmentLabels: Record<string, string> = {
   full_gym: "Full Gym",
 };
 
+const goalLabels: Record<string, string> = {
+  strength: "Strength",
+  max_strength: "Max Strength",
+  hypertrophy: "Hypertrophy",
+  power: "Power",
+  functional_strength: "Functional Strength",
+  conditioning: "Conditioning",
+  hiit: "HIIT",
+  mobility: "Mobility",
+  corrective: "Corrective",
+  yoga: "Yoga",
+};
+
 export default function TrainingProgrammes() {
   const [, navigate] = useLocation();
   const params = useParams<{ section?: string }>();
   const section = params.section || "view_all";
   const [searchQuery, setSearchQuery] = useState("");
   const [filters, setFilters] = useState({
+    goal: "All Goals",
     difficulty: "All Levels",
     equipment: "All Equipment",
     tag: "All Tags",
@@ -73,9 +87,15 @@ export default function TrainingProgrammes() {
 
   let displayPrograms = filterBySection(programs);
 
+  if (filters.goal && filters.goal !== "All Goals") {
+    displayPrograms = displayPrograms.filter(
+      (p) => p.goal === filters.goal
+    );
+  }
+
   if (filters.difficulty && filters.difficulty !== "All Levels") {
     displayPrograms = displayPrograms.filter(
-      (p) => p.difficulty === filters.difficulty.toLowerCase()
+      (p) => p.difficulty === filters.difficulty
     );
   }
 
@@ -121,6 +141,37 @@ export default function TrainingProgrammes() {
               onFilterChange={(key, value) => setFilters((prev) => ({ ...prev, [key]: value }))}
               filterOptions={[
                 {
+                  label: "Goal",
+                  value: "goal",
+                  options: [
+                    { label: "All Goals", value: "All Goals" },
+                    { label: "Strength", value: "strength" },
+                    { label: "Max Strength", value: "max_strength" },
+                    { label: "Hypertrophy", value: "hypertrophy" },
+                    { label: "Power", value: "power" },
+                    { label: "Functional Strength", value: "functional_strength" },
+                    { label: "Conditioning", value: "conditioning" },
+                    { label: "HIIT", value: "hiit" },
+                    { label: "Mobility", value: "mobility" },
+                    { label: "Corrective", value: "corrective" },
+                    { label: "Yoga", value: "yoga" },
+                  ],
+                },
+                {
+                  label: "Equipment",
+                  value: "equipment",
+                  options: [
+                    { label: "All Equipment", value: "All Equipment" },
+                    { label: "No Equipment (At Home)", value: "no_equipment" },
+                    { label: "Bodyweight", value: "bodyweight" },
+                    { label: "Bands Only", value: "bands_only" },
+                    { label: "Kettlebell Only", value: "kettlebell_only" },
+                    { label: "Dumbbell Only", value: "dumbbell_only" },
+                    { label: "DB/Bench Only", value: "db_bench_only" },
+                    { label: "Full Gym", value: "full_gym" },
+                  ],
+                },
+                {
                   label: "Difficulty",
                   value: "difficulty",
                   options: [
@@ -131,27 +182,10 @@ export default function TrainingProgrammes() {
                   ],
                 },
                 {
-                  label: "Equipment",
-                  value: "equipment",
-                  options: [
-                    { label: "All Equipment", value: "All Equipment" },
-                    { label: "No Equipment", value: "no_equipment" },
-                    { label: "Bodyweight", value: "bodyweight" },
-                    { label: "Bands Only", value: "bands_only" },
-                    { label: "Kettlebell Only", value: "kettlebell_only" },
-                    { label: "Dumbbell Only", value: "dumbbell_only" },
-                    { label: "DB/Bench Only", value: "db_bench_only" },
-                    { label: "Full Gym", value: "full_gym" },
-                  ],
-                },
-                {
                   label: "Tags",
                   value: "tag",
                   options: [
                     { label: "All Tags", value: "All Tags" },
-                    { label: "Beginner", value: "beginner" },
-                    { label: "Intermediate", value: "intermediate" },
-                    { label: "Advanced", value: "advanced" },
                     { label: "Full Body", value: "full_body" },
                     { label: "Upper Body", value: "upper_body" },
                     { label: "Lower Body", value: "lower_body" },
@@ -161,7 +195,7 @@ export default function TrainingProgrammes() {
                   ],
                 },
               ]}
-              onClearFilters={() => setFilters({ difficulty: "All Levels", equipment: "All Equipment", tag: "All Tags" })}
+              onClearFilters={() => setFilters({ goal: "All Goals", difficulty: "All Levels", equipment: "All Equipment", tag: "All Tags" })}
             />
           </div>
 

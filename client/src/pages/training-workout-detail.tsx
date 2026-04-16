@@ -839,6 +839,29 @@ export default function TrainingWorkoutDetail() {
                 >
                   Edit This Workout
                 </button>
+                <button
+                  className="w-full text-left py-4 px-2 text-destructive text-lg hover:bg-muted/50 rounded-lg transition-colors"
+                  onClick={async () => {
+                    setShowActionSheet(false);
+                    if (!scheduledWorkoutId) {
+                      toast({ title: "Cannot delete - missing schedule reference", variant: "destructive" });
+                      return;
+                    }
+                    if (confirm('Remove this workout from your schedule?')) {
+                      try {
+                        await apiRequest('DELETE', `/api/scheduled-workouts/${scheduledWorkoutId}`);
+                        queryClient.invalidateQueries({ queryKey: ['/api/scheduled-workouts'] });
+                        queryClient.invalidateQueries({ queryKey: ['/api/today-workouts'] });
+                        toast({ title: "Workout removed from schedule" });
+                        navigate('/');
+                      } catch {
+                        toast({ title: "Failed to remove workout", variant: "destructive" });
+                      }
+                    }
+                  }}
+                >
+                  Delete
+                </button>
               </div>
             </div>
           </DrawerContent>
@@ -922,16 +945,18 @@ export default function TrainingWorkoutDetail() {
           onRightAction={isPreviewMode ? undefined : isFromProgrammeBuilder ? handleAddToProgramme : (isFromCalendar || isFromCompleted) ? undefined : handleScheduleClick}
           rightMenuButton={(isFromProgrammeBuilder || isPreviewMode) ? undefined :
             <>
-              <Button
-                variant="ghost"
-                size="sm"
-                className="text-foreground hover:bg-muted"
-                onClick={toggleBookmark}
-              >
-                <Bookmark className={`h-4 w-4 transition-colors ${
-                  isWorkoutSaved ? 'fill-[#0cc9a9] text-[#0cc9a9]' : ''
-                }`} />
-              </Button>
+              {!isFromCalendar && (
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="text-foreground hover:bg-muted"
+                  onClick={toggleBookmark}
+                >
+                  <Bookmark className={`h-4 w-4 transition-colors ${
+                    isWorkoutSaved ? 'fill-[#0cc9a9] text-[#0cc9a9]' : ''
+                  }`} />
+                </Button>
+              )}
               {getHeaderMenu()}
             </>
           }

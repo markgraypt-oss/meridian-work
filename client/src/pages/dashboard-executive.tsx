@@ -949,8 +949,14 @@ export default function Dashboard() {
                     // Extra session of a programme workout
                     navigate(`/workout-detail/${workout.enrollmentId}/${workout.week}/${workout.day}${calendarParams}`);
                   } else if (workout.isScheduled && workout.workoutId && workout.workoutId > 0) {
-                    // Standalone workout from library
-                    navigate(`/training/workout/${workout.workoutId}${calendarParams}`);
+                    // Standalone workout from library - extract scheduled id from "scheduled-<id>"
+                    const scheduledId = workout.id?.toString().startsWith('scheduled-')
+                      ? workout.id.toString().replace('scheduled-', '')
+                      : null;
+                    const params = scheduledId
+                      ? `${calendarParams}&scheduledId=${scheduledId}`
+                      : calendarParams;
+                    navigate(`/training/workout/${workout.workoutId}${params}`);
                   } else if (workout.isScheduled && workout.enrollmentId && workout.day) {
                     // Scheduled workout linked to programme (extra session stored in scheduled_workouts)
                     const week = workout.week || 1;

@@ -2466,11 +2466,17 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.post('/api/workouts', isAuthenticated, async (req, res) => {
+  app.post('/api/workouts', isAuthenticated, async (req: any, res) => {
     try {
       const blocks = req.body.blocks || [];
       let duration = req.body.duration;
       const muxPlaybackId = req.body.muxPlaybackId || null;
+
+      // Ownership: admins create library workouts (userId null); non-admins create personal workouts
+      const reqUserId = req.user.claims.sub;
+      const reqUser = await storage.getUser(reqUserId);
+      const ownerUserId = reqUser?.isAdmin ? null : reqUserId;
+      const ownerSourceType = reqUser?.isAdmin ? 'admin' : 'user';
       
       // Auto-fetch duration from Mux for video workouts
       if (req.body.workoutType === 'video' && muxPlaybackId) {
@@ -2503,6 +2509,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
         intervalRounds: req.body.intervalRounds || 4,
         intervalRestAfterRound: req.body.intervalRestAfterRound || "60 sec",
         muxPlaybackId,
+        userId: ownerUserId,
+        sourceType: ownerSourceType,
       };
       console.log("Creating workout with data:", JSON.stringify(workoutData, null, 2));
       const workout = await storage.createWorkout(workoutData);
@@ -2548,7 +2556,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.patch('/api/workouts/:id', isAuthenticated, async (req, res) => {
+  app.patch('/api/workouts/:id', isAuthenticated, async (req: any, res) => {
     try {
       const id = parseInt(req.params.id);
       const blocks = req.body.blocks || [];
@@ -2556,6 +2564,20 @@ export async function registerRoutes(app: Express): Promise<Server> {
       
       // Get existing workout to preserve muxPlaybackId if not provided
       const existingWorkout = await storage.getWorkoutById(id);
+      if (!existingWorkout) {
+        return res.status(404).json({ message: "Workout not found" });
+      }
+
+      // Authorization: library workouts (userId null) = admin only; user workouts = owner or admin
+      const userId = req.user.claims.sub;
+      const requester = await storage.getUser(userId);
+      if (existingWorkout.userId == null) {
+        if (!requester?.isAdmin) {
+          return res.status(403).json({ message: "Only admins can edit library workouts" });
+        }
+      } else if (existingWorkout.userId !== userId && !requester?.isAdmin) {
+        return res.status(403).json({ message: "You can only edit your own workouts" });
+      }
       const muxPlaybackId = req.body.muxPlaybackId !== undefined 
         ? (req.body.muxPlaybackId || null)
         : (existingWorkout?.muxPlaybackId || null);
@@ -2642,14 +2664,108 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.delete('/api/workouts/:id', isAuthenticated, async (req, res) => {
+  app.delete('/api/workouts/:id', isAuthenticated, async (req: any, res) => {
     try {
       const id = parseInt(req.params.id);
+      const existing = await storage.getWorkoutById(id);
+      if (!existing) return res.status(404).json({ message: "Workout not found" });
+
+      const userId = req.user.claims.sub;
+      const requester = await storage.getUser(userId);
+      if (existing.userId == null) {
+        if (!requester?.isAdmin) {
+          return res.status(403).json({ message: "Only admins can delete library workouts" });
+        }
+      } else if (existing.userId !== userId && !requester?.isAdmin) {
+        return res.status(403).json({ message: "You can only delete your own workouts" });
+      }
+
       await storage.deleteWorkout(id);
       res.json({ success: true });
     } catch (error) {
       console.error("Error deleting workout:", error);
       res.status(500).json({ message: "Failed to delete workout" });
+    }
+  });
+
+  // Fork a library workout into the current user's personal library (copy-on-edit)
+  // Optionally repoint a scheduled_workouts row to the new copy
+  app.post('/api/workouts/:id/fork', isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = req.user.claims.sub;
+      const sourceId = parseInt(req.params.id);
+      const { scheduledWorkoutId } = req.body || {};
+
+      const source = await storage.getWorkoutById(sourceId);
+      if (!source) return res.status(404).json({ message: "Workout not found" });
+
+      // Allow forking library workouts (userId null) or your own; block forking someone else's personal workout
+      const requester = await storage.getUser(userId);
+      if (source.userId != null && source.userId !== userId && !requester?.isAdmin) {
+        return res.status(403).json({ message: "You can't copy another user's workout" });
+      }
+
+      const forked = await storage.createWorkout({
+        title: source.title,
+        description: source.description || null,
+        category: source.category,
+        difficulty: source.difficulty,
+        duration: source.duration,
+        equipment: source.equipment || [],
+        exercises: source.exercises,
+        imageUrl: source.imageUrl || null,
+        routineType: source.routineType || 'workout',
+        workoutType: source.workoutType || 'regular',
+        intervalRounds: source.intervalRounds ?? 4,
+        intervalRestAfterRound: source.intervalRestAfterRound || '60 sec',
+        muxPlaybackId: source.muxPlaybackId || null,
+        userId,
+        sourceType: 'user',
+      } as any);
+
+      // Copy normalized blocks and block exercises
+      const sourceBlocks = await storage.getWorkoutBlocks(sourceId);
+      for (const block of sourceBlocks) {
+        const newBlock = await storage.createWorkoutBlock({
+          workoutId: forked.id,
+          section: block.section || 'main',
+          blockType: block.blockType,
+          position: block.position,
+          rest: block.rest || null,
+          rounds: block.rounds ?? null,
+          restAfterRound: block.restAfterRound || null,
+        });
+        const exs = await storage.getBlockExercises(block.id);
+        for (const ex of exs) {
+          await storage.createBlockExercise({
+            blockId: newBlock.id,
+            exerciseLibraryId: ex.exerciseLibraryId || null,
+            position: ex.position,
+            sets: ex.sets,
+            durationType: ex.durationType || null,
+            tempo: ex.tempo || null,
+            load: ex.load || null,
+            notes: ex.notes || null,
+          });
+        }
+      }
+
+      // If this fork was initiated from a scheduled workout, repoint that schedule to the copy
+      let repointed = false;
+      if (scheduledWorkoutId) {
+        const schedId = parseInt(scheduledWorkoutId);
+        const result = await db
+          .update(scheduledWorkouts)
+          .set({ workoutId: forked.id, updatedAt: new Date() })
+          .where(and(eq(scheduledWorkouts.id, schedId), eq(scheduledWorkouts.userId, userId)))
+          .returning({ id: scheduledWorkouts.id });
+        repointed = result.length > 0;
+      }
+
+      res.status(201).json({ ...forked, repointed });
+    } catch (error) {
+      console.error("Error forking workout:", error);
+      res.status(500).json({ message: "Failed to fork workout" });
     }
   });
 

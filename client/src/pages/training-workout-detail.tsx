@@ -43,7 +43,7 @@ export default function TrainingWorkoutDetail() {
   const [match, params] = useRoute("/training/workout/:id");
   const [, navigate] = useLocation();
   const searchString = useSearch();
-  const { isAuthenticated } = useAuth();
+  const { isAuthenticated, user: currentUser } = useAuth();
   const { toast } = useToast();
   const { formatDate } = useFormattedDate();
   const isPreviewMode = params?.id === 'preview';
@@ -832,30 +832,61 @@ export default function TrainingWorkoutDetail() {
                 </button>
                 <button
                   className="w-full text-left py-4 px-2 text-foreground text-lg hover:bg-muted/50 rounded-lg transition-colors"
-                  onClick={() => {
+                  onClick={async () => {
                     setShowActionSheet(false);
                     if (!workout) return;
-                    sessionStorage.removeItem('workoutEditContext');
-                    sessionStorage.setItem('workoutFormData', JSON.stringify({
-                      id: workout.id,
-                      title: workout.title,
-                      description: workout.description || "",
-                      workoutType: workout.workoutType || "regular",
-                      category: workout.category,
-                      difficulty: workout.difficulty,
-                      duration: workout.duration,
-                      equipment: workout.equipment || [],
-                      exercises: workout.exercises || [],
-                      blocks: (workout as any).blocks || workout.exercises || [],
-                      imageUrl: workout.imageUrl || "",
-                      muxPlaybackId: (workout as any).muxPlaybackId || "",
-                      videoUrl: (workout as any).videoUrl || "",
-                      routineType: (workout as any).routineType || "",
-                      intervalRounds: (workout as any).intervalRounds || 3,
-                      intervalRestAfterRound: (workout as any).intervalRestAfterRound || "60 sec",
-                    }));
-                    sessionStorage.setItem('workoutStep', '2');
-                    navigate('/admin/create-workout');
+
+                    const uid = (currentUser as any)?.id;
+                    const isAdmin = !!(currentUser as any)?.isAdmin;
+                    const isOwner = (workout as any).userId && (workout as any).userId === uid;
+                    const canEditOriginal = isOwner || isAdmin;
+
+                    // Helper: load workout data into session and navigate to builder
+                    const openEditor = (w: any) => {
+                      sessionStorage.removeItem('workoutEditContext');
+                      sessionStorage.setItem('workoutFormData', JSON.stringify({
+                        id: w.id,
+                        title: w.title,
+                        description: w.description || "",
+                        workoutType: w.workoutType || "regular",
+                        category: w.category,
+                        difficulty: w.difficulty,
+                        duration: w.duration,
+                        equipment: w.equipment || [],
+                        exercises: w.exercises || [],
+                        blocks: w.blocks || w.exercises || [],
+                        imageUrl: w.imageUrl || "",
+                        muxPlaybackId: w.muxPlaybackId || "",
+                        videoUrl: w.videoUrl || "",
+                        routineType: w.routineType || "",
+                        intervalRounds: w.intervalRounds || 3,
+                        intervalRestAfterRound: w.intervalRestAfterRound || "60 sec",
+                      }));
+                      sessionStorage.setItem('workoutStep', '2');
+                      navigate('/admin/create-workout');
+                    };
+
+                    if (canEditOriginal) {
+                      openEditor(workout);
+                      return;
+                    }
+
+                    // Library workout being edited by a non-owner: fork into user's library
+                    try {
+                      toast({ title: "Creating your copy..." });
+                      const res = await apiRequest('POST', `/api/workouts/${workout.id}/fork`, {
+                        scheduledWorkoutId: scheduledWorkoutId || undefined,
+                      });
+                      const forked = await res.json();
+                      // Fetch full workout with exercises/blocks for the editor
+                      const fullRes = await apiRequest('GET', `/api/workouts/${forked.id}`);
+                      const full = await fullRes.json();
+                      queryClient.invalidateQueries({ queryKey: ['/api/scheduled-workouts'] });
+                      openEditor(full);
+                    } catch (err: any) {
+                      console.error('Fork failed:', err);
+                      toast({ title: "Couldn't start edit", description: err?.message || "Please try again", variant: "destructive" });
+                    }
                   }}
                 >
                   Edit This Workout

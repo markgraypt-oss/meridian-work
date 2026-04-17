@@ -131,6 +131,18 @@ export default function BuildWodPage() {
     staleTime: 0,
   });
 
+  // Also fetch the workout itself so we know workoutType / intervalRounds (circuit rounds live there)
+  const { data: workoutEditMeta } = useQuery<any>({
+    queryKey: ['/api/workouts', editWorkoutIdParam],
+    queryFn: async () => {
+      const r = await fetch(`/api/workouts/${editWorkoutIdParam}`, { credentials: 'include' });
+      if (!r.ok) throw new Error('Failed to load workout meta');
+      return r.json();
+    },
+    enabled: isWorkoutEditMode,
+    staleTime: 0,
+  });
+
   const normalizeExercises = (exs: ExerciseData[]) =>
     JSON.stringify(exs.map(({ id, ...rest }) => rest));
 
@@ -363,6 +375,8 @@ export default function BuildWodPage() {
     if (!isWorkoutEditMode || !workoutEditBlocks || exercises.length > 0) return;
 
     const loaded: ExerciseData[] = [];
+    const isCircuitTypeWorkout = workoutEditMeta?.workoutType === 'circuit';
+    const workoutLevelRounds = workoutEditMeta?.intervalRounds || workoutEditMeta?.circuitRounds || null;
     for (const block of workoutEditBlocks) {
       const section = block.section === 'warmup' ? 'warmup' : 'main';
       const isMultiExerciseBlock = block.blockType && block.blockType !== 'single';
@@ -375,11 +389,18 @@ export default function BuildWodPage() {
         const isTimeBased = ['timed', 'timed_strength', 'general', 'cardio'].includes(exerciseType);
         const sets = ex.sets || [{ reps: '8-12' }];
         const firstSet = sets[0] || {};
-        // For circuits/supersets/trisets, set count comes from block.rounds (number of times
-        // through the circuit). For single exercises, it's the length of the sets array.
-        const setsCount = isMultiExerciseBlock
-          ? (block.rounds || sets.length || 1)
-          : (sets.length || 1);
+        // Set count resolution priority:
+        // 1. Circuit-type workouts: rounds live on the workout (intervalRounds/circuitRounds).
+        // 2. Multi-exercise blocks (circuit/superset/triset): rounds live on the block.
+        // 3. Single exercises: count = length of the per-exercise sets array.
+        let setsCount: number;
+        if (isMultiExerciseBlock && isCircuitTypeWorkout && workoutLevelRounds) {
+          setsCount = workoutLevelRounds;
+        } else if (isMultiExerciseBlock) {
+          setsCount = block.rounds || workoutLevelRounds || sets.length || 1;
+        } else {
+          setsCount = sets.length || 1;
+        }
         loaded.push({
           id: `edit-${Date.now()}-${Math.random().toString(36).slice(2)}`,
           kind: 'exercise',

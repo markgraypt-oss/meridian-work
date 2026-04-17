@@ -226,14 +226,27 @@ export default function CreateWorkoutPage() {
 
   const createWorkoutMutation = useMutation({
     mutationFn: async (data: any) => {
+      // Normalize rest blocks: BlockManager updates `restDuration` on the block when the
+      // user picks a duration, but the server reads from the `rest` column. Copy across
+      // so user-edited values actually persist.
+      const normalized = {
+        ...data,
+        blocks: Array.isArray(data.blocks)
+          ? data.blocks.map((b: any) =>
+              b?.blockType === 'rest'
+                ? { ...b, rest: b.restDuration || b.rest || '30 sec' }
+                : b
+            )
+          : data.blocks,
+      };
       if (isEnrolledEdit) {
-        return apiRequest("PUT", `/api/my-programs/${editContext.enrollmentId}/enrollment-workouts/${editContext.enrollmentWorkoutId}/blocks`, { title: data.title, blocks: data.blocks });
+        return apiRequest("PUT", `/api/my-programs/${editContext.enrollmentId}/enrollment-workouts/${editContext.enrollmentWorkoutId}/blocks`, { title: normalized.title, blocks: normalized.blocks });
       }
       if (isEditing) {
-        const { id, ...dataWithoutId } = data;
+        const { id, ...dataWithoutId } = normalized;
         return apiRequest("PATCH", `/api/workouts/${id}`, dataWithoutId);
       }
-      return apiRequest("POST", "/api/workouts", data);
+      return apiRequest("POST", "/api/workouts", normalized);
     },
     onSuccess: () => {
       toast({ title: "Success", description: isEditing ? "Workout updated successfully" : "Workout created successfully" });

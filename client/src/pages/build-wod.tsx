@@ -379,6 +379,37 @@ export default function BuildWodPage() {
     const workoutLevelRounds = workoutEditMeta?.intervalRounds || workoutEditMeta?.circuitRounds || null;
     for (const block of workoutEditBlocks) {
       const section = block.section === 'warmup' ? 'warmup' : 'main';
+      // Standalone rest block between circuits — emit as a synthetic rest entry
+      // matching the shape produced by the "Add Rest" button.
+      if (block.blockType === 'rest') {
+        const restStr: string = block.rest || '30 sec';
+        const m = String(restStr).match(/(\d+)\s*(min|m|sec|s)?/i);
+        let restSecs = 30;
+        if (m) {
+          const n = parseInt(m[1], 10);
+          const unit = (m[2] || 'sec').toLowerCase();
+          restSecs = unit.startsWith('m') ? n * 60 : n;
+        }
+        loaded.push({
+          id: `edit-rest-${block.id || Date.now()}-${Math.random().toString(36).slice(2)}`,
+          kind: 'rest',
+          exerciseLibraryId: null,
+          exerciseName: 'Rest',
+          imageUrl: null,
+          muxPlaybackId: null,
+          blockType: 'single',
+          section,
+          position: loaded.filter(e => e.section === section).length,
+          restPeriod: 'none',
+          restDuration: restSecs,
+          setsCount: 1,
+          targetReps: '',
+          targetDuration: `${restSecs} sec`,
+          durationType: 'timer',
+          exerciseType: 'timed',
+        } as ExerciseData);
+        continue;
+      }
       const isMultiExerciseBlock = block.blockType && block.blockType !== 'single';
       const blockGroupId = isMultiExerciseBlock
         ? `edit-${block.id || Date.now()}-${Math.random().toString(36).slice(2)}`
@@ -462,6 +493,17 @@ export default function BuildWodPage() {
       const blocks = blockOrder.map(key => {
         const group = blockMap.get(key)!;
         const first = group[0];
+        // Standalone rest block — emit with no exercises so the server stores it
+        // as a rest row in workout_blocks.
+        if (first.kind === 'rest') {
+          return {
+            section: first.section,
+            blockType: 'rest',
+            rest: `${first.restDuration || 30} sec`,
+            rounds: null,
+            exercises: [],
+          };
+        }
         const blockType = first.blockType || 'single';
         const isMultiExerciseBlock = blockType !== 'single';
         return {
@@ -525,6 +567,14 @@ export default function BuildWodPage() {
       const blocks = blockOrder.map(key => {
         const group = blockMap.get(key)!;
         const first = group[0];
+        if (first.kind === 'rest') {
+          return {
+            section: first.section,
+            blockType: 'rest',
+            rest: `${first.restDuration || 30} sec`,
+            exercises: [],
+          };
+        }
         return {
           section: first.section,
           blockType: first.blockType || 'single',

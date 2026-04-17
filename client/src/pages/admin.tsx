@@ -2002,6 +2002,7 @@ export default function AdminPanel() {
                                     section: b.section || 'main',
                                     position: b.position ?? bi,
                                     rest: b.rest || '60 sec',
+                                    restDuration: b.blockType === 'rest' ? (b.rest || '30 sec') : undefined,
                                     rounds: b.rounds ?? null,
                                     restAfterRound: b.restAfterRound ?? null,
                                     exercises: (b.exercises || []).map((ex: any, ei: number) => {

@@ -1980,29 +1980,69 @@ export default function AdminPanel() {
                       <div className="flex justify-between items-start">
                         <CardTitle className="text-lg truncate max-w-[200px]">{workout.title || workout.name}</CardTitle>
                         <div className="flex gap-2">
-                          <Button size="sm" variant="outline" onClick={() => {
-                            // Save workout to sessionStorage for editing on CreateWorkout page
+                          <Button size="sm" variant="outline" onClick={async () => {
+                            // Fetch the structured blocks from the API (the workouts list endpoint
+                            // doesn't include block_exercises rows, only the legacy `exercises` JSON
+                            // column, which is missing the IDs and exerciseName fields the editor needs).
                             sessionStorage.removeItem('workoutEditContext');
-                            sessionStorage.setItem('workoutFormData', JSON.stringify({
-                              id: workout.id,
-                              title: workout.title,
-                              description: workout.description || "",
-                              workoutType: workout.workoutType || "regular",
-                              category: workout.category,
-                              difficulty: workout.difficulty,
-                              duration: workout.duration,
-                              equipment: workout.equipment || [],
-                              exercises: workout.exercises || [],
-                              blocks: workout.blocks || [],
-                              imageUrl: workout.imageUrl || "",
-                              muxPlaybackId: workout.muxPlaybackId || "",
-                              videoUrl: workout.videoUrl || "",
-                              routineType: workout.routineType || "",
-                              intervalRounds: workout.intervalRounds || 3,
-                              intervalRestAfterRound: workout.intervalRestAfterRound || "60 sec",
-                            }));
-                            sessionStorage.setItem('workoutStep', '2');
-                            navigate('/admin/create-workout');
+                            try {
+                              const [blocksRes, libRes] = await Promise.all([
+                                fetch(`/api/workouts/${workout.id}/exercises`, { credentials: 'include' }),
+                                fetch(`/api/exercises`, { credentials: 'include' }),
+                              ]);
+                              const rawBlocks = blocksRes.ok ? await blocksRes.json() : [];
+                              const lib: any[] = libRes.ok ? await libRes.json() : [];
+                              const libById = new Map<number, any>(lib.map((e) => [e.id, e]));
+
+                              const isBlockShape = Array.isArray(rawBlocks) && rawBlocks.length > 0 && (rawBlocks[0]?.blockType !== undefined || rawBlocks[0]?.exercises !== undefined);
+                              const blocks = isBlockShape
+                                ? rawBlocks.map((b: any, bi: number) => ({
+                                    id: String(b.id ?? `b-${bi}-${Date.now()}`),
+                                    blockType: b.blockType || 'single',
+                                    section: b.section || 'main',
+                                    position: b.position ?? bi,
+                                    rest: b.rest || '60 sec',
+                                    rounds: b.rounds ?? null,
+                                    restAfterRound: b.restAfterRound ?? null,
+                                    exercises: (b.exercises || []).map((ex: any, ei: number) => {
+                                      const libEx = ex.exerciseLibraryId ? libById.get(ex.exerciseLibraryId) : null;
+                                      return {
+                                        id: String(ex.id ?? `e-${bi}-${ei}-${Date.now()}`),
+                                        exerciseLibraryId: ex.exerciseLibraryId ?? null,
+                                        exerciseName: libEx?.name || ex.exerciseName || ex.name || '',
+                                        imageUrl: libEx?.imageUrl || ex.imageUrl || null,
+                                        sets: Array.isArray(ex.sets) && ex.sets.length > 0 ? ex.sets : [{ reps: '8-12', duration: '30 sec' }],
+                                        tempo: ex.tempo ?? null,
+                                        load: ex.load ?? null,
+                                        notes: ex.notes ?? null,
+                                        durationType: ex.durationType ?? null,
+                                      };
+                                    }),
+                                  }))
+                                : [];
+
+                              sessionStorage.setItem('workoutFormData', JSON.stringify({
+                                id: workout.id,
+                                title: workout.title,
+                                description: workout.description || "",
+                                workoutType: workout.workoutType || "regular",
+                                category: workout.category,
+                                difficulty: workout.difficulty,
+                                duration: workout.duration,
+                                equipment: workout.equipment || [],
+                                blocks,
+                                imageUrl: workout.imageUrl || "",
+                                muxPlaybackId: workout.muxPlaybackId || "",
+                                videoUrl: workout.videoUrl || "",
+                                routineType: workout.routineType || "",
+                                intervalRounds: workout.intervalRounds || 3,
+                                intervalRestAfterRound: workout.intervalRestAfterRound || "60 sec",
+                              }));
+                              sessionStorage.setItem('workoutStep', '2');
+                              navigate('/admin/create-workout');
+                            } catch (err) {
+                              toast({ title: "Couldn't open workout", description: "Failed to load workout details", variant: "destructive" });
+                            }
                           }}>
                             <Edit className="h-4 w-4" />
                           </Button>

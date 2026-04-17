@@ -383,13 +383,16 @@ export default function BuildWodPage() {
       // matching the shape produced by the "Add Rest" button.
       if (block.blockType === 'rest') {
         const restStr: string = block.rest || '30 sec';
-        const m = String(restStr).match(/(\d+)\s*(min|m|sec|s)?/i);
-        let restSecs = 30;
-        if (m) {
-          const n = parseInt(m[1], 10);
-          const unit = (m[2] || 'sec').toLowerCase();
-          restSecs = unit.startsWith('m') ? n * 60 : n;
+        // Handles "60 sec", "1 min", "1 min 15 sec", "90s", etc.
+        let restSecs = 0;
+        const re = /(\d+)\s*(min|m|sec|s)?/gi;
+        let mm: RegExpExecArray | null;
+        while ((mm = re.exec(String(restStr))) !== null) {
+          const n = parseInt(mm[1], 10);
+          const unit = (mm[2] || 'sec').toLowerCase();
+          restSecs += unit.startsWith('m') ? n * 60 : n;
         }
+        if (!restSecs) restSecs = 30;
         loaded.push({
           id: `edit-rest-${block.id || Date.now()}-${Math.random().toString(36).slice(2)}`,
           kind: 'rest',

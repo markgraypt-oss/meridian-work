@@ -837,11 +837,8 @@ export default function TrainingWorkoutDetail() {
                     if (!workout) return;
 
                     const uid = (currentUser as any)?.id;
-                    const isAdmin = !!(currentUser as any)?.isAdmin;
                     const isOwner = (workout as any).userId && (workout as any).userId === uid;
-                    const canEditOriginal = isOwner || isAdmin;
 
-                    // Helper: load workout data into session and navigate to builder
                     const openEditor = (w: any) => {
                       sessionStorage.removeItem('workoutEditContext');
                       sessionStorage.setItem('workoutFormData', JSON.stringify({
@@ -866,22 +863,24 @@ export default function TrainingWorkoutDetail() {
                       navigate('/admin/create-workout');
                     };
 
-                    if (canEditOriginal) {
+                    // Owner editing their own personal workout: edit in place
+                    if (isOwner) {
                       openEditor(workout);
                       return;
                     }
 
-                    // Library workout being edited by a non-owner: fork into user's library
+                    // Library workout (or anyone else's): fork into user's library, repoint schedule, then edit the copy
                     try {
                       toast({ title: "Creating your copy..." });
                       const res = await apiRequest('POST', `/api/workouts/${workout.id}/fork`, {
                         scheduledWorkoutId: scheduledWorkoutId || undefined,
                       });
                       const forked = await res.json();
-                      // Fetch full workout with exercises/blocks for the editor
                       const fullRes = await apiRequest('GET', `/api/workouts/${forked.id}`);
                       const full = await fullRes.json();
                       queryClient.invalidateQueries({ queryKey: ['/api/scheduled-workouts'] });
+                      queryClient.invalidateQueries({ queryKey: ['/api/today-workouts'] });
+                      queryClient.invalidateQueries({ queryKey: ['/api/calendar/activities'] });
                       openEditor(full);
                     } catch (err: any) {
                       console.error('Fork failed:', err);
@@ -890,29 +889,6 @@ export default function TrainingWorkoutDetail() {
                   }}
                 >
                   Edit This Workout
-                </button>
-                <button
-                  className="w-full text-left py-4 px-2 text-destructive text-lg hover:bg-muted/50 rounded-lg transition-colors"
-                  onClick={async () => {
-                    setShowActionSheet(false);
-                    if (!scheduledWorkoutId) {
-                      toast({ title: "Cannot delete - missing schedule reference", variant: "destructive" });
-                      return;
-                    }
-                    if (confirm('Remove this workout from your schedule?')) {
-                      try {
-                        await apiRequest('DELETE', `/api/scheduled-workouts/${scheduledWorkoutId}`);
-                        queryClient.invalidateQueries({ queryKey: ['/api/scheduled-workouts'] });
-                        queryClient.invalidateQueries({ queryKey: ['/api/today-workouts'] });
-                        toast({ title: "Workout removed from schedule" });
-                        navigate('/');
-                      } catch {
-                        toast({ title: "Failed to remove workout", variant: "destructive" });
-                      }
-                    }
-                  }}
-                >
-                  Delete
                 </button>
               </div>
             </div>

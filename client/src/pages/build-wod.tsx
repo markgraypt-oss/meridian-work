@@ -46,6 +46,17 @@ interface ExerciseData {
 
 type WorkoutType = 'regular' | 'interval' | 'circuit';
 
+// Serialize a seconds value into the same string format the admin panel uses
+// (e.g. "30 sec", "1 min", "1 min 15 sec", "5 min"). Keeps stored block.rest
+// values consistent across admin and user-side edits.
+const secondsToAdminRest = (totalSecs: number): string => {
+  const s = Math.max(0, Math.round(totalSecs || 0));
+  if (s < 60) return `${s} sec`;
+  const mins = Math.floor(s / 60);
+  const rem = s % 60;
+  return rem === 0 ? `${mins} min` : `${mins} min ${rem} sec`;
+};
+
 const formatRestPeriod = (restPeriod: string): string => {
   if (!restPeriod || restPeriod.toLowerCase() === 'none') return 'none';
   
@@ -502,7 +513,7 @@ export default function BuildWodPage() {
           return {
             section: first.section,
             blockType: 'rest',
-            rest: `${first.restDuration || 30} sec`,
+            rest: secondsToAdminRest(first.restDuration || 30),
             rounds: null,
             exercises: [],
           };
@@ -574,7 +585,7 @@ export default function BuildWodPage() {
           return {
             section: first.section,
             blockType: 'rest',
-            rest: `${first.restDuration || 30} sec`,
+            rest: secondsToAdminRest(first.restDuration || 30),
             exercises: [],
           };
         }

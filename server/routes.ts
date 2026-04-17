@@ -2416,8 +2416,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const enriched = await Promise.all(workouts.map(async (w: any) => {
         const est = calculateServerWorkoutDuration(w);
         let imageUrl = w.imageUrl || null;
+        if (imageUrl && imageUrl.startsWith('/uploads/')) imageUrl = null;
         if (!imageUrl) {
           imageUrl = await storage.getWorkoutFirstExerciseImage(w.id);
+          if (imageUrl && imageUrl.startsWith('/uploads/')) imageUrl = null;
         }
         return { ...w, imageUrl, estimatedDuration: est };
       }));
@@ -2516,7 +2518,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
       
       const est = calculateServerWorkoutDuration(workout);
-      res.json({ ...workout, estimatedDuration: est });
+      const cleanImageUrl = (workout as any).imageUrl?.startsWith?.('/uploads/') ? null : (workout as any).imageUrl;
+      res.json({ ...workout, imageUrl: cleanImageUrl, estimatedDuration: est });
     } catch (error) {
       console.error("Error fetching workout:", error);
       res.status(500).json({ message: "Failed to fetch workout" });
@@ -4497,11 +4500,16 @@ Return format: {"category": "strength|cardio|hiit|mobility|recovery", "difficult
   });
 
   // Recipe routes
+  const stripBrokenImage = <T extends { imageUrl?: string | null }>(r: T): T => ({
+    ...r,
+    imageUrl: r.imageUrl?.startsWith('/uploads/') ? null : (r.imageUrl ?? null),
+  });
+
   app.get('/api/recipes', async (req, res) => {
     try {
       const { category } = req.query;
       const recipes = await storage.getRecipes(category as string);
-      res.json(recipes);
+      res.json(recipes.map(stripBrokenImage));
     } catch (error) {
       console.error("Error fetching recipes:", error);
       res.status(500).json({ message: "Failed to fetch recipes" });
@@ -4515,7 +4523,7 @@ Return format: {"category": "strength|cardio|hiit|mobility|recovery", "difficult
       if (!recipe) {
         return res.status(404).json({ message: "Recipe not found" });
       }
-      res.json(recipe);
+      res.json(stripBrokenImage(recipe));
     } catch (error) {
       console.error("Error fetching recipe:", error);
       res.status(500).json({ message: "Failed to fetch recipe" });

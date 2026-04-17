@@ -489,6 +489,13 @@ export default function BuildWodPage() {
     },
     onSuccess: () => {
       sessionStorage.removeItem('wodExercises');
+      queryClient.invalidateQueries({ queryKey: ['/api/workouts', editWorkoutIdParam] });
+      queryClient.invalidateQueries({ queryKey: ['/api/workouts', editWorkoutIdParam, 'exercises'] });
+      queryClient.invalidateQueries({ queryKey: ['/api/workouts'] });
+      queryClient.invalidateQueries({ queryKey: ['/api/scheduled-workouts'] });
+      queryClient.invalidateQueries({ queryKey: ['/api/today-workout'] });
+      queryClient.invalidateQueries({ queryKey: ['/api/today-workouts'] });
+      queryClient.invalidateQueries({ queryKey: ['/api/calendar/activities'] });
       toast({ title: "Workout updated!" });
       navigate(fromParam || '/', { replace: true });
     },

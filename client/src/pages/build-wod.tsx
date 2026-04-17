@@ -547,7 +547,10 @@ export default function BuildWodPage() {
   };
 
   const handleSaveClick = () => {
-    if (hasChanges) {
+    // Only show the "update for all future occurrences" confirmation when editing
+    // a workout inside an enrolled programme. Library/scheduled workouts edit a
+    // single user-owned copy, so save without an extra prompt.
+    if (hasChanges && isEnrolledEditMode) {
       setShowSaveConfirm(true);
     } else {
       handleSave();

@@ -484,7 +484,15 @@ export default function BuildWodPage() {
           })),
         };
       });
-      const response = await apiRequest('PATCH', `/api/workouts/${editWorkoutIdParam}`, { blocks, workoutType });
+      // For circuit-type workouts the round count lives on the workout itself
+      // (intervalRounds), so propagate the first multi-exercise block's rounds up.
+      const effectiveWorkoutType = workoutType || workoutEditMeta?.workoutType || 'regular';
+      const firstMultiBlock = blocks.find(b => b.blockType && b.blockType !== 'single');
+      const payload: Record<string, any> = { blocks, workoutType: effectiveWorkoutType };
+      if (firstMultiBlock?.rounds) {
+        payload.intervalRounds = firstMultiBlock.rounds;
+      }
+      const response = await apiRequest('PATCH', `/api/workouts/${editWorkoutIdParam}`, payload);
       return response.json();
     },
     onSuccess: () => {

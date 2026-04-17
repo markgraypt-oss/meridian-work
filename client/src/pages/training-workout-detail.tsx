@@ -872,6 +872,29 @@ export default function TrainingWorkoutDetail() {
                 >
                   Edit This Workout
                 </button>
+                {scheduledWorkoutId && (
+                  <button
+                    className="w-full text-left py-4 px-2 text-destructive text-lg hover:bg-muted/50 rounded-lg transition-colors"
+                    onClick={async () => {
+                      setShowActionSheet(false);
+                      if (confirm('Remove this workout from your calendar?')) {
+                        try {
+                          await apiRequest('DELETE', `/api/scheduled-workouts/${scheduledWorkoutId}`);
+                          queryClient.invalidateQueries({ queryKey: ['/api/scheduled-workouts'] });
+                          queryClient.invalidateQueries({ queryKey: ['/api/today-workout'] });
+                          queryClient.invalidateQueries({ queryKey: ['/api/today-workouts'] });
+                          queryClient.invalidateQueries({ queryKey: ['/api/calendar/activities'] });
+                          toast({ title: "Removed from calendar" });
+                          navigate('/');
+                        } catch {
+                          toast({ title: "Failed to remove", variant: "destructive" });
+                        }
+                      }
+                    }}
+                  >
+                    Remove From Calendar
+                  </button>
+                )}
               </div>
             </div>
           </DrawerContent>

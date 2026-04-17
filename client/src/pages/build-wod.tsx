@@ -831,12 +831,16 @@ export default function BuildWodPage() {
     } else if (badgeType === 'duration') {
       setEditValue(exercise.targetDuration || '30 sec');
     } else if (badgeType === 'rest') {
-      const restPeriod = exercise.restPeriod || '60s';
-      if (restPeriod.toLowerCase() === 'none' || restPeriod === '0') {
-        setEditValue('0');
+      if (exercise.kind === 'rest') {
+        setEditValue(String(exercise.restDuration || 60));
       } else {
-        const secs = parseInt(restPeriod.replace('s', '').replace(' sec', ''));
-        setEditValue(String(secs || 60));
+        const restPeriod = exercise.restPeriod || '60s';
+        if (restPeriod.toLowerCase() === 'none' || restPeriod === '0') {
+          setEditValue('0');
+        } else {
+          const secs = parseInt(restPeriod.replace('s', '').replace(' sec', ''));
+          setEditValue(String(secs || 60));
+        }
       }
     }
   };
@@ -880,7 +884,11 @@ export default function BuildWodPage() {
         }
       } else if (editingField === 'rest') {
         const secs = parseInt(editValue);
-        if (secs === 0 || isNaN(secs)) {
+        if (exercise.kind === 'rest') {
+          const v = isNaN(secs) || secs <= 0 ? 30 : secs;
+          exercise.restDuration = v;
+          exercise.targetDuration = `${v} sec`;
+        } else if (secs === 0 || isNaN(secs)) {
           exercise.restPeriod = 'none';
         } else {
           exercise.restPeriod = `${secs}s`;
@@ -1093,9 +1101,17 @@ export default function BuildWodPage() {
                       <div className="flex-1 min-w-0">
                         <p className="text-sm font-medium text-foreground">Rest</p>
                         <div className="flex flex-wrap gap-2 mt-1">
-                          <span className="inline-flex items-center px-2 py-0.5 rounded text-xs bg-primary/10 text-primary">
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              handleBadgeClick(globalIdx, 'rest');
+                            }}
+                            className="inline-flex items-center px-2 py-0.5 rounded text-xs bg-primary/10 text-primary hover:bg-primary/20 cursor-pointer"
+                            data-testid={`badge-rest-block-${globalIdx}`}
+                          >
                             {formatRestPeriod(`${exercise.restDuration}s`)}
-                          </span>
+                          </button>
                         </div>
                       </div>
                     </>

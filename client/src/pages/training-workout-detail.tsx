@@ -10,6 +10,7 @@ import TopHeader from "@/components/TopHeader";
 import { ExerciseCard } from "@/components/ExerciseCard";
 import { WorkoutCompletionView } from "@/components/training/WorkoutCompletionView";
 import { ScheduleWorkoutDialog } from "@/components/training/ScheduleWorkoutDialog";
+import { MoveWorkoutCalendar } from "@/components/training/MoveWorkoutCalendar";
 import WorkoutRatingDialog from "@/components/WorkoutRatingDialog";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { format, parse } from "date-fns";
@@ -1316,49 +1317,15 @@ export default function TrainingWorkoutDetail() {
       />
 
       {/* Move To Another Day Dialog */}
-      <Drawer open={showMoveDialog} onOpenChange={setShowMoveDialog}>
-        <DrawerContent className="bg-background border-t border-muted">
-          <div className="px-5 pt-2 pb-6">
-            <div className="w-12 h-1.5 bg-muted rounded-full mx-auto mb-6" />
-            <h2 className="text-xl font-semibold text-foreground text-center mb-2">
-              Move Workout
-            </h2>
-            <p className="text-sm text-muted-foreground text-center mb-5">
-              {scheduledWorkoutId
-                ? "Choose a new date for this workout. This will only affect your personal calendar view."
-                : "Programme workouts cannot be moved from the calendar. Adjust your programme schedule from the Training section."}
-            </p>
-            {scheduledWorkoutId && (
-              <>
-                <input
-                  type="date"
-                  className="w-full p-4 rounded-xl border border-border bg-card text-foreground text-base mb-4"
-                  value={newMoveDate}
-                  onChange={(e) => setNewMoveDate(e.target.value)}
-                />
-                <Button
-                  className="w-full h-12 bg-primary text-primary-foreground hover:bg-primary/90 rounded-xl text-base font-semibold mb-2"
-                  onClick={() => {
-                    if (newMoveDate) {
-                      moveWorkoutMutation.mutate(newMoveDate);
-                    }
-                  }}
-                  disabled={!newMoveDate || moveWorkoutMutation.isPending}
-                >
-                  {moveWorkoutMutation.isPending ? 'Moving...' : 'Move Workout'}
-                </Button>
-              </>
-            )}
-            <Button
-              variant="outline"
-              className="w-full h-12 rounded-xl text-base"
-              onClick={() => setShowMoveDialog(false)}
-            >
-              Cancel
-            </Button>
-          </div>
-        </DrawerContent>
-      </Drawer>
+      {scheduledWorkoutId && (
+        <MoveWorkoutCalendar
+          open={showMoveDialog}
+          onOpenChange={setShowMoveDialog}
+          scheduledWorkoutId={scheduledWorkoutId}
+          workoutName={workout?.title || workout?.name || 'Workout'}
+          currentDate={scheduledDateStr || format(new Date(), 'yyyy-MM-dd')}
+        />
+      )}
 
       {/* Warning dialog when user has an active programme */}
       <AlertDialog open={showProgrammeWarning} onOpenChange={setShowProgrammeWarning}>

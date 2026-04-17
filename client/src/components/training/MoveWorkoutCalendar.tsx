@@ -14,12 +14,13 @@ import { useToast } from "@/hooks/use-toast";
 interface MoveWorkoutCalendarProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  enrollmentId: number;
-  week: number;
-  day: number;
+  enrollmentId?: number;
+  week?: number;
+  day?: number;
   position?: number;
   workoutName: string;
   currentDate: string;
+  scheduledWorkoutId?: number;
 }
 
 export function MoveWorkoutCalendar({ 
@@ -31,6 +32,7 @@ export function MoveWorkoutCalendar({
   position,
   workoutName,
   currentDate,
+  scheduledWorkoutId,
 }: MoveWorkoutCalendarProps) {
   const scrollContainerRef = useRef<HTMLDivElement>(null);
   const [monthsToShow, setMonthsToShow] = useState(6);
@@ -46,6 +48,10 @@ export function MoveWorkoutCalendar({
 
   const moveWorkoutMutation = useMutation({
     mutationFn: async (newDate: string) => {
+      if (scheduledWorkoutId) {
+        const response = await apiRequest('PATCH', `/api/scheduled-workouts/${scheduledWorkoutId}/move`, { newDate });
+        return response.json();
+      }
       const response = await apiRequest('POST', `/api/my-programs/${enrollmentId}/move-workout`, {
         week,
         day,
@@ -60,6 +66,7 @@ export function MoveWorkoutCalendar({
       queryClient.invalidateQueries({ queryKey: ['/api/scheduled-workouts'] });
       queryClient.invalidateQueries({ queryKey: ['/api/user-extra-workout-sessions'] });
       queryClient.invalidateQueries({ queryKey: ['/api/today-workout'] });
+      queryClient.invalidateQueries({ queryKey: ['/api/today-workouts'] });
       queryClient.invalidateQueries({ queryKey: ['/api/calendar/activities'] });
       queryClient.invalidateQueries({ queryKey: ['/api/programme-workouts-range'] });
       toast({ title: "Workout moved", description: `Moved to ${format(new Date(selectedDate), 'd MMM yyyy')}` });

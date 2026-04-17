@@ -372,7 +372,7 @@ export default function BuildWodPage() {
 
   // Populate exercises from a regular workout's blocks (workout-edit mode)
   useEffect(() => {
-    if (!isWorkoutEditMode || !workoutEditBlocks || exercises.length > 0) return;
+    if (!isWorkoutEditMode || !workoutEditBlocks || !workoutEditMeta || exercises.length > 0) return;
 
     const loaded: ExerciseData[] = [];
     const isCircuitTypeWorkout = workoutEditMeta?.workoutType === 'circuit';

@@ -838,34 +838,17 @@ export default function TrainingWorkoutDetail() {
 
                     const uid = (currentUser as any)?.id;
                     const isOwner = (workout as any).userId && (workout as any).userId === uid;
+                    const returnUrl = window.location.pathname + window.location.search;
+                    const wType = (workout as any).workoutType || 'regular';
 
-                    const openEditor = (w: any) => {
-                      sessionStorage.removeItem('workoutEditContext');
-                      sessionStorage.setItem('workoutFormData', JSON.stringify({
-                        id: w.id,
-                        title: w.title,
-                        description: w.description || "",
-                        workoutType: w.workoutType || "regular",
-                        category: w.category,
-                        difficulty: w.difficulty,
-                        duration: w.duration,
-                        equipment: w.equipment || [],
-                        exercises: w.exercises || [],
-                        blocks: w.blocks || w.exercises || [],
-                        imageUrl: w.imageUrl || "",
-                        muxPlaybackId: w.muxPlaybackId || "",
-                        videoUrl: w.videoUrl || "",
-                        routineType: w.routineType || "",
-                        intervalRounds: w.intervalRounds || 3,
-                        intervalRestAfterRound: w.intervalRestAfterRound || "60 sec",
-                      }));
-                      sessionStorage.setItem('workoutStep', '2');
-                      navigate('/admin/create-workout');
+                    const goToEditor = (id: number) => {
+                      sessionStorage.removeItem('wodExercises');
+                      navigate(`/build-wod?type=${wType}&editWorkoutId=${id}&from=${encodeURIComponent(returnUrl)}`, { replace: true });
                     };
 
                     // Owner editing their own personal workout: edit in place
                     if (isOwner) {
-                      openEditor(workout);
+                      goToEditor(workout.id);
                       return;
                     }
 
@@ -876,12 +859,10 @@ export default function TrainingWorkoutDetail() {
                         scheduledWorkoutId: scheduledWorkoutId || undefined,
                       });
                       const forked = await res.json();
-                      const fullRes = await apiRequest('GET', `/api/workouts/${forked.id}`);
-                      const full = await fullRes.json();
                       queryClient.invalidateQueries({ queryKey: ['/api/scheduled-workouts'] });
                       queryClient.invalidateQueries({ queryKey: ['/api/today-workouts'] });
                       queryClient.invalidateQueries({ queryKey: ['/api/calendar/activities'] });
-                      openEditor(full);
+                      goToEditor(forked.id);
                     } catch (err: any) {
                       console.error('Fork failed:', err);
                       toast({ title: "Couldn't start edit", description: err?.message || "Please try again", variant: "destructive" });
@@ -1335,43 +1316,49 @@ export default function TrainingWorkoutDetail() {
       />
 
       {/* Move To Another Day Dialog */}
-      <AlertDialog open={showMoveDialog} onOpenChange={setShowMoveDialog}>
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle>Move Workout</AlertDialogTitle>
-            <AlertDialogDescription>
-              {scheduledWorkoutId 
+      <Drawer open={showMoveDialog} onOpenChange={setShowMoveDialog}>
+        <DrawerContent className="bg-background border-t border-muted">
+          <div className="px-5 pt-2 pb-6">
+            <div className="w-12 h-1.5 bg-muted rounded-full mx-auto mb-6" />
+            <h2 className="text-xl font-semibold text-foreground text-center mb-2">
+              Move Workout
+            </h2>
+            <p className="text-sm text-muted-foreground text-center mb-5">
+              {scheduledWorkoutId
                 ? "Choose a new date for this workout. This will only affect your personal calendar view."
                 : "Programme workouts cannot be moved from the calendar. Adjust your programme schedule from the Training section."}
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          {scheduledWorkoutId && (
-            <div className="py-4">
-              <input
-                type="date"
-                className="w-full p-3 rounded-lg border border-border bg-background text-foreground"
-                value={newMoveDate}
-                onChange={(e) => setNewMoveDate(e.target.value)}
-              />
-            </div>
-          )}
-          <AlertDialogFooter>
-            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            </p>
             {scheduledWorkoutId && (
-              <AlertDialogAction 
-                onClick={() => {
-                  if (newMoveDate) {
-                    moveWorkoutMutation.mutate(newMoveDate);
-                  }
-                }}
-                disabled={!newMoveDate || moveWorkoutMutation.isPending}
-              >
-                {moveWorkoutMutation.isPending ? 'Moving...' : 'Move Workout'}
-              </AlertDialogAction>
+              <>
+                <input
+                  type="date"
+                  className="w-full p-4 rounded-xl border border-border bg-card text-foreground text-base mb-4"
+                  value={newMoveDate}
+                  onChange={(e) => setNewMoveDate(e.target.value)}
+                />
+                <Button
+                  className="w-full h-12 bg-primary text-primary-foreground hover:bg-primary/90 rounded-xl text-base font-semibold mb-2"
+                  onClick={() => {
+                    if (newMoveDate) {
+                      moveWorkoutMutation.mutate(newMoveDate);
+                    }
+                  }}
+                  disabled={!newMoveDate || moveWorkoutMutation.isPending}
+                >
+                  {moveWorkoutMutation.isPending ? 'Moving...' : 'Move Workout'}
+                </Button>
+              </>
             )}
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
+            <Button
+              variant="outline"
+              className="w-full h-12 rounded-xl text-base"
+              onClick={() => setShowMoveDialog(false)}
+            >
+              Cancel
+            </Button>
+          </div>
+        </DrawerContent>
+      </Drawer>
 
       {/* Warning dialog when user has an active programme */}
       <AlertDialog open={showProgrammeWarning} onOpenChange={setShowProgrammeWarning}>

@@ -79,6 +79,8 @@ export default function BuildWodPage() {
   const enrollmentWorkoutIdParam = searchParams.get('enrollmentWorkoutId');
   const enrollmentIdParam = searchParams.get('enrollmentId');
   const isEnrolledEditMode = !!enrollmentWorkoutIdParam && !!enrollmentIdParam;
+  const editWorkoutIdParam = searchParams.get('editWorkoutId');
+  const isWorkoutEditMode = !!editWorkoutIdParam && !isEnrolledEditMode;
   
   const selectedDate = dateParam ? new Date(dateParam) : new Date();
   const showTypeSelector = categoryParam === 'workout' && !typeParam;
@@ -114,6 +116,18 @@ export default function BuildWodPage() {
   const { data: enrolledProgramData } = useQuery<any>({
     queryKey: [`/api/my-programs/${enrollmentIdParam}`],
     enabled: isEnrolledEditMode && !!enrollmentIdParam,
+    staleTime: 0,
+  });
+
+  // When in workout-edit mode, fetch the workout's blocks from the API
+  const { data: workoutEditBlocks } = useQuery<any[]>({
+    queryKey: ['/api/workouts', editWorkoutIdParam, 'exercises'],
+    queryFn: async () => {
+      const r = await fetch(`/api/workouts/${editWorkoutIdParam}/exercises`, { credentials: 'include' });
+      if (!r.ok) throw new Error('Failed to load workout');
+      return r.json();
+    },
+    enabled: isWorkoutEditMode,
     staleTime: 0,
   });
 
@@ -344,6 +358,48 @@ export default function BuildWodPage() {
     }
   }, [isEnrolledEditMode, enrolledProgramData, enrollmentWorkoutIdParam, exercises.length, libraryExercises]);
 
+  // Populate exercises from a regular workout's blocks (workout-edit mode)
+  useEffect(() => {
+    if (!isWorkoutEditMode || !workoutEditBlocks || exercises.length > 0) return;
+
+    const loaded: ExerciseData[] = [];
+    for (const block of workoutEditBlocks) {
+      const section = block.section === 'warmup' ? 'warmup' : 'main';
+      const blockGroupId = block.blockType && block.blockType !== 'single'
+        ? `edit-${block.id || Date.now()}-${Math.random().toString(36).slice(2)}`
+        : undefined;
+      for (const ex of (block.exercises || [])) {
+        const libExercise = libraryExercises.find((e: any) => e.id === ex.exerciseLibraryId);
+        const exerciseType = libExercise?.exerciseType || ex.exerciseType || 'strength';
+        const isTimeBased = ['timed', 'timed_strength', 'general', 'cardio'].includes(exerciseType);
+        const sets = ex.sets || [{ reps: '8-12' }];
+        const firstSet = sets[0] || {};
+        loaded.push({
+          id: `edit-${Date.now()}-${Math.random().toString(36).slice(2)}`,
+          kind: 'exercise',
+          exerciseLibraryId: ex.exerciseLibraryId || null,
+          exerciseName: ex.exerciseName || libExercise?.name || ex.name || '',
+          imageUrl: ex.imageUrl || libExercise?.imageUrl || null,
+          muxPlaybackId: ex.muxPlaybackId || libExercise?.muxPlaybackId || null,
+          blockType: block.blockType || 'single',
+          blockGroupId,
+          section,
+          position: loaded.filter(e => e.section === section).length,
+          restPeriod: block.rest || '60s',
+          setsCount: sets.length,
+          targetReps: firstSet.reps || '8-12',
+          targetDuration: isTimeBased ? (firstSet.duration || '30 sec') : (firstSet.duration || ''),
+          durationType: isTimeBased ? 'timer' : 'text',
+          exerciseType,
+        } as ExerciseData);
+      }
+    }
+    setExercises(loaded);
+    if (originalExercisesRef.current === null) {
+      originalExercisesRef.current = normalizeExercises(loaded);
+    }
+  }, [isWorkoutEditMode, workoutEditBlocks, exercises.length, libraryExercises]);
+
   const saveMutation = useMutation({
     mutationFn: async () => {
       const workoutData = {
@@ -364,6 +420,46 @@ export default function BuildWodPage() {
     },
     onError: () => {
       toast({ title: "Failed to save workout", variant: "destructive" });
+    },
+  });
+
+  const workoutEditSaveMutation = useMutation({
+    mutationFn: async () => {
+      const blockMap = new Map<string, ExerciseData[]>();
+      const blockOrder: string[] = [];
+      for (const ex of exercises) {
+        const key = ex.blockGroupId || ex.id;
+        if (!blockMap.has(key)) { blockMap.set(key, []); blockOrder.push(key); }
+        blockMap.get(key)!.push(ex);
+      }
+      const blocks = blockOrder.map(key => {
+        const group = blockMap.get(key)!;
+        const first = group[0];
+        return {
+          section: first.section,
+          blockType: first.blockType || 'single',
+          rest: first.restPeriod || '60s',
+          exercises: group.map(ex => ({
+            exerciseLibraryId: ex.exerciseLibraryId,
+            sets: Array.from({ length: ex.setsCount || 1 }, () => ({
+              reps: ex.targetReps || '',
+              duration: ex.targetDuration || '',
+            })),
+            durationType: ex.durationType || null,
+            tempo: null, load: null, notes: null,
+          })),
+        };
+      });
+      const response = await apiRequest('PATCH', `/api/workouts/${editWorkoutIdParam}`, { blocks, workoutType });
+      return response.json();
+    },
+    onSuccess: () => {
+      sessionStorage.removeItem('wodExercises');
+      toast({ title: "Workout updated!" });
+      navigate(fromParam || '/', { replace: true });
+    },
+    onError: (err: any) => {
+      toast({ title: "Failed to save workout", description: err?.message, variant: "destructive" });
     },
   });
 
@@ -412,7 +508,7 @@ export default function BuildWodPage() {
       setShowCancelConfirm(true);
     } else {
       sessionStorage.removeItem('wodExercises');
-      navigate(fromParam || "/", { replace: isEnrolledEditMode });
+      navigate(fromParam || "/", { replace: isEnrolledEditMode || isWorkoutEditMode });
     }
   };
 
@@ -487,6 +583,10 @@ export default function BuildWodPage() {
   const handleSave = () => {
     if (isEnrolledEditMode) {
       enrolledSaveMutation.mutate();
+      return;
+    }
+    if (isWorkoutEditMode) {
+      workoutEditSaveMutation.mutate();
       return;
     }
     if (isProgrammeMode) {

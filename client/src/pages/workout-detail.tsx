@@ -601,18 +601,15 @@ export default function WorkoutDetail() {
                         Move To Another Day
                       </button>
                       <button
-                        className="w-full text-left py-4 px-2 text-foreground text-lg hover:bg-muted/50 rounded-lg transition-colors"
-                        onClick={() => setShowActionSheet(false)}
+                        className="w-full text-left py-4 px-2 text-foreground text-lg hover:bg-muted/50 rounded-lg transition-colors disabled:opacity-50"
+                        disabled={isLoadingEdit}
+                        onClick={() => {
+                          setShowActionSheet(false);
+                          handleEditWorkout();
+                        }}
                         data-testid="menu-edit-workout"
                       >
-                        Edit This Workout
-                      </button>
-                      <button
-                        className="w-full text-left py-4 px-2 text-destructive text-lg hover:bg-muted/50 rounded-lg transition-colors"
-                        onClick={() => setShowActionSheet(false)}
-                        data-testid="menu-delete-workout"
-                      >
-                        Delete
+                        {isLoadingEdit ? 'Loading…' : 'Edit This Workout'}
                       </button>
                     </>
                   ) : (
@@ -627,13 +624,6 @@ export default function WorkoutDetail() {
                         data-testid="menu-edit-workout"
                       >
                         {isLoadingEdit ? 'Loading…' : 'Edit workout'}
-                      </button>
-                      <button
-                        className="w-full text-left py-4 px-2 text-destructive text-lg hover:bg-muted/50 rounded-lg transition-colors"
-                        onClick={() => setShowActionSheet(false)}
-                        data-testid="menu-delete"
-                      >
-                        Delete
                       </button>
                     </>
                   )}

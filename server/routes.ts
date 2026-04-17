@@ -840,6 +840,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
     try {
       const userId = req.user.claims.sub;
       const user = await storage.getUser(userId);
+      if (user && user.profileImageUrl && user.profileImageUrl.startsWith('/uploads/')) {
+        (user as any).profileImageUrl = null;
+      }
       res.json(user);
     } catch (error) {
       console.error("Error fetching user:", error);
@@ -1932,6 +1935,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(404).json({ message: "User not found" });
       }
       
+      const profileImageUrl = user.profileImageUrl?.startsWith('/uploads/') ? null : (user.profileImageUrl ?? null);
       res.json({
         id: user.id,
         email: user.email,
@@ -1942,7 +1946,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         gender: user.gender,
         height: user.height,
         heightUnit: user.heightUnit,
-        profileImageUrl: user.profileImageUrl
+        profileImageUrl,
       });
     } catch (error) {
       console.error("Get profile error:", error);
@@ -1987,7 +1991,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         gender: updatedUser?.gender,
         height: updatedUser?.height,
         heightUnit: updatedUser?.heightUnit,
-        profileImageUrl: updatedUser?.profileImageUrl
+        profileImageUrl: updatedUser?.profileImageUrl?.startsWith('/uploads/') ? null : (updatedUser?.profileImageUrl ?? null),
       });
     } catch (error) {
       console.error("Update profile error:", error);

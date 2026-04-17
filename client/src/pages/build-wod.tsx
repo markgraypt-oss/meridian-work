@@ -365,7 +365,8 @@ export default function BuildWodPage() {
     const loaded: ExerciseData[] = [];
     for (const block of workoutEditBlocks) {
       const section = block.section === 'warmup' ? 'warmup' : 'main';
-      const blockGroupId = block.blockType && block.blockType !== 'single'
+      const isMultiExerciseBlock = block.blockType && block.blockType !== 'single';
+      const blockGroupId = isMultiExerciseBlock
         ? `edit-${block.id || Date.now()}-${Math.random().toString(36).slice(2)}`
         : undefined;
       for (const ex of (block.exercises || [])) {
@@ -374,6 +375,11 @@ export default function BuildWodPage() {
         const isTimeBased = ['timed', 'timed_strength', 'general', 'cardio'].includes(exerciseType);
         const sets = ex.sets || [{ reps: '8-12' }];
         const firstSet = sets[0] || {};
+        // For circuits/supersets/trisets, set count comes from block.rounds (number of times
+        // through the circuit). For single exercises, it's the length of the sets array.
+        const setsCount = isMultiExerciseBlock
+          ? (block.rounds || sets.length || 1)
+          : (sets.length || 1);
         loaded.push({
           id: `edit-${Date.now()}-${Math.random().toString(36).slice(2)}`,
           kind: 'exercise',
@@ -386,7 +392,7 @@ export default function BuildWodPage() {
           section,
           position: loaded.filter(e => e.section === section).length,
           restPeriod: block.rest || '60s',
-          setsCount: sets.length,
+          setsCount,
           targetReps: firstSet.reps || '8-12',
           targetDuration: isTimeBased ? (firstSet.duration || '30 sec') : (firstSet.duration || ''),
           durationType: isTimeBased ? 'timer' : 'text',
@@ -435,16 +441,23 @@ export default function BuildWodPage() {
       const blocks = blockOrder.map(key => {
         const group = blockMap.get(key)!;
         const first = group[0];
+        const blockType = first.blockType || 'single';
+        const isMultiExerciseBlock = blockType !== 'single';
         return {
           section: first.section,
-          blockType: first.blockType || 'single',
+          blockType,
           rest: first.restPeriod || '60s',
+          // For circuits/supersets/trisets, store the round count on the block;
+          // each exercise then carries a single set entry describing one round's reps/duration.
+          rounds: isMultiExerciseBlock ? (first.setsCount || 1) : null,
           exercises: group.map(ex => ({
             exerciseLibraryId: ex.exerciseLibraryId,
-            sets: Array.from({ length: ex.setsCount || 1 }, () => ({
-              reps: ex.targetReps || '',
-              duration: ex.targetDuration || '',
-            })),
+            sets: isMultiExerciseBlock
+              ? [{ reps: ex.targetReps || '', duration: ex.targetDuration || '' }]
+              : Array.from({ length: ex.setsCount || 1 }, () => ({
+                  reps: ex.targetReps || '',
+                  duration: ex.targetDuration || '',
+                })),
             durationType: ex.durationType || null,
             tempo: null, load: null, notes: null,
           })),

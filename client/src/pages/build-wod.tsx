@@ -110,6 +110,7 @@ export default function BuildWodPage() {
   const [showCancelConfirm, setShowCancelConfirm] = useState(false);
   const [showSaveConfirm, setShowSaveConfirm] = useState(false);
   const originalExercisesRef = useRef<string | null>(null);
+  const pickerReturnHandledRef = useRef<boolean>(false);
   const [showAddRestDialog, setShowAddRestDialog] = useState(false);
   const [addRestValue, setAddRestValue] = useState<number>(60);
   const [showLoadSavedDialog, setShowLoadSavedDialog] = useState(false);
@@ -327,6 +328,7 @@ export default function BuildWodPage() {
         }
         sessionStorage.removeItem('selectedExerciseId');
         sessionStorage.removeItem('wodInsertSection');
+        pickerReturnHandledRef.current = true;
         console.log('[PICKER-RETURN] appended new exercise:', newExercise.exerciseName, 'section=', newExercise.section);
         // Auto-scroll the newly added exercise into view so the user can see it
         setTimeout(() => {
@@ -357,6 +359,7 @@ export default function BuildWodPage() {
   // load directly from the API instead of relying on sessionStorage
   useEffect(() => {
     if (!isEnrolledEditMode || !enrolledProgramData || exercises.length > 0) return;
+    if (pickerReturnHandledRef.current) return;
     if (typeof window !== 'undefined' && (sessionStorage.getItem('selectedExerciseId') || sessionStorage.getItem('wodExercises'))) return;
 
     const workouts: any[] = enrolledProgramData.workouts || [];
@@ -401,6 +404,7 @@ export default function BuildWodPage() {
   // Populate exercises from a regular workout's blocks (workout-edit mode)
   useEffect(() => {
     if (!isWorkoutEditMode || !workoutEditBlocks || !workoutEditMeta || exercises.length > 0) return;
+    if (pickerReturnHandledRef.current) return;
     if (typeof window !== 'undefined' && (sessionStorage.getItem('selectedExerciseId') || sessionStorage.getItem('wodExercises'))) return;
 
     const loaded: ExerciseData[] = [];

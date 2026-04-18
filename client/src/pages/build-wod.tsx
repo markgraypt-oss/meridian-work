@@ -1361,9 +1361,11 @@ export default function BuildWodPage() {
         </button>
       </div>
 
-      {debugBanner && (
+      {(debugBanner || exercises.length > 0) && (
         <div className="bg-yellow-200 text-black text-xs p-2 whitespace-pre-wrap font-mono border-b">
-          DEBUG (count={exercises.length}):{debugBanner}
+          DEBUG count={exercises.length} warmup={exercises.filter(e=>e.section==='warmup').length} main={exercises.filter(e=>e.section==='main').length} other={exercises.filter(e=>e.section!=='warmup'&&e.section!=='main').length}
+          {'\n'}IDS: {exercises.map(e=>`${e.section?.[0]||'?'}:${e.exerciseName?.slice(0,12)}`).join(' | ')}
+          {debugBanner}
         </div>
       )}
 

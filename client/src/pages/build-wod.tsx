@@ -162,14 +162,9 @@ export default function BuildWodPage() {
     (originalExercisesRef.current === null ||
       normalizeExercises(exercises) !== originalExercisesRef.current);
 
-  const [debugBanner, setDebugBanner] = useState<string>('');
-
   useEffect(() => {
     const selectedId = sessionStorage.getItem('selectedExerciseId');
     const savedExercises = sessionStorage.getItem('wodExercises');
-    const dbg = `selectedId=${selectedId} hasSaved=${!!savedExercises} lib=${libraryExercises.length}`;
-    console.log('[PICKER-RETURN] fired.', dbg);
-    setDebugBanner(prev => `${prev}\nFIRE ${dbg}`.slice(-500));
     
     if (savedExercises && libraryExercises.length > 0) {
       try {
@@ -1360,14 +1355,6 @@ export default function BuildWodPage() {
           {(isSaving || saveMutation.isPending || enrolledSaveMutation.isPending) ? "Saving..." : "Save"}
         </button>
       </div>
-
-      {(debugBanner || exercises.length > 0) && (
-        <div className="bg-yellow-200 text-black text-xs p-2 whitespace-pre-wrap font-mono border-b">
-          DEBUG count={exercises.length} warmup={exercises.filter(e=>e.section==='warmup').length} main={exercises.filter(e=>e.section==='main').length} other={exercises.filter(e=>e.section!=='warmup'&&e.section!=='main').length}
-          {'\n'}IDS: {exercises.map(e=>`${e.section?.[0]||'?'}:${e.exerciseName?.slice(0,12)}`).join(' | ')}
-          {debugBanner}
-        </div>
-      )}
 
       {workoutType === 'interval' && (
         <div className="flex items-center justify-between px-4 py-2 bg-primary/10 border-b border-border">

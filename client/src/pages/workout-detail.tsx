@@ -893,9 +893,14 @@ export default function WorkoutDetail() {
                         }
                         
                         const isLastExercise = exIdx === blockExercises.length - 1;
+                        const exerciseSetCount = (() => {
+                          if (Array.isArray(exercise.sets)) return exercise.sets.length;
+                          return parseInt(exercise.sets) || 1;
+                        })();
+                        const isSingleExerciseSingleSet = blockExercises.length === 1 && exerciseSetCount <= 1;
                         const showRest = isCircuitWorkout 
                           ? (isLastBlock && isLastExercise)
-                          : isLastExercise;
+                          : (isLastExercise && !isSingleExerciseSingleSet);
                         
                         return (
                           <ExerciseCard 

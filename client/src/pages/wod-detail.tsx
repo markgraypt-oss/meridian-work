@@ -8,6 +8,8 @@ import { useAuth } from "@/hooks/useAuth";
 import { Button } from "@/components/ui/button";
 import { Separator } from "@/components/ui/separator";
 import { Dumbbell, Clock, MoreVertical, X, Zap, RotateCcw, Link } from "lucide-react";
+import TopHeader from "@/components/TopHeader";
+import { useFormattedDate } from "@/hooks/useFormattedDate";
 import { ExerciseCard } from "@/components/ExerciseCard";
 import { WorkoutCompletionView } from "@/components/training/WorkoutCompletionView";
 import { apiRequest, queryClient } from "@/lib/queryClient";
@@ -54,6 +56,7 @@ export default function WodDetail() {
   const [showDatePicker, setShowDatePicker] = useState(false);
   const [selectedDate, setSelectedDate] = useState<Date>(new Date());
   const [showEditLogMode, setShowEditLogMode] = useState(false);
+  const { formatDate } = useFormattedDate();
 
   // Phase 1: claim the saved scroll value before global hook can interfere.
   // Phase 2: actually scroll after the browser renders content (via rAF).
@@ -272,23 +275,29 @@ export default function WodDetail() {
     return icons[equipment.toLowerCase()] || '💪';
   };
 
+  const headerDate = workoutLog.startedAt ? new Date(workoutLog.startedAt) : null;
+  const headerTitle = headerDate ? formatDate(headerDate, 'short') : undefined;
+  const displayName = workoutLog.workoutName || workoutLog.name || "Workout of the Day";
+  const warmupCount = warmupExercises.length;
+  const mainCount = mainExercises.length;
+  const totalCount = warmupCount + mainCount;
+
   return (
-    <div className="min-h-screen w-full bg-background pb-32">
-      <div className="sticky top-0 z-50 bg-background border-b border-border">
-        <div className="px-4 py-3 flex items-center justify-between">
-          <button
-            onClick={() => isWorkoutCompleted ? navigate('/') : setShowCancelConfirm(true)}
-            className="p-2 -ml-2"
-            data-testid="button-close"
-          >
-            <X className="h-5 w-5" />
-          </button>
-          <span className="text-sm font-medium">Today</span>
+    <div className="min-h-screen w-full bg-background relative pb-32">
+      <TopHeader
+        onBack={() => isWorkoutCompleted ? navigate('/') : setShowCancelConfirm(true)}
+        title={headerTitle}
+        rightMenuButton={
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
-              <button className="p-2 -mr-2" data-testid="button-menu">
-                <MoreVertical className="h-5 w-5" />
-              </button>
+              <Button
+                variant="ghost"
+                size="sm"
+                className="text-foreground hover:bg-muted"
+                data-testid="button-menu"
+              >
+                <MoreVertical className="h-4 w-4" />
+              </Button>
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end" className="w-48">
               <DropdownMenuItem 
@@ -312,11 +321,11 @@ export default function WodDetail() {
               </DropdownMenuItem>
             </DropdownMenuContent>
           </DropdownMenu>
-        </div>
-      </div>
+        }
+      />
 
-      <div className="px-4 py-6">
-        <h1 className="text-2xl font-bold text-foreground mb-4">{workoutLog.name || "Workout of the Day"}</h1>
+      <div className="pt-16 pb-4 max-w-4xl mx-auto px-6">
+        <h1 className="text-2xl font-bold text-foreground mb-4">{displayName}</h1>
 
         {isWorkoutCompleted ? (
           <WorkoutCompletionView
@@ -347,7 +356,11 @@ export default function WodDetail() {
 
             <div className="flex items-center gap-2 text-muted-foreground mb-2">
               <Dumbbell className="h-4 w-4" />
-              <span className="text-sm">{exerciseLogs.length} Exercises</span>
+              <span className="text-sm">
+                {totalCount} Exercises{warmupCount > 0 && mainCount > 0 && (
+                  <span className="text-muted-foreground"> ({warmupCount} Warm Up + {mainCount} Main Body)</span>
+                )}
+              </span>
             </div>
 
             {uniqueEquipment.size > 0 && (
@@ -368,7 +381,7 @@ export default function WodDetail() {
 
             {warmupExercises.length > 0 && (
               <div className="space-y-4 mt-4">
-                <h3 className="text-base font-semibold uppercase text-foreground">WARM UP</h3>
+                <h3 className="text-sm font-bold text-black uppercase tracking-wide px-5 py-2 bg-primary rounded-full inline-block">Warm Up</h3>
                 <div className="space-y-3">
                   {warmupExercises.map((exercise: any, index: number) => {
                     const libraryExercise = libraryExercises.find((lib: any) => lib.id === exercise.exerciseLibraryId);
@@ -398,7 +411,7 @@ export default function WodDetail() {
 
             {mainExercises.length > 0 && (
               <div className="space-y-4 mt-4">
-                <h3 className="text-base font-semibold uppercase text-foreground">MAIN BODY</h3>
+                <h3 className="text-sm font-bold text-black uppercase tracking-wide px-5 py-2 bg-primary rounded-full inline-block">Main Body</h3>
             
             {/* Circuit header - only for circuit workouts (not interval) */}
             {isCircuitWorkout && !isIntervalWorkout && (

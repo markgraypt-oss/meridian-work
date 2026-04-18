@@ -12,7 +12,7 @@ import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/component
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
-import { Plus, Edit, Trash2, Users, BookOpen, Play, ChefHat, Dumbbell, Search, X, Filter, ChevronDown, MapPin, Sparkles, BarChart3, Building2, Wrench } from "lucide-react";
+import { Plus, Edit, Trash2, Users, BookOpen, Play, ChefHat, Dumbbell, Search, X, Filter, ChevronDown, MapPin, Sparkles, BarChart3, Building2 } from "lucide-react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { apiRequest } from "@/lib/queryClient";
 import { isUnauthorizedError } from "@/lib/authUtils";
@@ -1173,34 +1173,6 @@ export default function AdminPanel() {
                 <div className="text-2xl font-bold">Settings</div>
                 <p className="text-xs text-muted-foreground">
                   Configure body map areas
-                </p>
-              </CardContent>
-            </Card>
-
-            <Card
-              onClick={async () => {
-                try {
-                  const res = await apiRequest("POST", "/api/admin/cleanup-rep-pollution", {});
-                  const data = await res.json();
-                  toast({
-                    title: "Cleanup complete",
-                    description: `Scanned ${data.rowsScanned} warmup rows. Cleared ${data.setsCleared} stuck "8-12" reps across ${data.rowsUpdated} rows.`,
-                  });
-                  queryClient.invalidateQueries();
-                } catch (e: any) {
-                  toast({ title: "Cleanup failed", description: e?.message || "Try again", variant: "destructive" });
-                }
-              }}
-              className="cursor-pointer hover:shadow-lg transition-shadow"
-            >
-              <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                <CardTitle className="text-sm font-medium">Clean up warmup reps</CardTitle>
-                <Wrench className="h-4 w-4 text-muted-foreground" />
-              </CardHeader>
-              <CardContent>
-                <div className="text-2xl font-bold">Run</div>
-                <p className="text-xs text-muted-foreground">
-                  Clears stuck "8-12" reps from warmup duration rows
                 </p>
               </CardContent>
             </Card>

@@ -329,6 +329,10 @@ export default function BuildWodPage() {
         sessionStorage.removeItem('wodInsertSection');
       }
     }
+    // Clear the round-trip flag once restoration is done so loaders aren't blocked next mount
+    if (savedExercises) {
+      sessionStorage.removeItem('wodExercises');
+    }
   }, [libraryExercises]);
 
   useEffect(() => {
@@ -341,6 +345,7 @@ export default function BuildWodPage() {
   // load directly from the API instead of relying on sessionStorage
   useEffect(() => {
     if (!isEnrolledEditMode || !enrolledProgramData || exercises.length > 0) return;
+    if (typeof window !== 'undefined' && (sessionStorage.getItem('selectedExerciseId') || sessionStorage.getItem('wodExercises'))) return;
 
     const workouts: any[] = enrolledProgramData.workouts || [];
     const targetWorkout = workouts.find((w: any) => w.id === Number(enrollmentWorkoutIdParam));
@@ -384,6 +389,7 @@ export default function BuildWodPage() {
   // Populate exercises from a regular workout's blocks (workout-edit mode)
   useEffect(() => {
     if (!isWorkoutEditMode || !workoutEditBlocks || !workoutEditMeta || exercises.length > 0) return;
+    if (typeof window !== 'undefined' && (sessionStorage.getItem('selectedExerciseId') || sessionStorage.getItem('wodExercises'))) return;
 
     const loaded: ExerciseData[] = [];
     const isCircuitTypeWorkout = workoutEditMeta?.workoutType === 'circuit';

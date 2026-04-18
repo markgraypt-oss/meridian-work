@@ -262,7 +262,7 @@ export function ExerciseCard({ exercise, index, workoutId, label, circuitRounds,
               {circuitRounds || numSets} {(circuitRounds || numSets) === 1 ? 'Set' : 'Sets'} x{' '}
               {isIntervalWorkout && durationDisplay ? (
                 durationDisplay
-              ) : isTimeBased && durationDisplay ? (
+              ) : durationDisplay ? (
                 <>
                   {durationDisplay}
                   {!isGeneralType && repsDisplay && (

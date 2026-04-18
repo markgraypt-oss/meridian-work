@@ -906,14 +906,6 @@ export default function WorkoutDetail() {
                       const blockExercises = block.exercises || [];
                       const isMultiExercise = block.blockType !== 'single' && blockExercises.length > 1;
                       
-                      const blockRoundsCount = parseInt(block.rounds) || 0;
-                      const blockEffectiveSetCount = (() => {
-                        const firstEx = blockExercises[0];
-                        const fromSets = Array.isArray(firstEx?.sets)
-                          ? firstEx.sets.length
-                          : (parseInt(firstEx?.sets) || 0);
-                        return Math.max(fromSets, blockRoundsCount);
-                      })();
                       const exerciseCards = blockExercises.map((exercise: any, exIdx: number) => {
                         let label: string;
                         if (section === 'warmup') {
@@ -924,15 +916,14 @@ export default function WorkoutDetail() {
                         }
                         
                         const isLastExercise = exIdx === blockExercises.length - 1;
-                        const isSingleExerciseSingleSet = blockExercises.length === 1 && blockEffectiveSetCount <= 1;
+                        const exerciseSetCount = (() => {
+                          if (Array.isArray(exercise.sets)) return exercise.sets.length;
+                          return parseInt(exercise.sets) || 1;
+                        })();
+                        const isSingleExerciseSingleSet = blockExercises.length === 1 && exerciseSetCount <= 1;
                         const showRest = isCircuitWorkout 
                           ? (isLastBlock && isLastExercise)
                           : (isLastExercise && !isSingleExerciseSingleSet);
-                        
-                        const exerciseSetsArray = Array.isArray(exercise.sets) ? exercise.sets : [];
-                        const normalizedSets = blockEffectiveSetCount > exerciseSetsArray.length && exerciseSetsArray.length > 0
-                          ? Array.from({ length: blockEffectiveSetCount }, (_, i) => exerciseSetsArray[i] || exerciseSetsArray[0])
-                          : exerciseSetsArray;
                         
                         return (
                           <ExerciseCard 
@@ -940,7 +931,6 @@ export default function WorkoutDetail() {
                             exercise={{
                               ...exercise,
                               name: exercise.exerciseName || exercise.name,
-                              sets: normalizedSets.length > 0 ? normalizedSets : exercise.sets,
                               rest: showRest ? formatRestDisplay(block.rest) : undefined,
                             }}
                             index={exIdx}
@@ -953,7 +943,12 @@ export default function WorkoutDetail() {
                       
                       if (isMultiExercise) {
                         const cardsWithLabels: JSX.Element[] = [];
-                        const blockSetCount = isCircuitWorkout ? circuitRounds : blockEffectiveSetCount;
+                        const blockSetCount = (() => {
+                          if (isCircuitWorkout) return circuitRounds;
+                          const firstEx = blockExercises[0];
+                          if (firstEx?.sets && Array.isArray(firstEx.sets)) return firstEx.sets.length;
+                          return parseInt(firstEx?.sets) || 0;
+                        })();
                         const blockTypeLabel = isCircuitWorkout ? 'CIRCUIT' : (
                           block.blockType === 'superset' ? 'SUPERSET' :
                           block.blockType === 'triset' ? 'TRISET' :

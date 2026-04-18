@@ -3138,7 +3138,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
               for (let eIdx = 0; eIdx < b.exercises.length; eIdx++) {
                 const ex = b.exercises[eIdx];
                 await db.insert(enrollmentBlockExercises)
-                  .values({ enrollmentBlockId: newBlock.id, exerciseLibraryId: ex.exerciseLibraryId || null, position: eIdx, sets: ex.sets || [], tempo: ex.tempo || null, load: ex.load || null, notes: ex.notes || null });
+                  .values({ enrollmentBlockId: newBlock.id, exerciseLibraryId: ex.exerciseLibraryId || null, position: eIdx, sets: ex.sets || [], durationType: ex.durationType || null, tempo: ex.tempo || null, load: ex.load || null, notes: ex.notes || null });
               }
             }
           }

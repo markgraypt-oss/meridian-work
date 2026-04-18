@@ -165,6 +165,7 @@ export default function BuildWodPage() {
   useEffect(() => {
     const selectedId = sessionStorage.getItem('selectedExerciseId');
     const savedExercises = sessionStorage.getItem('wodExercises');
+    console.log('[PICKER-RETURN] fired. selectedId=', selectedId, 'hasSaved=', !!savedExercises, 'libCount=', libraryExercises.length);
     
     if (savedExercises && libraryExercises.length > 0) {
       try {
@@ -327,7 +328,12 @@ export default function BuildWodPage() {
         }
         sessionStorage.removeItem('selectedExerciseId');
         sessionStorage.removeItem('wodInsertSection');
+        console.log('[PICKER-RETURN] appended new exercise:', newExercise.exerciseName, 'section=', newExercise.section);
+      } else {
+        console.log('[PICKER-RETURN] selectedId set but exercise not found in library:', selectedId);
       }
+    } else if (selectedId) {
+      console.log('[PICKER-RETURN] selectedId set but library not yet loaded; waiting');
     }
     // Clear the round-trip flag once restoration is done so loaders aren't blocked next mount
     if (savedExercises) {

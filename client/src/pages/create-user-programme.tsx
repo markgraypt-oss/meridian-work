@@ -194,7 +194,7 @@ export default function CreateUserProgramme() {
                 id: `block-${b.id}`,
                 blockType: b.blockType || "single",
                 section: b.section || "main",
-                rest: b.rest || "60 sec",
+                rest: b.rest || null,
                 exercises: (b.exercises || []).map((ex: any) => ({
                   id: `ex-${ex.id}`,
                   exerciseLibraryId: ex.exerciseLibraryId,
@@ -675,7 +675,7 @@ export default function CreateUserProgramme() {
         id: `block-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
         blockType: b.blockType || "single",
         section: b.section || "main",
-        rest: b.rest || "60 sec",
+        rest: b.rest || null,
         exercises: (b.exercises || []).map((ex: any) => ({
           id: `ex-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
           exerciseLibraryId: ex.exerciseLibraryId,

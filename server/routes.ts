@@ -7416,7 +7416,7 @@ Return format: {"category": "strength|cardio|hiit|mobility|recovery", "difficult
           section: section || 'main',
           blockType: blockType || 'single',
           position: position || 0,
-          rest: rest || '60 sec',
+          rest: rest || null,
         })
         .returning();
 
@@ -7481,7 +7481,7 @@ Return format: {"category": "strength|cardio|hiit|mobility|recovery", "difficult
             section: b.section || 'main',
             blockType: b.blockType || 'single',
             position: bIdx,
-            rest: b.rest || '60 sec',
+            rest: b.rest || null,
           })
           .returning();
 

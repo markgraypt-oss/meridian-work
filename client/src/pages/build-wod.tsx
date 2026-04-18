@@ -630,6 +630,12 @@ export default function BuildWodPage() {
     },
     onSuccess: () => {
       sessionStorage.removeItem('wodExercises');
+      queryClient.invalidateQueries({ queryKey: [`/api/my-programs/${enrollmentIdParam}`] });
+      queryClient.invalidateQueries({ queryKey: ['/api/my-programs'] });
+      queryClient.invalidateQueries({ queryKey: ['/api/today-workout'] });
+      queryClient.invalidateQueries({ queryKey: ['/api/today-workouts'] });
+      queryClient.invalidateQueries({ queryKey: ['/api/calendar/activities'] });
+      queryClient.invalidateQueries({ queryKey: ['/api/scheduled-workouts'] });
       toast({ title: "Workout updated!" });
       navigate(fromParam || '/', { replace: true });
     },

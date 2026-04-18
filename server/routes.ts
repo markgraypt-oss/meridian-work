@@ -1454,6 +1454,58 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // One-shot maintenance: clear default '8-12' reps pollution from warmup duration rows
+  app.post('/api/admin/cleanup-rep-pollution', isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = req.user.claims.sub;
+      const currentUser = await storage.getUser(userId);
+      if (!currentUser?.isAdmin) {
+        return res.status(403).json({ message: "Admin access required" });
+      }
+
+      const warmupBlocks = await db.select({ id: enrollmentWorkoutBlocks.id })
+        .from(enrollmentWorkoutBlocks)
+        .where(eq(enrollmentWorkoutBlocks.section, 'warmup'));
+      const warmupBlockIds = warmupBlocks.map(b => b.id);
+
+      let rowsScanned = 0;
+      let rowsUpdated = 0;
+      let setsCleared = 0;
+
+      for (const blockId of warmupBlockIds) {
+        const exs = await db.select().from(enrollmentBlockExercises)
+          .where(eq(enrollmentBlockExercises.enrollmentBlockId, blockId));
+        for (const ex of exs) {
+          rowsScanned++;
+          const sets = Array.isArray(ex.sets) ? (ex.sets as any[]) : [];
+          let changed = false;
+          const cleaned = sets.map(s => {
+            const reps = s?.reps;
+            const duration = s?.duration;
+            const hasDuration = typeof duration === 'string' && duration.trim() !== '';
+            if (reps === '8-12' && hasDuration) {
+              changed = true;
+              setsCleared++;
+              return { ...s, reps: '' };
+            }
+            return s;
+          });
+          if (changed) {
+            await db.update(enrollmentBlockExercises)
+              .set({ sets: cleaned })
+              .where(eq(enrollmentBlockExercises.id, ex.id));
+            rowsUpdated++;
+          }
+        }
+      }
+
+      res.json({ success: true, rowsScanned, rowsUpdated, setsCleared });
+    } catch (error) {
+      console.error("Error cleaning rep pollution:", error);
+      res.status(500).json({ message: "Failed to clean rep pollution" });
+    }
+  });
+
   // Company management routes
   app.get('/api/admin/companies', isAuthenticated, async (req: any, res) => {
     try {

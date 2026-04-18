@@ -197,7 +197,7 @@ export default function BuildWodPage() {
               blockType: 'circuit' as const,
               blockGroupId: ex.blockGroupId || circuitGroupId,
               setsCount: ex.setsCount || 3,
-              targetReps: ex.targetReps || '8-12',
+              targetReps: ex.targetReps || '',
               targetDuration: isTimeBased ? (ex.targetDuration || '60 sec') : ex.targetDuration,
               durationType: isTimeBased ? 'timer' as const : 'text' as const,
               restPeriod: ex.restPeriod || '60s',
@@ -210,7 +210,7 @@ export default function BuildWodPage() {
             exerciseType,
             durationType: isTimeBased ? 'timer' as const : 'text' as const,
             targetDuration: isTimeBased && !ex.targetDuration ? '30 sec' : ex.targetDuration,
-            targetReps: ex.targetReps || '8-12',
+            targetReps: ex.targetReps || '',
           };
         });
         setExercises(updatedExercises);
@@ -237,7 +237,7 @@ export default function BuildWodPage() {
               blockType: 'circuit' as const,
               blockGroupId: ex.blockGroupId || circuitGroupId,
               setsCount: ex.setsCount || 3,
-              targetReps: ex.targetReps || '8-12',
+              targetReps: ex.targetReps || '',
               targetDuration: ex.targetDuration,
               durationType: ex.durationType || 'text' as const,
               restPeriod: ex.restPeriod || '60s',
@@ -454,7 +454,7 @@ export default function BuildWodPage() {
         const libExercise = libraryExercises.find((e: any) => e.id === ex.exerciseLibraryId);
         const exerciseType = libExercise?.exerciseType || ex.exerciseType || 'strength';
         const isTimeBased = ['timed', 'timed_strength', 'general', 'cardio'].includes(exerciseType);
-        const sets = ex.sets || [{ reps: '8-12' }];
+        const sets = ex.sets || [];
         const firstSet = sets[0] || {};
         // Set count resolution priority:
         // 1. Circuit-type workouts: rounds live on the workout (intervalRounds/circuitRounds).
@@ -481,7 +481,7 @@ export default function BuildWodPage() {
           position: loaded.filter(e => e.section === section).length,
           restPeriod: block.rest || '60s',
           setsCount,
-          targetReps: firstSet.reps || '8-12',
+          targetReps: firstSet.reps || '',
           targetDuration: isTimeBased ? (firstSet.duration || '30 sec') : (firstSet.duration || ''),
           durationType: isTimeBased ? 'timer' : 'text',
           exerciseType,
@@ -706,7 +706,7 @@ export default function BuildWodPage() {
             position: loadedExercises.filter(e => e.section === section).length,
             restPeriod: block.rest || '60s',
             setsCount: sets.length,
-            targetReps: firstSet?.reps || '8-12',
+            targetReps: firstSet?.reps || '',
             targetDuration: isTimeBased ? (firstSet?.duration || '30 sec') : (firstSet?.duration || ''),
             durationType: isTimeBased ? 'timer' : 'text',
             exerciseType: exerciseType as ExerciseData['exerciseType'],

@@ -146,8 +146,8 @@ export default function WorkoutDetail() {
         for (const ex of block.exercises || []) {
           const exerciseType = ex.exerciseType || 'strength';
           const isTimeBased = ['timed', 'timed_strength', 'general', 'cardio'].includes(exerciseType);
-          const sets = ex.sets || [{ reps: '8-12' }];
-          const firstSet = sets[0];
+          const sets = ex.sets || [];
+          const firstSet = sets[0] || {};
           exerciseData.push({
             id: `edit-${Date.now()}-${Math.random().toString(36).slice(2)}`,
             kind: 'exercise',
@@ -160,9 +160,9 @@ export default function WorkoutDetail() {
             section: block.section || 'main',
             position: exerciseData.filter((e: any) => e.section === (block.section || 'main')).length,
             restPeriod: block.rest || '60s',
-            setsCount: sets.length,
-            targetReps: firstSet?.reps || '8-12',
-            targetDuration: isTimeBased ? (firstSet?.duration || '30 sec') : (firstSet?.duration || ''),
+            setsCount: sets.length || 1,
+            targetReps: firstSet?.reps || '',
+            targetDuration: firstSet?.duration || '',
             durationType: isTimeBased ? 'timer' : 'text',
             exerciseType,
           });

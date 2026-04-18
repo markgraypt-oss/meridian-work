@@ -2012,7 +2012,7 @@ export default function AdminPanel() {
                                         exerciseLibraryId: ex.exerciseLibraryId ?? null,
                                         exerciseName: libEx?.name || ex.exerciseName || ex.name || '',
                                         imageUrl: libEx?.imageUrl || ex.imageUrl || null,
-                                        sets: Array.isArray(ex.sets) && ex.sets.length > 0 ? ex.sets : [{ reps: '8-12', duration: '30 sec' }],
+                                        sets: Array.isArray(ex.sets) && ex.sets.length > 0 ? ex.sets : [],
                                         tempo: ex.tempo ?? null,
                                         load: ex.load ?? null,
                                         notes: ex.notes ?? null,

@@ -336,9 +336,9 @@ export default function WodDetail() {
           />
         ) : (
           <>
-            <Separator className="mb-2 opacity-30" />
+            <div className="border-t border-gray-200 dark:border-gray-700" />
 
-            <div className="flex items-center gap-2 text-muted-foreground mb-2">
+            <div className="flex items-center gap-2 text-muted-foreground py-2">
               {isCircuitWorkout ? (
                 <RotateCcw className="h-4 w-4" />
               ) : isIntervalWorkout ? (
@@ -348,13 +348,15 @@ export default function WodDetail() {
               )}
               <span className="text-sm capitalize">{workoutStyle}</span>
             </div>
+            <div className="border-t border-gray-200 dark:border-gray-700" />
 
-            <div className="flex items-center gap-2 text-muted-foreground mb-2">
+            <div className="flex items-center gap-2 text-muted-foreground py-2">
               <Clock className="h-4 w-4" />
               <span className="text-sm">Duration: est. {workoutLog.duration || Math.round(exerciseLogs.length * 3)} minutes</span>
             </div>
+            <div className="border-t border-gray-200 dark:border-gray-700" />
 
-            <div className="flex items-center gap-2 text-muted-foreground mb-2">
+            <div className="flex items-center gap-2 text-muted-foreground py-2">
               <Dumbbell className="h-4 w-4" />
               <span className="text-sm">
                 {totalCount} Exercises{warmupCount > 0 && mainCount > 0 && (
@@ -362,22 +364,59 @@ export default function WodDetail() {
                 )}
               </span>
             </div>
+            <div className="border-t border-gray-200 dark:border-gray-700" />
 
-            {uniqueEquipment.size > 0 && (
-              <>
-                <p className="text-sm text-foreground mb-2">Equipment:</p>
-                <div className="flex flex-wrap gap-3 mb-4">
-                  {Array.from(uniqueEquipment).map((equipment) => (
-                    <div key={equipment} className="flex flex-col items-center">
-                      <div className="w-12 h-12 rounded-lg bg-card flex items-center justify-center text-xl">
-                        {getEquipmentIcon(equipment)}
-                      </div>
-                      <span className="text-xs text-muted-foreground mt-1 capitalize">{equipment}</span>
-                    </div>
-                  ))}
+            {uniqueEquipment.size > 0 && (() => {
+              const equipmentIcons: Record<string, string> = {
+                'Bodyweight': '💪', 'Body Weight': '💪', 'bodyweight': '💪',
+                'Mat': '🧘', 'Yoga Mat': '🧘', 'mat': '🧘',
+                'Dumbbell': '🏋️', 'Dumbbells': '🏋️', 'Barbell': '🏋️',
+                'dumbbell': '🏋️', 'barbell': '🏋️',
+                'Kettlebell': '🔔', 'kettlebell': '🔔',
+                'Resistance Band': '🔗', 'Band': '🔗', 'Short Band': '🔗', 'Long Band': '🔗', 'Mini Band': '🔗',
+                'bands': '🔗', 'band': '🔗',
+                'Bench': '🪑', 'bench': '🪑',
+                'Box/Step': '📦', 'Box': '📦', 'Step': '📦',
+                'Cable Machine': '⚙️', 'Cable': '⚙️', 'Machine': '⚙️',
+                'cable': '⚙️', 'machine': '⚙️',
+                'Pull-up Bar': '🔩', 'Pullup Bar': '🔩',
+                'TRX': '🪢', 'Suspension Trainer': '🪢', 'trx': '🪢',
+                'Foam Roller': '🛢️',
+                'Swiss Ball': '⚪', 'Stability Ball': '⚪',
+                'Medicine Ball': '🏀', 'Med Ball': '🏀',
+                'Sliders': '📊', 'Slider': '📊', 'sliders': '📊',
+                'Jump Rope': '🪢', 'Wall': '🧱', 'Chair': '🪑',
+              };
+              const displayName: Record<string, string> = {
+                'Bodyweight': 'Body\nWeight', 'Body Weight': 'Body\nWeight', 'bodyweight': 'Body\nWeight',
+                'Foam Roller': 'Foam\nRoller', 'Pull Up Bar': 'Pull Up\nBar', 'Pull-up Bar': 'Pull Up\nBar',
+                'Resistance Bands': 'Resistance\nBands', 'Resistance Band': 'Resistance\nBands',
+                'Cable Machine': 'Cable\nMachine', 'Swiss Ball': 'Swiss\nBall',
+                'Medicine Ball': 'Medicine\nBall', 'Kettlebell': 'Kettle\nbell', 'kettlebell': 'Kettle\nbell',
+                'Stability Ball': 'Stability\nBall', 'Box/Step': 'Box/\nStep',
+              };
+              const cap = (s: string) => s.charAt(0).toUpperCase() + s.slice(1);
+              return (
+                <div className="mb-2 mt-2">
+                  <h3 className="text-sm font-semibold text-foreground mb-4">Equipment:</h3>
+                  <div className="flex flex-wrap gap-2">
+                    {Array.from(uniqueEquipment).map((equipment) => {
+                      const label = displayName[equipment] || displayName[cap(equipment)] || cap(equipment);
+                      const icon = equipmentIcons[equipment] || equipmentIcons[cap(equipment)] || '🔧';
+                      return (
+                        <div key={equipment} className="flex flex-col items-center gap-1 w-14">
+                          <div className="w-12 h-12 rounded-xl bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 flex items-center justify-center text-lg shadow-sm">
+                            {icon}
+                          </div>
+                          <span className="text-[10px] text-center text-muted-foreground leading-tight whitespace-pre-line">{label}</span>
+                        </div>
+                      );
+                    })}
+                  </div>
+                  <div className="border-t border-gray-200 dark:border-gray-700 mt-4" />
                 </div>
-              </>
-            )}
+              );
+            })()}
 
             {warmupExercises.length > 0 && (
               <div className="space-y-4 mt-4">

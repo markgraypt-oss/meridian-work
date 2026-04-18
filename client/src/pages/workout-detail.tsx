@@ -32,6 +32,29 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 
+const formatRestDisplay = (rest: any): string | undefined => {
+  if (rest === null || rest === undefined) return undefined;
+  const raw = String(rest).trim();
+  if (!raw) return undefined;
+  const lower = raw.toLowerCase();
+  if (lower === 'none' || lower === 'no rest') return raw;
+  const minMatch = lower.match(/(\d+)\s*min(?:utes?|s)?\s*(?:(\d+)\s*s(?:ec(?:onds?|s)?)?)?/);
+  let totalSec = 0;
+  if (minMatch) {
+    totalSec = parseInt(minMatch[1]) * 60 + (minMatch[2] ? parseInt(minMatch[2]) : 0);
+  } else {
+    const secMatch = lower.match(/(\d+)\s*(?:s|sec(?:onds?|s)?)?$/);
+    if (!secMatch) return raw;
+    totalSec = parseInt(secMatch[1]);
+  }
+  if (!Number.isFinite(totalSec) || totalSec <= 0) return raw;
+  if (totalSec < 60) return `${totalSec} sec`;
+  const mins = Math.floor(totalSec / 60);
+  const rem = totalSec % 60;
+  if (rem === 0) return mins === 1 ? `1 min` : `${mins} min`;
+  return `${mins} min ${rem} sec`;
+};
+
 export default function WorkoutDetail() {
   const { enrollmentId, week, day } = useParams();
   const [, navigate] = useLocation();
@@ -883,6 +906,14 @@ export default function WorkoutDetail() {
                       const blockExercises = block.exercises || [];
                       const isMultiExercise = block.blockType !== 'single' && blockExercises.length > 1;
                       
+                      const blockRoundsCount = parseInt(block.rounds) || 0;
+                      const blockEffectiveSetCount = (() => {
+                        const firstEx = blockExercises[0];
+                        const fromSets = Array.isArray(firstEx?.sets)
+                          ? firstEx.sets.length
+                          : (parseInt(firstEx?.sets) || 0);
+                        return Math.max(fromSets, blockRoundsCount);
+                      })();
                       const exerciseCards = blockExercises.map((exercise: any, exIdx: number) => {
                         let label: string;
                         if (section === 'warmup') {
@@ -893,14 +924,15 @@ export default function WorkoutDetail() {
                         }
                         
                         const isLastExercise = exIdx === blockExercises.length - 1;
-                        const exerciseSetCount = (() => {
-                          if (Array.isArray(exercise.sets)) return exercise.sets.length;
-                          return parseInt(exercise.sets) || 1;
-                        })();
-                        const isSingleExerciseSingleSet = blockExercises.length === 1 && exerciseSetCount <= 1;
+                        const isSingleExerciseSingleSet = blockExercises.length === 1 && blockEffectiveSetCount <= 1;
                         const showRest = isCircuitWorkout 
                           ? (isLastBlock && isLastExercise)
                           : (isLastExercise && !isSingleExerciseSingleSet);
+                        
+                        const exerciseSetsArray = Array.isArray(exercise.sets) ? exercise.sets : [];
+                        const normalizedSets = blockEffectiveSetCount > exerciseSetsArray.length && exerciseSetsArray.length > 0
+                          ? Array.from({ length: blockEffectiveSetCount }, (_, i) => exerciseSetsArray[i] || exerciseSetsArray[0])
+                          : exerciseSetsArray;
                         
                         return (
                           <ExerciseCard 
@@ -908,7 +940,8 @@ export default function WorkoutDetail() {
                             exercise={{
                               ...exercise,
                               name: exercise.exerciseName || exercise.name,
-                              rest: showRest ? block.rest : undefined,
+                              sets: normalizedSets.length > 0 ? normalizedSets : exercise.sets,
+                              rest: showRest ? formatRestDisplay(block.rest) : undefined,
                             }}
                             index={exIdx}
                             label={label}
@@ -920,12 +953,7 @@ export default function WorkoutDetail() {
                       
                       if (isMultiExercise) {
                         const cardsWithLabels: JSX.Element[] = [];
-                        const blockSetCount = (() => {
-                          if (isCircuitWorkout) return circuitRounds;
-                          const firstEx = blockExercises[0];
-                          if (firstEx?.sets && Array.isArray(firstEx.sets)) return firstEx.sets.length;
-                          return parseInt(firstEx?.sets) || 0;
-                        })();
+                        const blockSetCount = isCircuitWorkout ? circuitRounds : blockEffectiveSetCount;
                         const blockTypeLabel = isCircuitWorkout ? 'CIRCUIT' : (
                           block.blockType === 'superset' ? 'SUPERSET' :
                           block.blockType === 'triset' ? 'TRISET' :

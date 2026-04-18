@@ -60,6 +60,7 @@ interface BlockExercise {
   tempo?: string;
   load?: string;
   notes?: string;
+  durationType?: string;
 }
 
 interface WorkoutBlock {
@@ -270,6 +271,14 @@ export default function CreateUserProgramme() {
 
         const blocks: WorkoutBlock[] = [];
 
+        const buildSets = (ex: any) => {
+          if (Array.isArray(ex.sets) && ex.sets.length > 0) return ex.sets;
+          return Array.from({ length: ex.setsCount || 3 }, () => ({
+            reps: ex.targetReps || "",
+            duration: ex.targetDuration || "",
+          }));
+        };
+
         for (const ex of singleExercises) {
           blocks.push({
             id: `block-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
@@ -281,10 +290,11 @@ export default function CreateUserProgramme() {
               exerciseLibraryId: ex.exerciseLibraryId,
               exerciseName: ex.exerciseName,
               imageUrl: ex.imageUrl || undefined,
-              sets: Array.from({ length: ex.setsCount || 3 }, () => ({ reps: ex.targetReps || "10" })),
+              sets: buildSets(ex),
               tempo: "",
               load: "",
               notes: "",
+              durationType: ex.durationType || "text",
             }],
           });
         }
@@ -301,10 +311,11 @@ export default function CreateUserProgramme() {
               exerciseLibraryId: ex.exerciseLibraryId,
               exerciseName: ex.exerciseName,
               imageUrl: ex.imageUrl || undefined,
-              sets: Array.from({ length: ex.setsCount || 3 }, () => ({ reps: ex.targetReps || "10" })),
+              sets: buildSets(ex),
               tempo: "",
               load: "",
               notes: "",
+              durationType: ex.durationType || "text",
             })),
           });
         }
@@ -460,7 +471,7 @@ export default function CreateUserProgramme() {
             exercises: b.exercises.map((ex) => ({
               exerciseLibraryId: ex.exerciseLibraryId,
               sets: ex.sets,
-              durationType: "text",
+              durationType: ex.durationType || "text",
               tempo: ex.tempo || null,
               load: ex.load || null,
               notes: ex.notes || null,

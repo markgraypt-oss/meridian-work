@@ -328,6 +328,13 @@ export default function BuildWodPage() {
         sessionStorage.removeItem('selectedExerciseId');
         sessionStorage.removeItem('wodInsertSection');
         console.log('[PICKER-RETURN] appended new exercise:', newExercise.exerciseName, 'section=', newExercise.section);
+        // Auto-scroll the newly added exercise into view so the user can see it
+        setTimeout(() => {
+          const el = document.querySelector(`[data-exercise-id="${newExercise.id}"]`);
+          if (el && 'scrollIntoView' in el) {
+            (el as HTMLElement).scrollIntoView({ behavior: 'smooth', block: 'center' });
+          }
+        }, 150);
       } else {
         console.log('[PICKER-RETURN] selectedId set but exercise not found in library:', selectedId);
       }
@@ -1001,7 +1008,7 @@ export default function BuildWodPage() {
             const allBlockSelected = blockIds.length > 0 && blockIds.every(id => selectedExercises.includes(id));
 
             return (
-              <div key={exercise.id}>
+              <div key={exercise.id} data-exercise-id={exercise.id}>
                 {isBlockStart && exercise.blockType !== 'single' && (
                   <div 
                     className={`flex items-center justify-between px-4 py-2 bg-muted/30 ${

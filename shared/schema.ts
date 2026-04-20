@@ -167,7 +167,7 @@ export const programmeWorkouts = pgTable("programme_workouts", {
   category: text("category").notNull().default("strength"), // 'strength', 'cardio', 'hiit', 'mobility', 'recovery'
   difficulty: text("difficulty").notNull().default("beginner"), // 'beginner', 'intermediate', 'advanced'
   duration: integer("duration").notNull().default(30), // estimated duration in minutes
-  intervalRounds: integer("interval_rounds").default(4), // number of rounds for interval workouts
+  intervalRounds: integer("interval_rounds"), // number of rounds for interval/circuit workouts; null for regular
   intervalRestAfterRound: text("interval_rest_after_round").default("60 sec"), // rest duration after each round
   imageUrl: text("image_url"), // Cover image URL for the workout
   position: integer("position").notNull(), // order within the day (in case multiple workouts per day)
@@ -268,7 +268,7 @@ export const workouts = pgTable("workouts", {
   exercises: jsonb("exercises"), // array of exercise objects with details (legacy - for migration)
   routineType: text("routine_type").notNull().default("workout"), // 'workout', 'stretching', 'corrective'
   workoutType: text("workout_type").notNull().default("regular"), // 'regular', 'interval', 'circuit', 'video'
-  intervalRounds: integer("interval_rounds").default(4), // number of rounds for interval workouts
+  intervalRounds: integer("interval_rounds"), // number of rounds for interval/circuit workouts; null for regular
   intervalRestAfterRound: text("interval_rest_after_round").default("60 sec"), // rest duration after each round
   userId: text("user_id"), // null = admin-created library workout, set = user-saved personal workout
   sourceType: text("source_type").default("admin"), // 'admin' (library), 'user' (saved from custom WOD)
@@ -477,7 +477,7 @@ export const enrollmentWorkouts = pgTable("enrollment_workouts", {
   category: text("category").notNull().default("strength"),
   difficulty: text("difficulty").notNull().default("beginner"),
   duration: integer("duration").notNull().default(30),
-  intervalRounds: integer("interval_rounds").default(4),
+  intervalRounds: integer("interval_rounds"),
   intervalRestAfterRound: text("interval_rest_after_round").default("60 sec"),
   position: integer("position").notNull().default(0),
   createdAt: timestamp("created_at").defaultNow(),

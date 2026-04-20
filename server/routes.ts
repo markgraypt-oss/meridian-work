@@ -7432,10 +7432,15 @@ Return format: {"category": "strength|cardio|hiit|mobility|recovery", "difficult
         return res.status(404).json({ message: "Programme not found or not yours" });
       }
 
-      const { weekNumber, dayPosition, name, description, workoutType, category, difficulty, duration } = req.body;
+      const { weekNumber, dayPosition, name, description, workoutType, category, difficulty, duration, intervalRounds } = req.body;
       if (!weekNumber || dayPosition === undefined || !name) {
         return res.status(400).json({ message: "weekNumber, dayPosition, and name are required" });
       }
+      const resolvedWorkoutType = workoutType || 'regular';
+      const isRoundsType = resolvedWorkoutType === 'interval' || resolvedWorkoutType === 'circuit';
+      const resolvedIntervalRounds = isRoundsType
+        ? (typeof intervalRounds === 'number' ? intervalRounds : (intervalRounds ? parseInt(intervalRounds) : null))
+        : null;
 
       // Find or create the week
       let [week] = await db.select().from(programWeeks)
@@ -7475,10 +7480,11 @@ Return format: {"category": "strength|cardio|hiit|mobility|recovery", "difficult
           dayId: day.id,
           name,
           description: description || null,
-          workoutType: workoutType || 'regular',
+          workoutType: resolvedWorkoutType,
           category: category || 'strength',
           difficulty: difficulty || 'beginner',
           duration: duration || 30,
+          intervalRounds: resolvedIntervalRounds,
           position: maxPos,
         })
         .returning();

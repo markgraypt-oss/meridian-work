@@ -7088,6 +7088,19 @@ export class DatabaseStorage implements IStorage {
     const week = await db.select().from(programWeeks).where(eq(programWeeks.id, day[0].weekId)).limit(1);
     if (week.length === 0) return [];
     
+    // Skip the sibling-name fallback for user-created programmes. The fallback is a
+    // template-mirroring feature for admin programmes where the same workout name is
+    // intentionally reused across all weeks. User-created programmes explicitly populate
+    // every week via mobile/web's per-week save loop, so name collisions across weeks
+    // would cause cross-day data bleed (one day's blocks rendering on a sibling's empty day).
+    const parentProgram = await db.select({ sourceType: programs.sourceType })
+      .from(programs)
+      .where(eq(programs.id, week[0].programId))
+      .limit(1);
+    if (parentProgram.length > 0 && parentProgram[0].sourceType === 'user_created') {
+      return [];
+    }
+    
     // Find all workouts with the same name in this program
     const allWorkoutsWithName = await db
       .select({ id: programmeWorkouts.id })

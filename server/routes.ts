@@ -1506,6 +1506,104 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // Read-only diagnostic endpoint: dump full stored shape of a programme so we can
+  // confirm what mobile/web actually persisted (sets JSONB verbatim, no fallbacks).
+  app.get('/api/admin/programme-dump/:programId', isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = req.user.claims.sub;
+      const currentUser = await storage.getUser(userId);
+      if (!currentUser?.isAdmin) {
+        return res.status(403).json({ message: "Admin access required" });
+      }
+
+      const programId = parseInt(req.params.programId);
+      if (!Number.isFinite(programId)) {
+        return res.status(400).json({ message: "Invalid programId" });
+      }
+
+      const program = await db.select().from(programs).where(eq(programs.id, programId)).limit(1);
+      if (program.length === 0) {
+        return res.status(404).json({ message: "Programme not found" });
+      }
+
+      const weeks = await db.select().from(programWeeks)
+        .where(eq(programWeeks.programId, programId))
+        .orderBy(asc(programWeeks.weekNumber));
+
+      const out: any = {
+        program: {
+          id: program[0].id,
+          name: program[0].name,
+          sourceType: program[0].sourceType,
+          programmeType: program[0].programmeType,
+          createdByUserId: program[0].createdByUserId,
+        },
+        weeks: [] as any[],
+      };
+
+      for (const w of weeks) {
+        const days = await db.select().from(programDays)
+          .where(eq(programDays.weekId, w.id))
+          .orderBy(asc(programDays.dayPosition));
+        const weekOut: any = { weekNumber: w.weekNumber, weekId: w.id, days: [] };
+
+        for (const d of days) {
+          const workouts = await db.select().from(programmeWorkouts)
+            .where(eq(programmeWorkouts.dayId, d.id));
+          const dayOut: any = { dayPosition: d.dayPosition, dayId: d.id, workouts: [] };
+
+          for (const wk of workouts) {
+            const blocks = await db.select().from(programmeWorkoutBlocks)
+              .where(eq(programmeWorkoutBlocks.workoutId, wk.id))
+              .orderBy(asc(programmeWorkoutBlocks.position));
+            const workoutOut: any = {
+              workoutId: wk.id,
+              name: wk.name,
+              workoutType: wk.workoutType,
+              blocks: [] as any[],
+            };
+
+            for (const b of blocks) {
+              const exs = await db.select({
+                id: programmeBlockExercises.id,
+                position: programmeBlockExercises.position,
+                exerciseLibraryId: programmeBlockExercises.exerciseLibraryId,
+                exerciseName: exerciseLibrary.name,
+                sets: programmeBlockExercises.sets,
+                durationType: programmeBlockExercises.durationType,
+                tempo: programmeBlockExercises.tempo,
+                load: programmeBlockExercises.load,
+                notes: programmeBlockExercises.notes,
+              })
+                .from(programmeBlockExercises)
+                .leftJoin(exerciseLibrary, eq(programmeBlockExercises.exerciseLibraryId, exerciseLibrary.id))
+                .where(eq(programmeBlockExercises.blockId, b.id))
+                .orderBy(asc(programmeBlockExercises.position));
+              workoutOut.blocks.push({
+                blockId: b.id,
+                position: b.position,
+                section: b.section,
+                blockType: b.blockType,
+                rest: b.rest,
+                rounds: b.rounds,
+                exerciseCount: exs.length,
+                exercises: exs,
+              });
+            }
+            dayOut.workouts.push(workoutOut);
+          }
+          weekOut.days.push(dayOut);
+        }
+        out.weeks.push(weekOut);
+      }
+
+      res.json(out);
+    } catch (error) {
+      console.error("Error dumping programme:", error);
+      res.status(500).json({ message: "Failed to dump programme" });
+    }
+  });
+
   // Company management routes
   app.get('/api/admin/companies', isAuthenticated, async (req: any, res) => {
     try {
@@ -7546,7 +7644,7 @@ Return format: {"category": "strength|cardio|hiit|mobility|recovery", "difficult
                 blockId: newBlock.id,
                 exerciseLibraryId: ex.exerciseLibraryId || null,
                 position: eIdx,
-                sets: typeof ex.sets === 'string' ? JSON.parse(ex.sets) : (ex.sets || [{ reps: '10' }]),
+                sets: typeof ex.sets === 'string' ? JSON.parse(ex.sets) : (ex.sets || []),
                 durationType: ex.durationType || 'text',
                 tempo: ex.tempo || null,
                 load: ex.load || null,

@@ -1544,13 +1544,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
       for (const w of weeks) {
         const days = await db.select().from(programDays)
           .where(eq(programDays.weekId, w.id))
-          .orderBy(asc(programDays.dayPosition));
+          .orderBy(asc(programDays.position));
         const weekOut: any = { weekNumber: w.weekNumber, weekId: w.id, days: [] };
 
         for (const d of days) {
           const workouts = await db.select().from(programmeWorkouts)
             .where(eq(programmeWorkouts.dayId, d.id));
-          const dayOut: any = { dayPosition: d.dayPosition, dayId: d.id, workouts: [] };
+          const dayOut: any = { dayPosition: d.position, dayId: d.id, workouts: [] };
 
           for (const wk of workouts) {
             const blocks = await db.select().from(programmeWorkoutBlocks)

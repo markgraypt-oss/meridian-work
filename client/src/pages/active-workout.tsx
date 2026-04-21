@@ -1516,6 +1516,13 @@ export default function ActiveWorkout() {
 
               {/* Exercise Header */}
               <div className="flex items-center gap-3 p-4 pb-2">
+                {/* Exercise Order Label */}
+                <span
+                  className="flex-shrink-0 w-7 text-center text-sm font-semibold text-[#0cc9a9] tabular-nums"
+                  data-testid={`text-exercise-label-${exerciseIndex}`}
+                >
+                  {getExerciseLabel(exerciseIndex)}
+                </span>
                 {/* Exercise Image */}
                 {exercise.exerciseLibraryId && exercise.exerciseName?.toLowerCase() !== 'rest' ? (
                   <Link href={`/exercise/${exercise.exerciseLibraryId}?returnTo=active-workout`} className="flex-shrink-0">
@@ -1623,7 +1630,13 @@ export default function ActiveWorkout() {
                       data-testid={`button-rest-timer-${exerciseIndex}`}
                     >
                       <Hand className="w-[18px] h-[18px] text-[#0cc9a9]" />
-                      <span>Rest between each set</span>
+                      <span>
+                        {blockInfo.blockType === 'superset' ? 'Rest between each superset'
+                          : blockInfo.blockType === 'triset' ? 'Rest between each triset'
+                          : blockInfo.blockType === 'circuit' ? 'Rest between each circuit'
+                          : blockInfo.blockType === 'giantset' ? 'Rest between each giant set'
+                          : 'Rest between each set'}
+                      </span>
                     </button>
                     {isTimerRunning ? (
                       <button 

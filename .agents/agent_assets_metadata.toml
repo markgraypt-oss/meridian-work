@@ -6,3 +6,9 @@ id = "JcP1cjo8nMN4tB2kJMG62"
 uri = "file://GRAPH-SYSTEM-DOCS.md"
 type = "text"
 title = "Graph System Documentation"
+
+[[outputs]]
+id = "EHUgsZPx6YHwv4BTUeww5"
+uri = "file://attached_assets/exports/meridian-source.zip"
+type = "unspecified"
+title = "Meridian Work — full source (client + server + shared, 1.9 MB)"

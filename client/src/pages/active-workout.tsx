@@ -1595,6 +1595,7 @@ export default function ActiveWorkout() {
               {(() => {
                 const isCircuitWorkout = workoutLog?.workoutStyle === 'circuit';
                 const isMainBody = currentSection !== 'warmup';
+                const isWarmup = currentSection === 'warmup';
                 
                 // For circuit/interval workouts in main body, rest is handled differently
                 // Check for 'none', 'None', or '0' as "no rest" values
@@ -1602,8 +1603,10 @@ export default function ActiveWorkout() {
                 const hasNoRest = restPeriodLower === 'none' || restPeriodLower === '0' || restPeriodLower === '';
                 // For superset/triset blocks, only show rest on the last exercise in the block
                 const isNonLastInBlock = blockInfo.blockSize > 1 && !blockInfo.isLastInBlock;
+                // Warmup exercises never show a between-sets rest pill - they're flow movements
                 const shouldShowRest = !hasNoRest && 
                   !isNonLastInBlock &&
+                  !isWarmup &&
                   !(isCircuitWorkout && isMainBody) &&
                   !(isIntervalWorkout && isMainBody);
                 

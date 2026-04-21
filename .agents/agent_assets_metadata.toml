@@ -18,3 +18,27 @@ id = "XV-bOCNJTGcmh4KTywaQs"
 uri = "file://attached_assets/exports/active-workout-bundle.zip"
 type = "unspecified"
 title = "Active workout flow — 4 files (38 KB)"
+
+[[outputs]]
+id = "YS37D48hLDLxwXygRFWmz"
+uri = "file://attached_assets/exports/active-workout-txt/active-workout.tsx.txt"
+type = "text"
+title = "active-workout.tsx (152 KB)"
+
+[[outputs]]
+id = "wPdC1BgBo-sMpIsmKYQlJ"
+uri = "file://attached_assets/exports/active-workout-txt/IntervalWorkoutSession.tsx.txt"
+type = "text"
+title = "IntervalWorkoutSession.tsx (29 KB)"
+
+[[outputs]]
+id = "BpulJ5Kf5vFpiwYJj_GQ1"
+uri = "file://attached_assets/exports/active-workout-txt/CircularTimer.tsx.txt"
+type = "text"
+title = "CircularTimer.tsx (1.8 KB)"
+
+[[outputs]]
+id = "zEmDJsMrhyc5Rw10qBrPZ"
+uri = "file://attached_assets/exports/active-workout-txt/WorkoutRatingDialog.tsx.txt"
+type = "text"
+title = "WorkoutRatingDialog.tsx (12 KB)"

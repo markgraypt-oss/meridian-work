@@ -1805,7 +1805,7 @@ export const workoutExerciseLogs = pgTable("workout_exercise_logs", {
   blockGroupId: text("block_group_id"), // Groups exercises in the same superset/triset/circuit block
   section: text("section").default("main"), // 'warmup', 'main'
   position: integer("position").notNull().default(0),
-  restPeriod: text("rest_period").default("60 sec"),
+  restPeriod: text("rest_period"),
   durationType: text("duration_type").default("text"), // 'text' (weight) or 'timer' (time)
   exerciseType: text("exercise_type").default("strength"), // 'general', 'endurance', 'strength', 'cardio', 'timed', 'timed_strength'
   kind: text("kind").default("exercise"), // 'exercise' or 'rest' - distinguishes rest blocks from exercises

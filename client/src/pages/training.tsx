@@ -8,12 +8,14 @@ import { WorkoutsTab } from "@/components/training/WorkoutsTab";
 import { ChevronRight } from "lucide-react";
 
 const LazyBodyMap = lazy(() => import("@/pages/body-map-unified"));
+const LazyExerciseLibrary = lazy(() => import("@/pages/training-exercise-library"));
 
 const TABS = [
   { id: "my-programme", label: "My Programme" },
   { id: "programmes", label: "Programmes" },
   { id: "workouts", label: "Workouts" },
   { id: "body-map", label: "Body Map" },
+  { id: "exercise-library", label: "Exercise Library" },
 ];
 
 export default function Training() {
@@ -162,6 +164,11 @@ export default function Training() {
             {activeTab === "body-map" && (
               <Suspense fallback={tabLoadingFallback}>
                 <LazyBodyMap embedded />
+              </Suspense>
+            )}
+            {activeTab === "exercise-library" && (
+              <Suspense fallback={tabLoadingFallback}>
+                <LazyExerciseLibrary embedded />
               </Suspense>
             )}
           </div>

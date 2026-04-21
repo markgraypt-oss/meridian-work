@@ -1515,10 +1515,10 @@ export default function ActiveWorkout() {
               <div className="relative z-10 bg-card rounded-xl shadow-sm overflow-hidden border border-border/50">
 
               {/* Exercise Header */}
-              <div className="flex items-center gap-3 p-4 pb-2">
+              <div className="flex items-center gap-2 pl-2 pr-4 py-4 pb-2">
                 {/* Exercise Order Label */}
                 <span
-                  className="flex-shrink-0 w-7 text-center text-sm font-semibold text-[#0cc9a9] tabular-nums"
+                  className="flex-shrink-0 w-5 text-left text-sm font-semibold text-[#0cc9a9] tabular-nums"
                   data-testid={`text-exercise-label-${exerciseIndex}`}
                 >
                   {getExerciseLabel(exerciseIndex)}

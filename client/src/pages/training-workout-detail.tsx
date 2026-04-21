@@ -644,9 +644,10 @@ export default function TrainingWorkoutDetail() {
 
   const isVideoWorkout = workout?.workoutType === 'video';
   const isStandaloneWorkout = workoutData?.type === 'standalone';
-  // Show Start Now only for standalone workouts (workout library), not programme-library workouts
-  // Video workouts have a separate save flow
-  const canStartWorkout = isStandaloneWorkout && !isVideoWorkout;
+  // Show Start Now for standalone workouts, OR when the user arrived via a
+  // calendar-scheduled instance (a one-off scheduled programme workout from
+  // the home dash today tile or calendar). Video workouts have their own flow.
+  const canStartWorkout = (isStandaloneWorkout || isFromCalendar) && !isVideoWorkout;
 
   if (isLoading || exercisesLoading) {
     return (

@@ -97,6 +97,7 @@ interface ExerciseData {
   imageUrl: string | null;
   muxPlaybackId?: string | null;
   blockType: string;
+  blockGroupId?: string | null;
   section: string;
   position: number;
   restPeriod: string;
@@ -1099,71 +1100,75 @@ export default function ActiveWorkout() {
     return `${displaySetCount} sets x ${reps.join(', ')} reps`;
   };
 
+  // Build block groups from the flat exercise list using blockGroupId for adjacency.
+  // Groups consecutive exercises that share a non-null blockGroupId, same blockType, and same section.
+  // Exercises without a blockGroupId or with blockType 'single' are each their own group.
+  const blockGroups = useMemo(() => {
+    const groups: { startIdx: number; endIdx: number; blockType: string; section: string; indices: number[]; identifier: string }[] = [];
+    exercises.forEach((ex, idx) => {
+      const section = (ex.section?.toLowerCase() || 'main');
+      const blockType = ex.blockType || 'single';
+      const groupId = ex.blockGroupId || null;
+      const last = groups[groups.length - 1];
+
+      const canMerge = !!last
+        && groupId !== null
+        && blockType !== 'single'
+        && last.section === section
+        && last.blockType === blockType
+        && exercises[last.endIdx].blockGroupId === groupId;
+
+      if (canMerge && last) {
+        last.endIdx = idx;
+        last.indices.push(idx);
+      } else {
+        groups.push({
+          startIdx: idx,
+          endIdx: idx,
+          blockType,
+          section,
+          indices: [idx],
+          identifier: groupId ? `gid-${groupId}` : `idx-${idx}`,
+        });
+      }
+    });
+    return groups;
+  }, [exercises]);
+
   // Calculate exercise label (A, B for warmup; 1A, 1B, 2A for main body)
+  // Matches the workout preview page's labelling.
   const getExerciseLabel = (exerciseIndex: number): string => {
     const exercise = exercises[exerciseIndex];
     if (!exercise) return '';
-    
-    const section = exercise.section?.toLowerCase() || 'main';
-    const sectionExercises = exercises.filter(e => (e.section?.toLowerCase() || 'main') === section);
-    const indexInSection = sectionExercises.findIndex(e => e === exercise);
-    
-    if (section === 'warmup') {
-      // Warmup: just letters A, B, C...
-      return String.fromCharCode(65 + indexInSection);
-    }
-    
-    // Main body: group by position for supersets/trisets
-    // Find unique positions to create block numbers
-    const positions = sectionExercises.map(e => e.position);
-    const uniquePositions = Array.from(new Set(positions)).sort((a, b) => a - b);
-    const blockNumber = uniquePositions.indexOf(exercise.position) + 1;
-    
-    // Find index within this block (same position)
-    const blockExercises = sectionExercises.filter(e => e.position === exercise.position);
-    const indexInBlock = blockExercises.findIndex(e => e === exercise);
-    const letter = String.fromCharCode(65 + indexInBlock);
-    
-    return `${blockNumber}${letter}`;
-  };
 
-  // Get the block identifier for an exercise (blockType + position-based block index)
-  const getBlockIdentifier = (exercise: ExerciseData): string => {
-    const blockType = exercise.blockType || 'single';
-    const blockIndex = Math.floor((exercise.position || 0) / 10);
-    return `${blockType}-${blockIndex}`;
+    const section = exercise.section?.toLowerCase() || 'main';
+
+    if (section === 'warmup') {
+      const warmupExercises = exercises.filter(e => (e.section?.toLowerCase() || 'main') === 'warmup');
+      const indexInWarmup = warmupExercises.findIndex(e => e === exercise);
+      return String.fromCharCode(65 + indexInWarmup);
+    }
+
+    const group = blockGroups.find(g => g.indices.includes(exerciseIndex));
+    if (!group) return '';
+
+    const mainGroups = blockGroups.filter(g => g.section !== 'warmup');
+    const blockNumber = mainGroups.findIndex(g => g === group) + 1;
+    const indexInBlock = group.indices.indexOf(exerciseIndex);
+    return `${blockNumber}${String.fromCharCode(65 + indexInBlock)}`;
   };
 
   // Check if exercise is part of a superset/triset/circuit block
   const getBlockInfo = (exerciseIndex: number): { isFirstInBlock: boolean; isLastInBlock: boolean; blockType: string; blockSize: number; blockIdentifier: string } => {
-    const exercise = exercises[exerciseIndex];
-    if (!exercise) return { isFirstInBlock: true, isLastInBlock: true, blockType: 'single', blockSize: 1, blockIdentifier: 'single-0' };
-    
-    const blockType = exercise.blockType || 'single';
-    const blockIdentifier = getBlockIdentifier(exercise);
-    
-    if (blockType === 'single') {
-      return { isFirstInBlock: true, isLastInBlock: true, blockType: 'single', blockSize: 1, blockIdentifier };
-    }
-    
-    // For supersets/trisets/circuits, find consecutive exercises with the same block identifier
-    // This ensures exercises are only grouped if they have the same blockType AND same position range
-    let blockStart = exerciseIndex;
-    while (blockStart > 0 && getBlockIdentifier(exercises[blockStart - 1]) === blockIdentifier) {
-      blockStart--;
-    }
-    
-    // Look forwards to find end of block
-    let blockEnd = exerciseIndex;
-    while (blockEnd < exercises.length - 1 && getBlockIdentifier(exercises[blockEnd + 1]) === blockIdentifier) {
-      blockEnd++;
-    }
-    
-    const blockSize = blockEnd - blockStart + 1;
-    const isFirstInBlock = exerciseIndex === blockStart;
-    const isLastInBlock = exerciseIndex === blockEnd;
-    
-    return { isFirstInBlock, isLastInBlock, blockType, blockSize, blockIdentifier };
+    const group = blockGroups.find(g => g.indices.includes(exerciseIndex));
+    if (!group) return { isFirstInBlock: true, isLastInBlock: true, blockType: 'single', blockSize: 1, blockIdentifier: 'single-0' };
+    return {
+      isFirstInBlock: exerciseIndex === group.startIdx,
+      isLastInBlock: exerciseIndex === group.endIdx,
+      blockType: group.blockType,
+      blockSize: group.indices.length,
+      blockIdentifier: group.identifier,
+    };
   };
 
   const getBlockTypeLabel = (blockType: string): string => {

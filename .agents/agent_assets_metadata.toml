@@ -12,3 +12,9 @@ id = "EHUgsZPx6YHwv4BTUeww5"
 uri = "file://attached_assets/exports/meridian-source.zip"
 type = "unspecified"
 title = "Meridian Work — full source (client + server + shared, 1.9 MB)"
+
+[[outputs]]
+id = "XV-bOCNJTGcmh4KTywaQs"
+uri = "file://attached_assets/exports/active-workout-bundle.zip"
+type = "unspecified"
+title = "Active workout flow — 4 files (38 KB)"

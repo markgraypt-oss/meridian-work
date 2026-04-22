@@ -10,6 +10,41 @@ import { calculateProgramEquipment, updateProgramEquipmentAuto } from "./equipme
 import multer from "multer";
 import path from "path";
 import fs from "fs";
+import { randomUUID } from "crypto";
+import { ObjectStorageService, ObjectNotFoundError, objectStorageClient, getObjectAclPolicy } from "./replit_integrations/object_storage";
+
+/**
+ * Upload an image buffer to Replit Object Storage and return a public
+ * `/objects/<entityId>` path that can be served by the /objects/* route.
+ * Sets a public-read ACL so anonymous clients (mobile, browsers) can fetch.
+ */
+async function uploadProfileImageBufferToStorage(
+  buffer: Buffer,
+  contentType: string,
+): Promise<string> {
+  const svc = new ObjectStorageService();
+  const privateDir = svc.getPrivateObjectDir(); // e.g. /<bucket>/<prefix>
+  const trimmedDir = privateDir.endsWith('/') ? privateDir.slice(0, -1) : privateDir;
+  const entityId = `profile-images/${randomUUID()}`;
+  const fullPath = `${trimmedDir}/${entityId}`;
+  // fullPath looks like /<bucket>/<prefix>/profile-images/<uuid>
+  const parts = fullPath.replace(/^\//, '').split('/');
+  const bucketName = parts[0];
+  const objectName = parts.slice(1).join('/');
+
+  const file = objectStorageClient.bucket(bucketName).file(objectName);
+  await file.save(buffer, {
+    contentType,
+    metadata: {
+      contentType,
+      metadata: {
+        'custom:aclPolicy': JSON.stringify({ owner: 'system', visibility: 'public' }),
+      },
+    },
+    resumable: false,
+  });
+  return `/objects/${entityId}`;
+}
 
 // Configure multer for video uploads
 const videoStorage = multer.diskStorage({
@@ -831,6 +866,36 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Serve uploaded files (try uploads/ first, then public/uploads/ as fallback for deployed images)
   app.use("/uploads", express.static(path.resolve(process.cwd(), "uploads")));
   app.use("/uploads", express.static(path.resolve(process.cwd(), "public", "uploads")));
+
+  // Serve objects from Replit Object Storage. Public profile pictures are stored
+  // here so the same https://...replit.app/objects/<id> URL works for web and mobile.
+  app.get("/objects/:objectPath(*)", async (req: any, res) => {
+    try {
+      const svc = new ObjectStorageService();
+      const objectFile = await svc.getObjectEntityFile(req.path);
+      // Enforce ACL: only public objects are anonymously readable; otherwise
+      // require an authenticated user that owns the object (or has a rule).
+      const policy = await getObjectAclPolicy(objectFile);
+      const isPublic = policy?.visibility === "public";
+      if (!isPublic) {
+        const userId = req.user?.claims?.sub;
+        if (!userId) {
+          return res.status(401).json({ error: "Unauthorized" });
+        }
+        const allowed = await svc.canAccessObjectEntity({ userId, objectFile });
+        if (!allowed) {
+          return res.status(403).json({ error: "Forbidden" });
+        }
+      }
+      await svc.downloadObject(objectFile, res);
+    } catch (error) {
+      if (error instanceof ObjectNotFoundError) {
+        return res.status(404).json({ error: "Object not found" });
+      }
+      console.error("Error serving object:", error);
+      return res.status(500).json({ error: "Failed to serve object" });
+    }
+  });
   
   // Serve videos from uploads/videos at /videos path for legacy video URLs
   app.use("/videos", express.static(path.resolve(process.cwd(), "uploads", "videos")));
@@ -840,8 +905,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
     try {
       const userId = req.user.claims.sub;
       const user = await storage.getUser(userId);
-      if (user && user.profileImageUrl && user.profileImageUrl.startsWith('/uploads/')) {
-        (user as any).profileImageUrl = null;
+      if (user && user.profileImageUrl) {
+        const url = user.profileImageUrl;
+        // Strip legacy storage formats that no longer work / break mobile.
+        if (url.startsWith('/uploads/') || url.startsWith('data:')) {
+          (user as any).profileImageUrl = null;
+        }
       }
       res.json(user);
     } catch (error) {
@@ -2328,10 +2397,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  // Profile image upload - stores as base64 data URL in database for persistence across deployments
+  // Profile image upload - stores file in Replit Object Storage and saves a
+  // public /objects/<id> path on the user record. The same URL works in web
+  // and mobile (no base64 data URLs that crash React Native's Image manager).
   const profileImageUpload = multer({
     storage: multer.memoryStorage(),
-    limits: { fileSize: 2 * 1024 * 1024 },
+    limits: { fileSize: 5 * 1024 * 1024 },
     fileFilter: (_req, file, cb) => {
       if (file.mimetype.startsWith('image/')) {
         cb(null, true);
@@ -2348,15 +2419,68 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
 
       const userId = req.user.claims.sub;
-      const base64 = req.file.buffer.toString('base64');
-      const dataUrl = `data:${req.file.mimetype};base64,${base64}`;
+      const objectPath = await uploadProfileImageBufferToStorage(
+        req.file.buffer,
+        req.file.mimetype,
+      );
 
-      await storage.updateUser(userId, { profileImageUrl: dataUrl });
-
-      res.json({ profileImageUrl: dataUrl });
+      await storage.updateUser(userId, { profileImageUrl: objectPath });
+      res.json({ profileImageUrl: objectPath });
     } catch (error) {
       console.error("Profile image upload error:", error);
       res.status(500).json({ message: "Failed to upload profile image" });
+    }
+  });
+
+  // One-time migration: convert any existing data: URL profile images into
+  // Object Storage entries. Idempotent — safe to call repeatedly.
+  app.post('/api/admin/migrate-profile-images', isAuthenticated, async (req: any, res) => {
+    try {
+      const requester = await storage.getUser(req.user.claims.sub);
+      if (!requester?.isAdmin) {
+        return res.status(403).json({ message: "Forbidden" });
+      }
+      const allUsers = await storage.getAllUsers();
+      let migrated = 0;
+      let clearedLegacyUploads = 0;
+      const errors: Array<{ userId: string; error: string }> = [];
+      const skippedUnparseable: string[] = [];
+      for (const u of allUsers) {
+        const url = u.profileImageUrl;
+        if (!url) continue;
+        if (url.startsWith('data:')) {
+          const match = url.match(/^data:([^;]+);base64,(.+)$/);
+          if (!match) {
+            // Do NOT silently delete. Surface for manual handling.
+            skippedUnparseable.push(u.id);
+            continue;
+          }
+          try {
+            const mime = match[1];
+            const buf = Buffer.from(match[2], 'base64');
+            const objectPath = await uploadProfileImageBufferToStorage(buf, mime);
+            await storage.updateUser(u.id, { profileImageUrl: objectPath });
+            migrated++;
+          } catch (e: any) {
+            errors.push({ userId: u.id, error: e?.message || String(e) });
+          }
+        } else if (url.startsWith('/uploads/')) {
+          // Legacy ephemeral filesystem path that has not worked since the last
+          // deploy — safe to clear so the UI shows initials fallback.
+          await storage.updateUser(u.id, { profileImageUrl: null as any });
+          clearedLegacyUploads++;
+        }
+      }
+      res.json({
+        total: allUsers.length,
+        migrated,
+        clearedLegacyUploads,
+        skippedUnparseable,
+        errors,
+      });
+    } catch (error: any) {
+      console.error("Profile image migration error:", error);
+      res.status(500).json({ message: error?.message || "Migration failed" });
     }
   });
 

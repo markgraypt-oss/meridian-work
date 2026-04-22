@@ -2585,21 +2585,29 @@ export default function ActiveWorkout() {
                 const isNewSection = !prevExercise || prevExercise.section !== exercise.section;
                 const sectionLabel = exercise.section === 'warmup' ? 'Warm Up' : 'Main Body';
                 
+                // Two consecutive rows are in the same block only if they share
+                // a non-null blockGroupId AND blockType AND section. Just matching
+                // blockType merges adjacent supersets into one fake "Superset of N".
+                const sameBlock = (a: ExerciseData | undefined, b: ExerciseData | undefined) =>
+                  !!a && !!b
+                  && a.blockType !== 'single'
+                  && a.blockType === b.blockType
+                  && a.section === b.section
+                  && !!a.blockGroupId
+                  && a.blockGroupId === b.blockGroupId;
+
                 // Check if this is the start of a superset/triset block
-                const isBlockStart = exercise.blockType !== 'single' && 
-                  (!prevExercise || prevExercise.blockType !== exercise.blockType || prevExercise.position !== exercise.position - 1);
-                
+                const isBlockStart = exercise.blockType !== 'single' && !sameBlock(prevExercise, exercise);
+
                 // Check if in same block as previous
-                const inSameBlockAsPrev = prevExercise && 
-                  prevExercise.blockType === exercise.blockType && 
-                  prevExercise.blockType !== 'single';
+                const inSameBlockAsPrev = sameBlock(prevExercise, exercise);
 
                 // Get block size for header
                 const getBlockSize = () => {
                   if (exercise.blockType === 'single') return 1;
                   let count = 1;
                   let i = index + 1;
-                  while (i < editExercises.length && editExercises[i].blockType === exercise.blockType) {
+                  while (i < editExercises.length && sameBlock(editExercises[i - 1], editExercises[i])) {
                     count++;
                     i++;
                   }
@@ -2617,9 +2625,9 @@ export default function ActiveWorkout() {
                 // Calculate block indices and selection state for grouped blocks
                 const getBlockIndices = (): number[] => {
                   if (exercise.blockType === 'single') return [];
-                  const indices: number[] = [];
-                  let i = index;
-                  while (i < editExercises.length && editExercises[i].blockType === exercise.blockType) {
+                  const indices: number[] = [index];
+                  let i = index + 1;
+                  while (i < editExercises.length && sameBlock(editExercises[i - 1], editExercises[i])) {
                     indices.push(i);
                     i++;
                   }
@@ -2745,12 +2753,11 @@ export default function ActiveWorkout() {
                           <button
                             onClick={(e) => {
                               e.stopPropagation();
-                              // Ungroup - set all exercises in this block to 'single'
+                              // Ungroup ONLY this block (same blockGroupId), not
+                              // any adjacent block that happens to share blockType.
                               const newExercises = [...editExercises];
-                              let i = index;
-                              while (i < newExercises.length && newExercises[i].blockType === exercise.blockType) {
-                                newExercises[i] = { ...newExercises[i], blockType: 'single' };
-                                i++;
+                              for (const bi of blockIndices) {
+                                newExercises[bi] = { ...newExercises[bi], blockType: 'single', blockGroupId: null };
                               }
                               setEditExercises(newExercises);
                             }}

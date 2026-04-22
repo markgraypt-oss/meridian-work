@@ -2502,12 +2502,14 @@ export default function ActiveWorkout() {
                     const originalExercise = originalExercises.find(o => o.id === exercise.id);
                     
                     if (exercise.id) {
-                      // Update exercise log with position, blockType, section, restPeriod
+                      // Update exercise log with position, blockType, section, restPeriod,
+                      // AND blockGroupId so group/ungroup actions persist across reload.
                       await apiRequest('PATCH', `/api/exercise-logs/${exercise.id}`, {
                         position: i,
                         blockType: exercise.blockType,
                         section: exercise.section,
                         restPeriod: exercise.restPeriod,
+                        blockGroupId: exercise.blockType === 'single' ? null : (exercise.blockGroupId ?? null),
                       });
                       
                       // Handle set changes
@@ -2637,6 +2639,12 @@ export default function ActiveWorkout() {
                 const allBlockSelected = blockIndices.length > 0 && blockIndices.every(bi => selectedEditExercises.includes(bi));
                 
                 // Get display values
+                // True only for the LAST exercise of a superset/triset/circuit block,
+                // or for any 'single' exercise. Rest only fires once per round, after
+                // the last paired exercise — so we only show the rest badge here.
+                const isLastInBlock = exercise.blockType === 'single'
+                  || !sameBlock(exercise, nextExercise);
+
                 const getDisplayBadges = () => {
                   const badges: { label: string; type: 'time' | 'reps' | 'rest' | 'sets' }[] = [];
                   const firstSet = exercise.sets?.[0];
@@ -2655,11 +2663,15 @@ export default function ActiveWorkout() {
                     badges.push({ label: firstSet.targetDuration, type: 'time' });
                   }
                   
-                  // Add rest badge
-                  if (exercise.restPeriod && exercise.restPeriod !== '0') {
-                    badges.push({ label: exercise.restPeriod.replace(' sec', 's').replace(' min', 'm'), type: 'rest' });
-                  } else {
-                    badges.push({ label: 'None', type: 'rest' });
+                  // Rest badge: only shown on the last exercise of a paired block
+                  // (or on a single exercise). The first/middle paired exercises don't
+                  // get a rest period of their own.
+                  if (isLastInBlock) {
+                    if (exercise.restPeriod && exercise.restPeriod !== '0') {
+                      badges.push({ label: exercise.restPeriod.replace(' sec', 's').replace(' min', 'm'), type: 'rest' });
+                    } else {
+                      badges.push({ label: 'None', type: 'rest' });
+                    }
                   }
                   
                   return badges;
@@ -2921,9 +2933,14 @@ export default function ActiveWorkout() {
                   if (selectedEditExercises.length >= 2) {
                     const blockType = selectedEditExercises.length === 2 ? 'superset' :
                                       selectedEditExercises.length === 3 ? 'triset' : 'circuit';
+                    // Every exercise in this newly grouped block must share the SAME
+                    // blockGroupId so the editor and runner treat them as one unit.
+                    const newGroupId = (typeof crypto !== 'undefined' && crypto.randomUUID)
+                      ? crypto.randomUUID()
+                      : `grp_${Date.now()}_${Math.random().toString(36).slice(2, 10)}`;
                     const newExercises = [...editExercises];
                     selectedEditExercises.forEach(idx => {
-                      newExercises[idx] = { ...newExercises[idx], blockType };
+                      newExercises[idx] = { ...newExercises[idx], blockType, blockGroupId: newGroupId };
                     });
                     setEditExercises(newExercises);
                     setSelectedEditExercises([]);
@@ -3198,34 +3215,60 @@ export default function ActiveWorkout() {
                     const newExercises = [...editExercises];
                     const exercise = newExercises[editingExerciseIndex];
                     
+                    // Find every exercise that belongs to the same superset/triset/circuit
+                    // block as the one being edited, so paired changes (sets, rest) can
+                    // be applied to the whole block at once.
+                    const getBlockIndicesForSave = (idx: number): number[] => {
+                      const ex = newExercises[idx];
+                      if (!ex || ex.blockType === 'single' || !ex.blockGroupId) return [idx];
+                      const isSame = (a: ExerciseData | undefined, b: ExerciseData | undefined) =>
+                        !!a && !!b
+                        && a.blockType !== 'single'
+                        && a.blockType === b.blockType
+                        && a.section === b.section
+                        && !!a.blockGroupId
+                        && a.blockGroupId === b.blockGroupId;
+                      const indices = [idx];
+                      let i = idx - 1;
+                      while (i >= 0 && isSame(newExercises[i], newExercises[i + 1])) { indices.unshift(i); i--; }
+                      i = idx + 1;
+                      while (i < newExercises.length && isSame(newExercises[i - 1], newExercises[i])) { indices.push(i); i++; }
+                      return indices;
+                    };
+                    const blockIdx = getBlockIndicesForSave(editingExerciseIndex);
+
                     if (editingField === 'sets') {
                       const newSetsCount = parseInt(editValue);
-                      const currentSets = exercise.sets || [];
-                      
-                      if (newSetsCount > currentSets.length) {
-                        // Add more sets with proper typing
-                        const additionalSets: SetData[] = Array.from(
-                          { length: newSetsCount - currentSets.length },
-                          (_, idx) => ({
-                            setNumber: currentSets.length + idx + 1,
-                            targetReps: currentSets[0]?.targetReps || null,
-                            targetDuration: currentSets[0]?.targetDuration || null,
-                            actualReps: null,
-                            actualWeight: null,
-                            actualDuration: null,
-                            actualDurationMinutes: null,
-                            actualDurationSeconds: null,
-                            isCompleted: false,
-                            side: null,
-                            setDifficultyRating: null,
-                            painFlag: false,
-                            failureFlag: false,
-                          })
-                        );
-                        exercise.sets = [...currentSets, ...additionalSets];
-                      } else if (newSetsCount < currentSets.length) {
-                        // Remove sets
-                        exercise.sets = currentSets.slice(0, newSetsCount);
+
+                      // Apply the new set count to EVERY exercise in the block —
+                      // paired exercises in a superset must share the same set count.
+                      for (const bi of blockIdx) {
+                        const target = newExercises[bi];
+                        const currentSets = target.sets || [];
+
+                        if (newSetsCount > currentSets.length) {
+                          const additionalSets: SetData[] = Array.from(
+                            { length: newSetsCount - currentSets.length },
+                            (_, idx) => ({
+                              setNumber: currentSets.length + idx + 1,
+                              targetReps: currentSets[0]?.targetReps || null,
+                              targetDuration: currentSets[0]?.targetDuration || null,
+                              actualReps: null,
+                              actualWeight: null,
+                              actualDuration: null,
+                              actualDurationMinutes: null,
+                              actualDurationSeconds: null,
+                              isCompleted: false,
+                              side: null,
+                              setDifficultyRating: null,
+                              painFlag: false,
+                              failureFlag: false,
+                            })
+                          );
+                          target.sets = [...currentSets, ...additionalSets];
+                        } else if (newSetsCount < currentSets.length) {
+                          target.sets = currentSets.slice(0, newSetsCount);
+                        }
                       }
                     } else if (editingField === 'time') {
                       // Update all sets with new time - format properly
@@ -3258,21 +3301,29 @@ export default function ActiveWorkout() {
                         }));
                       }
                     } else if (editingField === 'rest') {
+                      let formattedRest: string;
                       if (editValue === '0') {
-                        exercise.restPeriod = 'None';
+                        formattedRest = 'None';
                       } else {
                         const seconds = parseInt(editValue);
                         if (seconds >= 60) {
                           const mins = Math.floor(seconds / 60);
                           const secs = seconds % 60;
-                          if (secs === 0) {
-                            exercise.restPeriod = `${mins} min`;
-                          } else {
-                            exercise.restPeriod = `${seconds} sec`;
-                          }
+                          formattedRest = secs === 0 ? `${mins} min` : `${seconds} sec`;
                         } else {
-                          exercise.restPeriod = `${editValue} sec`;
+                          formattedRest = `${editValue} sec`;
                         }
+                      }
+                      // Rest only fires once per round of a superset/triset/circuit, AFTER
+                      // the last paired exercise. Store the rest on the last block index,
+                      // and clear it on every other paired exercise.
+                      if (blockIdx.length > 1) {
+                        const lastIdx = blockIdx[blockIdx.length - 1];
+                        for (const bi of blockIdx) {
+                          newExercises[bi].restPeriod = bi === lastIdx ? formattedRest : 'None';
+                        }
+                      } else {
+                        exercise.restPeriod = formattedRest;
                       }
                     }
                     

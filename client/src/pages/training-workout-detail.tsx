@@ -27,7 +27,7 @@ import {
   DrawerTrigger,
 } from "@/components/ui/drawer";
 import { useToast } from "@/hooks/use-toast";
-import { calculateWorkoutDuration } from "@/lib/utils";
+import { calculateWorkoutDuration, parseDurationToSeconds } from "@/lib/utils";
 import { consumeScrollRestore, clearScrollRestore } from "@/lib/scrollRestore";
 import {
   AlertDialog,
@@ -361,7 +361,7 @@ export default function TrainingWorkoutDetail() {
             exerciseType: 'rest',
             sets: [],
             kind: 'rest',
-            restDuration: typeof block.rest === 'string' ? parseInt(block.rest) || 60 : (block.rest || 60),
+            restDuration: typeof block.rest === 'string' ? (parseDurationToSeconds(block.rest) || 60) : (block.rest || 60),
           });
         } else {
           // Regular exercise block
@@ -396,7 +396,7 @@ export default function TrainingWorkoutDetail() {
               exerciseType: 'rest',
               sets: [],
               kind: 'rest',
-              restDuration: typeof restDuration === 'string' ? parseInt(restDuration) || 60 : restDuration,
+              restDuration: typeof restDuration === 'string' ? (parseDurationToSeconds(restDuration) || 60) : restDuration,
             });
           }
         }

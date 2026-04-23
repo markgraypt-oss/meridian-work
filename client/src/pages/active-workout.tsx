@@ -9,6 +9,7 @@ import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useWorkoutSession } from "@/context/WorkoutSessionContext";
 import { useUserPreferences } from "@/contexts/UserPreferencesContext";
 import { formatWeightValue, getWeightUnitLabel } from "@/lib/unitConversions";
+import { parseDurationToSeconds } from "@/lib/utils";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import IntervalWorkoutSession from "@/components/IntervalWorkoutSession";
 import { 
@@ -2705,12 +2706,8 @@ export default function ActiveWorkout() {
                     const restPeriod = exercise.restPeriod || '60 sec';
                     if (restPeriod === 'None' || restPeriod === '0') {
                       setEditValue('0');
-                    } else if (restPeriod.includes('min')) {
-                      const mins = parseInt(restPeriod.replace(' min', '').replace('m', ''));
-                      setEditValue(String(mins * 60));
                     } else {
-                      const secs = parseInt(restPeriod.replace(' sec', '').replace('s', ''));
-                      setEditValue(String(secs));
+                      setEditValue(String(parseDurationToSeconds(restPeriod)));
                     }
                   }
                 };

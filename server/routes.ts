@@ -4052,7 +4052,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       let estimatedDuration = 0;
       exercises.forEach((ex: any) => {
         const sets = ex.setsCount || 3;
-        const restSeconds = parseInt(ex.restPeriod) || 60;
+        const restSeconds = parseDurationToSecondsServer(ex.restPeriod) || 60;
         estimatedDuration += sets * 45 + sets * restSeconds; // ~45s per set + rest
       });
 

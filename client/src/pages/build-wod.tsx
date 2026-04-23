@@ -8,6 +8,7 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { useToast } from "@/hooks/use-toast";
+import { parseDurationToSeconds } from "@/lib/utils";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { getMuxThumbnailUrl } from "@/lib/mux";
 import { 
@@ -60,7 +61,7 @@ const secondsToAdminRest = (totalSecs: number): string => {
 const formatRestPeriod = (restPeriod: string): string => {
   if (!restPeriod || restPeriod.toLowerCase() === 'none') return 'none';
   
-  const secs = parseInt(restPeriod.replace('s', '').replace(' sec', ''));
+  const secs = parseDurationToSeconds(restPeriod);
   if (isNaN(secs) || secs === 0) return 'none';
   
   if (secs >= 60) {
@@ -880,7 +881,7 @@ export default function BuildWodPage() {
         if (restPeriod.toLowerCase() === 'none' || restPeriod === '0') {
           setEditValue('0');
         } else {
-          const secs = parseInt(restPeriod.replace('s', '').replace(' sec', ''));
+          const secs = parseDurationToSeconds(restPeriod);
           setEditValue(String(secs || 60));
         }
       }

@@ -9,6 +9,7 @@ import { Button } from "@/components/ui/button";
 import { Separator } from "@/components/ui/separator";
 import { Dumbbell, Clock, MoreVertical, X, Zap, RotateCcw, Link } from "lucide-react";
 import TopHeader from "@/components/TopHeader";
+import { parseDurationToSeconds } from "@/lib/utils";
 import { useFormattedDate } from "@/hooks/useFormattedDate";
 import { ExerciseCard } from "@/components/ExerciseCard";
 import { WorkoutCompletionView } from "@/components/training/WorkoutCompletionView";
@@ -32,7 +33,7 @@ import { Calendar } from "@/components/ui/calendar";
 const formatRestPeriod = (restPeriod: string): string => {
   if (!restPeriod || restPeriod.toLowerCase() === 'none') return 'none';
   
-  const secs = parseInt(restPeriod.replace('s', '').replace(' sec', ''));
+  const secs = parseDurationToSeconds(restPeriod);
   if (isNaN(secs) || secs === 0) return 'none';
   
   if (secs >= 60) {

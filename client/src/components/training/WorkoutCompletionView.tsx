@@ -115,13 +115,27 @@ function formatSetDisplay(set: SetLog, exerciseType?: string, durationType?: str
   );
 
   const formatDuration = (): string | null => {
-    if (set.actualDuration) return set.actualDuration;
+    if (set.actualDuration) {
+      const raw = String(set.actualDuration).trim();
+      // Bare numeric value -> assume seconds
+      if (/^\d+$/.test(raw)) return `${raw} secs`;
+      // m:ss format -> convert to "Xm Ys" / "Y secs"
+      const ms = raw.match(/^(\d+):(\d{2})$/);
+      if (ms) {
+        const mins = parseInt(ms[1]);
+        const secs = parseInt(ms[2]);
+        if (mins > 0 && secs > 0) return `${mins}m ${secs}s`;
+        if (mins > 0) return `${mins}m`;
+        if (secs > 0) return `${secs} secs`;
+      }
+      return raw;
+    }
     if (set.actualDurationMinutes || set.actualDurationSeconds) {
       const mins = set.actualDurationMinutes || 0;
       const secs = set.actualDurationSeconds || 0;
       if (mins > 0 && secs > 0) return `${mins}m ${secs}s`;
       if (mins > 0) return `${mins}m`;
-      if (secs > 0) return `${secs}s`;
+      if (secs > 0) return `${secs} secs`;
     }
     return null;
   };
@@ -134,25 +148,27 @@ function formatSetDisplay(set: SetLog, exerciseType?: string, durationType?: str
   }
 
   // For everything else (strength, endurance, cardio/timed, timed_strength)
-  // build a combined display: [duration] [reps] [@ weight]
-  const parts: string[] = [];
+  // build a combined display: [duration x] [reps] [@ weight]
+  const durationPart = (isTimedStrength || isCardioOrTimed) ? formatDuration() : null;
+  const repsPart = (set.actualReps !== undefined && set.actualReps !== null && set.actualReps > 0)
+    ? `${set.actualReps} reps`
+    : null;
+  const weightPart = (set.actualWeight !== undefined && set.actualWeight !== null && set.actualWeight > 0)
+    ? `@ ${Math.round((weightUnit === 'lbs' ? kgToLbs(set.actualWeight) : set.actualWeight) * 10) / 10} ${weightUnit}`
+    : null;
 
-  if (isTimedStrength || isCardioOrTimed) {
-    const dur = formatDuration();
-    if (dur) parts.push(dur);
+  const segments: string[] = [];
+  if (durationPart && repsPart) {
+    segments.push(`${durationPart} x ${repsPart}`);
+  } else if (durationPart) {
+    segments.push(durationPart);
+  } else if (repsPart) {
+    segments.push(repsPart);
   }
+  if (weightPart) segments.push(weightPart);
 
-  if (set.actualReps !== undefined && set.actualReps !== null && set.actualReps > 0) {
-    parts.push(`${set.actualReps} reps`);
-  }
-
-  if (set.actualWeight !== undefined && set.actualWeight !== null && set.actualWeight > 0) {
-    const displayWeight = weightUnit === 'lbs' ? kgToLbs(set.actualWeight) : set.actualWeight;
-    parts.push(`@ ${Math.round(displayWeight * 10) / 10} ${weightUnit}`);
-  }
-
-  if (parts.length === 0) return '—';
-  return parts.join(' ');
+  if (segments.length === 0) return '—';
+  return segments.join(' ');
 }
 
 export function WorkoutCompletionView({ workoutLog, onDelete, isEditing: externalIsEditing, onEditModeChange }: WorkoutCompletionViewProps) {

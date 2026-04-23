@@ -107,47 +107,51 @@ function formatDuration(seconds: number): string {
 }
 
 function formatSetDisplay(set: SetLog, exerciseType?: string, durationType?: string, weightUnit: 'kg' | 'lbs' = 'kg'): string {
-  // Check if this is a timer-based exercise first
-  const isTimerExercise = exerciseType === 'general' || durationType === 'time' || durationType === 'timer';
-  
-  // For timer exercises, show duration
-  if (isTimerExercise) {
-    if (set.actualDuration) {
-      return set.actualDuration;
-    } else if (set.actualDurationMinutes || set.actualDurationSeconds) {
+  const isTimedStrength = exerciseType === 'timed_strength';
+  const isCardioOrTimed = exerciseType === 'cardio' || exerciseType === 'timed';
+  // Pure-timer exercises (general / non-cardio timer): duration only
+  const isPureTimerExercise = !isTimedStrength && !isCardioOrTimed && (
+    exerciseType === 'general' || durationType === 'time' || durationType === 'timer'
+  );
+
+  const formatDuration = (): string | null => {
+    if (set.actualDuration) return set.actualDuration;
+    if (set.actualDurationMinutes || set.actualDurationSeconds) {
       const mins = set.actualDurationMinutes || 0;
       const secs = set.actualDurationSeconds || 0;
-      if (mins > 0 && secs > 0) {
-        return `${mins}m ${secs}s`;
-      } else if (mins > 0) {
-        return `${mins}m`;
-      } else if (secs > 0) {
-        return `${secs}s`;
-      }
+      if (mins > 0 && secs > 0) return `${mins}m ${secs}s`;
+      if (mins > 0) return `${mins}m`;
+      if (secs > 0) return `${secs}s`;
     }
-    if (set.targetDuration) {
-      return set.targetDuration;
-    }
+    return null;
+  };
+
+  if (isPureTimerExercise) {
+    const dur = formatDuration();
+    if (dur) return dur;
+    if (set.targetDuration) return set.targetDuration;
     return 'Completed';
   }
-  
-  // For rep-based exercises, prioritize showing actual reps/weight
+
+  // For everything else (strength, endurance, cardio/timed, timed_strength)
+  // build a combined display: [duration] [reps] [@ weight]
   const parts: string[] = [];
-  
+
+  if (isTimedStrength || isCardioOrTimed) {
+    const dur = formatDuration();
+    if (dur) parts.push(dur);
+  }
+
   if (set.actualReps !== undefined && set.actualReps !== null && set.actualReps > 0) {
     parts.push(`${set.actualReps} reps`);
   }
-  
+
   if (set.actualWeight !== undefined && set.actualWeight !== null && set.actualWeight > 0) {
     const displayWeight = weightUnit === 'lbs' ? kgToLbs(set.actualWeight) : set.actualWeight;
     parts.push(`@ ${Math.round(displayWeight * 10) / 10} ${weightUnit}`);
   }
-  
-  if (parts.length === 0) {
-    // Show dash for missing data
-    return '—';
-  }
-  
+
+  if (parts.length === 0) return '—';
   return parts.join(' ');
 }
 
@@ -350,7 +354,10 @@ export function WorkoutCompletionView({ workoutLog, onDelete, isEditing: externa
             const derivedRounds = (workoutLog as any).intervalRounds || 
               (isCircuitWorkout && mainExs[0]?.sets?.length) || exercise.sets.length;
             const maxSets = (isCircuitWorkout && !isWarmup) ? derivedRounds : exercise.sets.length;
-            const setsToShow = exercise.sets.slice(0, maxSets);
+            // For circuit workouts always render maxSets rows so missing rounds show as placeholders
+            const setsToShow: (SetLog | null)[] = (isCircuitWorkout && !isWarmup)
+              ? Array.from({ length: maxSets }, (_, i) => exercise.sets[i] ?? null)
+              : exercise.sets.slice(0, maxSets);
 
             if (isEditing) {
               return (
@@ -371,12 +378,20 @@ export function WorkoutCompletionView({ workoutLog, onDelete, isEditing: externa
                       const isCardioOrTimedExercise = exType === 'cardio' || exType === 'timed';
                       const isTimedStrengthExercise = exType === 'timed_strength';
                       const isTimeBasedExercise = exercise.durationType === 'timer' || exercise.durationType === 'time';
-                      const hasTargetReps = setsToShow.some(s => s.targetReps && s.targetReps !== '0');
+                      const hasTargetReps = setsToShow.some(s => s && s.targetReps && s.targetReps !== '0');
                       const isTimedOnlyExercise = isGeneralExercise || (isTimeBasedExercise && !hasTargetReps && !isCardioOrTimedExercise && !isTimedStrengthExercise);
                       const showWeight = exType === 'strength' || isTimedStrengthExercise;
                       const showRepsOnly = isEnduranceExercise || isCardioOrTimedExercise;
 
-                      return setsToShow.map((set) => {
+                      return setsToShow.map((set, idx) => {
+                        if (!set) {
+                          return (
+                            <div key={`empty-${idx}`} className="flex items-center gap-2 py-1 opacity-50">
+                              <span className="text-xs text-muted-foreground w-4">{idx + 1}</span>
+                              <span className="text-xs text-muted-foreground">Not logged</span>
+                            </div>
+                          );
+                        }
                         const edited = editedSets[set.id] || {};
                         const currentReps = edited.actualReps ?? set.actualReps ?? '';
                         const currentWeight = edited.actualWeight ?? set.actualWeight ?? '';
@@ -434,7 +449,16 @@ export function WorkoutCompletionView({ workoutLog, onDelete, isEditing: externa
                   <div className="flex-1 min-w-0">
                     <h4 className="font-medium text-foreground">{exercise.exerciseName}</h4>
                     <div className="space-y-0.5 mt-1">
-                      {setsToShow.map((set) => (
+                      {setsToShow.map((set, idx) => {
+                        if (!set) {
+                          return (
+                            <div key={`empty-${idx}`} className="flex items-center gap-2 text-sm text-muted-foreground/60">
+                              <span className="w-4 text-xs">{idx + 1}</span>
+                              <span>—</span>
+                            </div>
+                          );
+                        }
+                        return (
                         <div key={set.id} className="flex items-center gap-2 text-sm text-muted-foreground">
                           <span className="w-4 text-xs">{set.setNumber}</span>
                           <span>{formatSetDisplay(set, exercise.exerciseType, exercise.durationType, weightUnit)}</span>
@@ -457,7 +481,8 @@ export function WorkoutCompletionView({ workoutLog, onDelete, isEditing: externa
                             <Badge variant="outline" className="text-xs py-0 h-4 border-purple-500 text-purple-500">Failure</Badge>
                           )}
                         </div>
-                      ))}
+                        );
+                      })}
                     </div>
                   </div>
                 </div>

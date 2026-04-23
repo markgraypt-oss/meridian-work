@@ -813,6 +813,7 @@ export interface IStorage {
   completeWorkoutLog(id: number): Promise<any>;
   cancelWorkoutLog(id: number): Promise<void>;
   deleteWorkoutLog(id: number): Promise<void>;
+  recomputeExerciseSnapshots(userId: string, exerciseLibraryIds: number[]): Promise<void>;
   
   // Workout Exercise Log operations
   createWorkoutExerciseLog(log: any): Promise<any>;
@@ -7902,8 +7903,204 @@ export class DatabaseStorage implements IStorage {
   }
 
   async deleteWorkoutLog(id: number): Promise<void> {
-    // Same as cancel - delete all related data
-    await this.cancelWorkoutLog(id);
+    // Capture userId + the set of exerciseLibraryIds touched by this workout
+    // BEFORE the cascade delete, so we can recompute exercise_snapshots after.
+    // Without this, snapshots retain best/last values from the deleted workout
+    // and the user can never PR against the orphaned data.
+    //
+    // The whole sequence (capture -> cascade delete -> snapshot recompute) runs
+    // inside one transaction so a partial failure cannot leave snapshots in a
+    // half-recomputed state, and a concurrent completeWorkoutLogWithRating
+    // cannot race with our aggregate read.
+    await db.transaction(async (tx) => {
+      const log = await tx
+        .select({ userId: workoutLogs.userId })
+        .from(workoutLogs)
+        .where(eq(workoutLogs.id, id))
+        .limit(1);
+
+      const userId: string | null = log[0]?.userId ?? null;
+      let exerciseLibraryIds: number[] = [];
+
+      if (userId) {
+        const rows = await tx
+          .select({ exerciseLibraryId: workoutExerciseLogs.exerciseLibraryId })
+          .from(workoutExerciseLogs)
+          .where(eq(workoutExerciseLogs.workoutLogId, id));
+        const ids = new Set<number>();
+        for (const r of rows) {
+          if (r.exerciseLibraryId != null) ids.add(r.exerciseLibraryId);
+        }
+        exerciseLibraryIds = Array.from(ids);
+      }
+
+      // Cascade delete (set logs -> exercise logs -> workout log).
+      // Inlined here (instead of calling cancelWorkoutLog) so it runs on the tx.
+      const exerciseLogs = await tx
+        .select()
+        .from(workoutExerciseLogs)
+        .where(eq(workoutExerciseLogs.workoutLogId, id));
+      for (const exerciseLog of exerciseLogs) {
+        await tx
+          .delete(workoutSetLogs)
+          .where(eq(workoutSetLogs.exerciseLogId, exerciseLog.id));
+      }
+      await tx
+        .delete(workoutExerciseLogs)
+        .where(eq(workoutExerciseLogs.workoutLogId, id));
+      await tx
+        .delete(workoutLogs)
+        .where(eq(workoutLogs.id, id));
+
+      if (userId && exerciseLibraryIds.length > 0) {
+        for (const exerciseLibraryId of exerciseLibraryIds) {
+          await this.recomputeOneExerciseSnapshot(tx, userId, exerciseLibraryId);
+        }
+      }
+    });
+  }
+
+  async recomputeExerciseSnapshots(userId: string, exerciseLibraryIds: number[]): Promise<void> {
+    if (!userId || exerciseLibraryIds.length === 0) return;
+    await db.transaction(async (tx) => {
+      for (const exerciseLibraryId of exerciseLibraryIds) {
+        await this.recomputeOneExerciseSnapshot(tx, userId, exerciseLibraryId);
+      }
+    });
+  }
+
+  // Internal: recompute a single (userId, exerciseLibraryId) snapshot from
+  // the user's remaining completed sets. Mirrors the write-path semantics of
+  // completeWorkoutLogWithRating + updateExerciseSnapshot:
+  //   - "Meaningful set" = a set with reps>0 OR weight>0 OR duration>0.
+  //     Pre-created set rows with all-null/zero actuals are ignored, matching
+  //     the `if (actualReps || actualWeight || timeSeconds > 0)` gate in
+  //     completeWorkoutLogWithRating.
+  //   - last_reps / last_weight / last_time_seconds are picked independently
+  //     from the most recent set whose THAT field is truthy. This mirrors the
+  //     write path which only assigns each last_* field when its setData value
+  //     is truthy. So a bodyweight set (weight=0) at the end of a session does
+  //     not blank out lastWeight from the previous loaded set.
+  //   - bests use NULLIF(x,0) so a logged zero never beats a real value.
+  //   - frequency_count_7/30_days = distinct completed workouts containing a
+  //     meaningful set in that window. (The write path's incremental
+  //     frequency tracking is already broken; recompute restores correctness.)
+  // If zero meaningful sets remain, the snapshot row is deleted entirely.
+  private async recomputeOneExerciseSnapshot(
+    tx: any,
+    userId: string,
+    exerciseLibraryId: number,
+  ): Promise<void> {
+    const meaningfulPredicate = sql`
+      (
+        (sl.actual_reps IS NOT NULL AND sl.actual_reps <> 0)
+        OR (sl.actual_weight IS NOT NULL AND sl.actual_weight <> 0)
+        OR (COALESCE(sl.actual_duration_minutes, 0) * 60
+            + COALESCE(sl.actual_duration_seconds, 0)) > 0
+      )
+    `;
+
+    const result = await tx.execute(sql`
+      WITH meaningful AS (
+        SELECT
+          sl.id AS sl_id,
+          sl.actual_reps,
+          sl.actual_weight,
+          (COALESCE(sl.actual_duration_minutes, 0) * 60
+            + COALESCE(sl.actual_duration_seconds, 0)) AS time_seconds,
+          wl.id AS wl_id,
+          wl.completed_at
+        FROM workout_set_logs sl
+        JOIN workout_exercise_logs el ON el.id = sl.exercise_log_id
+        JOIN workout_logs wl ON wl.id = el.workout_log_id
+        WHERE wl.user_id = ${userId}
+          AND el.exercise_library_id = ${exerciseLibraryId}
+          AND wl.status = 'completed'
+          AND ${meaningfulPredicate}
+      )
+      SELECT
+        (SELECT COUNT(*)::int FROM meaningful) AS total_sets,
+        (SELECT COALESCE(SUM(actual_reps), 0)::int FROM meaningful) AS total_reps,
+        (SELECT COALESCE(SUM((actual_weight)::real * (actual_reps)::real), 0)::real
+          FROM meaningful) AS total_volume,
+        (SELECT MAX(NULLIF(actual_weight, 0))::real FROM meaningful) AS best_weight,
+        (SELECT MAX(NULLIF(actual_reps, 0))::int FROM meaningful) AS best_reps,
+        (SELECT MAX(NULLIF(actual_weight, 0) * NULLIF(actual_reps, 0))::real
+          FROM meaningful) AS best_volume,
+        (SELECT MAX(NULLIF(time_seconds, 0))::int FROM meaningful) AS best_time_seconds,
+        (SELECT COUNT(DISTINCT wl_id)::int FROM meaningful
+          WHERE completed_at >= NOW() - INTERVAL '7 days') AS freq_7,
+        (SELECT COUNT(DISTINCT wl_id)::int FROM meaningful
+          WHERE completed_at >= NOW() - INTERVAL '30 days') AS freq_30,
+        (SELECT MAX(completed_at) FROM meaningful) AS last_performed_at,
+        (SELECT actual_reps FROM meaningful
+          WHERE actual_reps IS NOT NULL AND actual_reps <> 0
+          ORDER BY completed_at DESC NULLS LAST, sl_id DESC LIMIT 1) AS last_reps,
+        (SELECT actual_weight FROM meaningful
+          WHERE actual_weight IS NOT NULL AND actual_weight <> 0
+          ORDER BY completed_at DESC NULLS LAST, sl_id DESC LIMIT 1) AS last_weight,
+        (SELECT time_seconds FROM meaningful
+          WHERE time_seconds > 0
+          ORDER BY completed_at DESC NULLS LAST, sl_id DESC LIMIT 1) AS last_time_seconds
+    `);
+
+    const row: any = (result as any).rows?.[0] ?? (result as any)[0];
+    const totalSets = row?.total_sets != null ? Number(row.total_sets) : 0;
+
+    if (totalSets === 0) {
+      await tx
+        .delete(exerciseSnapshots)
+        .where(and(
+          eq(exerciseSnapshots.userId, userId),
+          eq(exerciseSnapshots.exerciseLibraryId, exerciseLibraryId)
+        ));
+      return;
+    }
+
+    const toIntOrNull = (v: any): number | null =>
+      v == null ? null : Number(v);
+    const toFloatOrNull = (v: any): number | null =>
+      v == null ? null : Number(v);
+
+    const newValues = {
+      lastReps: toIntOrNull(row.last_reps),
+      lastWeight: toFloatOrNull(row.last_weight),
+      lastTimeSeconds: toIntOrNull(row.last_time_seconds),
+      lastPerformedAt: row.last_performed_at ? new Date(row.last_performed_at) : null,
+      bestReps: toIntOrNull(row.best_reps),
+      bestWeight: toFloatOrNull(row.best_weight),
+      bestVolume: toFloatOrNull(row.best_volume),
+      bestTimeSeconds: toIntOrNull(row.best_time_seconds),
+      totalSets,
+      totalReps: Number(row.total_reps ?? 0),
+      totalVolume: Number(row.total_volume ?? 0),
+      frequencyCount7Days: Number(row.freq_7 ?? 0),
+      frequencyCount30Days: Number(row.freq_30 ?? 0),
+      updatedAt: new Date(),
+    };
+
+    const [existing] = await tx
+      .select()
+      .from(exerciseSnapshots)
+      .where(and(
+        eq(exerciseSnapshots.userId, userId),
+        eq(exerciseSnapshots.exerciseLibraryId, exerciseLibraryId)
+      ));
+
+    if (existing) {
+      await tx
+        .update(exerciseSnapshots)
+        .set(newValues)
+        .where(eq(exerciseSnapshots.id, existing.id));
+    } else {
+      await tx
+        .insert(exerciseSnapshots)
+        .values({
+          userId,
+          exerciseLibraryId,
+          ...newValues,
+        });
+    }
   }
 
   async getCompletedWorkoutLogByContext(userId: string, enrollmentId: number, week: number, day: number): Promise<WorkoutLog | undefined> {

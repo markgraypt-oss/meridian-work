@@ -4,7 +4,7 @@ import { createServer, type Server } from "http";
 import { storage } from "./storage";
 import { db } from "./db";
 import { setupAuth, isAuthenticated, generateResetToken, hashToken, sendUserInviteEmail } from "./replitAuth";
-import { eq, and, like, inArray, desc, or, isNull, asc, gte, lte, lt } from "drizzle-orm";
+import { eq, and, like, inArray, desc, or, isNull, asc, gte, lte, lt, sql } from "drizzle-orm";
 import { users, userProgramEnrollments, programWeeks, programDays, programmeWorkouts, programmeWorkoutBlocks, pathContentItems, topicContentItems, learningPaths, programmeModificationRecords, exerciseSubstitutionMappings, programmeBlockExercises, enrollmentWorkouts, enrollmentWorkoutBlocks, enrollmentBlockExercises, programs, userExtraWorkoutSessions, scheduledWorkouts, workoutLogs, learnContentLibrary, exerciseLibrary, workoutExerciseLogs, workoutSetLogs, aiFeedback, workouts, workoutBlocks, blockExercises, stepEntries, sleepEntries, bodyweightEntries, bodyFatEntries, restingHREntries, caloricBurnEntries, exerciseMinutesEntries, bloodPressureEntries, leanBodyMassEntries, caloricIntakeEntries, hydrationLogs } from "@shared/schema";
 import { calculateProgramEquipment, updateProgramEquipmentAuto } from "./equipmentDetection";
 import multer from "multer";
@@ -12679,7 +12679,10 @@ Keep your response concise, practical, and evidence-based. Do not use em dashes.
     try {
       const userId = req.user.claims.sub;
       
-      // Get all exercises from library that are strength or endurance type
+      // Get all exercises from library eligible for PR tracking.
+      // Exclusion rule (Mark): exclude exerciseType='general' AND exclude any
+      // exercise whose `movement` array contains 'Mobility', 'Static Stretches',
+      // or 'Cardio' (case-insensitive). Strength + endurance only.
       const allExercises = await db
         .select({
           id: exerciseLibrary.id,
@@ -12688,9 +12691,15 @@ Keep your response concise, practical, and evidence-based. Do not use em dashes.
         })
         .from(exerciseLibrary)
         .where(
-          or(
-            eq(exerciseLibrary.exerciseType, 'strength'),
-            eq(exerciseLibrary.exerciseType, 'endurance')
+          and(
+            or(
+              eq(exerciseLibrary.exerciseType, 'strength'),
+              eq(exerciseLibrary.exerciseType, 'endurance')
+            ),
+            sql`(${exerciseLibrary.movement} IS NULL OR NOT EXISTS (
+              SELECT 1 FROM unnest(${exerciseLibrary.movement}) AS m
+              WHERE LOWER(m) IN ('mobility', 'static stretches', 'cardio')
+            ))`
           )
         )
         .orderBy(exerciseLibrary.name);

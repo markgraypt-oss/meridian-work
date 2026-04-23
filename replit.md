@@ -34,6 +34,7 @@ Preferred communication style: Simple, everyday language.
 
 ### Key Design Decisions
 - **Exercise & Workout Display**: Standardized exercise card format; consistent workout detail block layout with circular set number badges. Circuit workouts have a distinct blue banner layout.
+- **Exercise PRs eligibility (Mark's rule)**: The Exercise PRs page (`/progress/exercise-prs-list`) and any future PR-tracking surface MUST exclude exercises with `exercise_type = 'general'` AND any exercise whose `movement` array contains `Mobility`, `Static Stretches`, or `Cardio` (case-insensitive). Filter is applied server-side in `server/routes.ts` `/api/progress/exercise-prs-list`. Mobile port must apply the same exclusion. Note: schema field is `movement` (text array on `exercise_library`), referred to in admin UI as "Movement Type".
 - **Perform Section**: Unified hub for nutrition, goals/habits, and hydration tracking.
 - **Body Map System**: Interactive pain/injury assessment with conditional branching, automated recovery plan generation, and an outcomes-based decision framework.
 - **Recovery Plan System**: Automated generation of personalized recovery plans based on body map assessments.

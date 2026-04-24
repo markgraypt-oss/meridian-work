@@ -3103,15 +3103,16 @@ export class DatabaseStorage implements IStorage {
     const targetDateOnly = new Date(targetDate.getFullYear(), targetDate.getMonth(), targetDate.getDate());
     const targetDateStr = `${targetDateOnly.getFullYear()}-${String(targetDateOnly.getMonth() + 1).padStart(2, '0')}-${String(targetDateOnly.getDate()).padStart(2, '0')}`;
 
-    // Get all active AND scheduled main enrollments
+    // Get all active AND scheduled enrollments (both main and supplementary).
+    // Supplementary programmes (e.g. mobility, conditioning) must also surface on the
+    // home dashboard on their scheduled days, matching the calendar's behaviour.
     const allEnrollments = await db
       .select()
       .from(userProgramEnrollments)
       .where(
         and(
           eq(userProgramEnrollments.userId, userId),
-          inArray(userProgramEnrollments.status, ['active', 'scheduled']),
-          eq(userProgramEnrollments.programType, 'main')
+          inArray(userProgramEnrollments.status, ['active', 'scheduled'])
         )
       );
 

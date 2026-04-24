@@ -127,6 +127,16 @@ function AddToWorkoutDrawer({ exerciseId, exerciseName, exerciseType, open, onCl
     },
     onSuccess: async (response: any) => {
       const data = await response.json();
+      if (data.added === 0) {
+        toast({
+          title: "No future instances",
+          description: `${selectedWorkout.name} has no remaining future instances to add ${exerciseName} to.`,
+          variant: "destructive",
+        });
+        handleReset();
+        onClose();
+        return;
+      }
       toast({
         title: "Exercise Added",
         description: `${exerciseName} has been added to ${selectedWorkout.name}${data.added > 1 ? ` (${data.added} workout instances)` : ''}.`,

@@ -326,9 +326,20 @@ export default function Calendar() {
   };
 
   const getCompletionStatusIcon = (activity: any) => {
-    // Show status for habits, scheduled workouts, and reassessments
-    if (activity.type !== 'habit' && activity.type !== 'scheduledWorkout' && activity.type !== 'reassessment') {
+    // Show status for habits, scheduled workouts, completed workouts, and reassessments
+    if (
+      activity.type !== 'habit' &&
+      activity.type !== 'scheduledWorkout' &&
+      activity.type !== 'completedWorkout' &&
+      activity.type !== 'workout' &&
+      activity.type !== 'reassessment'
+    ) {
       return null;
+    }
+
+    // Completed workout logs and standalone workout sessions are, by definition, completed
+    if (activity.type === 'completedWorkout' || activity.type === 'workout') {
+      return <Check className="h-5 w-5 text-green-500" data-testid={`icon-completed-${activity.id}`} />;
     }
 
     if (activity.type === 'reassessment') {

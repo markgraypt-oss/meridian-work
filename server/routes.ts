@@ -2235,6 +2235,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
         dateFormat: user.dateFormat || "DD/MM/YYYY",
         restTimerSounds: user.restTimerSounds ?? true,
         countdownBeeps: user.countdownBeeps ?? true,
+        intervalVoiceCuesEnabled: user.intervalVoiceCuesEnabled ?? true,
+        intervalAnnounceExerciseNames: user.intervalAnnounceExerciseNames ?? true,
+        intervalHalfwayCue: user.intervalHalfwayCue ?? true,
+        intervalTenSecondWarning: user.intervalTenSecondWarning ?? true,
+        intervalBeepsEnabled: user.intervalBeepsEnabled ?? true,
       });
     } catch (error) {
       console.error("Get preferences error:", error);
@@ -2250,6 +2255,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
     dateFormat: z.enum(["DD/MM/YYYY", "MM/DD/YYYY", "YYYY-MM-DD"]).optional(),
     restTimerSounds: z.boolean().optional(),
     countdownBeeps: z.boolean().optional(),
+    intervalVoiceCuesEnabled: z.boolean().optional(),
+    intervalAnnounceExerciseNames: z.boolean().optional(),
+    intervalHalfwayCue: z.boolean().optional(),
+    intervalTenSecondWarning: z.boolean().optional(),
+    intervalBeepsEnabled: z.boolean().optional(),
   });
 
   app.patch('/api/user/preferences', isAuthenticated, async (req: any, res) => {
@@ -2268,6 +2278,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
       if (parsed.data.dateFormat !== undefined) updates.dateFormat = parsed.data.dateFormat;
       if (parsed.data.restTimerSounds !== undefined) updates.restTimerSounds = parsed.data.restTimerSounds;
       if (parsed.data.countdownBeeps !== undefined) updates.countdownBeeps = parsed.data.countdownBeeps;
+      if (parsed.data.intervalVoiceCuesEnabled !== undefined) updates.intervalVoiceCuesEnabled = parsed.data.intervalVoiceCuesEnabled;
+      if (parsed.data.intervalAnnounceExerciseNames !== undefined) updates.intervalAnnounceExerciseNames = parsed.data.intervalAnnounceExerciseNames;
+      if (parsed.data.intervalHalfwayCue !== undefined) updates.intervalHalfwayCue = parsed.data.intervalHalfwayCue;
+      if (parsed.data.intervalTenSecondWarning !== undefined) updates.intervalTenSecondWarning = parsed.data.intervalTenSecondWarning;
+      if (parsed.data.intervalBeepsEnabled !== undefined) updates.intervalBeepsEnabled = parsed.data.intervalBeepsEnabled;
       
       await storage.updateUser(userId, updates);
       const updatedUser = await storage.getUser(userId);
@@ -2279,6 +2294,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
         dateFormat: updatedUser?.dateFormat || "DD/MM/YYYY",
         restTimerSounds: updatedUser?.restTimerSounds ?? true,
         countdownBeeps: updatedUser?.countdownBeeps ?? true,
+        intervalVoiceCuesEnabled: updatedUser?.intervalVoiceCuesEnabled ?? true,
+        intervalAnnounceExerciseNames: updatedUser?.intervalAnnounceExerciseNames ?? true,
+        intervalHalfwayCue: updatedUser?.intervalHalfwayCue ?? true,
+        intervalTenSecondWarning: updatedUser?.intervalTenSecondWarning ?? true,
+        intervalBeepsEnabled: updatedUser?.intervalBeepsEnabled ?? true,
       });
     } catch (error) {
       console.error("Update preferences error:", error);

@@ -143,8 +143,14 @@ export function ExerciseCard({ exercise, index, workoutId, label, circuitRounds,
       .replace(/(\d+)\s*mins?\b/gi, (_, num) => `${num} ${num === '1' ? 'min' : 'mins'}`);
   };
   
-  // For time-based exercises, get duration display with range
-  const allDurations = setsArray.map((s: any) => s.duration).filter(Boolean) as string[];
+  // For time-based exercises, get duration display with range.
+  // Strength/endurance exercises sometimes have stale `duration` baked into the sets
+  // JSON from older admin saves; ignore it unless the exercise is actually time-based,
+  // so a strength exercise doesn't render "Sets x 30 secs x 8-12 Reps" when the admin
+  // panel shows just "8-12 Reps".
+  const allDurations = isTimeBased
+    ? setsArray.map((s: any) => s.duration).filter(Boolean) as string[]
+    : [];
   const uniqueDurations = Array.from(new Set(allDurations));
   let durationDisplay = '';
   if (uniqueDurations.length === 1) {

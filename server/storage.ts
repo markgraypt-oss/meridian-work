@@ -4279,9 +4279,35 @@ export class DatabaseStorage implements IStorage {
       }
     });
 
+    // Track which workout_logs have already been "consumed" by a scheduled-workout dedup
+    // so that if the same workout was scheduled twice on the same day but only completed
+    // once, only one of the scheduled rows gets hidden (the one paired with the log).
+    const consumedLogIds = new Set<number>();
+
     // Process scheduled workouts (from schedule workout dialog)
     for (const scheduledWorkout of scheduledWorkoutsData) {
       const dateKey = new Date(scheduledWorkout.scheduledDate).toISOString().split('T')[0];
+
+      // Dedup: only consider scheduled rows that claim to be completed (isCompleted=true).
+      // For each such row, find one (unconsumed) workout_log on the same date matching by
+      // workoutId or workoutName, mark it consumed, and skip rendering the scheduled card.
+      // This prevents the duplicate "Completed" + green-tick "Workout" pair on the calendar.
+      if (scheduledWorkout.isCompleted) {
+        const matchingLog = completedWorkoutLogsData.find(log => {
+          if (consumedLogIds.has(log.id)) return false;
+          if (!log.completedAt) return false;
+          const logDateKey = (log.completedAt instanceof Date ? log.completedAt : new Date(log.completedAt)).toISOString().split('T')[0];
+          if (logDateKey !== dateKey) return false;
+          const idMatch = !!scheduledWorkout.workoutId && !!log.workoutId && scheduledWorkout.workoutId === log.workoutId;
+          const nameMatch = !!scheduledWorkout.workoutName && !!log.workoutName && scheduledWorkout.workoutName === log.workoutName;
+          return idMatch || nameMatch;
+        });
+        if (matchingLog) {
+          consumedLogIds.add(matchingLog.id);
+          continue;
+        }
+      }
+
       if (!activities[dateKey]) activities[dateKey] = [];
       
       // Determine if this is missed (date is in the past and not completed)

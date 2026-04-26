@@ -1,5 +1,5 @@
 import { useState, useMemo } from "react";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useQueries } from "@tanstack/react-query";
 import { ChevronLeft, Hammer, MoreVertical, Dumbbell, Zap, RotateCcw, Search } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -53,40 +53,63 @@ export default function WorkoutSelector({ selectedDate, onBack, onSelectWorkout 
     queryKey: ['/api/my-programs/timeline'],
   });
 
-  const currentEnrollmentId = programmeTimeline?.current?.id;
+  // Collect IDs of every active enrollment the user has — main + supplementary —
+  // so the My Programme tab shows workouts from all of them, matching mobile.
+  const activeEnrollmentIds: number[] = useMemo(() => {
+    const ids: number[] = [];
+    if (programmeTimeline?.current?.id) ids.push(programmeTimeline.current.id);
+    const supps = Array.isArray(programmeTimeline?.currentSupplementary)
+      ? programmeTimeline.currentSupplementary
+      : [];
+    for (const s of supps) {
+      if (s?.id && !ids.includes(s.id)) ids.push(s.id);
+    }
+    return ids;
+  }, [programmeTimeline]);
 
-  // Fetch enrolled programme details (includes workouts)
-  const { data: enrolledProgramDetails, isLoading: isLoadingProgramme } = useQuery<any>({
-    queryKey: ['/api/my-programs', currentEnrollmentId],
-    queryFn: async () => {
-      const res = await fetch(`/api/my-programs/${currentEnrollmentId}`);
-      if (!res.ok) throw new Error('Failed to fetch program');
-      return res.json();
-    },
-    enabled: !!currentEnrollmentId,
+  // Fetch details for every active enrollment in parallel
+  const enrollmentQueries = useQueries({
+    queries: activeEnrollmentIds.map((enrollmentId) => ({
+      queryKey: ['/api/my-programs', enrollmentId] as const,
+      queryFn: async () => {
+        const res = await fetch(`/api/my-programs/${enrollmentId}`);
+        if (!res.ok) throw new Error('Failed to fetch program');
+        return res.json();
+      },
+    })),
   });
 
-  // Extract unique workouts from enrolled programme (deduplicated by templateWorkoutId)
+  const isLoadingProgramme = enrollmentQueries.some((q) => q.isLoading);
+
+  // Extract unique workouts from every active enrollment.
+  // Dedup by (enrollmentId, templateWorkoutId) so the same template repeated across
+  // weeks within a programme collapses to one row, but identical names across
+  // separate programmes still appear once per programme.
   const programmeWorkouts = useMemo(() => {
-    const allProgrammeWorkouts = enrolledProgramDetails?.workouts || [];
-    const seenTemplateIds = new Set<number>();
-    return allProgrammeWorkouts
-      .filter((workout: any) => {
+    const seen = new Set<string>();
+    const rows: any[] = [];
+    for (let i = 0; i < enrollmentQueries.length; i++) {
+      const enrollmentId = activeEnrollmentIds[i];
+      const details: any = enrollmentQueries[i].data;
+      const list: any[] = details?.workouts || [];
+      for (const workout of list) {
         const templateId = workout.templateWorkoutId;
-        if (seenTemplateIds.has(templateId)) return false;
-        seenTemplateIds.add(templateId);
-        return true;
-      })
-      .map((workout: any) => ({
-        id: `programme-${workout.enrollmentWorkoutId || workout.templateWorkoutId}`,
-        title: workout.name,
-        imageUrl: workout.imageUrl,
-        enrollmentId: currentEnrollmentId,
-        enrollmentWorkoutId: workout.enrollmentWorkoutId,
-        week: workout.week,
-        day: workout.day,
-      }));
-  }, [enrolledProgramDetails, currentEnrollmentId]);
+        const dedupKey = `${enrollmentId}::${templateId}`;
+        if (seen.has(dedupKey)) continue;
+        seen.add(dedupKey);
+        rows.push({
+          id: `programme-${enrollmentId}-${workout.enrollmentWorkoutId || templateId}`,
+          title: workout.name,
+          imageUrl: workout.imageUrl,
+          enrollmentId,
+          enrollmentWorkoutId: workout.enrollmentWorkoutId,
+          week: workout.week,
+          day: workout.day,
+        });
+      }
+    }
+    return rows;
+  }, [enrollmentQueries, activeEnrollmentIds]);
 
   // Admin-only library workouts (used by Library tab + sub-filters and as the lookup for Saved)
   const libraryWorkouts = useMemo(

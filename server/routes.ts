@@ -1575,6 +1575,75 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // One-shot cleanup of orphan calendar rows for a user.
+  // Removes extra sessions and clears scheduled-date overrides whose parent
+  // enrollment is completed/cancelled, and optionally deletes specified
+  // standalone scheduled_workouts rows for the same user.
+  app.post('/api/admin/cleanup-orphan-workouts', isAuthenticated, async (req: any, res) => {
+    try {
+      const callerId = req.user.claims.sub;
+      const caller = await storage.getUser(callerId);
+      if (!caller?.isAdmin) {
+        return res.status(403).json({ message: "Admin access required" });
+      }
+      const targetUserId: string = req.body?.targetUserId || callerId;
+      const scheduledWorkoutIds: number[] = Array.isArray(req.body?.scheduledWorkoutIds)
+        ? req.body.scheduledWorkoutIds.filter((n: any) => Number.isInteger(n))
+        : [];
+
+      const orphanExtras = await db.select({ id: userExtraWorkoutSessions.id })
+        .from(userExtraWorkoutSessions)
+        .innerJoin(userProgramEnrollments, eq(userExtraWorkoutSessions.enrollmentId, userProgramEnrollments.id))
+        .where(and(
+          eq(userProgramEnrollments.userId, targetUserId),
+          sql`${userProgramEnrollments.status} NOT IN ('active','scheduled')`,
+        ));
+      const extraIds = orphanExtras.map(r => r.id);
+      if (extraIds.length > 0) {
+        await db.delete(userExtraWorkoutSessions).where(inArray(userExtraWorkoutSessions.id, extraIds));
+      }
+
+      const orphanOverrides = await db.select({ id: enrollmentWorkouts.id })
+        .from(enrollmentWorkouts)
+        .innerJoin(userProgramEnrollments, eq(enrollmentWorkouts.enrollmentId, userProgramEnrollments.id))
+        .where(and(
+          eq(userProgramEnrollments.userId, targetUserId),
+          sql`${enrollmentWorkouts.scheduledDateOverride} IS NOT NULL`,
+          sql`${userProgramEnrollments.status} NOT IN ('active','scheduled')`,
+        ));
+      const overrideIds = orphanOverrides.map(r => r.id);
+      if (overrideIds.length > 0) {
+        await db.update(enrollmentWorkouts)
+          .set({ scheduledDateOverride: null })
+          .where(inArray(enrollmentWorkouts.id, overrideIds));
+      }
+
+      let scheduledDeleted = 0;
+      if (scheduledWorkoutIds.length > 0) {
+        const deleted = await db.delete(scheduledWorkouts)
+          .where(and(
+            eq(scheduledWorkouts.userId, targetUserId),
+            inArray(scheduledWorkouts.id, scheduledWorkoutIds),
+          ))
+          .returning({ id: scheduledWorkouts.id });
+        scheduledDeleted = deleted.length;
+      }
+
+      res.json({
+        success: true,
+        targetUserId,
+        extrasDeleted: extraIds.length,
+        overridesCleared: overrideIds.length,
+        scheduledDeleted,
+        extraIds,
+        overrideIds,
+      });
+    } catch (error) {
+      console.error("Error cleaning orphan workouts:", error);
+      res.status(500).json({ message: "Failed to clean orphan workouts" });
+    }
+  });
+
   // Read-only diagnostic endpoint: dump full stored shape of a programme so we can
   // confirm what mobile/web actually persisted (sets JSONB verbatim, no fallbacks).
   app.get('/api/admin/programme-dump/:programId', isAuthenticated, async (req: any, res) => {

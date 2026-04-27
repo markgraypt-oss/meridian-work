@@ -8050,7 +8050,8 @@ Return format: {"category": "strength|cardio|hiit|mobility|recovery", "difficult
         .where(
           and(
             eq(userProgramEnrollments.userId, userId),
-            eq(userExtraWorkoutSessions.completed, false)
+            eq(userExtraWorkoutSessions.completed, false),
+            inArray(userProgramEnrollments.status, ['active', 'scheduled'])
           )
         );
       

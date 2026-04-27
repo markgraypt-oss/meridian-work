@@ -5672,41 +5672,8 @@ Return format: {"category": "strength|cardio|hiit|mobility|recovery", "difficult
         }
       }
 
-      // Group flagged exercises by exerciseId so each unique exercise is shown only once
-      // but we track all instance IDs so substitutions apply to all occurrences
-      const groupedFlagged = new Map<number, {
-        exerciseId: number;
-        exerciseName: string;
-        exerciseImageUrl: string | null;
-        reason: string;
-        reasonType: 'movement_pattern' | 'equipment' | 'level';
-        instanceIds: number[];
-        occurrenceCount: number;
-      }>();
-
-      for (const flagged of flaggedExercises) {
-        const existing = groupedFlagged.get(flagged.exerciseId);
-        if (existing) {
-          existing.instanceIds.push(flagged.exerciseInstanceId);
-          existing.occurrenceCount++;
-        } else {
-          groupedFlagged.set(flagged.exerciseId, {
-            exerciseId: flagged.exerciseId,
-            exerciseName: flagged.exerciseName,
-            exerciseImageUrl: flagged.exerciseImageUrl,
-            reason: flagged.reason,
-            reasonType: flagged.reasonType,
-            instanceIds: [flagged.exerciseInstanceId],
-            occurrenceCount: 1,
-          });
-        }
-      }
-
-      // Convert to array for response
-      const uniqueFlaggedExercises = Array.from(groupedFlagged.values());
-
       return res.json({
-        flaggedExercises: uniqueFlaggedExercises,
+        flaggedExercises,
         substituteOptions,
         enrollmentId: targetEnrollment.id,
         flaggingCriteria: {

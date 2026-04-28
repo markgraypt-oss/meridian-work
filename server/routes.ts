@@ -5666,6 +5666,31 @@ Return format: {"category": "strength|cardio|hiit|mobility|recovery", "difficult
           week1Workouts.push({ ...w, weekNumber: week1.weekNumber, dayNumber: day.position + 1 });
         }
       }
+
+      // Look up any currently active substitutions for this enrolment so the
+      // preview evaluates flagging against the exercise the user actually has,
+      // not the original template exercise. Without this, exercises swapped out
+      // by a previous accepted assessment get re-flagged on every new assessment.
+      const activeMappings = await db
+        .select({
+          exerciseInstanceId: exerciseSubstitutionMappings.exerciseInstanceId,
+          substitutedExerciseId: exerciseSubstitutionMappings.substitutedExerciseId,
+        })
+        .from(exerciseSubstitutionMappings)
+        .innerJoin(
+          programmeModificationRecords,
+          eq(programmeModificationRecords.id, exerciseSubstitutionMappings.modificationRecordId)
+        )
+        .where(and(
+          eq(exerciseSubstitutionMappings.mainProgrammeEnrollmentId, targetEnrollment.id),
+          eq(exerciseSubstitutionMappings.isRestored, false),
+          eq(programmeModificationRecords.status, 'accepted'),
+          isNull(programmeModificationRecords.clearedAt),
+        ));
+      const activeSubstituteByInstance = new Map<number, number>();
+      for (const m of activeMappings) {
+        activeSubstituteByInstance.set(m.exerciseInstanceId, m.substitutedExerciseId);
+      }
       
       const flaggedExercises: Array<{
         exerciseInstanceId: number;
@@ -5677,6 +5702,8 @@ Return format: {"category": "strength|cardio|hiit|mobility|recovery", "difficult
         dayNumber: number;
         reason: string;
         reasonType: 'movement_pattern' | 'equipment' | 'level';
+        previouslySubstituted?: boolean;
+        originalExerciseName?: string;
       }> = [];
 
       // Process each Week 1 workout to find flagged exercises
@@ -5688,16 +5715,22 @@ Return format: {"category": "strength|cardio|hiit|mobility|recovery", "difficult
           for (const blockExercise of blockExercises) {
             if (!blockExercise.exerciseLibraryId) continue;
             
-            const exercise = exerciseMap.get(blockExercise.exerciseLibraryId);
-            if (!exercise) continue;
+            const originalExercise = exerciseMap.get(blockExercise.exerciseLibraryId);
+            if (!originalExercise) continue;
+
+            // If this slot has an active substitution, evaluate the substitute
+            // (what the user actually trains) instead of the template original.
+            const activeSubId = activeSubstituteByInstance.get(blockExercise.id);
+            const currentExercise = activeSubId ? exerciseMap.get(activeSubId) : originalExercise;
+            if (!currentExercise) continue;
 
             let isFlagged = false;
             let reason = '';
             let reasonType: 'movement_pattern' | 'equipment' | 'level' = 'movement_pattern';
 
             // Check movement patterns first
-            if (flaggingPatterns.length > 0 && exercise.movement && exercise.movement.length > 0) {
-              const matchingPattern = exercise.movement.find((m: string) => flaggingPatterns.includes(m));
+            if (flaggingPatterns.length > 0 && currentExercise.movement && currentExercise.movement.length > 0) {
+              const matchingPattern = currentExercise.movement.find((m: string) => flaggingPatterns.includes(m));
               if (matchingPattern) {
                 isFlagged = true;
                 reason = `Movement pattern: ${matchingPattern}`;
@@ -5706,8 +5739,8 @@ Return format: {"category": "strength|cardio|hiit|mobility|recovery", "difficult
             }
 
             // Check equipment
-            if (!isFlagged && flaggingEquipment.length > 0 && exercise.equipment && exercise.equipment.length > 0) {
-              const matchingEquipment = exercise.equipment.find((e: string) => flaggingEquipment.includes(e));
+            if (!isFlagged && flaggingEquipment.length > 0 && currentExercise.equipment && currentExercise.equipment.length > 0) {
+              const matchingEquipment = currentExercise.equipment.find((e: string) => flaggingEquipment.includes(e));
               if (matchingEquipment) {
                 isFlagged = true;
                 reason = `Equipment: ${matchingEquipment}`;
@@ -5716,10 +5749,10 @@ Return format: {"category": "strength|cardio|hiit|mobility|recovery", "difficult
             }
 
             // Check level
-            if (!isFlagged && flaggingLevel.length > 0 && exercise.level) {
-              if (flaggingLevel.includes(exercise.level)) {
+            if (!isFlagged && flaggingLevel.length > 0 && currentExercise.level) {
+              if (flaggingLevel.includes(currentExercise.level)) {
                 isFlagged = true;
-                reason = `Difficulty level: ${exercise.level}`;
+                reason = `Difficulty level: ${currentExercise.level}`;
                 reasonType = 'level';
               }
             }
@@ -5727,14 +5760,16 @@ Return format: {"category": "strength|cardio|hiit|mobility|recovery", "difficult
             if (isFlagged) {
               flaggedExercises.push({
                 exerciseInstanceId: blockExercise.id,
-                exerciseId: exercise.id,
-                exerciseName: exercise.name,
-                exerciseImageUrl: exercise.imageUrl || (exercise.muxPlaybackId ? `https://image.mux.com/${exercise.muxPlaybackId}/thumbnail.png?width=200` : null),
+                exerciseId: currentExercise.id,
+                exerciseName: currentExercise.name,
+                exerciseImageUrl: currentExercise.imageUrl || (currentExercise.muxPlaybackId ? `https://image.mux.com/${currentExercise.muxPlaybackId}/thumbnail.png?width=200` : null),
                 workoutName: workout.name || `Week ${workout.weekNumber} Day ${workout.dayNumber}`,
                 weekNumber: workout.weekNumber,
                 dayNumber: workout.dayNumber,
                 reason,
                 reasonType,
+                previouslySubstituted: !!activeSubId,
+                originalExerciseName: activeSubId ? originalExercise.name : undefined,
               });
             }
           }

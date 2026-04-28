@@ -2417,7 +2417,44 @@ export class DatabaseStorage implements IStorage {
       .where(eq(userProgramEnrollments.userId, userId))
       .orderBy(desc(userProgramEnrollments.startDate));
 
-    return enrollments;
+    return await Promise.all(
+      enrollments.map(async (enrollment) => {
+        const reconciled = await this.reconcileEnrollmentTotalWorkouts(enrollment.id, enrollment.totalWorkouts, enrollment.status);
+        return { ...enrollment, totalWorkouts: reconciled };
+      })
+    );
+  }
+
+  /**
+   * Reconciles the cached total_workouts on an enrollment against the live
+   * count of enrollment_workouts rows. If they disagree, the cached value is
+   * updated to the actual count and the actual count is returned. This keeps
+   * the progress card in sync whenever the underlying programme template
+   * changes after enrolment.
+   */
+  async reconcileEnrollmentTotalWorkouts(enrollmentId: number, cachedTotal: number, status?: string): Promise<number> {
+    // Skip reconcile for terminal-state enrolments to avoid unnecessary writes.
+    if (status && status !== 'active' && status !== 'scheduled') {
+      return cachedTotal;
+    }
+    try {
+      const [{ actual }] = await db
+        .select({ actual: sql<number>`COUNT(*)::int` })
+        .from(enrollmentWorkouts)
+        .where(eq(enrollmentWorkouts.enrollmentId, enrollmentId));
+      const actualNum = Number(actual) || 0;
+      if (actualNum > 0 && actualNum !== (cachedTotal || 0)) {
+        await db
+          .update(userProgramEnrollments)
+          .set({ totalWorkouts: actualNum })
+          .where(eq(userProgramEnrollments.id, enrollmentId));
+        return actualNum;
+      }
+      return cachedTotal || actualNum;
+    } catch (err) {
+      console.error(`[reconcileEnrollmentTotalWorkouts] failed for enrollment ${enrollmentId}:`, err);
+      return cachedTotal;
+    }
   }
 
   async getEnrollmentById(enrollmentId: number): Promise<any | null> {
@@ -2466,9 +2503,16 @@ export class DatabaseStorage implements IStorage {
       .where(eq(userProgramEnrollments.userId, userId))
       .orderBy(userProgramEnrollments.orderIndex);
 
-    // Calculate totalWorkouts for enrollments that have 0 (legacy data)
+    // Reconcile cached totalWorkouts against the actual snapshot rows so the
+    // progress card always reflects reality even if the programme template
+    // changed after enrolment.
     const enrichedEnrollments = await Promise.all(
       enrollments.map(async (enrollment) => {
+        const reconciled = await this.reconcileEnrollmentTotalWorkouts(enrollment.id, enrollment.totalWorkouts, enrollment.status);
+        if (reconciled > 0) {
+          return { ...enrollment, totalWorkouts: reconciled };
+        }
+        // Fallback: if there are no snapshot rows yet, derive from the template
         if (enrollment.totalWorkouts === 0) {
           const calculatedTotal = await this.calculateProgramTotalWorkouts(enrollment.programId);
           return { ...enrollment, totalWorkouts: calculatedTotal };

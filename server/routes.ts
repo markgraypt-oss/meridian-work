@@ -5666,7 +5666,13 @@ Return format: {"category": "strength|cardio|hiit|mobility|recovery", "difficult
           week1Workouts.push({ ...w, weekNumber: week1.weekNumber, dayNumber: day.position + 1 });
         }
       }
-      
+
+      // Apply any active accepted substitutions for this enrolment so the preview
+      // evaluates the exercise the user actually has (not the original template).
+      // Uses the same helper that workout rendering uses, so behaviour is consistent
+      // everywhere and a previously swapped exercise is never re-flagged.
+      const activeSubstitutionMap = await storage.getActiveSubstitutionMappings(targetEnrollment.id);
+
       const flaggedExercises: Array<{
         exerciseInstanceId: number;
         exerciseId: number;
@@ -5677,6 +5683,9 @@ Return format: {"category": "strength|cardio|hiit|mobility|recovery", "difficult
         dayNumber: number;
         reason: string;
         reasonType: 'movement_pattern' | 'equipment' | 'level';
+        previouslySubstituted?: boolean;
+        originalExerciseId?: number;
+        originalExerciseName?: string;
       }> = [];
 
       // Process each Week 1 workout to find flagged exercises
@@ -5687,8 +5696,15 @@ Return format: {"category": "strength|cardio|hiit|mobility|recovery", "difficult
           
           for (const blockExercise of blockExercises) {
             if (!blockExercise.exerciseLibraryId) continue;
-            
-            const exercise = exerciseMap.get(blockExercise.exerciseLibraryId);
+
+            const templateExercise = exerciseMap.get(blockExercise.exerciseLibraryId);
+            if (!templateExercise) continue;
+
+            // If this slot has an active substitution, evaluate against the substitute.
+            const activeSub = activeSubstitutionMap.get(blockExercise.id);
+            const exercise = activeSub
+              ? exerciseMap.get(activeSub.substitutedExerciseId)
+              : templateExercise;
             if (!exercise) continue;
 
             let isFlagged = false;
@@ -5735,6 +5751,13 @@ Return format: {"category": "strength|cardio|hiit|mobility|recovery", "difficult
                 dayNumber: workout.dayNumber,
                 reason,
                 reasonType,
+                ...(activeSub
+                  ? {
+                      previouslySubstituted: true,
+                      originalExerciseId: templateExercise.id,
+                      originalExerciseName: templateExercise.name,
+                    }
+                  : {}),
               });
             }
           }

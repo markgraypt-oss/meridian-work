@@ -5683,13 +5683,19 @@ Return format: {"category": "strength|cardio|hiit|mobility|recovery", "difficult
         dayNumber: number;
         reason: string;
         reasonType: 'movement_pattern' | 'equipment' | 'level';
-        previouslySubstituted?: boolean;
-        originalExerciseId?: number;
-        originalExerciseName?: string;
       }> = [];
 
+      // Flagging logic: all configured criteria must match (AND across categories).
+      // Within a single category (e.g. movement) any of the listed values matching
+      // the exercise counts as a hit. Empty categories impose no constraint.
+      // If no category is configured, nothing is flagged.
+      const hasAnyCriteria =
+        flaggingPatterns.length > 0 ||
+        flaggingEquipment.length > 0 ||
+        flaggingLevel.length > 0;
+
       // Process each Week 1 workout to find flagged exercises
-      for (const workout of week1Workouts) {
+      if (hasAnyCriteria) for (const workout of week1Workouts) {
         const blocks = await storage.getProgrammeWorkoutBlocks(workout.id);
         for (const block of blocks) {
           const blockExercises = block.exercises || [];
@@ -5707,59 +5713,50 @@ Return format: {"category": "strength|cardio|hiit|mobility|recovery", "difficult
               : templateExercise;
             if (!exercise) continue;
 
-            let isFlagged = false;
-            let reason = '';
-            let reasonType: 'movement_pattern' | 'equipment' | 'level' = 'movement_pattern';
-
-            // Check movement patterns first
-            if (flaggingPatterns.length > 0 && exercise.movement && exercise.movement.length > 0) {
-              const matchingPattern = exercise.movement.find((m: string) => flaggingPatterns.includes(m));
-              if (matchingPattern) {
-                isFlagged = true;
-                reason = `Movement pattern: ${matchingPattern}`;
-                reasonType = 'movement_pattern';
-              }
+            // Movement category: matched if any listed pattern is present on the exercise.
+            let movementMatch: string | null = null;
+            if (flaggingPatterns.length > 0) {
+              if (!exercise.movement || exercise.movement.length === 0) continue;
+              movementMatch = exercise.movement.find((m: string) => flaggingPatterns.includes(m)) || null;
+              if (!movementMatch) continue;
             }
 
-            // Check equipment
-            if (!isFlagged && flaggingEquipment.length > 0 && exercise.equipment && exercise.equipment.length > 0) {
-              const matchingEquipment = exercise.equipment.find((e: string) => flaggingEquipment.includes(e));
-              if (matchingEquipment) {
-                isFlagged = true;
-                reason = `Equipment: ${matchingEquipment}`;
-                reasonType = 'equipment';
-              }
+            // Equipment category: matched if any listed equipment is present on the exercise.
+            let equipmentMatch: string | null = null;
+            if (flaggingEquipment.length > 0) {
+              if (!exercise.equipment || exercise.equipment.length === 0) continue;
+              equipmentMatch = exercise.equipment.find((e: string) => flaggingEquipment.includes(e)) || null;
+              if (!equipmentMatch) continue;
             }
 
-            // Check level
-            if (!isFlagged && flaggingLevel.length > 0 && exercise.level) {
-              if (flaggingLevel.includes(exercise.level)) {
-                isFlagged = true;
-                reason = `Difficulty level: ${exercise.level}`;
-                reasonType = 'level';
-              }
+            // Level category: matched if the exercise's level is in the listed levels.
+            let levelMatch: string | null = null;
+            if (flaggingLevel.length > 0) {
+              if (!exercise.level) continue;
+              if (!flaggingLevel.includes(exercise.level)) continue;
+              levelMatch = exercise.level;
             }
 
-            if (isFlagged) {
-              flaggedExercises.push({
-                exerciseInstanceId: blockExercise.id,
-                exerciseId: exercise.id,
-                exerciseName: exercise.name,
-                exerciseImageUrl: exercise.imageUrl || (exercise.muxPlaybackId ? `https://image.mux.com/${exercise.muxPlaybackId}/thumbnail.png?width=200` : null),
-                workoutName: workout.name || `Week ${workout.weekNumber} Day ${workout.dayNumber}`,
-                weekNumber: workout.weekNumber,
-                dayNumber: workout.dayNumber,
-                reason,
-                reasonType,
-                ...(activeSub
-                  ? {
-                      previouslySubstituted: true,
-                      originalExerciseId: templateExercise.id,
-                      originalExerciseName: templateExercise.name,
-                    }
-                  : {}),
-              });
-            }
+            // All configured categories matched. Build a composite reason and pick a
+            // primary reasonType (movement > equipment > level) for backwards compat.
+            const parts: string[] = [];
+            if (movementMatch) parts.push(`Movement pattern: ${movementMatch}`);
+            if (equipmentMatch) parts.push(`Equipment: ${equipmentMatch}`);
+            if (levelMatch) parts.push(`Difficulty level: ${levelMatch}`);
+            const reasonType: 'movement_pattern' | 'equipment' | 'level' =
+              movementMatch ? 'movement_pattern' : equipmentMatch ? 'equipment' : 'level';
+
+            flaggedExercises.push({
+              exerciseInstanceId: blockExercise.id,
+              exerciseId: exercise.id,
+              exerciseName: exercise.name,
+              exerciseImageUrl: exercise.imageUrl || (exercise.muxPlaybackId ? `https://image.mux.com/${exercise.muxPlaybackId}/thumbnail.png?width=200` : null),
+              workoutName: workout.name || `Week ${workout.weekNumber} Day ${workout.dayNumber}`,
+              weekNumber: workout.weekNumber,
+              dayNumber: workout.dayNumber,
+              reason: parts.join(' + '),
+              reasonType,
+            });
           }
         }
       }

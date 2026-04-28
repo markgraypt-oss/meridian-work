@@ -1,7 +1,8 @@
 import { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { Card, CardContent } from '@/components/ui/card';
-import { Calendar, Dumbbell, GripVertical } from 'lucide-react';
+import { Button } from '@/components/ui/button';
+import { Calendar, Dumbbell, GripVertical, AlertTriangle } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import { apiRequest } from '@/lib/queryClient';
 
@@ -24,6 +25,13 @@ interface ScheduleWeek {
   days: ScheduleDay[];
 }
 
+interface WeekOneGap {
+  dayPosition: number;
+  week1DayId: number;
+  sourceWeekNumber: number;
+  workouts: Array<{ id: number; name: string; sourceDayId: number }>;
+}
+
 interface ScheduleData {
   schedule: ScheduleWeek[];
   workouts: Array<{
@@ -34,6 +42,7 @@ interface ScheduleData {
     category: string;
     duration: number;
   }>;
+  weekOneGaps?: WeekOneGap[];
 }
 
 interface WorkoutScheduleEditorProps {
@@ -107,6 +116,9 @@ export function WorkoutScheduleEditor({ programId, totalWeeks }: WorkoutSchedule
   // Always show Week 1 as it's the template for all weeks
   const week1Schedule = scheduleData?.schedule.find(w => w.weekNumber === 1);
   const allWorkouts = scheduleData?.workouts || [];
+  const weekOneGaps = scheduleData?.weekOneGaps || [];
+
+  const dayLabel = (pos: number) => `Day ${pos + 1}`;
 
   const getWorkoutTypeColor = (type: string) => {
     switch (type) {
@@ -125,6 +137,52 @@ export function WorkoutScheduleEditor({ programId, totalWeeks }: WorkoutSchedule
           Drag workouts between days to reschedule. This schedule repeats for all {totalWeeks} weeks.
         </p>
       </div>
+
+      {weekOneGaps.length > 0 && (
+        <Card className="border-amber-500/40 bg-amber-500/5">
+          <CardContent className="p-4 space-y-3">
+            <div className="flex items-start gap-3">
+              <AlertTriangle className="h-5 w-5 text-amber-500 flex-shrink-0 mt-0.5" />
+              <div className="flex-1 space-y-1">
+                <div className="font-semibold text-foreground">Week 1 is missing workouts that exist on other weeks</div>
+                <div className="text-sm text-muted-foreground">
+                  This schedule editor controls Week 1, and Week 1 is what every enrolled user follows on repeat.
+                  The workouts below live on later weeks but won't show up in any user's plan until they're moved to Week 1.
+                </div>
+              </div>
+            </div>
+            <div className="space-y-2">
+              {weekOneGaps.map((gap) => (
+                <div
+                  key={gap.dayPosition}
+                  className="flex items-center justify-between gap-3 px-3 py-2 rounded-md border border-amber-500/30 bg-background/50"
+                >
+                  <div className="text-sm">
+                    <span className="font-medium text-foreground">{dayLabel(gap.dayPosition)}</span>
+                    <span className="text-muted-foreground"> — {gap.workouts.map(w => w.name).join(', ')}</span>
+                    <span className="text-muted-foreground"> (currently on Week {gap.sourceWeekNumber})</span>
+                  </div>
+                  <div className="flex gap-2">
+                    {gap.workouts.map((w) => (
+                      <Button
+                        key={w.id}
+                        size="sm"
+                        variant="outline"
+                        className="border-amber-500/40 hover:bg-amber-500/10"
+                        disabled={assignDayMutation.isPending}
+                        onClick={() => assignDayMutation.mutate({ workoutId: w.id, dayId: gap.week1DayId })}
+                        data-testid={`button-sync-week1-${w.id}`}
+                      >
+                        Move "{w.name}" to Week 1
+                      </Button>
+                    ))}
+                  </div>
+                </div>
+              ))}
+            </div>
+          </CardContent>
+        </Card>
+      )}
 
       {allWorkouts.length === 0 ? (
         <Card className="bg-card border-dashed">

@@ -2066,7 +2066,11 @@ export class DatabaseStorage implements IStorage {
 
   // Deep copy programme workouts, blocks, and exercises to enrollment-specific tables
   // This creates separate records for ALL weeks in the programme (not just Week 1)
-  // Week 1's schedule is used as the template and replicated for each week
+  // Week 1's schedule is used as the canonical template and replicated for each week.
+  // Defensive: if a day position is empty in Week 1 but populated in another week,
+  // fall back to the earliest week that has workouts at that position so admins
+  // who built the programme by spreading workouts across multiple weeks don't end
+  // up with silently empty days for their users.
   async copyProgramWorkoutsToEnrollment(enrollmentId: number, programId: number): Promise<void> {
     // Get programme to know total weeks
     const [program] = await db.select().from(programs).where(eq(programs.id, programId));
@@ -2084,17 +2088,48 @@ export class DatabaseStorage implements IStorage {
       return;
     }
     
-    // Get Week 1's days and workouts
+    // Get Week 1's days
     const week1Days = await db.select().from(programDays).where(eq(programDays.weekId, week1[0].id));
-    
+
+    // Build the canonical per-day-position template, falling back to other weeks
+    // when Week 1 is empty at a given position.
+    const allWeeks = await db.select().from(programWeeks)
+      .where(eq(programWeeks.programId, programId))
+      .orderBy(asc(programWeeks.weekNumber));
+
+    type CanonicalDay = { position: number; templateWorkouts: any[] };
+    const canonicalByPosition = new Map<number, CanonicalDay>();
+    for (const day of week1Days) {
+      const wos = await db.select().from(programmeWorkouts).where(eq(programmeWorkouts.dayId, day.id));
+      canonicalByPosition.set(day.position, { position: day.position, templateWorkouts: wos });
+    }
+    // For positions empty in Week 1, scan Weeks 2..N in order and adopt the first that has workouts
+    for (let pos = 0; pos < 7; pos++) {
+      const existing = canonicalByPosition.get(pos);
+      if (existing && existing.templateWorkouts.length > 0) continue;
+      for (const w of allWeeks) {
+        if (w.weekNumber === 1) continue;
+        const dayRows = await db.select().from(programDays)
+          .where(and(eq(programDays.weekId, w.id), eq(programDays.position, pos)))
+          .limit(1);
+        if (dayRows.length === 0) continue;
+        const wos = await db.select().from(programmeWorkouts).where(eq(programmeWorkouts.dayId, dayRows[0].id));
+        if (wos.length > 0) {
+          console.log(`copyProgramWorkoutsToEnrollment: program ${programId} day position ${pos} empty in Week 1, inferring from Week ${w.weekNumber}`);
+          canonicalByPosition.set(pos, { position: pos, templateWorkouts: wos });
+          break;
+        }
+      }
+    }
+
+    // Build the iteration list of (dayPosition, templateWorkouts) once
+    const canonicalDays = Array.from(canonicalByPosition.values()).sort((a, b) => a.position - b.position);
+
     // Create enrollment workouts for EACH week (1 through totalWeeks)
     for (let weekNum = 1; weekNum <= totalWeeks; weekNum++) {
-      for (const day of week1Days) {
-        const templateWorkouts = await db
-          .select()
-          .from(programmeWorkouts)
-          .where(eq(programmeWorkouts.dayId, day.id));
-        
+      for (const day of canonicalDays) {
+        const templateWorkouts = day.templateWorkouts;
+
         for (const templateWorkout of templateWorkouts) {
           // Create enrollment workout copy for this specific week
           const [enrollmentWorkout] = await db
@@ -2268,25 +2303,52 @@ export class DatabaseStorage implements IStorage {
     
     const totalWeeks = program.weeks || 1;
     
-    // Count workouts in Week 1 (the template that repeats for all weeks)
+    // Count workouts per day position from Week 1 (the canonical template),
+    // falling back to other weeks where Week 1 is empty at a given position.
+    // This must match the inference logic in copyProgramWorkoutsToEnrollment so
+    // the user-visible totalWorkouts and the actual snapshot agree.
     const week1 = await db.select().from(programWeeks)
       .where(and(eq(programWeeks.programId, programId), eq(programWeeks.weekNumber, 1)))
       .limit(1);
-    
+
     if (week1.length === 0) return 0;
-    
-    let week1Workouts = 0;
-    const days = await db.select().from(programDays).where(eq(programDays.weekId, week1[0].id));
-    for (const day of days) {
-      const workouts = await db
-        .select({ id: programmeWorkouts.id })
-        .from(programmeWorkouts)
-        .where(eq(programmeWorkouts.dayId, day.id));
-      week1Workouts += workouts.length;
+
+    const allWeeks = await db.select().from(programWeeks)
+      .where(eq(programWeeks.programId, programId))
+      .orderBy(asc(programWeeks.weekNumber));
+
+    const week1Days = await db.select().from(programDays).where(eq(programDays.weekId, week1[0].id));
+    const week1CountByPosition = new Map<number, number>();
+    for (const day of week1Days) {
+      const wos = await db.select({ id: programmeWorkouts.id })
+        .from(programmeWorkouts).where(eq(programmeWorkouts.dayId, day.id));
+      week1CountByPosition.set(day.position, wos.length);
     }
 
-    // Total = workouts per week × total weeks
-    return week1Workouts * totalWeeks;
+    let perWeekTotal = 0;
+    for (let pos = 0; pos < 7; pos++) {
+      const fromWeek1 = week1CountByPosition.get(pos) ?? 0;
+      if (fromWeek1 > 0) {
+        perWeekTotal += fromWeek1;
+        continue;
+      }
+      // Fall back to first later week with workouts at this position
+      for (const w of allWeeks) {
+        if (w.weekNumber === 1) continue;
+        const dayRows = await db.select().from(programDays)
+          .where(and(eq(programDays.weekId, w.id), eq(programDays.position, pos)))
+          .limit(1);
+        if (dayRows.length === 0) continue;
+        const wos = await db.select({ id: programmeWorkouts.id })
+          .from(programmeWorkouts).where(eq(programmeWorkouts.dayId, dayRows[0].id));
+        if (wos.length > 0) {
+          perWeekTotal += wos.length;
+          break;
+        }
+      }
+    }
+
+    return perWeekTotal * totalWeeks;
   }
 
   async updateEnrollmentProgress(enrollmentId: number, workoutsCompleted: number): Promise<any> {

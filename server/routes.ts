@@ -9402,8 +9402,42 @@ Rules:
           .from(programmeWorkouts)
           .where(inArray(programmeWorkouts.dayId, allDayIds));
       }
-      
-      res.json({ schedule, workouts: allWorkouts });
+
+      // Compute Week 1 gaps: positions where Week 1 has no workouts
+      // but other weeks do. The Weekly Schedule editor only shows Week 1
+      // (which drives every enrolled user's schedule), so any "ghost"
+      // workouts living on later weeks are invisible to users until an
+      // admin syncs them back. Surface them so the editor can warn.
+      const week1 = schedule.find(w => w.weekNumber === 1);
+      const weekOneGaps: Array<{
+        dayPosition: number;
+        week1DayId: number;
+        sourceWeekNumber: number;
+        workouts: Array<{ id: number; name: string; sourceDayId: number }>;
+      }> = [];
+      if (week1) {
+        for (const day of week1.days) {
+          if (day.workouts.length > 0) continue;
+          // Find the first later week that has workouts at this position
+          for (const w of schedule) {
+            if (w.weekNumber === 1) continue;
+            const otherDay = w.days.find((d: any) => d.position === day.position);
+            if (otherDay && otherDay.workouts.length > 0) {
+              weekOneGaps.push({
+                dayPosition: day.position,
+                week1DayId: day.dayId,
+                sourceWeekNumber: w.weekNumber,
+                workouts: otherDay.workouts.map((wo: any) => ({
+                  id: wo.id, name: wo.name, sourceDayId: otherDay.dayId,
+                })),
+              });
+              break;
+            }
+          }
+        }
+      }
+
+      res.json({ schedule, workouts: allWorkouts, weekOneGaps });
     } catch (error) {
       console.error("Error fetching programme schedule:", error);
       res.status(500).json({ message: "Failed to fetch programme schedule" });

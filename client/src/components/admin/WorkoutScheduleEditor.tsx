@@ -144,10 +144,10 @@ export function WorkoutScheduleEditor({ programId, totalWeeks }: WorkoutSchedule
             <div className="flex items-start gap-3">
               <AlertTriangle className="h-5 w-5 text-amber-500 flex-shrink-0 mt-0.5" />
               <div className="flex-1 space-y-1">
-                <div className="font-semibold text-foreground">Week 1 is missing workouts that exist on other weeks</div>
+                <div className="font-semibold text-foreground">A few workouts were on the wrong week and have been moved to Week 1</div>
                 <div className="text-sm text-muted-foreground">
-                  This schedule editor controls Week 1, and Week 1 is what every enrolled user follows on repeat.
-                  The workouts below live on later weeks but won't show up in any user's plan until they're moved to Week 1.
+                  Workouts can only live on Week 1 (the schedule below) because Week 1 is what every enrolled user follows on repeat.
+                  The items listed had been placed on later weeks; they've been moved here automatically. Refresh to see the updated schedule.
                 </div>
               </div>
             </div>
@@ -160,22 +160,7 @@ export function WorkoutScheduleEditor({ programId, totalWeeks }: WorkoutSchedule
                   <div className="text-sm">
                     <span className="font-medium text-foreground">{dayLabel(gap.dayPosition)}</span>
                     <span className="text-muted-foreground"> — {gap.workouts.map(w => w.name).join(', ')}</span>
-                    <span className="text-muted-foreground"> (currently on Week {gap.sourceWeekNumber})</span>
-                  </div>
-                  <div className="flex gap-2">
-                    {gap.workouts.map((w) => (
-                      <Button
-                        key={w.id}
-                        size="sm"
-                        variant="outline"
-                        className="border-amber-500/40 hover:bg-amber-500/10"
-                        disabled={assignDayMutation.isPending}
-                        onClick={() => assignDayMutation.mutate({ workoutId: w.id, dayId: gap.week1DayId })}
-                        data-testid={`button-sync-week1-${w.id}`}
-                      >
-                        Move "{w.name}" to Week 1
-                      </Button>
-                    ))}
+                    <span className="text-muted-foreground"> (was on Week {gap.sourceWeekNumber})</span>
                   </div>
                 </div>
               ))}

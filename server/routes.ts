@@ -7616,6 +7616,12 @@ Return format: {"category": "strength|cardio|hiit|mobility|recovery", "difficult
       if (!weekNumber || dayPosition === undefined || !name) {
         return res.status(400).json({ message: "weekNumber, dayPosition, and name are required" });
       }
+      // Enforce: workouts may only live on Week 1 (the canonical schedule).
+      if (parseInt(weekNumber) !== 1) {
+        return res.status(400).json({
+          message: "Workouts can only be added to Week 1. Week 1 is the canonical schedule that repeats for every week."
+        });
+      }
       const resolvedWorkoutType = workoutType || 'regular';
       const isRoundsType = resolvedWorkoutType === 'interval' || resolvedWorkoutType === 'circuit';
       const resolvedIntervalRounds = isRoundsType
@@ -9315,7 +9321,74 @@ Rules:
   app.get('/api/programs/:programId/schedule', isAuthenticated, async (req, res) => {
     try {
       const programId = parseInt(req.params.programId);
-      
+
+      // Auto-heal: enforce the "Week 1 is canonical" rule. Any workout sitting
+      // on Week 2+ is invisible to enrolled users (snapshot reads Week 1 only),
+      // so rehome it to the matching Week 1 day. If Week 1 already has the same
+      // workout name on the same position, the orphan is deleted instead of
+      // duplicating. Idempotent: if everything is already on Week 1, it does
+      // nothing. Runs on every schedule read so the data stays correct.
+      try {
+        const allWeeksForHeal = await db
+          .select()
+          .from(programWeeks)
+          .where(eq(programWeeks.programId, programId))
+          .orderBy(asc(programWeeks.weekNumber));
+        let week1ForHeal = allWeeksForHeal.find(w => w.weekNumber === 1);
+        if (!week1ForHeal) {
+          [week1ForHeal] = await db.insert(programWeeks)
+            .values({ programId, weekNumber: 1 }).returning();
+        }
+        for (const w of allWeeksForHeal) {
+          if (w.weekNumber === 1) continue;
+          const daysOnWeek = await db.select().from(programDays).where(eq(programDays.weekId, w.id));
+          for (const day of daysOnWeek) {
+            const orphans = await db.select()
+              .from(programmeWorkouts)
+              .where(eq(programmeWorkouts.dayId, day.id));
+            if (orphans.length === 0) continue;
+            // Find or create matching Week 1 day at this position
+            let week1Day = (await db.select().from(programDays)
+              .where(and(eq(programDays.weekId, week1ForHeal.id), eq(programDays.position, day.position)))
+              .limit(1))[0];
+            if (!week1Day) {
+              [week1Day] = await db.insert(programDays)
+                .values({ weekId: week1ForHeal.id, position: day.position }).returning();
+            }
+            const week1Existing = await db.select()
+              .from(programmeWorkouts)
+              .where(eq(programmeWorkouts.dayId, week1Day.id));
+            const week1NameSet = new Set(week1Existing.map(w => w.name));
+            for (const orphan of orphans) {
+              if (week1NameSet.has(orphan.name)) {
+                // Already exists on Week 1; delete the orphan and its children
+                const orphanBlocks = await db.select({ id: programmeWorkoutBlocks.id })
+                  .from(programmeWorkoutBlocks)
+                  .where(eq(programmeWorkoutBlocks.workoutId, orphan.id));
+                for (const ob of orphanBlocks) {
+                  await db.delete(programmeBlockExercises)
+                    .where(eq(programmeBlockExercises.blockId, ob.id));
+                }
+                await db.delete(programmeWorkoutBlocks)
+                  .where(eq(programmeWorkoutBlocks.workoutId, orphan.id));
+                await db.delete(programmeWorkouts)
+                  .where(eq(programmeWorkouts.id, orphan.id));
+                console.log(`schedule auto-heal: deleted duplicate orphan workout id=${orphan.id} name="${orphan.name}" (already on Week 1 day pos=${day.position})`);
+              } else {
+                // Move the orphan to Week 1
+                await db.update(programmeWorkouts)
+                  .set({ dayId: week1Day.id, updatedAt: new Date() })
+                  .where(eq(programmeWorkouts.id, orphan.id));
+                week1NameSet.add(orphan.name);
+                console.log(`schedule auto-heal: moved orphan workout id=${orphan.id} name="${orphan.name}" from Week ${w.weekNumber} to Week 1 (day pos=${day.position})`);
+              }
+            }
+          }
+        }
+      } catch (healErr) {
+        console.error('schedule auto-heal failed (non-fatal):', healErr);
+      }
+
       // Get all weeks for this programme
       const weeks = await db
         .select()
@@ -9502,7 +9575,15 @@ Rules:
       if (currentWorkoutDay.programId !== targetDay.programId) {
         return res.status(400).json({ message: "Cannot assign workout to a day in a different programme" });
       }
-      
+
+      // Enforce: workouts may only live on Week 1 (the canonical schedule).
+      const [targetWeek] = await db.select().from(programWeeks).where(eq(programWeeks.id, targetDay.weekId));
+      if (!targetWeek || targetWeek.weekNumber !== 1) {
+        return res.status(400).json({
+          message: "Workouts can only be assigned to days in Week 1. Week 1 is the canonical schedule that repeats for every week."
+        });
+      }
+
       // Update the workout's dayId
       const [updated] = await db
         .update(programmeWorkouts)

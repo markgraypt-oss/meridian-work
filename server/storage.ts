@@ -6481,10 +6481,12 @@ export class DatabaseStorage implements IStorage {
       .where(eq(programs.id, programId));
   }
 
-  // Create a new programme workout - places it on the same day as the original (targetDayPosition)
-  // so it doesn't add a new training day to the schedule.
-  async createProgrammeWorkout(programId: number, workout: { 
-    name: string; 
+  // Create a new programme workout. Week 1 is the canonical schedule that
+  // drives every enrolled user's plan, so this function only ever inserts
+  // a single row on the Week 1 day at the target position. Replication
+  // across weeks happens at enrollment snapshot time.
+  async createProgrammeWorkout(programId: number, workout: {
+    name: string;
     description?: string;
     workoutType?: string;
     category?: string;
@@ -6494,28 +6496,27 @@ export class DatabaseStorage implements IStorage {
     intervalRestAfterRound?: string;
     targetDayPosition?: number; // day position to place the workout (same as original)
   }): Promise<any> {
-    // Get all weeks for this programme
-    const weeks = await db
+    // Ensure Week 1 exists
+    let [week1] = await db
       .select()
       .from(programWeeks)
-      .where(eq(programWeeks.programId, programId))
-      .orderBy(asc(programWeeks.weekNumber));
-    
-    if (weeks.length === 0) {
-      const [newWeek] = await db
+      .where(and(eq(programWeeks.programId, programId), eq(programWeeks.weekNumber, 1)))
+      .limit(1);
+
+    if (!week1) {
+      [week1] = await db
         .insert(programWeeks)
         .values({ programId, weekNumber: 1 })
         .returning();
-      weeks.push(newWeek);
     }
 
-    // Use the provided targetDayPosition, or fall back to the first occupied day in week 1
+    // Use the provided targetDayPosition, or fall back to the first occupied day in Week 1
     let targetDayPos = workout.targetDayPosition ?? null;
     if (targetDayPos === null) {
       const week1Days = await db
         .select({ id: programDays.id, position: programDays.position })
         .from(programDays)
-        .where(eq(programDays.weekId, weeks[0].id))
+        .where(eq(programDays.weekId, week1.id))
         .orderBy(asc(programDays.position));
       for (const d of week1Days) {
         const wos = await db.select({ id: programmeWorkouts.id })
@@ -6527,7 +6528,8 @@ export class DatabaseStorage implements IStorage {
 
     let firstCreated: any = null;
 
-    for (const week of weeks) {
+    {
+      const week = week1;
       // Find the day at targetDayPos in this week
       const weekDays = await db
         .select({ id: programDays.id, position: programDays.position })

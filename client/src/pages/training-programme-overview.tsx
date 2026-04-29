@@ -554,10 +554,11 @@ export default function TrainingProgrammeOverview() {
           </div>
 
           {/* Workouts Section
-              Gate render on timeline resolving so an enrolled user cannot
-              tap a card before we know where to route them. Eliminates the
-              brief misrouting window between page load and timeline fetch. */}
-          {workouts.length > 0 && timeline !== undefined && (() => {
+              Library route ALWAYS routes to the template view. The enrolled
+              copy lives under /workout-detail and is reached from My Plan,
+              not from the library. The library must show the original
+              programme exactly as authored, regardless of enrollment. */}
+          {workouts.length > 0 && (() => {
             const uniqueWorkouts = Array.from(
               new Map(workouts.map((w) => [w.name, w])).values()
             );
@@ -570,12 +571,7 @@ export default function TrainingProgrammeOverview() {
                       <button
                         key={workout.id}
                         onClick={() => {
-                          if (activeEnrollmentId && timeline?.current) {
-                            const currentWeek = timeline.current.weekNumber || 1;
-                            navigate(`/workout-detail/${activeEnrollmentId}/${currentWeek}/${workout.dayNumber}`);
-                          } else {
-                            navigate(`/training/workout/${workout.id}`);
-                          }
+                          navigate(`/training/workout/${workout.id}`);
                         }}
                         className="w-full text-left bg-muted rounded-lg border border-border hover:border-primary hover:bg-slate-650 transition-colors cursor-pointer flex gap-3 items-stretch overflow-hidden h-[72px]"
                       >

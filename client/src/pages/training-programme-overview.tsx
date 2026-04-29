@@ -96,17 +96,17 @@ export default function TrainingProgrammeOverview() {
   const enrolledInThisProgramme = timeline?.current?.programId === programmeId;
   const activeEnrollmentId = enrolledInThisProgramme ? timeline?.current?.id : null;
 
+  // Library view: ALWAYS show the original programme template, regardless of
+  // whether the user is enrolled. Enrolled views with substitutions live under
+  // the /workout-detail and /program-hub paths.
   const { data: workouts = [] } = useQuery({
-    queryKey: ["/api/programs", programmeId, "workouts", activeEnrollmentId],
+    queryKey: ["/api/programs", programmeId, "workouts"],
     queryFn: async () => {
-      const url = activeEnrollmentId
-        ? `/api/programs/${programmeId}/workouts?enrollmentId=${activeEnrollmentId}`
-        : `/api/programs/${programmeId}/workouts`;
-      const response = await fetch(url);
+      const response = await fetch(`/api/programs/${programmeId}/workouts`);
       if (!response.ok) throw new Error("Failed to fetch workouts");
       return response.json() as Promise<Workout[]>;
     },
-    enabled: !!programmeId && isAuthenticated && timeline !== undefined,
+    enabled: !!programmeId && isAuthenticated,
   });
 
   // Pre-fetch body map active issue for instant modal display after enrollment

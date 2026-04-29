@@ -3569,21 +3569,14 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  // Programme workout blocks routes
-  // If enrollmentId query param is provided, applies user-specific substitutions
+  // Programme workout blocks route
+  // Library/template endpoint: ALWAYS returns the original template blocks,
+  // never enrolled/substituted data. Enrolled views must use
+  // /api/my-programs/:enrollmentId/workouts/:workoutId instead.
   app.get('/api/programme-workouts/:id/blocks', async (req, res) => {
     try {
       const id = parseInt(req.params.id);
-      const enrollmentId = req.query.enrollmentId ? parseInt(req.query.enrollmentId as string) : null;
-      
-      let blocks;
-      if (enrollmentId) {
-        // Use enrollment-aware function that applies substitutions
-        blocks = await storage.getProgrammeWorkoutBlocksForEnrollment(id, enrollmentId);
-      } else {
-        // Return the template without substitutions (admin view)
-        blocks = await storage.getProgrammeWorkoutBlocks(id);
-      }
+      const blocks = await storage.getProgrammeWorkoutBlocks(id);
       res.json(blocks);
     } catch (error) {
       console.error("Error fetching programme workout blocks:", error);
@@ -9127,36 +9120,10 @@ Rules:
   app.get('/api/programs/:programId/workouts', async (req, res) => {
     try {
       const programId = parseInt(req.params.programId);
-      const enrollmentId = req.query.enrollmentId ? parseInt(req.query.enrollmentId as string) : null;
-      
-      let workouts: any[];
-      
-      if (enrollmentId && !isNaN(enrollmentId)) {
-        // Return enrollment-specific workouts with their correct day numbers from week 1
-        let enrollmentWorkouts = await storage.getEnrollmentWorkoutsForUser(enrollmentId);
-        
-        // Add exercise counts for each enrollment workout
-        for (const w of enrollmentWorkouts) {
-          const blocks = await db.select({ id: enrollmentWorkoutBlocks.id })
-            .from(enrollmentWorkoutBlocks)
-            .where(eq(enrollmentWorkoutBlocks.enrollmentWorkoutId, w.id));
-          let totalCount = 0;
-          for (const b of blocks) {
-            const exs = await db.select({ id: enrollmentBlockExercises.id })
-              .from(enrollmentBlockExercises)
-              .where(eq(enrollmentBlockExercises.enrollmentBlockId, b.id));
-            totalCount += exs.length;
-          }
-          w.exerciseCount = totalCount;
-          w.estimatedDuration = Math.round(totalCount * 1.75);
-        }
-        
-        workouts = enrollmentWorkouts;
-      } else {
-        // Return template workouts
-        workouts = await storage.getProgrammeWorkouts(programId);
-      }
-
+      // Library endpoint: ALWAYS returns the original programme template,
+      // never enrolled/substituted data. Enrolled views must use
+      // /api/my-programs/:enrollmentId/enrollment-workouts instead.
+      const workouts = await storage.getProgrammeWorkouts(programId);
       res.json(workouts);
     } catch (error) {
       console.error("Error fetching program workouts:", error);

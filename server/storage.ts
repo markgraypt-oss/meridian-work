@@ -7500,18 +7500,9 @@ export class DatabaseStorage implements IStorage {
     if (mappingIdsToRestore && mappingIdsToRestore.length > 0) {
       console.log('Selective restore - requested mapping IDs:', mappingIdsToRestore);
       
-      // Get the original exercise IDs from the selected mappings
-      // We'll restore ALL mappings for these exercises across ALL weeks AND ALL modification records
-      const selectedMappings = await db.select({
-        originalExerciseId: exerciseSubstitutionMappings.originalExerciseId
-      })
-        .from(exerciseSubstitutionMappings)
-        .where(inArray(exerciseSubstitutionMappings.id, mappingIdsToRestore));
-      
-      const originalExerciseIds = [...new Set(selectedMappings.map(m => m.originalExerciseId))];
-      console.log('Original exercise IDs to restore across all weeks and records:', originalExerciseIds);
-      
-      // Get ALL modification record IDs for this enrollment (not just the current one)
+      // Get ALL modification record IDs for this enrollment (ownership scoping —
+      // ensures we only ever restore mappings belonging to this user's enrollment,
+      // even if the client sends an arbitrary list of mapping IDs).
       const allRecordsForEnrollment = await db.select({ id: programmeModificationRecords.id })
         .from(programmeModificationRecords)
         .where(and(
@@ -7521,20 +7512,23 @@ export class DatabaseStorage implements IStorage {
       const allRecordIds = allRecordsForEnrollment.map(r => r.id);
       console.log('All modification record IDs for enrollment:', allRecordIds);
       
-      // Restore ALL mappings for these original exercises across ALL modification records
+      // Restore EXACTLY the mapping IDs the client asked for, scoped to this enrollment.
+      // Previously this expanded via originalExerciseId, which wiped mappings the user
+      // explicitly chose to keep whenever multiple subs shared one original exercise
+      // (e.g. Plate Push Up substituted three times for three shoulder-friendly options).
       const result = await db.update(exerciseSubstitutionMappings)
         .set({ 
           isRestored: true, 
           restoredAt: new Date() 
         })
         .where(and(
+          inArray(exerciseSubstitutionMappings.id, mappingIdsToRestore),
           inArray(exerciseSubstitutionMappings.modificationRecordId, allRecordIds),
-          eq(exerciseSubstitutionMappings.isRestored, false),
-          inArray(exerciseSubstitutionMappings.originalExerciseId, originalExerciseIds)
+          eq(exerciseSubstitutionMappings.isRestored, false)
         ))
         .returning();
       
-      console.log('Updated mappings result:', result.length, 'rows (across all weeks and records)');
+      console.log('Updated mappings result:', result.length, 'rows (literal mapping IDs only)');
       restoredCount = result.length;
       
       // Re-check how many active mappings remain for this record after restoration

@@ -554,6 +554,7 @@ export interface IStorage {
   } | null>;
   restoreSubstitutionsByOutcome(userId: string, matchedOutcomeId: number, bodyMapLogId: number, mappingIdsToRestore?: number[], modificationRecordId?: number): Promise<{ restoredCount: number; keptCount: number }>;
   markModificationRecordCleared(userId: string, matchedOutcomeId: number, bodyMapLogId: number): Promise<void>;
+  markModificationRecordClearedById(recordId: number, bodyMapLogId: number): Promise<void>;
 
   // Video operations
   getVideos(category?: string): Promise<Video[]>;
@@ -7540,10 +7541,13 @@ export class DatabaseStorage implements IStorage {
         ));
       keptCount = remainingMappings.length;
       
-      // Only mark record as cleared if ALL mappings are restored (no active substitutions remain)
+      // Only mark record as cleared if ALL mappings on THIS record are restored.
+      // Use record-id-scoped clear to avoid sweeping up sibling uncleared records
+      // that happen to share the same outcome (e.g. a second assessment created
+      // before the user acted on the first).
       if (remainingMappings.length === 0) {
         console.log('All mappings restored - marking record as cleared');
-        await this.markModificationRecordCleared(userId, matchedOutcomeId, bodyMapLogId);
+        await this.markModificationRecordClearedById(record.id, bodyMapLogId);
       } else {
         console.log(`${remainingMappings.length} mappings still active - record stays open`);
       }
@@ -7567,11 +7571,29 @@ export class DatabaseStorage implements IStorage {
         .returning();
       
       restoredCount = result.length;
-      // All restored - mark as cleared
-      await this.markModificationRecordCleared(userId, matchedOutcomeId, bodyMapLogId);
+      // All restored - mark this specific record as cleared (record-id-scoped to
+      // avoid sweeping sibling uncleared records that share the same outcome).
+      await this.markModificationRecordClearedById(record.id, bodyMapLogId);
     }
 
     return { restoredCount, keptCount };
+  }
+
+  // Step 5: Mark a single modification record as cleared by ID. Use this whenever
+  // the caller already knows the exact record to clear (restore flows). Avoids the
+  // outcome-scoped sweep in markModificationRecordCleared which clears every
+  // uncleared accepted record matching userId+enrollment+matchedOutcome.
+  async markModificationRecordClearedById(recordId: number, bodyMapLogId: number): Promise<void> {
+    await db.update(programmeModificationRecords)
+      .set({
+        clearedAt: new Date(),
+        clearedByBodyMapLogId: bodyMapLogId,
+        updatedAt: new Date()
+      })
+      .where(and(
+        eq(programmeModificationRecords.id, recordId),
+        isNull(programmeModificationRecords.clearedAt)
+      ));
   }
 
   // Step 5: Mark a modification record as cleared by reassessment

@@ -553,8 +553,11 @@ export default function TrainingProgrammeOverview() {
             </Card>
           </div>
 
-          {/* Workouts Section */}
-          {workouts.length > 0 && (() => {
+          {/* Workouts Section
+              Gate render on timeline resolving so an enrolled user cannot
+              tap a card before we know where to route them. Eliminates the
+              brief misrouting window between page load and timeline fetch. */}
+          {workouts.length > 0 && timeline !== undefined && (() => {
             const uniqueWorkouts = Array.from(
               new Map(workouts.map((w) => [w.name, w])).values()
             );

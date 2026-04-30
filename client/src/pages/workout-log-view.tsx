@@ -354,7 +354,11 @@ export default function WorkoutLogView() {
 
   // Derived values for the summary header
   const realPRs: PrItem[] = useMemo(() => {
-    return (sessionData?.prs || []).filter(pr => pr.type !== 'first');
+    return (sessionData?.prs || []).filter(pr => {
+      if (pr.type === 'first') return false;
+      const prev = (pr as any).previous ?? (pr as any).previousValue;
+      return typeof prev === 'number' && prev > 0;
+    });
   }, [sessionData]);
 
   const lengthSeconds = sessionData?.summary?.durationSeconds ?? workoutLog?.duration ?? 0;
@@ -500,7 +504,7 @@ export default function WorkoutLogView() {
         <div className="absolute bottom-0 left-0 right-0 p-4">
           <div className="flex flex-wrap items-center gap-2 mb-2">
             {justCompleted && (
-              <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-[#0cc9a9] text-black text-xs font-semibold">
+              <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full border border-[#0cc9a9] text-[#0cc9a9] text-xs font-semibold bg-transparent">
                 <Sparkles className="w-3 h-3" />
                 Workout review
               </span>
@@ -512,7 +516,8 @@ export default function WorkoutLogView() {
             )}
           </div>
           <h2
-            className="text-4xl font-bold text-white leading-tight tracking-tight"
+            className="font-bold text-white leading-[1.05] tracking-tight"
+            style={{ fontSize: '2.875rem' }}
             data-testid="text-workout-name"
           >
             {workoutLog.workoutName}
@@ -523,9 +528,9 @@ export default function WorkoutLogView() {
       <div className="px-4 pt-4 space-y-4">
         {/* Stat row: Length / Volume / Effort - header on top, larger, no icons */}
         <div className="grid grid-cols-3 gap-3" data-testid="stats-row">
-          {/* Length */}
+          {/* Duration */}
           <div className="rounded-xl border border-border bg-card p-4 flex flex-col items-center text-center min-h-[120px] justify-between">
-            <span className="text-sm text-muted-foreground font-medium">Length</span>
+            <span className="text-sm text-muted-foreground font-medium">Duration</span>
             <span className="text-2xl font-bold text-foreground tabular-nums" data-testid="stat-length">
               {formatLength(lengthSeconds)}
             </span>
@@ -575,9 +580,7 @@ export default function WorkoutLogView() {
             >
               {rating > 0 ? `${rating}/10` : '-'}
             </div>
-            <span className="text-[11px] text-muted-foreground mt-1">
-              {rating > 0 ? effort.label : ''}
-            </span>
+            <span className="text-[11px] text-muted-foreground/70 invisible">.</span>
           </div>
         </div>
 
@@ -642,25 +645,7 @@ export default function WorkoutLogView() {
           )}
         </div>
 
-        {/* Logged Workout (existing exercise/set view) - header & warmup are hidden because they're shown above */}
-        <div>
-          <h3 className="text-sm font-semibold text-foreground/80 mb-2 px-1">Logged workout</h3>
-          <WorkoutCompletionView
-            workoutLog={workoutLog}
-            onDelete={() => setShowDeleteDialog(true)}
-            isEditing={showEditMode}
-            onEditModeChange={(editing) => {
-              setShowEditMode(editing);
-              if (!editing) {
-                handleEditComplete();
-              }
-            }}
-            hideHeader
-            hideWarmup
-          />
-        </div>
-
-        {/* Personal bests detail (only when we have session PR data) */}
+        {/* Personal bests detail (only when we beat a previous record) */}
         {realPRs.length > 0 && (
           <div className="rounded-lg border border-border bg-card p-4" data-testid="section-prs-detail">
             <div className="flex items-center justify-between mb-3">
@@ -672,7 +657,7 @@ export default function WorkoutLogView() {
                 variant="ghost"
                 size="sm"
                 className="text-xs text-muted-foreground"
-                onClick={() => navigate('/achievements')}
+                onClick={() => navigate('/progress/exercise-prs')}
                 data-testid="link-all-time-records"
               >
                 All-time
@@ -699,6 +684,21 @@ export default function WorkoutLogView() {
             </ul>
           </div>
         )}
+
+        {/* Logged workout exercise/set view - header & warmup hidden (shown in hero) */}
+        <WorkoutCompletionView
+          workoutLog={workoutLog}
+          onDelete={() => setShowDeleteDialog(true)}
+          isEditing={showEditMode}
+          onEditModeChange={(editing) => {
+            setShowEditMode(editing);
+            if (!editing) {
+              handleEditComplete();
+            }
+          }}
+          hideHeader
+          hideWarmup
+        />
 
         {/* Bottom CTAs (only on the just-completed flow) */}
         {justCompleted && (

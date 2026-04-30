@@ -156,7 +156,13 @@ function Router() {
     return () => window.removeEventListener('open-coach', handler);
   }, []);
   
+  const isJustCompletedView =
+    location.startsWith('/progress/workout/') &&
+    typeof window !== 'undefined' &&
+    new URLSearchParams(window.location.search).get('justCompleted') === '1';
+
   const hideBottomNav = 
+    isJustCompletedView ||
     location.startsWith('/training/workout/') ||
     location.startsWith('/programme-history/') ||
     location.startsWith('/workout-detail/') ||

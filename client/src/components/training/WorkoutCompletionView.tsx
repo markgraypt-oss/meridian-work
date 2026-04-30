@@ -169,7 +169,7 @@ function formatSetDisplay(set: SetLog, exerciseType?: string, durationType?: str
   }
   if (weightPart) segments.push(weightPart);
 
-  if (segments.length === 0) return '—';
+  if (segments.length === 0) return '-';
   return segments.join(' ');
 }
 
@@ -385,8 +385,8 @@ export function WorkoutCompletionView({ workoutLog, onDelete, isEditing: externa
               return (
                 <Card key={exercise.id} className="p-3 bg-card border-border/50 space-y-3">
                   <div className="flex items-center gap-3">
-                    <div className="w-7 h-7 rounded-full bg-primary/10 flex items-center justify-center shrink-0">
-                      <span className="text-xs font-semibold text-primary">{getExerciseLabel(exercise, exercises, isWarmup)}</span>
+                    <div className="w-8 h-8 rounded-full bg-[#0cc9a9] flex items-center justify-center shrink-0">
+                      <span className="text-xs font-bold text-black">{getExerciseLabel(exercise, exercises, isWarmup)}</span>
                     </div>
                     <div className="flex-1">
                       <h4 className="font-medium text-foreground">{exercise.exerciseName}</h4>
@@ -409,7 +409,7 @@ export function WorkoutCompletionView({ workoutLog, onDelete, isEditing: externa
                         if (!set) {
                           return (
                             <div key={`empty-${idx}`} className="flex items-center gap-2 py-1 opacity-50">
-                              <span className="text-xs text-muted-foreground w-4">{idx + 1}</span>
+                              <span className="w-6 h-6 rounded-full bg-[#0cc9a9]/15 flex items-center justify-center text-[10px] font-semibold text-[#0cc9a9]">{idx + 1}</span>
                               <span className="text-xs text-muted-foreground">Not logged</span>
                             </div>
                           );
@@ -419,7 +419,7 @@ export function WorkoutCompletionView({ workoutLog, onDelete, isEditing: externa
                         const currentWeight = edited.actualWeight ?? set.actualWeight ?? '';
                         return (
                           <div key={set.id} className="flex items-center gap-2 py-1">
-                            <span className="text-xs text-muted-foreground w-4">{set.setNumber}</span>
+                            <span className="w-6 h-6 rounded-full bg-[#0cc9a9]/15 flex items-center justify-center text-[10px] font-semibold text-[#0cc9a9]">{set.setNumber}</span>
                             {isTimedOnlyExercise ? (
                               <div className="w-32">
                                 <Select
@@ -465,24 +465,24 @@ export function WorkoutCompletionView({ workoutLog, onDelete, isEditing: externa
             return (
               <Card key={exercise.id} className="p-3 bg-card border-border/50">
                 <div className="flex items-start gap-3">
-                  <div className="w-7 h-7 rounded-full bg-primary/10 flex items-center justify-center shrink-0 mt-0.5">
-                    <span className="text-xs font-semibold text-primary">{getExerciseLabel(exercise, exercises, isWarmup)}</span>
+                  <div className="w-8 h-8 rounded-full bg-[#0cc9a9] flex items-center justify-center shrink-0 mt-0.5">
+                    <span className="text-xs font-bold text-black">{getExerciseLabel(exercise, exercises, isWarmup)}</span>
                   </div>
                   <div className="flex-1 min-w-0">
                     <h4 className="font-medium text-foreground">{exercise.exerciseName}</h4>
-                    <div className="space-y-0.5 mt-1">
+                    <div className="space-y-1 mt-2">
                       {setsToShow.map((set, idx) => {
                         if (!set) {
                           return (
                             <div key={`empty-${idx}`} className="flex items-center gap-2 text-sm text-muted-foreground/60">
-                              <span className="w-4 text-xs">{idx + 1}</span>
-                              <span>—</span>
+                              <span className="w-6 h-6 rounded-full bg-[#0cc9a9]/15 flex items-center justify-center text-[10px] font-semibold text-[#0cc9a9]">{idx + 1}</span>
+                              <span>-</span>
                             </div>
                           );
                         }
                         return (
                         <div key={set.id} className="flex items-center gap-2 text-sm text-muted-foreground">
-                          <span className="w-4 text-xs">{set.setNumber}</span>
+                          <span className="w-6 h-6 rounded-full bg-[#0cc9a9]/15 flex items-center justify-center text-[10px] font-semibold text-[#0cc9a9]">{set.setNumber}</span>
                           <span>{formatSetDisplay(set, exercise.exerciseType, exercise.durationType, weightUnit)}</span>
                           {set.setDifficultyRating && (
                             <Badge 
@@ -523,7 +523,9 @@ export function WorkoutCompletionView({ workoutLog, onDelete, isEditing: externa
               
               {mainExercises.length > 0 && (
                 <div className="space-y-3">
-                  <h3 className="font-semibold text-foreground text-sm uppercase tracking-wide text-muted-foreground">Main Body</h3>
+                  <div className="inline-flex items-center px-3 py-1.5 rounded-full bg-[#0cc9a9] text-black text-xs font-semibold uppercase tracking-wide">
+                    Main Body
+                  </div>
                   {(() => {
                     // Check if this is an interval or circuit workout
                     // workoutStyle contains the actual workout format (interval/circuit/video/regular)

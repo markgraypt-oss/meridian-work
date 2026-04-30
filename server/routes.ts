@@ -5908,102 +5908,159 @@ Return format: {"category": "strength|cardio|hiit|mobility|recovery", "difficult
         }
       }
 
-      // Process each Week 1 workout - uses ONLY block-based exercises (legacy removed)
+      // Apply any active accepted substitutions for this enrolment so the re-flag
+      // check evaluates the exercise the user actually has (mirrors /preview behaviour
+      // and prevents re-flagging an already-substituted slot via its old original).
+      const activeSubstitutionMap = await storage.getActiveSubstitutionMappings(targetEnrollment.id);
+
+      // Build a slot lookup map for every exercise instance in Week 1.
+      // Each entry records: originalExerciseId (template original), workoutId, and
+      // whether the slot is flag-eligible for this outcome plus the reason.
+      // The selections list (what the client sent) drives all writes; the slot map
+      // is used purely for ownership + flag-eligibility validation.
+      type SlotInfo = {
+        originalExerciseId: number;
+        workoutId: number;
+        isFlagged: boolean;
+        flagReason: string;
+      };
+      const slotMap = new Map<number, SlotInfo>();
+
       for (const workout of week1Workouts) {
-          const blocks = await storage.getProgrammeWorkoutBlocks(workout.id);
-          for (const block of blocks) {
-            // Use block.exercises from getProgrammeWorkoutBlocks (already includes programme_block_exercises)
-            const blockExercises = block.exercises || [];
-            
-            for (const blockExercise of blockExercises) {
-              if (!blockExercise.exerciseLibraryId) continue;
-              
-              const exercise = exerciseMap.get(blockExercise.exerciseLibraryId);
-              if (!exercise) continue;
+        const blocks = await storage.getProgrammeWorkoutBlocks(workout.id);
+        for (const block of blocks) {
+          const blockExercises = block.exercises || [];
+          for (const blockExercise of blockExercises) {
+            if (!blockExercise.exerciseLibraryId) continue;
+            const templateExercise = exerciseMap.get(blockExercise.exerciseLibraryId);
+            if (!templateExercise) continue;
 
-              let isFlagged = false;
-              let flagReason = '';
+            // Re-flag against the currently-active exercise (template or active sub).
+            const activeSub = activeSubstitutionMap.get(blockExercise.id);
+            const evalExercise = activeSub
+              ? exerciseMap.get(activeSub.substitutedExerciseId)
+              : templateExercise;
+            if (!evalExercise) continue;
 
-              if (flaggingPatterns.length > 0 && exercise.movement && exercise.movement.length > 0) {
-                const matchingPattern = exercise.movement.find((m: string) => flaggingPatterns.includes(m));
-                if (matchingPattern) {
-                  isFlagged = true;
-                  flagReason = `Movement pattern: ${matchingPattern}`;
-                }
+            let isFlagged = false;
+            let flagReason = '';
+
+            if (flaggingPatterns.length > 0 && evalExercise.movement && evalExercise.movement.length > 0) {
+              const matchingPattern = evalExercise.movement.find((m: string) => flaggingPatterns.includes(m));
+              if (matchingPattern) {
+                isFlagged = true;
+                flagReason = `Movement pattern: ${matchingPattern}`;
               }
-
-              if (!isFlagged && flaggingMuscles.length > 0 && exercise.mainMuscle && exercise.mainMuscle.length > 0) {
-                const matchingMuscle = exercise.mainMuscle.find((m: string) => flaggingMuscles.includes(m));
-                if (matchingMuscle) {
-                  isFlagged = true;
-                  flagReason = `Muscle: ${matchingMuscle}`;
-                }
-              }
-
-              if (!isFlagged && flaggingEquipment.length > 0 && exercise.equipment && exercise.equipment.length > 0) {
-                const matchingEquipment = exercise.equipment.find((e: string) => flaggingEquipment.includes(e));
-                if (matchingEquipment) {
-                  isFlagged = true;
-                  flagReason = `Equipment: ${matchingEquipment}`;
-                }
-              }
-
-              if (!isFlagged && flaggingLevel.length > 0 && exercise.level) {
-                if (flaggingLevel.includes(exercise.level)) {
-                  isFlagged = true;
-                  flagReason = `Level: ${exercise.level}`;
-                }
-              }
-
-              if (!isFlagged && flaggingMechanics.length > 0 && exercise.mechanics && exercise.mechanics.length > 0) {
-                const matchingMechanics = exercise.mechanics.find((m: string) => flaggingMechanics.includes(m));
-                if (matchingMechanics) {
-                  isFlagged = true;
-                  flagReason = `Mechanics: ${matchingMechanics}`;
-                }
-              }
-
-              if (!isFlagged) continue;
-
-              // Check if user provided a selection for this exercise instance
-              let substitute: typeof curatedSubstitutes[0] | undefined;
-              const userSelection = selections?.find((s: any) => s.exerciseInstanceId === blockExercise.id);
-              
-              if (userSelection?.chosenSubstituteExerciseId) {
-                // Validate the user's choice is in the curated list and not the same as flagged exercise
-                const chosenId = userSelection.chosenSubstituteExerciseId;
-                if (substituteExerciseIds.includes(chosenId) && chosenId !== exercise.id) {
-                  substitute = curatedSubstitutes.find(s => s.id === chosenId);
-                }
-              }
-              
-              // Fall back to automatic selection if user didn't select or selection was invalid
-              if (!substitute) {
-                substitute = curatedSubstitutes.find(s => s.id !== exercise.id);
-              }
-              if (!substitute) {
-                substitute = patternMatchedSubstitutes.find(s => s.id !== exercise.id);
-              }
-              
-              if (!substitute) {
-                substitutionsFailed++;
-                continue;
-              }
-
-              await db.insert(exerciseSubstitutionMappings).values({
-                modificationRecordId: recordId,
-                mainProgrammeEnrollmentId: targetEnrollment.id,
-                workoutId: workout.id,
-                exerciseInstanceId: blockExercise.id,
-                originalExerciseId: exercise.id,
-                substitutedExerciseId: substitute.id,
-                matchedOutcomeId: outcomeId,
-                flaggingReason: flagReason,
-              });
-
-              substitutionsApplied++;
             }
+
+            if (!isFlagged && flaggingMuscles.length > 0 && evalExercise.mainMuscle && evalExercise.mainMuscle.length > 0) {
+              const matchingMuscle = evalExercise.mainMuscle.find((m: string) => flaggingMuscles.includes(m));
+              if (matchingMuscle) {
+                isFlagged = true;
+                flagReason = `Muscle: ${matchingMuscle}`;
+              }
+            }
+
+            if (!isFlagged && flaggingEquipment.length > 0 && evalExercise.equipment && evalExercise.equipment.length > 0) {
+              const matchingEquipment = evalExercise.equipment.find((e: string) => flaggingEquipment.includes(e));
+              if (matchingEquipment) {
+                isFlagged = true;
+                flagReason = `Equipment: ${matchingEquipment}`;
+              }
+            }
+
+            if (!isFlagged && flaggingLevel.length > 0 && evalExercise.level) {
+              if (flaggingLevel.includes(evalExercise.level)) {
+                isFlagged = true;
+                flagReason = `Level: ${evalExercise.level}`;
+              }
+            }
+
+            if (!isFlagged && flaggingMechanics.length > 0 && evalExercise.mechanics && evalExercise.mechanics.length > 0) {
+              const matchingMechanics = evalExercise.mechanics.find((m: string) => flaggingMechanics.includes(m));
+              if (matchingMechanics) {
+                isFlagged = true;
+                flagReason = `Mechanics: ${matchingMechanics}`;
+              }
+            }
+
+            slotMap.set(blockExercise.id, {
+              originalExerciseId: templateExercise.id,
+              workoutId: workout.id,
+              isFlagged,
+              flagReason,
+            });
           }
+        }
+      }
+
+      // Selections are the authoritative list. The server only writes mappings for
+      // entries the client explicitly included with a chosen substitute. No
+      // independent re-iteration over flagged slots, no default fallback substitute.
+      // Each selection still goes through ownership + flag-eligibility + curated-pool
+      // validation. Anything that fails validation increments substitutionsFailed.
+      const selectionList: any[] = Array.isArray(selections) ? selections : [];
+      console.log(`/accept: ${selectionList.length} selection(s) received from client`);
+
+      // Dedupe by exerciseInstanceId, keeping the first valid entry per slot. Any
+      // subsequent entry for the same slot is rejected so we never create more than
+      // one mapping per slot in a single accept call.
+      const seenSlotIds = new Set<number>();
+
+      for (const selection of selectionList) {
+        const slotId = selection?.exerciseInstanceId;
+        const chosenId = selection?.chosenSubstituteExerciseId;
+
+        if (!slotId || !chosenId) {
+          substitutionsFailed++;
+          continue;
+        }
+
+        const slotInfo = slotMap.get(slotId);
+        if (!slotInfo) {
+          // Slot does not belong to this user's enrolled programme.
+          substitutionsFailed++;
+          continue;
+        }
+
+        if (!slotInfo.isFlagged) {
+          // Slot exists but is not flag-eligible for this outcome.
+          substitutionsFailed++;
+          continue;
+        }
+
+        if (!substituteExerciseIds.includes(chosenId)) {
+          // Chosen substitute is not in the curated pool for this outcome.
+          substitutionsFailed++;
+          continue;
+        }
+
+        if (chosenId === slotInfo.originalExerciseId) {
+          // Substituting an exercise for itself is a no-op.
+          substitutionsFailed++;
+          continue;
+        }
+
+        if (seenSlotIds.has(slotId)) {
+          // Duplicate slot in the same accept call. Keep first, reject rest so we
+          // never create two mappings for the same slot in one request.
+          substitutionsFailed++;
+          continue;
+        }
+        seenSlotIds.add(slotId);
+
+        await db.insert(exerciseSubstitutionMappings).values({
+          modificationRecordId: recordId,
+          mainProgrammeEnrollmentId: targetEnrollment.id,
+          workoutId: slotInfo.workoutId,
+          exerciseInstanceId: slotId,
+          originalExerciseId: slotInfo.originalExerciseId,
+          substitutedExerciseId: chosenId,
+          matchedOutcomeId: outcomeId,
+          flaggingReason: slotInfo.flagReason,
+        });
+
+        substitutionsApplied++;
       }
 
       // Update the modification record with counts

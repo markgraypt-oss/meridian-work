@@ -19,7 +19,6 @@ import {
   Activity,
   Flame,
   ChevronRight,
-  TimerReset,
   Star,
 } from "lucide-react";
 import { WorkoutCompletionView } from "@/components/training/WorkoutCompletionView";
@@ -405,72 +404,17 @@ export default function WorkoutLogView() {
     ? formatDate(new Date(workoutLog.completedAt), 'short')
     : '';
 
+  // Volume gauge: scale 0..100% against a soft target so the arc has meaning even at low loads
+  const volumeTarget = 10000; // kg, just a reference for visual fill
+  const volumePct = Math.min(1, (volumeKg || 0) / volumeTarget);
+
   return (
     <div className="min-h-screen bg-background pb-24">
-      <div className="sticky top-0 z-50 bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60 border-b border-border">
-        <div className="px-4 py-3">
-          <div className="flex items-center justify-between">
-            <Button
-              variant="ghost"
-              size="icon"
-              onClick={handleBack}
-              data-testid="button-back"
-            >
-              <ChevronLeft className="h-5 w-5" />
-            </Button>
-            <h1 className="text-lg font-semibold text-foreground">{completedDate}</h1>
-            <Drawer open={showActionSheet} onOpenChange={setShowActionSheet}>
-              <DrawerTrigger asChild>
-                <Button variant="ghost" size="icon">
-                  <MoreVertical className="h-5 w-5" />
-                </Button>
-              </DrawerTrigger>
-              <DrawerContent>
-                <div className="p-4 space-y-2">
-                  <Button
-                    variant="ghost"
-                    className="w-full justify-start text-base font-normal h-12"
-                    onClick={handleEditLog}
-                  >
-                    <Pencil className="h-5 w-5 mr-3" />
-                    Edit Log
-                  </Button>
-                  {isCustomWorkout && (
-                    <Button
-                      variant="ghost"
-                      className="w-full justify-start text-base font-normal h-12"
-                      onClick={() => {
-                        setShowActionSheet(false);
-                        setShowSaveDialog(true);
-                      }}
-                    >
-                      <Bookmark className="h-5 w-5 mr-3" />
-                      Save Workout
-                    </Button>
-                  )}
-                  <Button
-                    variant="ghost"
-                    className="w-full justify-start text-base font-normal h-12 text-destructive hover:text-destructive"
-                    onClick={() => {
-                      setShowActionSheet(false);
-                      setShowDeleteDialog(true);
-                    }}
-                  >
-                    <Trash2 className="h-5 w-5 mr-3" />
-                    Delete
-                  </Button>
-                </div>
-              </DrawerContent>
-            </Drawer>
-          </div>
-        </div>
-      </div>
-
-      {/* Hero */}
+      {/* Hero (image first, no top app bar) */}
       <div
         className="relative w-full overflow-hidden"
         style={{
-          height: '240px',
+          height: '280px',
           background: workoutLog.coverImageUrl ? '#0e1114' : categoryFallbackGradient(workoutLog.category),
         }}
         data-testid="hero-summary"
@@ -489,71 +433,151 @@ export default function WorkoutLogView() {
             <HeroIcon className="w-32 h-32 text-white" />
           </div>
         )}
-        <div className="absolute inset-0 bg-gradient-to-t from-background via-background/40 to-transparent" />
+
+        {/* Floating actions over the hero */}
+        <div className="absolute top-3 left-3 z-10">
+          <Button
+            variant="ghost"
+            size="icon"
+            onClick={handleBack}
+            className="bg-black/40 hover:bg-black/60 text-white rounded-full backdrop-blur"
+            data-testid="button-back"
+          >
+            <ChevronLeft className="h-5 w-5" />
+          </Button>
+        </div>
+        <div className="absolute top-3 right-3 z-10">
+          <Drawer open={showActionSheet} onOpenChange={setShowActionSheet}>
+            <DrawerTrigger asChild>
+              <Button
+                variant="ghost"
+                size="icon"
+                className="bg-black/40 hover:bg-black/60 text-white rounded-full backdrop-blur"
+              >
+                <MoreVertical className="h-5 w-5" />
+              </Button>
+            </DrawerTrigger>
+            <DrawerContent>
+              <div className="p-4 space-y-2">
+                <Button
+                  variant="ghost"
+                  className="w-full justify-start text-base font-normal h-12"
+                  onClick={handleEditLog}
+                >
+                  <Pencil className="h-5 w-5 mr-3" />
+                  Edit Log
+                </Button>
+                {isCustomWorkout && (
+                  <Button
+                    variant="ghost"
+                    className="w-full justify-start text-base font-normal h-12"
+                    onClick={() => {
+                      setShowActionSheet(false);
+                      setShowSaveDialog(true);
+                    }}
+                  >
+                    <Bookmark className="h-5 w-5 mr-3" />
+                    Save Workout
+                  </Button>
+                )}
+                <Button
+                  variant="ghost"
+                  className="w-full justify-start text-base font-normal h-12 text-destructive hover:text-destructive"
+                  onClick={() => {
+                    setShowActionSheet(false);
+                    setShowDeleteDialog(true);
+                  }}
+                >
+                  <Trash2 className="h-5 w-5 mr-3" />
+                  Delete
+                </Button>
+              </div>
+            </DrawerContent>
+          </Drawer>
+        </div>
+
+        <div className="absolute inset-0 bg-gradient-to-t from-background via-background/30 to-transparent" />
         <div className="absolute bottom-0 left-0 right-0 p-4">
-          {justCompleted && (
-            <div className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-[#0cc9a9] text-black text-xs font-medium mb-2">
-              <Sparkles className="w-3 h-3" />
-              Workout review
-            </div>
-          )}
-          <h2 className="text-2xl font-bold text-foreground leading-tight" data-testid="text-workout-name">
+          <div className="flex flex-wrap items-center gap-2 mb-2">
+            {justCompleted && (
+              <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-[#0cc9a9] text-black text-xs font-semibold">
+                <Sparkles className="w-3 h-3" />
+                Workout review
+              </span>
+            )}
+            {completedDate && (
+              <span className="inline-flex items-center px-3 py-1 rounded-full border border-white/30 bg-black/30 text-white text-xs font-medium backdrop-blur">
+                {completedDate}
+              </span>
+            )}
+          </div>
+          <h2
+            className="text-4xl font-bold text-white leading-tight tracking-tight"
+            data-testid="text-workout-name"
+          >
             {workoutLog.workoutName}
           </h2>
-          <p className="text-sm text-muted-foreground mt-1">{completedDate}</p>
         </div>
       </div>
 
       <div className="px-4 pt-4 space-y-4">
-        {/* PR banner — only when there are real (non-first) PRs from this session */}
-        {justCompleted && realPRs.length > 0 && (
-          <div
-            className="flex items-center gap-3 p-3 rounded-lg border border-[#0cc9a9]/40 bg-[#0cc9a9]/10"
-            data-testid="banner-prs"
-          >
-            <div className="flex-shrink-0 w-10 h-10 rounded-full bg-[#0cc9a9] flex items-center justify-center">
-              <Trophy className="w-5 h-5 text-black" />
-            </div>
-            <div className="flex-1 min-w-0">
-              <p className="text-sm font-semibold text-foreground">
-                {realPRs.length === 1
-                  ? 'New personal best'
-                  : `${realPRs.length} new personal bests`}
-              </p>
-              <p className="text-xs text-muted-foreground truncate">
-                {realPRs.slice(0, 3).map(p => p.exerciseName).join(', ')}
-                {realPRs.length > 3 ? ` and ${realPRs.length - 3} more` : ''}
-              </p>
-            </div>
-          </div>
-        )}
-
-        {/* Stat row: Length / Volume / Effort */}
+        {/* Stat row: Length / Volume / Effort - header on top, larger, no icons */}
         <div className="grid grid-cols-3 gap-3" data-testid="stats-row">
-          <div className="rounded-lg border border-border bg-card p-3 flex flex-col items-center justify-center text-center">
-            <TimerReset className="w-4 h-4 text-muted-foreground mb-1.5" />
-            <span className="text-base font-semibold text-foreground" data-testid="stat-length">
+          {/* Length */}
+          <div className="rounded-xl border border-border bg-card p-4 flex flex-col items-center text-center min-h-[120px] justify-between">
+            <span className="text-sm text-muted-foreground font-medium">Length</span>
+            <span className="text-2xl font-bold text-foreground tabular-nums" data-testid="stat-length">
               {formatLength(lengthSeconds)}
             </span>
-            <span className="text-[11px] text-muted-foreground mt-0.5">Length</span>
+            <span className="text-[11px] text-muted-foreground/70 invisible">.</span>
           </div>
-          <div className="rounded-lg border border-border bg-card p-3 flex flex-col items-center justify-center text-center">
-            <Dumbbell className="w-4 h-4 text-muted-foreground mb-1.5" />
-            <span className="text-base font-semibold text-foreground" data-testid="stat-volume">
-              {formatVolume(volumeKg)}
-            </span>
-            <span className="text-[11px] text-muted-foreground mt-0.5">Volume</span>
+
+          {/* Volume - with semicircle gauge */}
+          <div className="rounded-xl border border-border bg-card p-4 flex flex-col items-center text-center min-h-[120px] justify-between">
+            <span className="text-sm text-muted-foreground font-medium">Volume</span>
+            <div className="relative w-full flex items-center justify-center">
+              <svg viewBox="0 0 100 56" className="w-20 h-12" aria-hidden="true">
+                {/* track */}
+                <path
+                  d="M 8 50 A 42 42 0 0 1 92 50"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeOpacity="0.15"
+                  strokeWidth="8"
+                  strokeLinecap="round"
+                  className="text-muted-foreground"
+                />
+                {/* fill */}
+                <path
+                  d="M 8 50 A 42 42 0 0 1 92 50"
+                  fill="none"
+                  stroke="#0cc9a9"
+                  strokeWidth="8"
+                  strokeLinecap="round"
+                  strokeDasharray="132"
+                  strokeDashoffset={132 * (1 - volumePct)}
+                />
+              </svg>
+              <span className="absolute inset-x-0 bottom-0 text-lg font-bold text-foreground tabular-nums" data-testid="stat-volume">
+                {formatVolume(volumeKg)}
+              </span>
+            </div>
+            <span className="text-[11px] text-muted-foreground/70 invisible">.</span>
           </div>
-          <div className="rounded-lg border border-border bg-card p-3 flex flex-col items-center justify-center text-center">
-            <span className="text-[11px] text-muted-foreground mb-1.5">Effort</span>
+
+          {/* Effort */}
+          <div className="rounded-xl border border-border bg-card p-4 flex flex-col items-center text-center min-h-[120px] justify-between">
+            <span className="text-sm text-muted-foreground font-medium">Effort</span>
             <div
-              className="px-3 py-1 rounded-full text-sm font-bold"
+              className="px-4 py-1.5 rounded-full text-xl font-bold"
               style={{ backgroundColor: effort.bg, color: effort.text }}
               data-testid="stat-effort"
             >
               {rating > 0 ? `${rating}/10` : '-'}
             </div>
-            <span className="text-[11px] text-muted-foreground mt-1">{rating > 0 ? effort.label : ''}</span>
+            <span className="text-[11px] text-muted-foreground mt-1">
+              {rating > 0 ? effort.label : ''}
+            </span>
           </div>
         </div>
 
@@ -618,7 +642,7 @@ export default function WorkoutLogView() {
           )}
         </div>
 
-        {/* Logged Workout (existing exercise/set view) */}
+        {/* Logged Workout (existing exercise/set view) - header & warmup are hidden because they're shown above */}
         <div>
           <h3 className="text-sm font-semibold text-foreground/80 mb-2 px-1">Logged workout</h3>
           <WorkoutCompletionView
@@ -631,6 +655,8 @@ export default function WorkoutLogView() {
                 handleEditComplete();
               }
             }}
+            hideHeader
+            hideWarmup
           />
         </div>
 

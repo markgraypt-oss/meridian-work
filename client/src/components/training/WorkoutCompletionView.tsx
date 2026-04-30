@@ -91,6 +91,8 @@ interface WorkoutCompletionViewProps {
   onDelete: () => void;
   isEditing?: boolean;
   onEditModeChange?: (editing: boolean) => void;
+  hideHeader?: boolean;
+  hideWarmup?: boolean;
 }
 
 function formatDuration(seconds: number): string {
@@ -171,7 +173,7 @@ function formatSetDisplay(set: SetLog, exerciseType?: string, durationType?: str
   return segments.join(' ');
 }
 
-export function WorkoutCompletionView({ workoutLog, onDelete, isEditing: externalIsEditing, onEditModeChange }: WorkoutCompletionViewProps) {
+export function WorkoutCompletionView({ workoutLog, onDelete, isEditing: externalIsEditing, onEditModeChange, hideHeader = false, hideWarmup = false }: WorkoutCompletionViewProps) {
   const { toast } = useToast();
   const [, navigate] = useLocation();
   const { preferences } = useUserPreferences();
@@ -268,35 +270,39 @@ export function WorkoutCompletionView({ workoutLog, onDelete, isEditing: externa
 
   return (
     <div className="space-y-6">
-      <Card className="p-4 bg-green-900/20 border-green-600/30">
-        <div className="flex items-center gap-3">
-          <CheckCircle2 className="h-6 w-6 text-green-500" />
-          <div className="flex-1">
-            <h3 className="font-semibold text-green-400">Workout Completed</h3>
-            <p className="text-sm text-muted-foreground">
-              {format(completedDate, 'EEEE, d MMMM yyyy')} at {format(completedDate, 'HH:mm')}
-            </p>
-          </div>
-          {workoutLog.workoutRating && (
-            <div className="flex items-center gap-1">
-              <Star className="h-4 w-4 text-[#0cc9a9] fill-[#0cc9a9]" />
-              <span className="text-sm font-medium">{workoutLog.workoutRating}/10</span>
+      {!hideHeader && (
+        <>
+          <Card className="p-4 bg-green-900/20 border-green-600/30">
+            <div className="flex items-center gap-3">
+              <CheckCircle2 className="h-6 w-6 text-green-500" />
+              <div className="flex-1">
+                <h3 className="font-semibold text-green-400">Workout Completed</h3>
+                <p className="text-sm text-muted-foreground">
+                  {format(completedDate, 'EEEE, d MMMM yyyy')} at {format(completedDate, 'HH:mm')}
+                </p>
+              </div>
+              {workoutLog.workoutRating && (
+                <div className="flex items-center gap-1">
+                  <Star className="h-4 w-4 text-[#0cc9a9] fill-[#0cc9a9]" />
+                  <span className="text-sm font-medium">{workoutLog.workoutRating}/10</span>
+                </div>
+              )}
             </div>
-          )}
-        </div>
-      </Card>
+          </Card>
 
-      <div className="flex gap-4 text-sm text-muted-foreground">
-        <div className="flex items-center gap-1">
-          <Clock className="h-4 w-4" />
-          <span>{workoutLog.duration ? formatDuration(workoutLog.duration) : 'N/A'}</span>
-        </div>
-        {workoutLog.autoCalculatedVolume && workoutLog.autoCalculatedVolume > 0 && (
-          <div className="flex items-center gap-1">
-            <span>{Math.round(weightUnit === 'lbs' ? kgToLbs(workoutLog.autoCalculatedVolume) : workoutLog.autoCalculatedVolume)} {weightUnit} volume</span>
+          <div className="flex gap-4 text-sm text-muted-foreground">
+            <div className="flex items-center gap-1">
+              <Clock className="h-4 w-4" />
+              <span>{workoutLog.duration ? formatDuration(workoutLog.duration) : 'N/A'}</span>
+            </div>
+            {workoutLog.autoCalculatedVolume && workoutLog.autoCalculatedVolume > 0 && (
+              <div className="flex items-center gap-1">
+                <span>{Math.round(weightUnit === 'lbs' ? kgToLbs(workoutLog.autoCalculatedVolume) : workoutLog.autoCalculatedVolume)} {weightUnit} volume</span>
+              </div>
+            )}
           </div>
-        )}
-      </div>
+        </>
+      )}
 
       {isEditing && (
         <div className="flex gap-2">
@@ -508,7 +514,7 @@ export function WorkoutCompletionView({ workoutLog, onDelete, isEditing: externa
           
           return (
             <>
-              {warmupExercises.length > 0 && (
+              {!hideWarmup && warmupExercises.length > 0 && (
                 <div className="space-y-3">
                   <h3 className="font-semibold text-foreground text-sm uppercase tracking-wide text-muted-foreground">Warm Up</h3>
                   {warmupExercises.map((ex) => renderExerciseCard(ex, warmupExercises, true))}

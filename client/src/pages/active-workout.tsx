@@ -72,7 +72,7 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import type { ExerciseLibraryItem } from "@shared/schema";
-import WorkoutRatingDialog, { WorkoutCelebration } from "@/components/WorkoutRatingDialog";
+import WorkoutRatingDialog from "@/components/WorkoutRatingDialog";
 
 interface SetData {
   id?: number;
@@ -191,29 +191,11 @@ export default function ActiveWorkout() {
   
   // Workout completion state
   const [showRatingDialog, setShowRatingDialog] = useState(false);
-  const [showCelebration, setShowCelebration] = useState(false);
   const [showCancelConfirm, setShowCancelConfirm] = useState(false);
   const workoutEndedIntentionally = useRef(false);
   const hasReallyMounted = useRef(false);
   const pendingSetCreations = useRef<Set<string>>(new Set());
   const clearWorkoutRef = useRef(clearWorkout);
-  const [completionData, setCompletionData] = useState<{
-    summary: {
-      totalVolume: number;
-      totalTimeSeconds: number;
-      durationSeconds: number;
-      exerciseCount: number;
-      workoutRating: number;
-    };
-    prs: Array<{
-      type: 'weight' | 'reps' | 'volume' | 'first';
-      exerciseName: string;
-      value?: number;
-      previous?: number;
-      reps?: number;
-      weight?: number;
-    }>;
-  } | null>(null);
 
   // Fetch the workout log
   const { data: workoutLog, isLoading } = useQuery<WorkoutLogData>({
@@ -776,22 +758,36 @@ export default function ActiveWorkout() {
   const completeMutation = useMutation({
     mutationFn: async ({ workoutRating, notes }: { workoutRating: number; notes?: string }) => {
       workoutEndedIntentionally.current = true;
-      return apiRequest('POST', `/api/workout-logs/${logId}/complete`, { workoutRating, notes });
+      const res = await apiRequest('POST', `/api/workout-logs/${logId}/complete`, { workoutRating, notes });
+      return res.json();
     },
     onSuccess: (data: any) => {
       clearWorkout();
       queryClient.invalidateQueries({ queryKey: ['/api/workout-logs'] });
-      
-      // If we have PR and summary data, show celebration
-      if (data?.summary) {
-        setCompletionData({
-          summary: data.summary,
-          prs: data.prs || [],
-        });
-        setShowRatingDialog(false);
-        setShowCelebration(true);
+
+      // Stash PRs + summary for the post-workout summary page (it pops them out of sessionStorage on first paint)
+      const targetId = data?.id ?? logId;
+      if (targetId) {
+        try {
+          sessionStorage.setItem(
+            `workout-completion-${targetId}`,
+            JSON.stringify({
+              summary: data?.summary || null,
+              prs: data?.prs || [],
+              ts: Date.now(),
+            })
+          );
+        } catch {
+          // sessionStorage can throw in private mode; harmless if it does
+        }
+      }
+
+      setShowRatingDialog(false);
+
+      if (targetId) {
+        navigate(`/progress/workout/${targetId}?justCompleted=1`);
       } else {
-        toast({ title: "Workout completed!", description: "Great job!" });
+        toast({ title: "Workout completed", description: "Great job." });
         navigate('/training');
       }
     },
@@ -808,13 +804,6 @@ export default function ActiveWorkout() {
   // Handler to complete workout with rating
   const handleRatingComplete = (rating: number, notes?: string) => {
     completeMutation.mutate({ workoutRating: rating, notes });
-  };
-
-  // Handler to close celebration and navigate
-  const handleCelebrationClose = () => {
-    setShowCelebration(false);
-    setCompletionData(null);
-    navigate('/training');
   };
 
   // Cancel workout mutation
@@ -3386,17 +3375,6 @@ export default function ActiveWorkout() {
         onComplete={handleRatingComplete}
         isPending={completeMutation.isPending}
       />
-
-      {/* Workout Celebration Dialog */}
-      {completionData && (
-        <WorkoutCelebration
-          open={showCelebration}
-          onClose={handleCelebrationClose}
-          summary={completionData.summary}
-          prs={completionData.prs}
-          workoutName={workoutLog?.workoutName || "Workout"}
-        />
-      )}
     </div>
   );
 }

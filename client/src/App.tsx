@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { Switch, Route, Redirect, useLocation } from "wouter";
 import { useScrollRestoration } from "@/hooks/use-scroll-restoration";
 import { queryClient } from "./lib/queryClient";
@@ -148,6 +148,13 @@ function Router() {
   const [location] = useLocation();
   const [coachOpen, setCoachOpen] = useState(false);
   const [showQuickAddMenu, setShowQuickAddMenu] = useState(false);
+
+  // Allow other parts of the app (e.g. the post-workout summary page) to ask the coach to open
+  useEffect(() => {
+    const handler = () => setCoachOpen(true);
+    window.addEventListener('open-coach', handler);
+    return () => window.removeEventListener('open-coach', handler);
+  }, []);
   
   const hideBottomNav = 
     location.startsWith('/training/workout/') ||

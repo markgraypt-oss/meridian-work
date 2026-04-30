@@ -3975,9 +3975,26 @@ export async function registerRoutes(app: Express): Promise<Server> {
         }
       }
       
+      // Enrich with parent workout's cover image + category for the summary hero
+      let coverImageUrl: string | null = null;
+      let category: string | null = null;
+      if (log.workoutId) {
+        try {
+          const parentWorkout = await storage.getWorkoutById(log.workoutId);
+          if (parentWorkout) {
+            coverImageUrl = parentWorkout.imageUrl || null;
+            category = parentWorkout.category || null;
+          }
+        } catch {
+          // Parent workout lookup is best-effort; ignore failures
+        }
+      }
+
       res.json({
         ...log,
         exercises: exercisesWithSets,
+        coverImageUrl,
+        category,
       });
     } catch (error) {
       console.error("Error fetching workout log:", error);
@@ -4025,10 +4042,28 @@ export async function registerRoutes(app: Express): Promise<Server> {
     try {
       const id = parseInt(req.params.id);
       const userId = req.user.claims.sub;
-      const { workoutRating } = req.body;
-      
+      const { workoutRating, notes } = req.body;
+
       console.log(`[WORKOUT COMPLETE] Starting completion for workout log id=${id}, rating=${workoutRating}`);
-      
+
+      // Ownership check (prevent IDOR)
+      const existing = await storage.getWorkoutLogById(id);
+      if (!existing) {
+        return res.status(404).json({ message: "Workout log not found" });
+      }
+      if (existing.userId !== userId) {
+        return res.status(403).json({ message: "Not authorized" });
+      }
+
+      // Persist notes the athlete added in the rating dialog so the AI review can use them
+      if (typeof notes === 'string' && notes.trim().length > 0) {
+        try {
+          await storage.updateWorkoutLog(id, { notes: notes.trim() });
+        } catch (notesErr: any) {
+          console.error(`[WORKOUT COMPLETE] Failed to persist notes for id=${id}:`, notesErr?.message);
+        }
+      }
+
       let completed;
       // If rating provided, use the enhanced completion method with PR detection
       if (workoutRating !== undefined) {
@@ -4060,6 +4095,81 @@ export async function registerRoutes(app: Express): Promise<Server> {
       console.error(`[WORKOUT COMPLETE ERROR] id=${req.params.id}, error:`, error?.message || error);
       console.error("[WORKOUT COMPLETE ERROR] Stack:", error?.stack);
       res.status(500).json({ message: "Failed to complete workout", error: error?.message });
+    }
+  });
+
+  // Generate (or fetch cached) AI post-workout review
+  app.post('/api/workout-logs/:id/ai-review', isAuthenticated, async (req: any, res) => {
+    try {
+      const id = parseInt(req.params.id);
+      const userId = req.user.claims.sub;
+      const regenerate = req.query.regenerate === '1';
+
+      const log = await storage.getWorkoutLogById(id);
+      if (!log) return res.status(404).json({ message: "Workout log not found" });
+      if (log.userId !== userId) return res.status(403).json({ message: "Not authorized" });
+      if (log.status !== 'completed') return res.status(400).json({ message: "Workout not completed" });
+
+      // Return cached review unless regenerate requested
+      if (!regenerate && log.aiReviewText) {
+        return res.json({ text: log.aiReviewText, cached: true, reviewedAt: log.aiReviewedAt });
+      }
+
+      // Build a compact, structured summary of what was performed
+      const exerciseLogs = await storage.getWorkoutExerciseLogs(id);
+      const exerciseLines: string[] = [];
+      for (const ex of exerciseLogs) {
+        const sets = await storage.getWorkoutSetLogs(ex.id);
+        const setSummaries = sets.map((s, i) => {
+          const parts: string[] = [];
+          if (s.actualReps) parts.push(`${s.actualReps} reps`);
+          if (s.actualWeight) parts.push(`${s.actualWeight}kg`);
+          const dur = (s.actualDurationMinutes || 0) * 60 + (s.actualDurationSeconds || 0);
+          if (dur > 0) parts.push(`${dur}s`);
+          if (s.setDifficultyRating) parts.push(`(${s.setDifficultyRating})`);
+          if (s.painFlag) parts.push('PAIN');
+          if (s.failureFlag) parts.push('to failure');
+          return `set ${i + 1}: ${parts.join(' ') || 'completed'}`;
+        });
+        exerciseLines.push(`- ${ex.exerciseName}: ${setSummaries.join('; ')}`);
+      }
+
+      const durationMin = log.duration ? Math.round(log.duration / 60) : 0;
+      const volumeKg = log.autoCalculatedVolume ? Math.round(log.autoCalculatedVolume) : 0;
+      const rating = log.workoutRating ?? 5;
+      const userNotes = log.notes && log.notes.trim().length > 0 ? log.notes.trim() : null;
+
+      const prompt = [
+        `You are a no-nonsense, encouraging strength coach reviewing the workout the athlete just finished.`,
+        ``,
+        `Workout: ${log.workoutName}`,
+        `Length: ${durationMin} min`,
+        `Total volume: ${volumeKg} kg`,
+        `Effort rating (athlete's own 1-10): ${rating}/10`,
+        userNotes ? `Athlete's notes: "${userNotes}"` : null,
+        ``,
+        `Exercises performed:`,
+        ...exerciseLines,
+        ``,
+        `Write a short review (about 120-180 words). Cover: what went well, one or two specific things to push on next time, and one observation about pacing/effort given the rating. Be specific (reference actual exercises and numbers). Use a warm but direct tone. Plain prose, no bullet lists, no headings, no markdown. Use a hyphen "-" or comma where you would otherwise use an em dash; do not use the em dash character at all.`,
+      ].filter(Boolean).join('\n');
+
+      const { analyzeText, getDefaultConfig } = await import('./aiProvider');
+      const cfg = getDefaultConfig();
+      const result = await analyzeText({ prompt, maxTokens: 700, temperature: 0.6 }, cfg.provider, cfg.model);
+      const reviewText = (result.text || '').trim().replace(/\u2014/g, '-');
+
+      // Persist (best effort)
+      try {
+        await storage.updateWorkoutLog(id, { aiReviewText: reviewText, aiReviewedAt: new Date() } as any);
+      } catch (persistErr: any) {
+        console.error('[AI REVIEW] Failed to persist:', persistErr?.message);
+      }
+
+      res.json({ text: reviewText, cached: false, reviewedAt: new Date().toISOString() });
+    } catch (error: any) {
+      console.error('[AI REVIEW ERROR]', error?.message || error);
+      res.status(500).json({ message: 'Failed to generate AI review', error: error?.message });
     }
   });
 

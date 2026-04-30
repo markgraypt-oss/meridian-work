@@ -1798,6 +1798,9 @@ export const workoutLogs = pgTable("workout_logs", {
   workoutRating: integer("workout_rating"), // 1-10 subjective difficulty rating
   autoCalculatedVolume: real("auto_calculated_volume"), // Total volume (weight x reps) in kg
   autoCalculatedTime: integer("auto_calculated_time"), // Total time under tension in seconds
+  // AI post-workout review (one-shot, persisted so it doesn't regenerate on revisit)
+  aiReviewText: text("ai_review_text"),
+  aiReviewedAt: timestamp("ai_reviewed_at"),
 });
 
 // Workout Exercise Logs - tracks each exercise performed in a workout session

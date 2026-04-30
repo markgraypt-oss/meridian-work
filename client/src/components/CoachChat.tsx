@@ -58,6 +58,7 @@ export default function CoachChat({ isOpen, onOpenChange }: CoachChatProps) {
   const [greetingLoading, setGreetingLoading] = useState(false);
   const typingRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const typingMessageRef = useRef<HTMLDivElement>(null);
+  const pendingSeedContextRef = useRef<string | null>(null);
 
   const getFeedbackKey = (msg: ChatMessage, idx: number) => `${idx}-${msg.content.slice(0, 50)}`;
 
@@ -103,6 +104,7 @@ export default function CoachChat({ isOpen, onOpenChange }: CoachChatProps) {
       setActiveConversationId(null);
       setIsTyping(false);
       setDisplayedContent('');
+      pendingSeedContextRef.current = null;
       if (typingRef.current) clearTimeout(typingRef.current);
     }
   }, [isOpen]);
@@ -248,6 +250,30 @@ export default function CoachChat({ isOpen, onOpenChange }: CoachChatProps) {
     typingRef.current = setTimeout(typeNextChunk, 100);
   }, []);
 
+  // Consume any seed context handed in by another part of the app (e.g. the post-workout summary page)
+  useEffect(() => {
+    if (!isOpen) return;
+    try {
+      const raw = sessionStorage.getItem('coach-seed-context');
+      if (!raw) return;
+      const seed = JSON.parse(raw) as {
+        summaryText?: string;
+        openingMessage?: string;
+      };
+      if (seed?.summaryText) {
+        pendingSeedContextRef.current = seed.summaryText;
+      }
+      const opening = seed?.openingMessage?.trim() || "Nice work finishing that session. What would you like to dig into?";
+      greetingStateRef.current = 'done';
+      setGreetingLoading(false);
+      setMessages([{ role: 'assistant', content: opening }]);
+      startTypingEffect(opening);
+      sessionStorage.removeItem('coach-seed-context');
+    } catch {
+      sessionStorage.removeItem('coach-seed-context');
+    }
+  }, [isOpen, startTypingEffect]);
+
   useEffect(() => {
     if (!isOpen || greetingStateRef.current !== 'idle' || messages.length > 0 || activeConversationId) return;
 
@@ -289,8 +315,13 @@ export default function CoachChat({ isOpen, onOpenChange }: CoachChatProps) {
 
   const chatMutation = useMutation({
     mutationFn: async (message: string) => {
+      const seed = pendingSeedContextRef.current;
+      pendingSeedContextRef.current = null;
+      const messageToSend = seed
+        ? `Context for this conversation (from the user's just-completed workout summary):\n${seed}\n\nUser question: ${message}`
+        : message;
       const res = await apiRequest('POST', '/api/coach/chat', {
-        message,
+        message: messageToSend,
         conversationHistory: messages.slice(-10),
       });
       return res.json();

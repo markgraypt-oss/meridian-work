@@ -251,10 +251,62 @@ export default function RecoveryBurnout() {
   const isRisingOrElevated = currentScore?.trajectory === "rising" || currentScore?.trajectory === "elevated";
 
   const chartData = (historyData || []).map((d) => ({
-    date: d.computedDate,
+    date: new Date(d.computedDate).getTime(),
     score: d.score,
     trajectory: d.trajectory,
   }));
+
+  // Compute the full X-axis window for the selected range so the bottom axis
+  // visibly spans the chosen range even when there's not yet a full window of data.
+  const { xDomain, xTicks, xTickFormat } = (() => {
+    const end = new Date();
+    end.setHours(23, 59, 59, 999);
+    const start = new Date(end);
+    let monthSpan = 1;
+    switch (timeRange) {
+      case "3m": monthSpan = 3; break;
+      case "6m": monthSpan = 6; break;
+      case "1y": monthSpan = 12; break;
+      default: monthSpan = 1;
+    }
+    start.setMonth(start.getMonth() - monthSpan);
+    start.setHours(0, 0, 0, 0);
+
+    // Build evenly spaced ticks across the window. For 1M show ~5 day labels,
+    // for 3M show start of each month, for 6M/1Y show monthly ticks.
+    const ticks: number[] = [];
+    if (timeRange === "1m") {
+      for (let i = 0; i <= 4; i++) {
+        const t = new Date(start.getTime() + ((end.getTime() - start.getTime()) * i) / 4);
+        ticks.push(t.getTime());
+      }
+    } else {
+      const cursor = new Date(start.getFullYear(), start.getMonth(), 1);
+      while (cursor.getTime() <= end.getTime()) {
+        if (cursor.getTime() >= start.getTime()) ticks.push(cursor.getTime());
+        cursor.setMonth(cursor.getMonth() + 1);
+      }
+      // Drop the last monthly tick if it sits within ~10 days of "today" to avoid label overlap
+      const tenDays = 10 * 24 * 60 * 60 * 1000;
+      if (ticks.length > 0 && end.getTime() - ticks[ticks.length - 1] < tenDays) {
+        ticks.pop();
+      }
+      ticks.push(end.getTime());
+    }
+
+    const fmt = (ts: number) => {
+      const date = new Date(ts);
+      if (timeRange === "1m") return format(date, "MMM d");
+      if (timeRange === "3m") return format(date, "MMM d");
+      return format(date, "MMM");
+    };
+
+    return {
+      xDomain: [start.getTime(), end.getTime()] as [number, number],
+      xTicks: ticks,
+      xTickFormat: fmt,
+    };
+  })();
 
   const drivers = (currentScore?.topDrivers as BurnoutDriver[]) || [];
 
@@ -500,7 +552,7 @@ export default function RecoveryBurnout() {
             <div className="rounded-2xl bg-card border border-border/60 p-5">
               {historyLoading ? (
                 <Skeleton className="h-48 w-full" />
-              ) : chartData.length > 1 ? (
+              ) : chartData.length >= 1 ? (
                 <div className="h-52">
                   <ResponsiveContainer width="100%" height="100%">
                     <AreaChart data={chartData} margin={{ top: 10, right: 10, bottom: 0, left: -20 }}>
@@ -512,7 +564,11 @@ export default function RecoveryBurnout() {
                       </defs>
                       <XAxis
                         dataKey="date"
-                        tickFormatter={(d) => format(new Date(d), "MMM d")}
+                        type="number"
+                        scale="time"
+                        domain={xDomain}
+                        ticks={xTicks}
+                        tickFormatter={xTickFormat}
                         stroke="transparent"
                         tick={{ fill: "#52525b", fontSize: 11 }}
                         axisLine={false}
@@ -532,8 +588,9 @@ export default function RecoveryBurnout() {
                         stroke="#0cc9a9"
                         strokeWidth={2}
                         fill="url(#burnoutGrad)"
-                        dot={false}
+                        dot={chartData.length === 1 ? { r: 4, fill: "#0cc9a9", stroke: "#0e0e12", strokeWidth: 2 } : false}
                         activeDot={{ r: 5, fill: "#0cc9a9", stroke: "#0e0e12", strokeWidth: 3 }}
+                        isAnimationActive={false}
                       />
                     </AreaChart>
                   </ResponsiveContainer>

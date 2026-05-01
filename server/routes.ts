@@ -2309,6 +2309,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         intervalHalfwayCue: user.intervalHalfwayCue ?? true,
         intervalTenSecondWarning: user.intervalTenSecondWarning ?? true,
         intervalBeepsEnabled: user.intervalBeepsEnabled ?? true,
+        breathworkCueStyle: user.breathworkCueStyle || "inhale_exhale",
       });
     } catch (error) {
       console.error("Get preferences error:", error);
@@ -2329,6 +2330,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     intervalHalfwayCue: z.boolean().optional(),
     intervalTenSecondWarning: z.boolean().optional(),
     intervalBeepsEnabled: z.boolean().optional(),
+    breathworkCueStyle: z.enum(["inhale_exhale", "in_out", "breathe_in_out", "silent"]).optional(),
   });
 
   app.patch('/api/user/preferences', isAuthenticated, async (req: any, res) => {
@@ -2352,6 +2354,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       if (parsed.data.intervalHalfwayCue !== undefined) updates.intervalHalfwayCue = parsed.data.intervalHalfwayCue;
       if (parsed.data.intervalTenSecondWarning !== undefined) updates.intervalTenSecondWarning = parsed.data.intervalTenSecondWarning;
       if (parsed.data.intervalBeepsEnabled !== undefined) updates.intervalBeepsEnabled = parsed.data.intervalBeepsEnabled;
+      if (parsed.data.breathworkCueStyle !== undefined) updates.breathworkCueStyle = parsed.data.breathworkCueStyle;
       
       await storage.updateUser(userId, updates);
       const updatedUser = await storage.getUser(userId);
@@ -2368,6 +2371,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         intervalHalfwayCue: updatedUser?.intervalHalfwayCue ?? true,
         intervalTenSecondWarning: updatedUser?.intervalTenSecondWarning ?? true,
         intervalBeepsEnabled: updatedUser?.intervalBeepsEnabled ?? true,
+        breathworkCueStyle: updatedUser?.breathworkCueStyle || "inhale_exhale",
       });
     } catch (error) {
       console.error("Update preferences error:", error);

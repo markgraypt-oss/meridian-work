@@ -55,6 +55,7 @@ export const users = pgTable("users", {
   intervalHalfwayCue: boolean("interval_halfway_cue").notNull().default(true),
   intervalTenSecondWarning: boolean("interval_ten_second_warning").notNull().default(true),
   intervalBeepsEnabled: boolean("interval_beeps_enabled").notNull().default(true),
+  breathworkCueStyle: varchar("breathwork_cue_style").default("inhale_exhale"),
   onboardingCompleted: boolean("onboarding_completed").default(false),
   onboardingDismissed: boolean("onboarding_dismissed").default(false),
   onboardingStep: integer("onboarding_step").default(0),

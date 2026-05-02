@@ -14463,6 +14463,34 @@ Keep your response concise, practical, and evidence-based. Do not use em dashes.
     }
   });
 
+  app.delete('/api/breathwork/sessions/:id', isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = req.user.claims.sub;
+      const id = parseInt(req.params.id, 10);
+
+      if (!Number.isFinite(id)) {
+        return res.status(400).json({ message: "Invalid session id" });
+      }
+
+      const session = await storage.getBreathWorkSessionLogById(id);
+      if (!session || session.userId !== userId) {
+        return res.status(404).json({ message: "Session not found" });
+      }
+
+      await storage.deleteBreathWorkSessionLog(id);
+
+      // Recompute streak after deletion (non-blocking)
+      storage.updateUserStreak(userId).catch(err => {
+        console.error(`[STREAK] Background update failed, will recalculate on next fetch:`, err?.message);
+      });
+
+      res.status(204).end();
+    } catch (error) {
+      console.error("Error deleting breath work session:", error);
+      res.status(500).json({ message: "Failed to delete breath work session" });
+    }
+  });
+
   app.get('/api/breathwork/stats', isAuthenticated, async (req: any, res) => {
     try {
       const userId = req.user.claims.sub;

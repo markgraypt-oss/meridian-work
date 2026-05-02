@@ -913,7 +913,9 @@ export interface IStorage {
   deleteBreathTechnique(id: number): Promise<void>;
   
   getBreathWorkSessionLogs(userId: string, limit?: number): Promise<BreathWorkSessionLog[]>;
+  getBreathWorkSessionLogById(id: number): Promise<BreathWorkSessionLog | null>;
   createBreathWorkSessionLog(session: InsertBreathWorkSessionLog): Promise<BreathWorkSessionLog>;
+  deleteBreathWorkSessionLog(id: number): Promise<void>;
   getBreathWorkStats(userId: string): Promise<{ totalSessions: number; totalMinutes: number; currentStreak: number }>;
   
   getCustomBreathRoutines(userId: string): Promise<CustomBreathRoutine[]>;
@@ -10208,6 +10210,19 @@ export class DatabaseStorage implements IStorage {
   async createBreathWorkSessionLog(session: InsertBreathWorkSessionLog): Promise<BreathWorkSessionLog> {
     const [created] = await db.insert(breathWorkSessionLogs).values(session).returning();
     return created;
+  }
+
+  async getBreathWorkSessionLogById(id: number): Promise<BreathWorkSessionLog | null> {
+    const [row] = await db
+      .select()
+      .from(breathWorkSessionLogs)
+      .where(eq(breathWorkSessionLogs.id, id))
+      .limit(1);
+    return row ?? null;
+  }
+
+  async deleteBreathWorkSessionLog(id: number): Promise<void> {
+    await db.delete(breathWorkSessionLogs).where(eq(breathWorkSessionLogs.id, id));
   }
 
   async getBreathWorkStats(userId: string): Promise<{ totalSessions: number; totalMinutes: number; currentStreak: number }> {

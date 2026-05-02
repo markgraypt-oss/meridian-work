@@ -253,11 +253,11 @@ export default function WorkdayDeskScan() {
             
             {imagePreview ? (
               <div className="space-y-4">
-                <div className="relative rounded-xl overflow-hidden">
-                  <img 
-                    src={imagePreview} 
-                    alt="Desk preview" 
-                    className="w-full h-64 object-cover"
+                <div className="relative rounded-xl overflow-hidden bg-black/40 flex items-center justify-center">
+                  <img
+                    src={imagePreview}
+                    alt="Desk preview"
+                    className="w-full h-auto max-h-[70vh] object-contain"
                   />
                   <Button
                     variant="secondary"

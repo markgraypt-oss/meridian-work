@@ -141,16 +141,59 @@ export default function WorkdayDeskScan() {
     }
   });
 
-  const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (file) {
+  const downscaleImage = (file: File): Promise<string> => {
+    return new Promise((resolve, reject) => {
       const reader = new FileReader();
+      reader.onerror = () => reject(new Error("Could not read file"));
       reader.onload = (e) => {
-        const base64 = e.target?.result as string;
-        setImagePreview(base64);
-        setAnalysis(null);
+        const dataUrl = e.target?.result as string;
+        const img = new Image();
+        img.onerror = () => reject(new Error("Could not decode image"));
+        img.onload = () => {
+          // Anthropic caps at 5 MB. Resize to max 1600px on the longest side
+          // and re-encode as JPEG at 0.85 quality, which keeps plenty of detail
+          // for ergonomic analysis while comfortably staying under the limit.
+          const MAX_DIM = 1600;
+          let { width, height } = img;
+          if (width > MAX_DIM || height > MAX_DIM) {
+            if (width >= height) {
+              height = Math.round((height * MAX_DIM) / width);
+              width = MAX_DIM;
+            } else {
+              width = Math.round((width * MAX_DIM) / height);
+              height = MAX_DIM;
+            }
+          }
+          const canvas = document.createElement("canvas");
+          canvas.width = width;
+          canvas.height = height;
+          const ctx = canvas.getContext("2d");
+          if (!ctx) {
+            reject(new Error("Canvas not supported"));
+            return;
+          }
+          ctx.drawImage(img, 0, 0, width, height);
+          resolve(canvas.toDataURL("image/jpeg", 0.85));
+        };
+        img.src = dataUrl;
       };
       reader.readAsDataURL(file);
+    });
+  };
+
+  const handleFileSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    try {
+      const base64 = await downscaleImage(file);
+      setImagePreview(base64);
+      setAnalysis(null);
+    } catch {
+      toast({
+        title: "Couldn't load that image",
+        description: "Try another photo.",
+        variant: "destructive",
+      });
     }
   };
 

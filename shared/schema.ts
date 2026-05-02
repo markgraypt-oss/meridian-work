@@ -2375,6 +2375,8 @@ export const workdayDeskScans = pgTable("workday_desk_scans", {
   positionType: text("position_type").notNull(), // 'seated', 'standing', 'alternative'
   imageUrl: text("image_url"), // Captured image
   observations: text("observations").array(), // Key observations/feedback
+  score: integer("score"), // 1-10 ergonomic score
+  analysis: jsonb("analysis"), // Full structured AI analysis (issues w/ coordinates + confidence, summary, priorityFixes)
   scanDate: timestamp("scan_date").defaultNow(),
   createdAt: timestamp("created_at").defaultNow(),
 });
@@ -2403,6 +2405,23 @@ export const insertWorkdayDeskSetupSchema = createInsertSchema(workdayDeskSetups
 export const insertWorkdayDeskTipSchema = createInsertSchema(workdayDeskTips).omit({ id: true, createdAt: true, updatedAt: true });
 export const insertWorkdayUserProfileSchema = createInsertSchema(workdayUserProfiles).omit({ id: true, createdAt: true, updatedAt: true });
 export const insertWorkdayDeskScanSchema = createInsertSchema(workdayDeskScans).omit({ id: true, createdAt: true });
+
+// Per-user action items generated from a desk scan ("Add to my plan")
+export const userDeskFixTasks = pgTable("user_desk_fix_tasks", {
+  id: serial("id").primaryKey(),
+  userId: varchar("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+  scanId: integer("scan_id").references(() => workdayDeskScans.id, { onDelete: "set null" }),
+  category: text("category").notNull(),
+  observation: text("observation").notNull(),
+  recommendation: text("recommendation").notNull(),
+  status: text("status").notNull().default("todo"), // 'todo' | 'done'
+  createdAt: timestamp("created_at").defaultNow(),
+  completedAt: timestamp("completed_at"),
+});
+
+export type UserDeskFixTask = typeof userDeskFixTasks.$inferSelect;
+export type InsertUserDeskFixTask = typeof userDeskFixTasks.$inferInsert;
+export const insertUserDeskFixTaskSchema = createInsertSchema(userDeskFixTasks).omit({ id: true, createdAt: true, completedAt: true });
 
 // AI Coaching Settings - admin-configurable prompts for AI features
 export const aiCoachingSettings = pgTable("ai_coaching_settings", {

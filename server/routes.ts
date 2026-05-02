@@ -213,6 +213,7 @@ import {
   insertWorkdayDeskTipSchema,
   insertWorkdayUserProfileSchema,
   insertWorkdayDeskScanSchema,
+  insertUserDeskFixTaskSchema,
   insertMeditationSessionLogSchema,
   insertGratitudeEntrySchema,
   insertMindfulnessToolSchema,
@@ -15809,11 +15810,145 @@ Keep your response concise, practical, and evidence-based. Do not use em dashes.
 
   app.delete('/api/workday/scans/:id', isAuthenticated, async (req: any, res) => {
     try {
-      await storage.deleteWorkdayDeskScan(parseInt(req.params.id));
+      const userId = req.user.claims.sub;
+      const id = parseInt(req.params.id);
+      const existing = await storage.getWorkdayDeskScanById(id);
+      if (!existing || existing.userId !== userId) return res.status(404).json({ message: 'Not found' });
+      await storage.deleteWorkdayDeskScan(id);
       res.status(204).send();
     } catch (error) {
       console.error("Error deleting desk scan:", error);
       res.status(500).json({ message: "Failed to delete scan" });
+    }
+  });
+
+  // ----- Per-user Desk Fix Tasks ("Add to my plan") -----
+  app.get('/api/workday/desk-fix-tasks', isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = req.user.claims.sub;
+      const tasks = await storage.getUserDeskFixTasks(userId);
+      res.json(tasks);
+    } catch (error) {
+      console.error('Error fetching desk fix tasks:', error);
+      res.status(500).json({ message: 'Failed to fetch tasks' });
+    }
+  });
+
+  app.post('/api/workday/desk-fix-tasks', isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = req.user.claims.sub;
+      const validated = insertUserDeskFixTaskSchema.parse({ ...req.body, userId });
+      // If a scanId is supplied, make sure it belongs to this user. Otherwise
+      // we'd allow cross-tenant FK linking via the body.
+      if (validated.scanId != null) {
+        const owningScan = await storage.getWorkdayDeskScanById(validated.scanId);
+        if (!owningScan || owningScan.userId !== userId) {
+          return res.status(404).json({ message: 'Scan not found' });
+        }
+      }
+      const task = await storage.createUserDeskFixTask(validated);
+      res.status(201).json(task);
+    } catch (error) {
+      console.error('Error creating desk fix task:', error);
+      res.status(400).json({ message: 'Failed to create task' });
+    }
+  });
+
+  app.patch('/api/workday/desk-fix-tasks/:id', isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = req.user.claims.sub;
+      const id = parseInt(req.params.id);
+      const existing = await storage.getUserDeskFixTaskById(id);
+      if (!existing || existing.userId !== userId) return res.status(404).json({ message: 'Not found' });
+      const status = req.body?.status === 'done' ? 'done' : 'todo';
+      const updated = await storage.updateUserDeskFixTaskStatus(id, status);
+      res.json(updated);
+    } catch (error) {
+      console.error('Error updating desk fix task:', error);
+      res.status(500).json({ message: 'Failed to update task' });
+    }
+  });
+
+  app.delete('/api/workday/desk-fix-tasks/:id', isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = req.user.claims.sub;
+      const id = parseInt(req.params.id);
+      const existing = await storage.getUserDeskFixTaskById(id);
+      if (!existing || existing.userId !== userId) return res.status(404).json({ message: 'Not found' });
+      await storage.deleteUserDeskFixTask(id);
+      res.status(204).send();
+    } catch (error) {
+      console.error('Error deleting desk fix task:', error);
+      res.status(500).json({ message: 'Failed to delete task' });
+    }
+  });
+
+  // ----- Voice walkthrough (OpenAI TTS) for a saved desk scan -----
+  // Bounded in-memory LRU cache (best-effort). Caps at 100 entries to keep
+  // memory predictable; oldest entry evicted when full.
+  const DESK_SCAN_AUDIO_CACHE_MAX = 100;
+  const deskScanAudioCache = new Map<number, Buffer>();
+  function rememberDeskScanAudio(scanId: number, audio: Buffer) {
+    if (deskScanAudioCache.has(scanId)) deskScanAudioCache.delete(scanId);
+    deskScanAudioCache.set(scanId, audio);
+    while (deskScanAudioCache.size > DESK_SCAN_AUDIO_CACHE_MAX) {
+      const oldestKey = deskScanAudioCache.keys().next().value;
+      if (oldestKey === undefined) break;
+      deskScanAudioCache.delete(oldestKey);
+    }
+  }
+  function recallDeskScanAudio(scanId: number): Buffer | undefined {
+    const buf = deskScanAudioCache.get(scanId);
+    if (buf) {
+      // Move-to-end for LRU recency
+      deskScanAudioCache.delete(scanId);
+      deskScanAudioCache.set(scanId, buf);
+    }
+    return buf;
+  }
+
+  app.get('/api/workday/scans/:id/audio', isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = req.user.claims.sub;
+      const id = parseInt(req.params.id);
+      const scan = await storage.getWorkdayDeskScanById(id);
+      if (!scan || scan.userId !== userId) return res.status(404).json({ message: 'Not found' });
+
+      let audio = recallDeskScanAudio(id);
+      if (!audio) {
+        const a: any = scan.analysis || {};
+        const score = typeof scan.score === 'number' ? scan.score : (typeof a.score === 'number' ? a.score : null);
+        const summary = a.summary ? String(a.summary) : '';
+        const fixes: string[] = Array.isArray(a.priorityFixes) ? a.priorityFixes.slice(0, 3) : [];
+
+        const lines: string[] = [];
+        if (score !== null) lines.push(`Your desk setup scored ${score} out of 10.`);
+        if (summary) lines.push(summary);
+        if (fixes.length) {
+          lines.push('Here are your top fixes.');
+          fixes.forEach((f, i) => lines.push(`${i + 1}. ${f}`));
+        }
+        const script = lines.join(' ').slice(0, 1200);
+        if (!script) return res.status(400).json({ message: 'Nothing to read out for this scan' });
+
+        const OpenAI = (await import('openai')).default;
+        const client = new OpenAI({ apiKey: process.env.AI_INTEGRATIONS_OPENAI_API_KEY });
+        const speech = await client.audio.speech.create({
+          model: 'gpt-4o-mini-tts',
+          voice: 'alloy',
+          input: script,
+          response_format: 'mp3',
+        });
+        audio = Buffer.from(await speech.arrayBuffer());
+        rememberDeskScanAudio(id, audio);
+      }
+
+      res.setHeader('Content-Type', 'audio/mpeg');
+      res.setHeader('Cache-Control', 'private, max-age=86400');
+      res.send(audio);
+    } catch (error: any) {
+      console.error('Error generating scan audio:', error?.message);
+      res.status(500).json({ message: 'Failed to generate audio summary' });
     }
   });
 
@@ -15824,6 +15959,19 @@ Keep your response concise, practical, and evidence-based. Do not use em dashes.
       
       if (!imageBase64) {
         return res.status(400).json({ message: "Image is required" });
+      }
+
+      // Upload original photo to object storage so we can render it on the
+      // results screen without re-uploading.
+      let imageUrl: string | null = null;
+      try {
+        const { detectImageMediaType } = await import('./aiProvider');
+        const mediaType = detectImageMediaType(imageBase64);
+        const cleanBase64 = imageBase64.replace(/^data:image\/[^;]+;base64,/, '');
+        const buf = Buffer.from(cleanBase64, 'base64');
+        imageUrl = await uploadProfileImageBufferToStorage(buf, mediaType);
+      } catch (uploadErr: any) {
+        console.error('[DESK SCAN] image upload failed:', uploadErr?.message);
       }
 
       const { analyzeVision, getProviderConfig, getCoachingContext } = await import('./aiProvider');
@@ -15842,14 +15990,13 @@ Please evaluate and provide feedback on:
 5. **Posture Indicators** - Any visible posture concerns based on the setup
 6. **Desk Organization** - Clutter, frequently used items within reach
 
-For each issue found, provide:
-- What's wrong
-- Why it matters for health/productivity
-- How to fix it
+For each issue, you MUST also estimate:
+- **bbox**: a bounding box on the photo locating the problem area, expressed as percentages of the image. Format: { "x": 0-100, "y": 0-100, "w": 0-100, "h": 0-100 } where x,y is the top-left corner. If the issue is not localizable to a region of the image (e.g. general lighting), use null.
+- **confidence**: how sure you are this issue is real, given the photo. One of: "visible" (you can clearly see the problem), "likely" (inferred from posture or context), "unclear" (the photo angle hides the truth).
 
 End with a summary score (1-10) and top 3 priority fixes.
 
-Format your response as JSON with this structure:
+Format your response as JSON with this exact structure:
 {
   "score": number,
   "summary": "brief overall assessment",
@@ -15858,7 +16005,9 @@ Format your response as JSON with this structure:
       "category": "category name",
       "status": "good" | "needs_improvement" | "critical",
       "observation": "what you see",
-      "recommendation": "how to fix it"
+      "recommendation": "how to fix it",
+      "bbox": { "x": 0-100, "y": 0-100, "w": 0-100, "h": 0-100 } | null,
+      "confidence": "visible" | "likely" | "unclear"
     }
   ],
   "priorityFixes": ["fix 1", "fix 2", "fix 3"]
@@ -15886,12 +16035,16 @@ Format your response as JSON with this structure:
 
       const userId = req.user.claims.sub;
       const observations = analysis.issues?.map((i: any) => `${i.category}: ${i.observation}`) || [];
-      
+      const score = typeof analysis.score === 'number' ? analysis.score : null;
+
       const scan = await storage.createWorkdayDeskScan({
         userId,
         deskType: deskType || 'standard',
         positionType: positionType || 'seated',
         observations,
+        score,
+        analysis,
+        imageUrl,
       });
 
       // Check and award eligible badges after desk scan

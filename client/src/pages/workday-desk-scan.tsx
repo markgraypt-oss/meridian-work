@@ -1,5 +1,5 @@
-import { useState, useRef, useEffect } from "react";
-import { useMutation } from "@tanstack/react-query";
+import { useState, useRef, useEffect, useMemo } from "react";
+import { useMutation, useQuery } from "@tanstack/react-query";
 import { useAuth } from "@/hooks/useAuth";
 import { useToast } from "@/hooks/use-toast";
 import { useLocation } from "wouter";
@@ -8,6 +8,9 @@ import TopHeader from "@/components/TopHeader";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer } from "recharts";
+import idealSeatedRef from "@assets/desk-references/ideal-seated.png";
+import idealStandingRef from "@assets/desk-references/ideal-standing.png";
 import { 
   Camera, 
   Upload, 
@@ -23,7 +26,13 @@ import {
   ChevronDown,
   ChevronUp,
   ArrowRight,
-  Target
+  Target,
+  Volume2,
+  Pause,
+  Plus,
+  Eye,
+  RefreshCw,
+  TrendingUp
 } from "lucide-react";
 
 type PositionType = "seated" | "standing" | "alternative";
@@ -33,6 +42,8 @@ interface AnalysisIssue {
   status: "good" | "needs_improvement" | "critical";
   observation: string;
   recommendation: string;
+  bbox?: { x: number; y: number; w: number; h: number } | null;
+  confidence?: "visible" | "likely" | "unclear";
 }
 
 interface AnalysisResult {
@@ -41,6 +52,30 @@ interface AnalysisResult {
   issues: AnalysisIssue[];
   priorityFixes: string[];
   rawResponse?: string;
+}
+
+interface DeskScanRow {
+  id: number;
+  score: number | null;
+  scanDate: string | null;
+  createdAt: string | null;
+  positionType: string;
+}
+
+interface DeskFixTask {
+  id: number;
+  scanId: number | null;
+  category: string;
+  observation: string;
+  recommendation: string;
+  status: 'todo' | 'done';
+}
+
+function getConfidenceLabel(c?: string) {
+  if (c === 'visible') return { label: 'Clearly visible', cls: 'bg-emerald-500/15 text-emerald-400 border-emerald-500/30' };
+  if (c === 'likely') return { label: 'Likely', cls: 'bg-amber-500/15 text-amber-400 border-amber-500/30' };
+  if (c === 'unclear') return { label: 'Hard to tell', cls: 'bg-gray-500/15 text-gray-400 border-gray-500/30' };
+  return null;
 }
 
 function getStatusColor(status: string) {
@@ -104,7 +139,149 @@ export default function WorkdayDeskScan() {
   const [pendingAction, setPendingAction] = useState<"camera" | "upload" | null>(null);
   const [deskFeedback, setDeskFeedback] = useState<'positive' | 'negative' | null>(null);
   const [expandedIssue, setExpandedIssue] = useState<number | null>(null);
+  const [scanId, setScanId] = useState<number | null>(null);
+  const [showReference, setShowReference] = useState(false);
+  const [audioState, setAudioState] = useState<'idle' | 'loading' | 'playing' | 'paused'>('idle');
+  const [activeMarker, setActiveMarker] = useState<number | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const audioRef = useRef<HTMLAudioElement | null>(null);
+  const issueRefs = useRef<Record<number, HTMLDivElement | null>>({});
+
+  // History for "score over time" chart
+  const { data: scanHistory = [] } = useQuery<DeskScanRow[]>({
+    queryKey: ['/api/workday/scans'],
+    enabled: isAuthenticated,
+  });
+
+  // Existing per-user fix tasks - to grey out "Add to my plan" buttons that
+  // are already added.
+  const { data: fixTasks = [] } = useQuery<DeskFixTask[]>({
+    queryKey: ['/api/workday/desk-fix-tasks'],
+    enabled: isAuthenticated,
+  });
+
+  const addedKey = (issue: AnalysisIssue) => `${issue.category}::${issue.observation}`;
+  const addedSet = useMemo(() => {
+    const s = new Set<string>();
+    for (const t of fixTasks) {
+      if (scanId && t.scanId === scanId) s.add(`${t.category}::${t.observation}`);
+    }
+    return s;
+  }, [fixTasks, scanId]);
+
+  const addToPlanMutation = useMutation({
+    mutationFn: async (issue: AnalysisIssue) => {
+      const res = await apiRequest('POST', '/api/workday/desk-fix-tasks', {
+        scanId,
+        category: issue.category,
+        observation: issue.observation,
+        recommendation: issue.recommendation,
+        status: 'todo',
+      });
+      return res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['/api/workday/desk-fix-tasks'] });
+      toast({ title: 'Added to your plan', description: 'Find it in your desk fix tasks.' });
+    },
+    onError: () => {
+      toast({ title: "Couldn't add that one", description: 'Try again in a moment.', variant: 'destructive' });
+    },
+  });
+
+  // Build chart data - oldest -> newest, only scans with a numeric score
+  const chartData = useMemo(() => {
+    return [...scanHistory]
+      .filter(s => typeof s.score === 'number')
+      .sort((a, b) => {
+        const ad = new Date(a.scanDate || a.createdAt || 0).getTime();
+        const bd = new Date(b.scanDate || b.createdAt || 0).getTime();
+        return ad - bd;
+      })
+      .slice(-10)
+      .map((s, i) => ({
+        idx: i + 1,
+        score: s.score,
+        date: new Date(s.scanDate || s.createdAt || 0).toLocaleDateString(undefined, { month: 'short', day: 'numeric' }),
+      }));
+  }, [scanHistory]);
+
+  const audioUrlRef = useRef<string | null>(null);
+  const revokeAudio = () => {
+    if (audioRef.current) {
+      audioRef.current.pause();
+      audioRef.current.src = '';
+    }
+    if (audioUrlRef.current) {
+      URL.revokeObjectURL(audioUrlRef.current);
+      audioUrlRef.current = null;
+    }
+    audioRef.current = null;
+  };
+
+  const handlePlayAudio = async () => {
+    if (!scanId) return;
+    if (audioRef.current && audioState === 'playing') {
+      audioRef.current.pause();
+      setAudioState('paused');
+      return;
+    }
+    if (audioRef.current && audioState === 'paused') {
+      audioRef.current.play();
+      setAudioState('playing');
+      return;
+    }
+    try {
+      setAudioState('loading');
+      const res = await fetch(`/api/workday/scans/${scanId}/audio`, { credentials: 'include' });
+      if (!res.ok) throw new Error('audio fetch failed');
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      const audio = new Audio(url);
+      audio.onended = () => { setAudioState('idle'); revokeAudio(); };
+      audio.onerror = () => { setAudioState('idle'); revokeAudio(); };
+      audioRef.current = audio;
+      audioUrlRef.current = url;
+      await audio.play();
+      setAudioState('playing');
+    } catch {
+      setAudioState('idle');
+      revokeAudio();
+      toast({ title: "Couldn't load voice summary", description: 'Try again in a moment.', variant: 'destructive' });
+    }
+  };
+
+  // Stop audio + free blob URL when scan changes / unmounts
+  useEffect(() => {
+    return () => {
+      revokeAudio();
+    };
+  }, []);
+
+  // Reset audio state when the scan changes (new analysis = new audio)
+  useEffect(() => {
+    revokeAudio();
+    setAudioState('idle');
+  }, [scanId]);
+
+  const handleMarkerClick = (idx: number) => {
+    setActiveMarker(idx);
+    setExpandedIssue(idx);
+    const el = issueRefs.current[idx];
+    if (el) el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    setTimeout(() => setActiveMarker(null), 1500);
+  };
+
+  const handleRescan = () => {
+    // Reset to the upload state so the user can pick another photo.
+    setImagePreview(null);
+    setAnalysis(null);
+    setScanId(null);
+    setExpandedIssue(null);
+    revokeAudio();
+    setAudioState('idle');
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  };
 
   const submitDeskFeedback = async (rating: 'positive' | 'negative') => {
     if (deskFeedback) return;
@@ -126,6 +303,7 @@ export default function WorkdayDeskScan() {
     },
     onSuccess: (data: { scanId: number; analysis: AnalysisResult }) => {
       setAnalysis(data.analysis);
+      setScanId(data.scanId);
       queryClient.invalidateQueries({ queryKey: ['/api/workday/scans'] });
       toast({ 
         title: "Analysis complete!", 
@@ -302,12 +480,51 @@ export default function WorkdayDeskScan() {
                     alt="Desk preview"
                     className="w-full h-auto max-h-[70vh] object-contain"
                   />
+                  {/* Annotated markers overlay - only after analysis */}
+                  {Array.isArray(analysis?.issues) && analysis!.issues.length > 0 && (
+                    <div className="absolute inset-0 pointer-events-none">
+                      {analysis!.issues
+                        .map((issue, idx) => ({ issue, idx }))
+                        .filter(({ issue }) =>
+                          issue && issue.bbox &&
+                          typeof issue.bbox.x === 'number' && typeof issue.bbox.y === 'number' &&
+                          typeof issue.bbox.w === 'number' && typeof issue.bbox.h === 'number' &&
+                          issue.status !== 'good'
+                        )
+                        .map(({ issue, idx }) => {
+                          const { x, y, w, h } = issue.bbox!;
+                          const colors = getStatusColor(issue.status);
+                          const isActive = activeMarker === idx;
+                          return (
+                            <button
+                              key={idx}
+                              onClick={() => handleMarkerClick(idx)}
+                              className={`absolute pointer-events-auto rounded-md border-2 transition-all ${colors.border} ${isActive ? 'ring-4 ring-white/40 scale-105' : ''}`}
+                              style={{
+                                left: `${Math.max(0, Math.min(100, x))}%`,
+                                top: `${Math.max(0, Math.min(100, y))}%`,
+                                width: `${Math.max(2, Math.min(100 - x, w))}%`,
+                                height: `${Math.max(2, Math.min(100 - y, h))}%`,
+                                background: 'rgba(0,0,0,0.05)',
+                              }}
+                              data-testid={`marker-issue-${idx}`}
+                              aria-label={`Jump to fix: ${issue.observation}`}
+                            >
+                              <span className={`absolute -top-3 -left-3 w-7 h-7 rounded-full ${colors.dot} text-white text-xs font-bold flex items-center justify-center shadow-lg border-2 border-background`}>
+                                {idx + 1}
+                              </span>
+                            </button>
+                          );
+                        })}
+                    </div>
+                  )}
                   <Button
                     variant="secondary"
                     size="sm"
                     onClick={() => {
                       setImagePreview(null);
                       setAnalysis(null);
+                      setScanId(null);
                     }}
                     className="absolute top-3 right-3"
                   >
@@ -386,10 +603,60 @@ export default function WorkdayDeskScan() {
                         <p className="text-sm text-foreground/70 mt-1">
                           {analysis.summary}
                         </p>
+                        {scanId && (
+                          <button
+                            onClick={handlePlayAudio}
+                            disabled={audioState === 'loading'}
+                            className="mt-3 inline-flex items-center gap-2 text-xs px-3 py-1.5 rounded-full bg-[#0cc9a9]/15 text-[#0cc9a9] border border-[#0cc9a9]/30 hover:bg-[#0cc9a9]/25 transition-colors disabled:opacity-60"
+                            data-testid="button-play-summary"
+                          >
+                            {audioState === 'loading' ? (
+                              <><Loader2 className="h-3.5 w-3.5 animate-spin" /> Loading...</>
+                            ) : audioState === 'playing' ? (
+                              <><Pause className="h-3.5 w-3.5" /> Pause summary</>
+                            ) : (
+                              <><Volume2 className="h-3.5 w-3.5" /> Play summary</>
+                            )}
+                          </button>
+                        )}
                       </div>
                     </div>
                   </CardContent>
                 </Card>
+
+                {/* Score over time chart - shows trend if user has 2+ scored scans */}
+                {chartData.length >= 2 && (
+                  <div className="mt-4 p-3 rounded-lg bg-background/40 border border-border/40">
+                    <div className="flex items-center gap-2 mb-2">
+                      <TrendingUp className="h-4 w-4 text-[#0cc9a9]" />
+                      <span className="text-xs font-medium text-muted-foreground uppercase tracking-wide">Your score trend</span>
+                    </div>
+                    <div className="h-32">
+                      <ResponsiveContainer width="100%" height="100%">
+                        <LineChart data={chartData} margin={{ top: 8, right: 8, left: -20, bottom: 0 }}>
+                          <XAxis dataKey="date" tick={{ fontSize: 10, fill: '#888' }} axisLine={false} tickLine={false} />
+                          <YAxis domain={[0, 10]} tick={{ fontSize: 10, fill: '#888' }} axisLine={false} tickLine={false} />
+                          <Tooltip
+                            contentStyle={{ background: '#0e1114', border: '1px solid rgba(12,201,169,0.3)', borderRadius: 8, fontSize: 12 }}
+                            labelStyle={{ color: '#0cc9a9' }}
+                          />
+                          <Line type="monotone" dataKey="score" stroke="#0cc9a9" strokeWidth={2} dot={{ fill: '#0cc9a9', r: 3 }} activeDot={{ r: 5 }} />
+                        </LineChart>
+                      </ResponsiveContainer>
+                    </div>
+                    <p className="text-xs text-muted-foreground mt-1 text-center">
+                      Last {chartData.length} scans
+                    </p>
+                  </div>
+                )}
+                {chartData.length === 1 && (
+                  <div className="mt-4 p-3 rounded-lg bg-background/40 border border-border/40 flex items-center gap-2">
+                    <TrendingUp className="h-4 w-4 text-muted-foreground" />
+                    <p className="text-xs text-muted-foreground">
+                      First scan saved. Rescan after making a change to start tracking your trend.
+                    </p>
+                  </div>
+                )}
 
                 <div className="flex items-center gap-2 mt-4 pt-3 border-t border-border">
                   <span className="text-xs text-muted-foreground mr-1">Was this helpful?</span>
@@ -411,39 +678,56 @@ export default function WorkdayDeskScan() {
               </CardContent>
             </Card>
 
-            {analysis.issues && analysis.issues.length > 0 && (
+            {Array.isArray(analysis.issues) && analysis.issues.length > 0 && (
               <div className="space-y-3">
                 <h3 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider px-1">
                   Priority Fixes
                 </h3>
-                {[...analysis.issues]
+                {analysis.issues
+                  .filter((i: any) => i && typeof i.observation === 'string' && typeof i.status === 'string')
+                  .map((issue, originalIdx) => ({ issue, originalIdx }))
                   .sort((a, b) => {
                     const order = { critical: 0, needs_improvement: 1, good: 2 };
-                    return (order[a.status] ?? 3) - (order[b.status] ?? 3);
+                    return (order[a.issue.status] ?? 3) - (order[b.issue.status] ?? 3);
                   })
-                  .map((issue, index) => {
+                  .map(({ issue, originalIdx }) => {
                     const colors = getStatusColor(issue.status);
-                    const isExpanded = expandedIssue === index;
+                    const isExpanded = expandedIssue === originalIdx;
                     const isExpandable = issue.status !== "good";
+                    const conf = getConfidenceLabel(issue.confidence);
+                    const isAdded = addedSet.has(addedKey(issue));
+                    const hasMarker = !!issue.bbox && issue.status !== 'good';
                     return (
                       <Card
-                        key={index}
-                        className={`bg-card border ${colors.border} transition-all`}
+                        key={originalIdx}
+                        ref={(el) => { issueRefs.current[originalIdx] = el; }}
+                        className={`bg-card border ${colors.border} transition-all ${activeMarker === originalIdx ? 'ring-2 ring-[#0cc9a9]/60' : ''}`}
                       >
                         <CardContent className="p-0">
                           <div
                             role={isExpandable ? "button" : undefined}
                             tabIndex={isExpandable ? 0 : undefined}
-                            onClick={() => isExpandable && setExpandedIssue(isExpanded ? null : index)}
-                            onKeyDown={(e) => isExpandable && (e.key === "Enter" || e.key === " ") && setExpandedIssue(isExpanded ? null : index)}
+                            onClick={() => isExpandable && setExpandedIssue(isExpanded ? null : originalIdx)}
+                            onKeyDown={(e) => isExpandable && (e.key === "Enter" || e.key === " ") && setExpandedIssue(isExpanded ? null : originalIdx)}
                             className={`w-full p-4 text-left ${isExpandable ? "cursor-pointer" : ""}`}
                           >
                             <div className="flex items-start gap-3">
-                              <div className={`w-2.5 h-2.5 rounded-full ${colors.dot} mt-1.5 flex-shrink-0`} />
+                              {hasMarker ? (
+                                <span className={`w-6 h-6 rounded-full ${colors.dot} text-white text-xs font-bold flex items-center justify-center mt-0.5 flex-shrink-0`}>
+                                  {originalIdx + 1}
+                                </span>
+                              ) : (
+                                <div className={`w-2.5 h-2.5 rounded-full ${colors.dot} mt-1.5 flex-shrink-0`} />
+                              )}
                               <div className="flex-1 min-w-0">
                                 <p className="text-sm text-foreground/90 leading-relaxed">
                                   {issue.observation}
                                 </p>
+                                {conf && (
+                                  <span className={`inline-block mt-1.5 text-[10px] font-medium px-2 py-0.5 rounded-full border ${conf.cls}`}>
+                                    {conf.label}
+                                  </span>
+                                )}
                               </div>
                               <div className="flex items-center gap-2 flex-shrink-0">
                                 <span className={`text-xs font-medium px-2.5 py-1 rounded-full border ${colors.badge}`}>
@@ -464,18 +748,37 @@ export default function WorkdayDeskScan() {
                                 <p className="text-sm text-foreground/70 mb-3">
                                   {issue.recommendation}
                                 </p>
-                                <Button
-                                  size="sm"
-                                  variant="outline"
-                                  className="border-[#0cc9a9]/50 text-[#0cc9a9] hover:bg-[#0cc9a9]/10 hover:text-[#0cc9a9]"
-                                  onClick={(e) => {
-                                    e.stopPropagation();
-                                    navigate("/recovery/desk-health/positions");
-                                  }}
-                                >
-                                  View fix
-                                  <ArrowRight className="h-3.5 w-3.5 ml-1.5" />
-                                </Button>
+                                <div className="flex flex-wrap gap-2">
+                                  <Button
+                                    size="sm"
+                                    variant="outline"
+                                    className="border-[#0cc9a9]/50 text-[#0cc9a9] hover:bg-[#0cc9a9]/10 hover:text-[#0cc9a9]"
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      navigate("/recovery/desk-health/positions");
+                                    }}
+                                  >
+                                    View fix
+                                    <ArrowRight className="h-3.5 w-3.5 ml-1.5" />
+                                  </Button>
+                                  <Button
+                                    size="sm"
+                                    variant="outline"
+                                    disabled={isAdded || addToPlanMutation.isPending || !scanId}
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      addToPlanMutation.mutate(issue);
+                                    }}
+                                    className="border-[#0cc9a9]/50 text-[#0cc9a9] hover:bg-[#0cc9a9]/10 hover:text-[#0cc9a9] disabled:opacity-60"
+                                    data-testid={`button-add-to-plan-${originalIdx}`}
+                                  >
+                                    {isAdded ? (
+                                      <><Check className="h-3.5 w-3.5 mr-1.5" /> In your plan</>
+                                    ) : (
+                                      <><Plus className="h-3.5 w-3.5 mr-1.5" /> Add to my plan</>
+                                    )}
+                                  </Button>
+                                </div>
                               </div>
                             </div>
                           )}
@@ -495,9 +798,68 @@ export default function WorkdayDeskScan() {
               </Card>
             )}
 
+            {/* See an ideal setup - reference photo for current position */}
+            {(positionType === 'seated' || positionType === 'standing') && (
+              <Card className="bg-card border-border">
+                <CardContent className="p-0">
+                  <button
+                    onClick={() => setShowReference(v => !v)}
+                    className="w-full flex items-center justify-between p-4 text-left"
+                    data-testid="button-toggle-reference"
+                  >
+                    <div className="flex items-center gap-2">
+                      <Eye className="h-4 w-4 text-[#0cc9a9]" />
+                      <span className="text-sm font-medium text-foreground">See an ideal {positionType} setup</span>
+                    </div>
+                    {showReference ? <ChevronUp className="h-4 w-4 text-muted-foreground" /> : <ChevronDown className="h-4 w-4 text-muted-foreground" />}
+                  </button>
+                  {showReference && (
+                    <div className="px-4 pb-4 animate-in fade-in slide-in-from-top-2 duration-200">
+                      <div className="rounded-lg overflow-hidden bg-black/40">
+                        <img
+                          src={positionType === 'standing' ? idealStandingRef : idealSeatedRef}
+                          alt={`Ideal ${positionType} desk setup`}
+                          className="w-full h-auto"
+                        />
+                      </div>
+                      <p className="text-xs text-muted-foreground mt-2 text-center">
+                        Reference example. Yours doesn't have to match exactly.
+                      </p>
+                    </div>
+                  )}
+                </CardContent>
+              </Card>
+            )}
+
+            {/* Fix one, rescan CTA - keeps the loop going */}
+            <Card className="bg-gradient-to-br from-[#0cc9a9]/15 to-[#0cc9a9]/5 border-[#0cc9a9]/30">
+              <CardContent className="p-4">
+                <div className="flex items-start gap-3 mb-3">
+                  <div className="p-2 rounded-full bg-[#0cc9a9]/20 flex-shrink-0">
+                    <RefreshCw className="h-4 w-4 text-[#0cc9a9]" />
+                  </div>
+                  <div className="flex-1">
+                    <h4 className="text-sm font-semibold text-foreground">Fixed one of these?</h4>
+                    <p className="text-xs text-foreground/70 mt-0.5">
+                      Rescan to see your score climb.
+                    </p>
+                  </div>
+                </div>
+                <Button
+                  onClick={handleRescan}
+                  className="w-full bg-[#0cc9a9] hover:bg-[#0cc9a9]/80 text-black"
+                  data-testid="button-rescan"
+                >
+                  <Camera className="h-4 w-4 mr-2" />
+                  Rescan my desk
+                </Button>
+              </CardContent>
+            </Card>
+
             <div className="pt-2">
               <Button
-                className="w-full bg-[#0cc9a9] hover:bg-[#0cc9a9]/80 text-black h-12"
+                variant="outline"
+                className="w-full border-[#0cc9a9]/50 text-[#0cc9a9] hover:bg-[#0cc9a9]/10 h-12"
                 onClick={() => navigate("/recovery/desk-health/positions")}
               >
                 Explore Working Positions

@@ -309,6 +309,9 @@ import {
   workdayDeskTips,
   workdayUserProfiles,
   workdayDeskScans,
+  userDeskFixTasks,
+  type UserDeskFixTask,
+  type InsertUserDeskFixTask,
   type WorkdayPosition,
   type InsertWorkdayPosition,
   type WorkdayMicroReset,
@@ -1014,8 +1017,16 @@ export interface IStorage {
 
   // Workday Engine - Desk Scans operations
   getWorkdayDeskScans(userId: string): Promise<WorkdayDeskScan[]>;
+  getWorkdayDeskScanById(id: number): Promise<WorkdayDeskScan | null>;
   createWorkdayDeskScan(scan: InsertWorkdayDeskScan): Promise<WorkdayDeskScan>;
   deleteWorkdayDeskScan(id: number): Promise<void>;
+
+  // Workday Engine - Per-user Desk Fix Tasks
+  getUserDeskFixTasks(userId: string): Promise<UserDeskFixTask[]>;
+  createUserDeskFixTask(task: InsertUserDeskFixTask): Promise<UserDeskFixTask>;
+  updateUserDeskFixTaskStatus(id: number, status: 'todo' | 'done'): Promise<UserDeskFixTask>;
+  deleteUserDeskFixTask(id: number): Promise<void>;
+  getUserDeskFixTaskById(id: number): Promise<UserDeskFixTask | null>;
 
   // AI Coaching Settings operations
   getAiCoachingSetting(feature: string): Promise<AiCoachingSetting | undefined>;
@@ -10895,6 +10906,40 @@ export class DatabaseStorage implements IStorage {
 
   async deleteWorkdayDeskScan(id: number): Promise<void> {
     await db.delete(workdayDeskScans).where(eq(workdayDeskScans.id, id));
+  }
+
+  async getWorkdayDeskScanById(id: number): Promise<WorkdayDeskScan | null> {
+    const [row] = await db.select().from(workdayDeskScans).where(eq(workdayDeskScans.id, id)).limit(1);
+    return row ?? null;
+  }
+
+  // Per-user Desk Fix Tasks operations
+  async getUserDeskFixTasks(userId: string): Promise<UserDeskFixTask[]> {
+    return await db.select().from(userDeskFixTasks)
+      .where(eq(userDeskFixTasks.userId, userId))
+      .orderBy(desc(userDeskFixTasks.createdAt));
+  }
+
+  async createUserDeskFixTask(task: InsertUserDeskFixTask): Promise<UserDeskFixTask> {
+    const [created] = await db.insert(userDeskFixTasks).values(task).returning();
+    return created;
+  }
+
+  async updateUserDeskFixTaskStatus(id: number, status: 'todo' | 'done'): Promise<UserDeskFixTask> {
+    const [updated] = await db.update(userDeskFixTasks)
+      .set({ status, completedAt: status === 'done' ? new Date() : null })
+      .where(eq(userDeskFixTasks.id, id))
+      .returning();
+    return updated;
+  }
+
+  async deleteUserDeskFixTask(id: number): Promise<void> {
+    await db.delete(userDeskFixTasks).where(eq(userDeskFixTasks.id, id));
+  }
+
+  async getUserDeskFixTaskById(id: number): Promise<UserDeskFixTask | null> {
+    const [row] = await db.select().from(userDeskFixTasks).where(eq(userDeskFixTasks.id, id)).limit(1);
+    return row ?? null;
   }
 
   // AI Coaching Settings operations

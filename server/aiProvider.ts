@@ -58,7 +58,7 @@ type SupportedImageMediaType =
   | "image/gif"
   | "image/webp";
 
-function detectImageMediaType(input: string): SupportedImageMediaType {
+export function detectImageMediaType(input: string): SupportedImageMediaType {
   const base64Data = input.replace(/^data:image\/\w+;base64,/, "");
   const head = base64Data.slice(0, 16);
   // Magic-byte sniffing wins over the data-url label, because browsers

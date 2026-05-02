@@ -2214,6 +2214,23 @@ export default function AdminPanel() {
                 </CardContent>
               </Card>
 
+              <Card 
+                className="cursor-pointer hover:shadow-lg transition-shadow border-2 hover:border-primary"
+                onClick={() => navigate('/admin/workday/desk-references')}
+                data-testid="card-admin-workday-desk-references"
+              >
+                <CardHeader>
+                  <CardTitle className="text-lg flex items-center gap-2">
+                    <BookOpen className="h-5 w-5 text-primary" />
+                    Desk Reference Photos
+                  </CardTitle>
+                  <CardDescription>Choose the "ideal setup" example shown in AI Desk Analyzer</CardDescription>
+                </CardHeader>
+                <CardContent>
+                  <Button variant="outline" size="sm">Manage Reference Photos</Button>
+                </CardContent>
+              </Card>
+
             </div>
           </div>
         </TabsContent>

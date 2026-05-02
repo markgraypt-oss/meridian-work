@@ -15883,6 +15883,80 @@ Keep your response concise, practical, and evidence-based. Do not use em dashes.
     }
   });
 
+  // ----- Custom Desk Reference Photos (admin-uploaded ideal setups) -----
+  // Backed by a raw SQL table `workday_desk_references(position, image_url, ...)`
+  // because db:push hangs in this repo. Three positions: seated/standing/alternative.
+  const VALID_REF_POSITIONS = new Set(['seated', 'standing', 'alternative']);
+
+  app.get('/api/workday/desk-references', isAuthenticated, async (_req: any, res) => {
+    try {
+      const { db } = await import('./db');
+      const { sql } = await import('drizzle-orm');
+      const result: any = await db.execute(sql`SELECT position, image_url FROM workday_desk_references`);
+      const rows: Array<{ position: string; image_url: string }> = result.rows || result;
+      const out: Record<string, string | null> = { seated: null, standing: null, alternative: null };
+      for (const r of rows) {
+        if (VALID_REF_POSITIONS.has(r.position)) out[r.position] = r.image_url;
+      }
+      res.json(out);
+    } catch (error) {
+      console.error('Error fetching desk references:', error);
+      res.json({ seated: null, standing: null, alternative: null });
+    }
+  });
+
+  app.post('/api/admin/workday/desk-references', isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = req.user.claims.sub;
+      const me = await storage.getUser(userId);
+      if (!me?.isAdmin) return res.status(403).json({ message: 'Admin only' });
+
+      const { position, imageBase64 } = req.body || {};
+      if (!VALID_REF_POSITIONS.has(position)) return res.status(400).json({ message: 'Invalid position' });
+      if (!imageBase64 || typeof imageBase64 !== 'string') return res.status(400).json({ message: 'imageBase64 required' });
+
+      const { detectImageMediaType } = await import('./aiProvider');
+      const mediaType = detectImageMediaType(imageBase64);
+      const cleanBase64 = imageBase64.replace(/^data:image\/[^;]+;base64,/, '');
+      const buf = Buffer.from(cleanBase64, 'base64');
+      if (buf.length > 5 * 1024 * 1024) return res.status(400).json({ message: 'Image too large (max 5 MB)' });
+      const imageUrl = await uploadProfileImageBufferToStorage(buf, mediaType);
+
+      const { db } = await import('./db');
+      const { sql } = await import('drizzle-orm');
+      await db.execute(sql`
+        INSERT INTO workday_desk_references (position, image_url, updated_by, updated_at)
+        VALUES (${position}, ${imageUrl}, ${userId}, now())
+        ON CONFLICT (position) DO UPDATE
+          SET image_url = EXCLUDED.image_url,
+              updated_by = EXCLUDED.updated_by,
+              updated_at = now()
+      `);
+
+      res.status(201).json({ position, imageUrl });
+    } catch (error: any) {
+      console.error('Error setting desk reference:', error?.message);
+      res.status(500).json({ message: 'Failed to save reference photo' });
+    }
+  });
+
+  app.delete('/api/admin/workday/desk-references/:position', isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = req.user.claims.sub;
+      const me = await storage.getUser(userId);
+      if (!me?.isAdmin) return res.status(403).json({ message: 'Admin only' });
+      const { position } = req.params;
+      if (!VALID_REF_POSITIONS.has(position)) return res.status(400).json({ message: 'Invalid position' });
+      const { db } = await import('./db');
+      const { sql } = await import('drizzle-orm');
+      await db.execute(sql`DELETE FROM workday_desk_references WHERE position = ${position}`);
+      res.status(204).send();
+    } catch (error) {
+      console.error('Error deleting desk reference:', error);
+      res.status(500).json({ message: 'Failed to delete' });
+    }
+  });
+
   // ----- Voice walkthrough (OpenAI TTS) for a saved desk scan -----
   // Bounded in-memory LRU cache (best-effort). Caps at 100 entries to keep
   // memory predictable; oldest entry evicted when full.
@@ -15932,7 +16006,10 @@ Keep your response concise, practical, and evidence-based. Do not use em dashes.
         if (!script) return res.status(400).json({ message: 'Nothing to read out for this scan' });
 
         const OpenAI = (await import('openai')).default;
-        const client = new OpenAI({ apiKey: process.env.AI_INTEGRATIONS_OPENAI_API_KEY });
+        const client = new OpenAI({
+          apiKey: process.env.AI_INTEGRATIONS_OPENAI_API_KEY,
+          baseURL: process.env.AI_INTEGRATIONS_OPENAI_BASE_URL,
+        });
         const speech = await client.audio.speech.create({
           model: 'gpt-4o-mini-tts',
           voice: 'alloy',

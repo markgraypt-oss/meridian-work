@@ -32,7 +32,9 @@ import {
   Plus,
   Eye,
   RefreshCw,
-  TrendingUp
+  TrendingUp,
+  Clock,
+  History
 } from "lucide-react";
 
 type PositionType = "seated" | "standing" | "alternative";
@@ -60,6 +62,14 @@ interface DeskScanRow {
   scanDate: string | null;
   createdAt: string | null;
   positionType: string;
+  imageUrl: string | null;
+  analysis: AnalysisResult | null;
+}
+
+interface DeskReferenceMap {
+  seated: string | null;
+  standing: string | null;
+  alternative: string | null;
 }
 
 interface DeskFixTask {
@@ -147,11 +157,52 @@ export default function WorkdayDeskScan() {
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const issueRefs = useRef<Record<number, HTMLDivElement | null>>({});
 
-  // History for "score over time" chart
+  // History for "score over time" chart + past scan recall
   const { data: scanHistory = [] } = useQuery<DeskScanRow[]>({
     queryKey: ['/api/workday/scans'],
     enabled: isAuthenticated,
   });
+
+  // Custom reference photos uploaded by an admin (override bundled defaults)
+  const { data: refOverrides } = useQuery<DeskReferenceMap>({
+    queryKey: ['/api/workday/desk-references'],
+    enabled: isAuthenticated,
+  });
+
+  const referenceFor = (pos: PositionType): string | null => {
+    const custom = refOverrides?.[pos];
+    if (custom) return custom;
+    if (pos === 'standing') return idealStandingRef;
+    if (pos === 'seated') return idealSeatedRef;
+    return null; // 'alternative' has no bundled fallback
+  };
+
+  // Restore a past scan into the results view (image + analysis + scan id).
+  // Defensive: older rows or malformed JSON shouldn't crash the page.
+  const isUsableAnalysis = (a: any): a is AnalysisResult => {
+    return a && typeof a === 'object' && (
+      typeof a.summary === 'string' ||
+      typeof a.score === 'number' ||
+      Array.isArray(a.issues) ||
+      Array.isArray(a.priorityFixes)
+    );
+  };
+
+  const handleLoadPastScan = (s: DeskScanRow) => {
+    if (!isUsableAnalysis(s.analysis)) {
+      toast({ title: "That scan didn't save analysis", description: "It was taken before this update. Run a fresh scan." });
+      return;
+    }
+    setImagePreview(s.imageUrl || null);
+    setAnalysis(s.analysis);
+    setScanId(s.id);
+    if (s.positionType === 'seated' || s.positionType === 'standing' || s.positionType === 'alternative') {
+      setPositionType(s.positionType as PositionType);
+    }
+    setExpandedIssue(null);
+    setShowReference(false);
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  };
 
   // Existing per-user fix tasks - to grey out "Add to my plan" buttons that
   // are already added.
@@ -460,6 +511,61 @@ export default function WorkdayDeskScan() {
             ))}
           </div>
         </div>
+
+        {/* Recent scans - tap to revisit any past result */}
+        {!analysis && scanHistory.length > 0 && (
+          <Card className="bg-card border-border">
+            <CardContent className="p-4">
+              <div className="flex items-center gap-2 mb-3">
+                <History className="h-4 w-4 text-[#0cc9a9]" />
+                <h3 className="text-sm font-semibold text-foreground">Your recent scans</h3>
+              </div>
+              <div className="flex gap-3 overflow-x-auto pb-1 -mx-1 px-1">
+                {scanHistory.slice(0, 8).map((s) => {
+                  const dt = s.scanDate || s.createdAt;
+                  const dateLabel = dt
+                    ? new Date(dt).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })
+                    : '';
+                  const scoreColor = (s.score ?? 0) >= 8
+                    ? 'text-emerald-400'
+                    : (s.score ?? 0) >= 5 ? 'text-[#0cc9a9]' : 'text-red-400';
+                  return (
+                    <button
+                      key={s.id}
+                      onClick={() => handleLoadPastScan(s)}
+                      className="flex-shrink-0 w-28 rounded-lg overflow-hidden border border-border bg-background/40 hover:border-[#0cc9a9] transition-colors text-left"
+                      data-testid={`button-past-scan-${s.id}`}
+                    >
+                      {s.imageUrl ? (
+                        <img
+                          src={s.imageUrl}
+                          alt="Past scan"
+                          className="w-full h-20 object-cover"
+                        />
+                      ) : (
+                        <div className="w-full h-20 bg-black/40 flex items-center justify-center">
+                          <Camera className="h-5 w-5 text-muted-foreground" />
+                        </div>
+                      )}
+                      <div className="px-2 py-1.5 flex items-center justify-between gap-1">
+                        <div className="flex items-center gap-1 text-[10px] text-muted-foreground min-w-0">
+                          <Clock className="h-3 w-3 flex-shrink-0" />
+                          <span className="truncate">{dateLabel}</span>
+                        </div>
+                        {typeof s.score === 'number' && (
+                          <span className={`text-xs font-bold ${scoreColor}`}>{s.score}</span>
+                        )}
+                      </div>
+                    </button>
+                  );
+                })}
+              </div>
+              <p className="text-xs text-muted-foreground mt-2">
+                Tap a scan to revisit your results.
+              </p>
+            </CardContent>
+          </Card>
+        )}
 
         <Card className="bg-card border-border">
           <CardContent className="p-4">
@@ -799,7 +905,7 @@ export default function WorkdayDeskScan() {
             )}
 
             {/* See an ideal setup - reference photo for current position */}
-            {(positionType === 'seated' || positionType === 'standing') && (
+            {referenceFor(positionType) && (
               <Card className="bg-card border-border">
                 <CardContent className="p-0">
                   <button
@@ -817,7 +923,7 @@ export default function WorkdayDeskScan() {
                     <div className="px-4 pb-4 animate-in fade-in slide-in-from-top-2 duration-200">
                       <div className="rounded-lg overflow-hidden bg-black/40">
                         <img
-                          src={positionType === 'standing' ? idealStandingRef : idealSeatedRef}
+                          src={referenceFor(positionType)!}
                           alt={`Ideal ${positionType} desk setup`}
                           className="w-full h-auto"
                         />

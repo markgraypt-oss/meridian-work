@@ -52,6 +52,27 @@ export function getProviderConfig(settings: AiCoachingSetting | null): AIProvide
   return { provider: settings.provider, model: settings.model };
 }
 
+type SupportedImageMediaType =
+  | "image/jpeg"
+  | "image/png"
+  | "image/gif"
+  | "image/webp";
+
+function detectImageMediaType(input: string): SupportedImageMediaType {
+  const base64Data = input.replace(/^data:image\/\w+;base64,/, "");
+  const head = base64Data.slice(0, 16);
+  // Magic-byte sniffing wins over the data-url label, because browsers
+  // (and macOS screenshots) often hand us a WebP file labeled as something else.
+  if (head.startsWith("/9j/")) return "image/jpeg";
+  if (head.startsWith("iVBORw0KGgo")) return "image/png";
+  if (head.startsWith("R0lGOD")) return "image/gif";
+  if (head.startsWith("UklGR")) return "image/webp";
+  // Fall back to whatever the data URL claims, then default to jpeg.
+  const m = input.match(/^data:(image\/(?:jpeg|png|gif|webp));base64,/);
+  if (m) return m[1] as SupportedImageMediaType;
+  return "image/jpeg";
+}
+
 async function analyzeWithAnthropic(
   request: VisionAnalysisRequest,
   model: string
@@ -62,9 +83,7 @@ async function analyzeWithAnthropic(
     baseURL: process.env.AI_INTEGRATIONS_ANTHROPIC_BASE_URL,
   });
 
-  const mediaType = request.imageBase64.startsWith("data:image/png")
-    ? "image/png"
-    : "image/jpeg";
+  const mediaType = detectImageMediaType(request.imageBase64);
   const base64Data = request.imageBase64.replace(/^data:image\/\w+;base64,/, "");
 
   const message = await anthropic.messages.create({
@@ -108,7 +127,7 @@ async function analyzeWithOpenAI(
 
   const imageUrl = request.imageBase64.startsWith("data:")
     ? request.imageBase64
-    : `data:image/jpeg;base64,${request.imageBase64}`;
+    : `data:${detectImageMediaType(request.imageBase64)};base64,${request.imageBase64}`;
 
   const response = await openai.chat.completions.create({
     model,

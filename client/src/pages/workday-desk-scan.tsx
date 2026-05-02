@@ -133,9 +133,9 @@ export default function WorkdayDeskScan() {
       });
     },
     onError: () => {
-      toast({ 
-        title: "Analysis failed", 
-        description: "Please try again with a clearer image",
+      toast({
+        title: "Analysis failed",
+        description: "Couldn't read that image. Try a clearer JPG or PNG.",
         variant: "destructive"
       });
     }

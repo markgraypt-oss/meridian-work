@@ -6,6 +6,9 @@ Meridian Work is a corporate wellness intelligence platform designed to optimize
 ## User Preferences
 Preferred communication style: Simple, everyday language.
 
+## AI Guardrails
+All server-side AI calls go through `server/ai/index.ts` `aiCall()` wrapper, which provides PII redaction, prompt size cap (60k chars), token cap (4k), 30s timeout, optional Zod schema validation with one repair retry, safety post-filter (medical/dangerous content), and persistent logging to the `ai_call_logs` table. Admin UI: `/admin/ai-activity` shows feature/outcome/cost aggregates. Eval harness: `npx tsx scripts/evals/index.ts` (or add `"evals": "tsx scripts/evals/index.ts"` to package.json) runs fixtures in `scripts/evals/fixtures/` and writes JSON+markdown reports to `.local/eval-reports/`. See `server/ai/README.md` for the full migration guide.
+
 ## System Architecture
 
 ### Frontend

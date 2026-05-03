@@ -1286,16 +1286,21 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
 
       try {
-        const { getFeatureConfig, analyzeText, getCoachingContext } = await import('./aiProvider');
+        const { getFeatureConfig, getCoachingContext } = await import('./aiProvider');
+        const { aiCall } = await import('./ai');
         const config = await getFeatureConfig('onboarding_recommendations');
 
         if (config) {
           const coachingContext = await getCoachingContext('onboarding_recommendations');
           const prompt = buildRecommendationPrompt(intake, enrichedPrograms, activePaths, activeHabits, coachingContext, successMetricsMap);
-          const aiResponse = await analyzeText({
+          const aiResponse = await aiCall({
+            feature: 'onboarding_recommendations',
+            userId,
             prompt,
             maxTokens: 1500,
-          }, config.provider, config.model);
+            provider: config.provider,
+            model: config.model,
+          });
 
           const parsed = parseAiRecommendations(aiResponse.text, enrichedPrograms, activePaths, activeHabits);
           if (parsed.programs.length > 0) {
@@ -4274,9 +4279,14 @@ export async function registerRoutes(app: Express): Promise<Server> {
         `Write a short review (about 120-180 words). Cover: what went well, one or two specific things to push on next time, and one observation about pacing/effort given the rating. Be specific (reference actual exercises and numbers). Use a warm but direct tone. Plain prose, no bullet lists, no headings, no markdown. Use a hyphen "-" or comma where you would otherwise use an em dash; do not use the em dash character at all.`,
       ].filter(Boolean).join('\n');
 
-      const { analyzeText, getDefaultConfig } = await import('./aiProvider');
-      const cfg = getDefaultConfig();
-      const result = await analyzeText({ prompt, maxTokens: 700, temperature: 0.6 }, cfg.provider, cfg.model);
+      const { aiCall } = await import('./ai');
+      const result = await aiCall({
+        feature: 'workout_review',
+        userId,
+        prompt,
+        maxTokens: 700,
+        temperature: 0.6,
+      });
       const reviewText = (result.text || '').trim().replace(/\u2014/g, '-');
 
       // Persist (best effort)
@@ -4766,10 +4776,14 @@ export async function registerRoutes(app: Express): Promise<Server> {
       let duration = workoutLog.duration ? Math.round(workoutLog.duration / 60) : 30;
 
       try {
-        const { getFeatureConfig, analyzeText } = await import('./aiProvider');
-        const config = await getFeatureConfig('recovery_coach');
-        if (config) {
-          const prompt = `Analyze this workout and return ONLY a JSON object with category, difficulty, and estimated duration. No other text.
+        const { z } = await import('zod');
+        const { aiCall } = await import('./ai');
+        const WorkoutCategorizeSchema = z.object({
+          category: z.enum(['strength', 'cardio', 'hiit', 'mobility', 'recovery']),
+          difficulty: z.enum(['beginner', 'intermediate', 'advanced']),
+          duration: z.number(),
+        });
+        const prompt = `Analyze this workout and return ONLY a JSON object with category, difficulty, and estimated duration. No other text.
 
 Exercises: ${exerciseNames.join(', ')}
 Workout style: ${workoutLog.workoutStyle || 'regular'}
@@ -4778,14 +4792,17 @@ ${workoutLog.duration ? `Actual duration: ${Math.round(workoutLog.duration / 60)
 
 Return format: {"category": "strength|cardio|hiit|mobility|recovery", "difficulty": "beginner|intermediate|advanced", "duration": <minutes>}`;
 
-          const aiResult = await analyzeText({ prompt, maxTokens: 100 }, config.provider, config.model);
-          const jsonMatch = aiResult.text.match(/\{[^}]+\}/);
-          if (jsonMatch) {
-            const parsed = JSON.parse(jsonMatch[0]);
-            if (parsed.category) category = parsed.category;
-            if (parsed.difficulty) difficulty = parsed.difficulty;
-            if (parsed.duration) duration = parsed.duration;
-          }
+        const aiResult = await aiCall({
+          feature: 'workout_categorize',
+          userId,
+          prompt,
+          maxTokens: 100,
+          schema: WorkoutCategorizeSchema,
+        });
+        if (aiResult.data) {
+          category = aiResult.data.category;
+          difficulty = aiResult.data.difficulty;
+          duration = aiResult.data.duration;
         }
       } catch (aiErr) {
         console.log("AI analysis failed, using defaults:", aiErr);
@@ -8903,13 +8920,22 @@ Rules:
 - End with one forward-looking tip for their next programme.
 - Interpret the difficulty rating correctly: a low rating means sessions felt easy, a high rating means they were challenging.`;
 
-      const { getFeatureConfig, analyzeText } = await import('./aiProvider');
+      const { getFeatureConfig } = await import('./aiProvider');
+      const { aiCall } = await import('./ai');
       const config = await getFeatureConfig('workout_coach');
       if (!config) {
         return res.json({ summary: `Great work completing ${completionRate}% of your ${enrollment.programTitle} programme. You logged ${Math.round(totalVolume)} kg of total volume across ${enrollment.workoutsCompleted} sessions. Keep building on this momentum in your next training block.` });
       }
 
-      const aiResult = await analyzeText({ prompt, maxTokens: 400, temperature: 0.85 }, config.provider, config.model);
+      const aiResult = await aiCall({
+        feature: 'workout_coach',
+        userId,
+        prompt,
+        maxTokens: 400,
+        temperature: 0.85,
+        provider: config.provider,
+        model: config.model,
+      });
       res.json({ summary: aiResult.text || `Great work completing ${completionRate}% of your ${enrollment.programTitle} programme.` });
     } catch (error) {
       console.error("Error generating AI summary:", error);
@@ -12526,7 +12552,8 @@ Rules:
         }
       } catch {}
 
-      const { getFeatureConfig, analyzeText } = await import('./aiProvider');
+      const { getFeatureConfig } = await import('./aiProvider');
+      const { aiCall } = await import('./ai');
       const config = await getFeatureConfig('nutrition_insights');
 
       if (!config) {
@@ -12546,7 +12573,14 @@ Provide:
 
 Keep your response concise, practical, and evidence-based. Do not use em dashes. Use plain language.`;
 
-      const aiResponse = await analyzeText({ prompt, maxTokens: 800 }, config.provider, config.model);
+      const aiResponse = await aiCall({
+        feature: 'nutrition_insights',
+        userId,
+        prompt,
+        maxTokens: 800,
+        provider: config.provider,
+        model: config.model,
+      });
       res.json({ recommendations: aiResponse.text });
     } catch (error) {
       console.error("Error generating supplement recommendations:", error);
@@ -16134,18 +16168,16 @@ Keep your response concise, practical, and evidence-based. Do not use em dashes.
         const script = lines.join(' ').slice(0, 1200);
         if (!script) return res.status(400).json({ message: 'Nothing to read out for this scan' });
 
-        const OpenAI = (await import('openai')).default;
-        const client = new OpenAI({
-          apiKey: process.env.AI_INTEGRATIONS_OPENAI_API_KEY,
-          baseURL: process.env.AI_INTEGRATIONS_OPENAI_BASE_URL,
-        });
-        const speech = await client.audio.speech.create({
-          model: 'gpt-4o-mini-tts',
-          voice: 'alloy',
+        const { aiSpeechCall } = await import('./ai');
+        const speechResult = await aiSpeechCall({
+          feature: 'desk_scan_tts',
+          userId,
           input: script,
-          response_format: 'mp3',
         });
-        audio = Buffer.from(await speech.arrayBuffer());
+        if (!speechResult.audio) {
+          return res.status(500).json({ message: speechResult.error || 'Failed to generate audio summary' });
+        }
+        audio = speechResult.audio;
         rememberDeskScanAudio(id, audio);
       }
 
@@ -16180,10 +16212,11 @@ Keep your response concise, practical, and evidence-based. Do not use em dashes.
         console.error('[DESK SCAN] image upload failed:', uploadErr?.message);
       }
 
-      const { analyzeVision, getProviderConfig, getCoachingContext } = await import('./aiProvider');
+      const { getProviderConfig, getCoachingContext } = await import('./aiProvider');
+      const { aiVisionCall } = await import('./ai');
 
       const coachingSettings = await storage.getAiCoachingSetting('desk_scan');
-      const providerConfig = getProviderConfig(coachingSettings);
+      const providerConfig = getProviderConfig(coachingSettings || null);
       const coachingContext = await getCoachingContext('desk_scan');
 
       const prompt = `You are an expert ergonomics consultant analyzing a ${positionType || 'seated'} desk setup. Analyze this workspace image and provide specific, actionable feedback.${coachingContext}
@@ -16219,9 +16252,14 @@ Format your response as JSON with this exact structure:
   "priorityFixes": ["fix 1", "fix 2", "fix 3"]
 }`;
 
-      const result = await analyzeVision(providerConfig, {
+      const userIdForVision = req.user.claims.sub;
+      const result = await aiVisionCall({
+        feature: 'desk_scan',
+        userId: userIdForVision,
         imageBase64,
         prompt,
+        provider: providerConfig.provider,
+        model: providerConfig.model,
         maxTokens: 2048,
       });
 
@@ -16735,7 +16773,8 @@ Format your response as JSON with this exact structure:
         return res.status(400).json({ message: "Message too long (max 2000 characters)" });
       }
 
-      const { getCoachingContext, getUserDataContext, getFeatureConfig, analyzeText, getCrossCoachContext } = await import('./aiProvider');
+      const { getCoachingContext, getUserDataContext, getFeatureConfig, getCrossCoachContext } = await import('./aiProvider');
+      const { aiCall } = await import('./ai');
 
       const config = await getFeatureConfig('recovery_coach');
       if (!config) {
@@ -16806,10 +16845,14 @@ User: ${message}
 
 Respond as the coach. Be personalised, reference their actual data and specific platform content where relevant, and keep it concise.`;
 
-      const response = await analyzeText({
+      const response = await aiCall({
+        feature: 'coach_chat',
+        userId,
         prompt: systemPrompt,
         maxTokens: 800,
-      }, config.provider, config.model);
+        provider: config.provider,
+        model: config.model,
+      });
 
       res.json({ response: response.text });
     } catch (error) {
@@ -16950,7 +16993,8 @@ Respond as the coach. Be personalised, reference their actual data and specific 
   app.get('/api/coach/proactive-greeting', isAuthenticated, async (req: any, res) => {
     try {
       const userId = req.user.claims.sub;
-      const { getCoachingContext, getUserDataContext, getFeatureConfig, analyzeText, getCrossCoachContext } = await import('./aiProvider');
+      const { getCoachingContext, getUserDataContext, getFeatureConfig, getCrossCoachContext } = await import('./aiProvider');
+      const { aiCall } = await import('./ai');
 
       const config = await getFeatureConfig('recovery_coach');
       if (!config) {
@@ -17028,11 +17072,15 @@ ${coachingContext}${userDataContext}${onboardingContext}${crossCoachContext}
 
 Generate the opening message now. Remember: 1-3 sentences, specific, mandatory topic only, ends with engagement.`;
 
-      const response = await analyzeText({
+      const response = await aiCall({
+        feature: 'proactive_greeting',
+        userId,
         prompt: systemPrompt,
         maxTokens: 200,
         temperature: 0.9,
-      }, config.provider, config.model);
+        provider: config.provider,
+        model: config.model,
+      });
 
       res.json({ greeting: response.text });
     } catch (error) {
@@ -17144,7 +17192,8 @@ Generate the opening message now. Remember: 1-3 sentences, specific, mandatory t
         return res.status(400).json({ message: "Valid mode required: next_meal, end_of_day, weekly_patterns, recipe_suggestions, chat" });
       }
 
-      const { getCoachingContext, getUserDataContext, getFeatureConfig, analyzeText } = await import('./aiProvider');
+      const { getCoachingContext, getUserDataContext, getFeatureConfig } = await import('./aiProvider');
+      const { aiCall } = await import('./ai');
 
       const config = await getFeatureConfig('nutrition');
       if (!config) {
@@ -17251,10 +17300,14 @@ The user's name is ${userName}.
 
 ${modePrompt}`;
 
-      const response = await analyzeText({
+      const response = await aiCall({
+        feature: 'nutrition',
+        userId,
         prompt: systemPrompt,
         maxTokens: 1000,
-      }, config.provider, config.model);
+        provider: config.provider,
+        model: config.model,
+      });
 
       let parsed;
       try {
@@ -17284,7 +17337,8 @@ ${modePrompt}`;
         return res.status(400).json({ message: "Valid mode required: readiness, warmup_tips, post_workout, recovery_tips" });
       }
 
-      const { getCoachingContext, getUserDataContext, getFeatureConfig, analyzeText, getCrossCoachContext } = await import('./aiProvider');
+      const { getCoachingContext, getUserDataContext, getFeatureConfig, getCrossCoachContext } = await import('./aiProvider');
+      const { aiCall } = await import('./ai');
 
       const config = await getFeatureConfig('workout_adaptation');
       if (!config) {
@@ -17406,10 +17460,14 @@ The user's name is ${userName}.
 
 ${modePrompt}`;
 
-      const response = await analyzeText({
+      const response = await aiCall({
+        feature: 'workout_adaptation',
+        userId,
         prompt: systemPrompt,
         maxTokens: 1000,
-      }, config.provider, config.model);
+        provider: config.provider,
+        model: config.model,
+      });
 
       let parsed;
       try {
@@ -17439,7 +17497,8 @@ ${modePrompt}`;
         return res.status(400).json({ message: "Valid mode required: trends, correlations, recommendations" });
       }
 
-      const { getCoachingContext, getUserDataContext, getFeatureConfig, analyzeText, getCrossCoachContext } = await import('./aiProvider');
+      const { getCoachingContext, getUserDataContext, getFeatureConfig, getCrossCoachContext } = await import('./aiProvider');
+      const { aiCall } = await import('./ai');
 
       const config = await getFeatureConfig('check_in_insights');
       if (!config) {
@@ -17514,10 +17573,14 @@ The user's name is ${userName}.
 
 ${modePrompt}`;
 
-      const response = await analyzeText({
+      const response = await aiCall({
+        feature: 'check_in_insights',
+        userId,
         prompt: systemPrompt,
         maxTokens: 1000,
-      }, config.provider, config.model);
+        provider: config.provider,
+        model: config.model,
+      });
 
       let parsed;
       try {
@@ -17610,7 +17673,8 @@ ${modePrompt}`;
         return res.status(400).json({ message: "Message too long (max 2000 characters)" });
       }
 
-      const { getCoachingContext, getUserDataContext, getFeatureConfig, analyzeText, getCrossCoachContext } = await import('./aiProvider');
+      const { getCoachingContext, getUserDataContext, getFeatureConfig, getCrossCoachContext } = await import('./aiProvider');
+      const { aiCall } = await import('./ai');
 
       const config = await getFeatureConfig('recovery_coach');
       if (!config) {
@@ -17673,10 +17737,14 @@ User: ${message}
 
 Respond as the Recovery Coach. Reference their specific assessment data and provide personalised, actionable guidance.`;
 
-      const response = await analyzeText({
+      const response = await aiCall({
+        feature: 'recovery_coach',
+        userId,
         prompt: systemPrompt,
         maxTokens: 600,
-      }, config.provider, config.model);
+        provider: config.provider,
+        model: config.model,
+      });
 
       res.json({ response: response.text });
     } catch (error) {
@@ -17882,7 +17950,8 @@ Respond as the Recovery Coach. Reference their specific assessment data and prov
         return res.json({ insight: null });
       }
 
-      const { getFeatureConfig, analyzeText, getUserDataContext, getCrossCoachContext, getCoachingContext } = await import('./aiProvider');
+      const { getFeatureConfig, getUserDataContext, getCrossCoachContext, getCoachingContext } = await import('./aiProvider');
+      const { aiCall } = await import('./ai');
       const config = await getFeatureConfig('burnout_insight');
       if (!config) {
         return res.json({ insight: null });
@@ -17928,11 +17997,15 @@ RULES:
 8. Keep the total response under 180 words.
 9. Do not use bullet points or lists. Write in natural flowing prose.`;
 
-      const aiResult = await analyzeText({
+      const aiResult = await aiCall({
+        feature: 'burnout_insight',
+        userId,
         prompt,
         maxTokens: 400,
         temperature: 0.7,
-      }, config.provider, config.model);
+        provider: config.provider,
+        model: config.model,
+      });
 
       res.json({ insight: aiResult.text });
     } catch (error) {
@@ -17965,7 +18038,8 @@ RULES:
         return res.json({ explanation: null });
       }
 
-      const { getFeatureConfig, analyzeText } = await import('./aiProvider');
+      const { getFeatureConfig } = await import('./aiProvider');
+      const { aiCall } = await import('./ai');
       const config = await getFeatureConfig('burnout_insight');
       if (!config) {
         return res.json({ explanation: null });
@@ -17995,11 +18069,15 @@ RULES:
 5. Keep it calm, specific, and actionable in tone.
 6. One sentence only. No greeting, no sign-off.`;
 
-      const aiResult = await analyzeText({
+      const aiResult = await aiCall({
+        feature: 'burnout_level_explanation',
+        userId,
         prompt,
         maxTokens: 80,
         temperature: 0.6,
-      }, config.provider, config.model);
+        provider: config.provider,
+        model: config.model,
+      });
 
       res.json({ explanation: aiResult.text?.trim() || null });
     } catch (error) {
@@ -18075,6 +18153,100 @@ RULES:
   // Wearables
   const { registerWearableRoutes } = await import('./wearables/routes');
   registerWearableRoutes(app);
+
+  // ==========================================
+  // AI Activity (admin observability)
+  // ==========================================
+  app.get('/api/admin/ai-call-logs', isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = req.user.claims.sub;
+      const me = await storage.getUser(userId);
+      if (!me?.isAdmin) return res.status(403).json({ message: "Admin access required" });
+
+      const { aiCallLogs } = await import('@shared/schema');
+      const featureFilter = (req.query.feature as string) || undefined;
+      const outcomeFilter = (req.query.outcome as string) || undefined;
+      const modelFilter = (req.query.model as string) || undefined;
+      const days = Math.min(parseInt(req.query.days as string) || 7, 90);
+      const since = new Date(Date.now() - days * 24 * 60 * 60 * 1000);
+
+      const conditions: any[] = [gte(aiCallLogs.createdAt, since)];
+      if (featureFilter) conditions.push(eq(aiCallLogs.feature, featureFilter));
+      if (outcomeFilter) conditions.push(eq(aiCallLogs.validationOutcome, outcomeFilter));
+      if (modelFilter) conditions.push(eq(aiCallLogs.model, modelFilter));
+
+      const rows = await db
+        .select()
+        .from(aiCallLogs)
+        .where(and(...conditions))
+        .orderBy(desc(aiCallLogs.createdAt))
+        .limit(500);
+
+      // Aggregate over the same window (no row limit) so the dashboard cards
+      // reflect the real total, not just the first 500 rows.
+      const aggRows = await db
+        .select({
+          feature: aiCallLogs.feature,
+          model: aiCallLogs.model,
+          outcome: aiCallLogs.validationOutcome,
+          totalTokens: aiCallLogs.totalTokens,
+          latencyMs: aiCallLogs.latencyMs,
+          safetyFlags: aiCallLogs.safetyFlags,
+        })
+        .from(aiCallLogs)
+        .where(and(...conditions));
+
+      const byFeatureMap = new Map<string, { count: number; tokens: number }>();
+      const byModelMap = new Map<string, { count: number; tokens: number }>();
+      const byOutcome: Record<string, number> = {};
+      let totalTokens = 0;
+      let totalLatency = 0;
+      let safetyFlagCount = 0;
+      for (const r of aggRows) {
+        const cur = byFeatureMap.get(r.feature) || { count: 0, tokens: 0 };
+        cur.count += 1;
+        cur.tokens += r.totalTokens || 0;
+        byFeatureMap.set(r.feature, cur);
+        const modelKey = r.model || 'unknown';
+        const mcur = byModelMap.get(modelKey) || { count: 0, tokens: 0 };
+        mcur.count += 1;
+        mcur.tokens += r.totalTokens || 0;
+        byModelMap.set(modelKey, mcur);
+        const oc = r.outcome || 'unknown';
+        byOutcome[oc] = (byOutcome[oc] || 0) + 1;
+        totalTokens += r.totalTokens || 0;
+        totalLatency += r.latencyMs || 0;
+        if (r.safetyFlags && r.safetyFlags.length > 0) safetyFlagCount += 1;
+      }
+      const totalCalls = aggRows.length;
+      // Blended estimate: ~$3 per million tokens (rough Claude/GPT mix). Used
+      // as a directional cost signal, not an invoice.
+      const estimatedCostUsd = (totalTokens / 1_000_000) * 3;
+      const byFeature = Array.from(byFeatureMap.entries())
+        .map(([feature, v]) => ({ feature, count: v.count, tokens: v.tokens }))
+        .sort((a, b) => b.count - a.count);
+      const byModel = Array.from(byModelMap.entries())
+        .map(([model, v]) => ({ model, count: v.count, tokens: v.tokens }))
+        .sort((a, b) => b.count - a.count);
+
+      res.json({
+        logs: rows,
+        aggregates: {
+          totalCalls,
+          totalTokens,
+          estimatedCostUsd,
+          avgLatencyMs: totalCalls > 0 ? totalLatency / totalCalls : 0,
+          byOutcome,
+          byFeature,
+          byModel,
+          safetyFlagCount,
+        },
+      });
+    } catch (error: any) {
+      console.error("Error fetching AI call logs:", error?.message);
+      res.status(500).json({ message: "Failed to fetch AI call logs" });
+    }
+  });
 
   const httpServer = createServer(app);
   return httpServer;

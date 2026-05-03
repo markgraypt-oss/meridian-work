@@ -2855,6 +2855,30 @@ export const insertPushSubscriptionSchema = createInsertSchema(pushSubscriptions
   id: true,
   createdAt: true,
 });
+// AI Call Logs - records every routed AI call for observability and cost tracking
+export const aiCallLogs = pgTable("ai_call_logs", {
+  id: serial("id").primaryKey(),
+  userId: varchar("user_id"), // null for system / eval calls
+  feature: text("feature").notNull(),
+  provider: text("provider"),
+  model: text("model"),
+  promptHash: varchar("prompt_hash"),
+  promptTokens: integer("prompt_tokens"),
+  completionTokens: integer("completion_tokens"),
+  totalTokens: integer("total_tokens"),
+  latencyMs: integer("latency_ms"),
+  validationOutcome: text("validation_outcome"), // 'valid', 'repaired', 'invalid', 'no_schema', 'error', 'timeout'
+  safetyFlags: text("safety_flags").array(),
+  errorMessage: text("error_message"),
+  createdAt: timestamp("created_at").defaultNow(),
+}, (table) => [
+  index("idx_ai_call_logs_feature").on(table.feature),
+  index("idx_ai_call_logs_created_at").on(table.createdAt),
+]);
+
+export type AiCallLog = typeof aiCallLogs.$inferSelect;
+export type InsertAiCallLog = typeof aiCallLogs.$inferInsert;
+export const insertAiCallLogSchema = createInsertSchema(aiCallLogs).omit({ id: true, createdAt: true });
 
 // Chat models for AI conversations
 export * from "./models/chat";

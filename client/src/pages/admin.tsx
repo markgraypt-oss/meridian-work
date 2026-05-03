@@ -1216,6 +1216,23 @@ export default function AdminPanel() {
               </CardContent>
             </Card>
 
+            <Card
+              className="cursor-pointer hover:shadow-lg transition-shadow border-2 hover:border-purple-500"
+              onClick={() => navigate('/admin/ai-activity')}
+              data-testid="card-admin-ai-activity"
+            >
+              <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                <CardTitle className="text-sm font-medium">AI Activity</CardTitle>
+                <BarChart3 className="h-4 w-4 text-purple-500" />
+              </CardHeader>
+              <CardContent>
+                <div className="text-2xl font-bold text-purple-400">Logs</div>
+                <p className="text-xs text-muted-foreground">
+                  Calls, latency, cost, safety flags
+                </p>
+              </CardContent>
+            </Card>
+
             <Card 
               className="cursor-pointer hover:shadow-lg transition-shadow border-2 hover:border-purple-500 bg-gradient-to-br from-purple-500/10 to-[#0cc9a9]/10"
               onClick={() => navigate('/admin/ai-coaching')}

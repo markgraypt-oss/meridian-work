@@ -81,6 +81,7 @@ import AdminWorkdayMicroResets from "@/pages/admin/AdminWorkdayMicroResets";
 import AdminWorkdayAchesFixes from "@/pages/admin/AdminWorkdayAchesFixes";
 import AdminWorkdayDeskSetups from "@/pages/admin/AdminWorkdayDeskSetups";
 import AdminAiCoaching from "@/pages/admin/AdminAiCoaching";
+import AdminAiActivity from "@/pages/admin/AdminAiActivity";
 import AdminDeskReferences from "@/pages/admin/AdminDeskReferences";
 import AdminBurnoutCalibration from "@/pages/admin/AdminBurnoutCalibration";
 import AdminOutcomeEditor from "@/pages/admin-outcome-editor";
@@ -316,6 +317,7 @@ function Router() {
               <Route path="/admin/workday/aches-fixes" component={AdminWorkdayAchesFixes} />
               <Route path="/admin/workday/desk-setups" component={AdminWorkdayDeskSetups} />
               <Route path="/admin/ai-coaching" component={AdminAiCoaching} />
+              <Route path="/admin/ai-activity" component={AdminAiActivity} />
               <Route path="/admin/workday/desk-references" component={AdminDeskReferences} />
               <Route path="/admin/burnout-calibration" component={AdminBurnoutCalibration} />
               <Route path="/admin/outcome-editor/:id" component={AdminOutcomeEditor} />

@@ -14,6 +14,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Loader2, Sparkles, RefreshCw, Plus, Trash2 } from "lucide-react";
 import type { ExerciseLibraryItem } from "@shared/schema";
 import AiExercisePicker from "./AiExercisePicker";
+import AiSafetyFlags from "@/components/ai/AiSafetyFlags";
 
 interface Props {
   open: boolean;
@@ -56,6 +57,8 @@ interface PreviewResponse {
   inputs: Record<string, unknown>;
   data: GenProgramme;
   logId?: number;
+  safetyFlags?: string[];
+  validationOutcome?: "valid" | "repaired" | "invalid" | "no_schema" | "error" | "timeout";
 }
 
 interface AdminUser { id: string; email: string | null; firstName: string | null; lastName: string | null }
@@ -279,6 +282,7 @@ export default function AiProgrammeWizard({ open, onOpenChange, defaultProgramme
           </div>
         ) : (
           <div className="space-y-4 py-2" data-testid="ai-preview">
+            <AiSafetyFlags safetyFlags={preview.safetyFlags} validationOutcome={preview.validationOutcome} />
             <div className="space-y-2">
               <Input
                 value={preview.data.title}

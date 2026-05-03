@@ -27,8 +27,23 @@ app.post("/api/mux/uploads", async (req, res) => {
   }
 });
 
-app.use(express.json({ limit: '50mb' }));
-app.use(express.urlencoded({ extended: false, limit: '50mb' }));
+// Most endpoints take small JSON. Image-upload endpoints opt-in to a higher
+// limit at the route level. The previous 50mb global was a denial-of-service
+// surface (an attacker could spam huge bodies and exhaust memory).
+const LARGE_BODY_PATHS = [
+  "/api/workday/analyze-desk",
+  "/api/admin/workday/desk-references",
+  "/api/users/me/profile-image",
+  "/api/admin/companies",
+  "/api/progress/pictures",
+];
+app.use((req, res, next) => {
+  const isLarge = LARGE_BODY_PATHS.some((p) => req.path.startsWith(p));
+  const limit = isLarge ? "12mb" : "2mb";
+  return express.json({ limit })(req, res, () =>
+    express.urlencoded({ extended: false, limit })(req, res, next),
+  );
+});
 
 const IMAGE_FIELD_RE = /(image|photo|thumbnail|avatar|picture|logo|cover)/i;
 const isBadImageUrl = (v: any) =>

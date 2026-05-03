@@ -4,6 +4,50 @@ import { createServer, type Server } from "http";
 import { storage } from "./storage";
 import { db } from "./db";
 import { setupAuth, isAuthenticated, generateResetToken, hashToken, sendUserInviteEmail } from "./replitAuth";
+import rateLimit, { ipKeyGenerator } from "express-rate-limit";
+
+// Admin-only gate. Always pair with isAuthenticated. Looks up the calling
+// user from the session and rejects with 403 if they aren't an admin.
+async function requireAdmin(req: any, res: any, next: any) {
+  try {
+    const userId = req?.user?.claims?.sub;
+    if (!userId) return res.status(401).json({ message: "Unauthorized" });
+    const { storage } = await import("./storage");
+    const me = await storage.getUser(userId);
+    if (!me?.isAdmin) return res.status(403).json({ message: "Admin only" });
+    next();
+  } catch (err) {
+    console.error("requireAdmin failed:", err);
+    res.status(500).json({ message: "Authorization check failed" });
+  }
+}
+
+// Per-user rate limiters for AI endpoints. Keyed on session user id, falls
+// back to IP for unauthenticated callers (shouldn't happen on these routes).
+const aiVisionRateLimit = rateLimit({
+  windowMs: 60 * 60 * 1000,
+  limit: 20,
+  standardHeaders: true,
+  legacyHeaders: false,
+  keyGenerator: (req: any) => req?.user?.claims?.sub || ipKeyGenerator(req.ip),
+  message: { message: "You've hit the hourly AI scan limit. Try again later." },
+});
+
+const aiTtsRateLimit = rateLimit({
+  windowMs: 60 * 60 * 1000,
+  limit: 60,
+  standardHeaders: true,
+  legacyHeaders: false,
+  keyGenerator: (req: any) => req?.user?.claims?.sub || ipKeyGenerator(req.ip),
+  message: { message: "You've hit the hourly voice playback limit. Try again later." },
+});
+
+// Parse a positive integer route param. Returns null on NaN / negative / zero.
+function parseIdParam(s: string | undefined): number | null {
+  if (!s) return null;
+  const n = Number.parseInt(s, 10);
+  return Number.isFinite(n) && n > 0 ? n : null;
+}
 import { eq, and, like, inArray, desc, or, isNull, asc, gte, lte, lt, sql } from "drizzle-orm";
 import { users, userProgramEnrollments, programWeeks, programDays, programmeWorkouts, programmeWorkoutBlocks, pathContentItems, topicContentItems, learningPaths, programmeModificationRecords, exerciseSubstitutionMappings, programmeBlockExercises, enrollmentWorkouts, enrollmentWorkoutBlocks, enrollmentBlockExercises, programs, userExtraWorkoutSessions, scheduledWorkouts, workoutLogs, learnContentLibrary, exerciseLibrary, workoutExerciseLogs, workoutSetLogs, aiFeedback, workouts, workoutBlocks, blockExercises, stepEntries, sleepEntries, bodyweightEntries, bodyFatEntries, restingHREntries, caloricBurnEntries, exerciseMinutesEntries, bloodPressureEntries, leanBodyMassEntries, caloricIntakeEntries, hydrationLogs } from "@shared/schema";
 import { calculateProgramEquipment, updateProgramEquipmentAuto } from "./equipmentDetection";
@@ -6346,7 +6390,7 @@ Return format: {"category": "strength|cardio|hiit|mobility|recovery", "difficult
     }
   });
 
-  app.post('/api/body-map-config/areas', isAuthenticated, async (req, res) => {
+  app.post('/api/body-map-config/areas', isAuthenticated, requireAdmin, async (req, res) => {
     try {
       const areaData = insertBodyMapAreaSchema.parse(req.body);
       const area = await storage.createBodyMapArea(areaData);
@@ -6357,7 +6401,7 @@ Return format: {"category": "strength|cardio|hiit|mobility|recovery", "difficult
     }
   });
 
-  app.put('/api/body-map-config/areas/:id', isAuthenticated, async (req, res) => {
+  app.put('/api/body-map-config/areas/:id', isAuthenticated, requireAdmin, async (req, res) => {
     try {
       const id = parseInt(req.params.id);
       const areaData = insertBodyMapAreaSchema.partial().parse(req.body);
@@ -6369,7 +6413,7 @@ Return format: {"category": "strength|cardio|hiit|mobility|recovery", "difficult
     }
   });
 
-  app.delete('/api/body-map-config/areas/:id', isAuthenticated, async (req, res) => {
+  app.delete('/api/body-map-config/areas/:id', isAuthenticated, requireAdmin, async (req, res) => {
     try {
       const id = parseInt(req.params.id);
       await storage.deleteBodyMapArea(id);
@@ -6392,7 +6436,7 @@ Return format: {"category": "strength|cardio|hiit|mobility|recovery", "difficult
     }
   });
 
-  app.post('/api/body-map-config/questions', isAuthenticated, async (req, res) => {
+  app.post('/api/body-map-config/questions', isAuthenticated, requireAdmin, async (req, res) => {
     try {
       const questionData = insertBodyMapQuestionSchema.parse(req.body);
       const question = await storage.createBodyMapQuestion(questionData);
@@ -6403,7 +6447,7 @@ Return format: {"category": "strength|cardio|hiit|mobility|recovery", "difficult
     }
   });
 
-  app.put('/api/body-map-config/questions/:id', isAuthenticated, async (req, res) => {
+  app.put('/api/body-map-config/questions/:id', isAuthenticated, requireAdmin, async (req, res) => {
     try {
       const id = parseInt(req.params.id);
       const questionData = insertBodyMapQuestionSchema.partial().parse(req.body);
@@ -6415,7 +6459,7 @@ Return format: {"category": "strength|cardio|hiit|mobility|recovery", "difficult
     }
   });
 
-  app.delete('/api/body-map-config/questions/:id', isAuthenticated, async (req, res) => {
+  app.delete('/api/body-map-config/questions/:id', isAuthenticated, requireAdmin, async (req, res) => {
     try {
       const id = parseInt(req.params.id);
       await storage.deleteBodyMapQuestion(id);
@@ -6438,7 +6482,7 @@ Return format: {"category": "strength|cardio|hiit|mobility|recovery", "difficult
     }
   });
 
-  app.post('/api/body-map-config/answers', isAuthenticated, async (req, res) => {
+  app.post('/api/body-map-config/answers', isAuthenticated, requireAdmin, async (req, res) => {
     try {
       const answerData = insertBodyMapAnswerOptionSchema.parse(req.body);
       const answer = await storage.createBodyMapAnswer(answerData);
@@ -6449,7 +6493,7 @@ Return format: {"category": "strength|cardio|hiit|mobility|recovery", "difficult
     }
   });
 
-  app.put('/api/body-map-config/answers/:id', isAuthenticated, async (req, res) => {
+  app.put('/api/body-map-config/answers/:id', isAuthenticated, requireAdmin, async (req, res) => {
     try {
       const id = parseInt(req.params.id);
       const answerData = insertBodyMapAnswerOptionSchema.partial().parse(req.body);
@@ -6461,7 +6505,7 @@ Return format: {"category": "strength|cardio|hiit|mobility|recovery", "difficult
     }
   });
 
-  app.delete('/api/body-map-config/answers/:id', isAuthenticated, async (req, res) => {
+  app.delete('/api/body-map-config/answers/:id', isAuthenticated, requireAdmin, async (req, res) => {
     try {
       const id = parseInt(req.params.id);
       await storage.deleteBodyMapAnswer(id);
@@ -6506,7 +6550,7 @@ Return format: {"category": "strength|cardio|hiit|mobility|recovery", "difficult
     }
   });
 
-  app.post('/api/body-map-config/movement-options', isAuthenticated, async (req, res) => {
+  app.post('/api/body-map-config/movement-options', isAuthenticated, requireAdmin, async (req, res) => {
     try {
       const optionData = insertBodyMapMovementOptionSchema.parse(req.body);
       const option = await storage.createBodyMapMovementOption(optionData);
@@ -6517,7 +6561,7 @@ Return format: {"category": "strength|cardio|hiit|mobility|recovery", "difficult
     }
   });
 
-  app.put('/api/body-map-config/movement-options/:id', isAuthenticated, async (req, res) => {
+  app.put('/api/body-map-config/movement-options/:id', isAuthenticated, requireAdmin, async (req, res) => {
     try {
       const id = parseInt(req.params.id);
       const optionData = insertBodyMapMovementOptionSchema.partial().parse(req.body);
@@ -6529,7 +6573,7 @@ Return format: {"category": "strength|cardio|hiit|mobility|recovery", "difficult
     }
   });
 
-  app.delete('/api/body-map-config/movement-options/:id', isAuthenticated, async (req, res) => {
+  app.delete('/api/body-map-config/movement-options/:id', isAuthenticated, requireAdmin, async (req, res) => {
     try {
       const id = parseInt(req.params.id);
       await storage.deleteBodyMapMovementOption(id);
@@ -6552,7 +6596,7 @@ Return format: {"category": "strength|cardio|hiit|mobility|recovery", "difficult
     }
   });
 
-  app.post('/api/body-map-config/templates', isAuthenticated, async (req, res) => {
+  app.post('/api/body-map-config/templates', isAuthenticated, requireAdmin, async (req, res) => {
     try {
       const templateData = insertBodyMapRecoveryTemplateSchema.parse(req.body);
       const template = await storage.createBodyMapTemplate(templateData);
@@ -6563,7 +6607,7 @@ Return format: {"category": "strength|cardio|hiit|mobility|recovery", "difficult
     }
   });
 
-  app.put('/api/body-map-config/templates/:id', isAuthenticated, async (req, res) => {
+  app.put('/api/body-map-config/templates/:id', isAuthenticated, requireAdmin, async (req, res) => {
     try {
       const id = parseInt(req.params.id);
       const templateData = insertBodyMapRecoveryTemplateSchema.partial().parse(req.body);
@@ -6575,7 +6619,7 @@ Return format: {"category": "strength|cardio|hiit|mobility|recovery", "difficult
     }
   });
 
-  app.delete('/api/body-map-config/templates/:id', isAuthenticated, async (req, res) => {
+  app.delete('/api/body-map-config/templates/:id', isAuthenticated, requireAdmin, async (req, res) => {
     try {
       const id = parseInt(req.params.id);
       await storage.deleteBodyMapTemplate(id);
@@ -6598,7 +6642,7 @@ Return format: {"category": "strength|cardio|hiit|mobility|recovery", "difficult
     }
   });
 
-  app.post('/api/body-map-config/rules', isAuthenticated, async (req, res) => {
+  app.post('/api/body-map-config/rules', isAuthenticated, requireAdmin, async (req, res) => {
     try {
       const ruleData = insertBodyMapTemplateRuleSchema.parse(req.body);
       const rule = await storage.createBodyMapRule(ruleData);
@@ -6609,7 +6653,7 @@ Return format: {"category": "strength|cardio|hiit|mobility|recovery", "difficult
     }
   });
 
-  app.put('/api/body-map-config/rules/:id', isAuthenticated, async (req, res) => {
+  app.put('/api/body-map-config/rules/:id', isAuthenticated, requireAdmin, async (req, res) => {
     try {
       const id = parseInt(req.params.id);
       const ruleData = insertBodyMapTemplateRuleSchema.partial().parse(req.body);
@@ -6621,7 +6665,7 @@ Return format: {"category": "strength|cardio|hiit|mobility|recovery", "difficult
     }
   });
 
-  app.delete('/api/body-map-config/rules/:id', isAuthenticated, async (req, res) => {
+  app.delete('/api/body-map-config/rules/:id', isAuthenticated, requireAdmin, async (req, res) => {
     try {
       const id = parseInt(req.params.id);
       await storage.deleteBodyMapRule(id);
@@ -6643,7 +6687,7 @@ Return format: {"category": "strength|cardio|hiit|mobility|recovery", "difficult
     }
   });
 
-  app.post('/api/body-map-config/guidance-rules', isAuthenticated, async (req, res) => {
+  app.post('/api/body-map-config/guidance-rules', isAuthenticated, requireAdmin, async (req, res) => {
     try {
       const ruleData = insertBodyMapGuidanceRuleSchema.parse(req.body);
       const rule = await storage.createBodyMapGuidanceRule(ruleData);
@@ -6654,7 +6698,7 @@ Return format: {"category": "strength|cardio|hiit|mobility|recovery", "difficult
     }
   });
 
-  app.put('/api/body-map-config/guidance-rules/:id', isAuthenticated, async (req, res) => {
+  app.put('/api/body-map-config/guidance-rules/:id', isAuthenticated, requireAdmin, async (req, res) => {
     try {
       const id = parseInt(req.params.id);
       const ruleData = insertBodyMapGuidanceRuleSchema.partial().parse(req.body);
@@ -6666,7 +6710,7 @@ Return format: {"category": "strength|cardio|hiit|mobility|recovery", "difficult
     }
   });
 
-  app.delete('/api/body-map-config/guidance-rules/:id', isAuthenticated, async (req, res) => {
+  app.delete('/api/body-map-config/guidance-rules/:id', isAuthenticated, requireAdmin, async (req, res) => {
     try {
       const id = parseInt(req.params.id);
       await storage.deleteBodyMapGuidanceRule(id);
@@ -6703,20 +6747,19 @@ Return format: {"category": "strength|cardio|hiit|mobility|recovery", "difficult
     }
   });
 
-  app.post('/api/body-map-config/outcomes', isAuthenticated, async (req, res) => {
+  app.post('/api/body-map-config/outcomes', isAuthenticated, requireAdmin, async (req, res) => {
     try {
       const outcomeData = insertBodyMapOutcomeSchema.parse(req.body);
       const outcome = await storage.createBodyMapOutcome(outcomeData);
       res.status(201).json(outcome);
     } catch (error: any) {
       console.error("Error creating outcome:", error);
-      console.error("Request body:", JSON.stringify(req.body, null, 2));
       const message = error?.message || "Failed to create outcome";
       res.status(500).json({ message: `Failed to create outcome: ${message}` });
     }
   });
 
-  app.put('/api/body-map-config/outcomes/:id', isAuthenticated, async (req, res) => {
+  app.put('/api/body-map-config/outcomes/:id', isAuthenticated, requireAdmin, async (req, res) => {
     try {
       const id = parseInt(req.params.id);
       const outcomeData = insertBodyMapOutcomeSchema.partial().parse(req.body);
@@ -6728,7 +6771,7 @@ Return format: {"category": "strength|cardio|hiit|mobility|recovery", "difficult
     }
   });
 
-  app.delete('/api/body-map-config/outcomes/:id', isAuthenticated, async (req, res) => {
+  app.delete('/api/body-map-config/outcomes/:id', isAuthenticated, requireAdmin, async (req, res) => {
     try {
       const id = parseInt(req.params.id);
       await storage.deleteBodyMapOutcome(id);
@@ -6740,7 +6783,7 @@ Return format: {"category": "strength|cardio|hiit|mobility|recovery", "difficult
   });
 
   // Preview/simulate outcome matching
-  app.post('/api/body-map-config/outcomes/simulate', async (req, res) => {
+  app.post('/api/body-map-config/outcomes/simulate', isAuthenticated, async (req, res) => {
     try {
       const { bodyAreaId, severity, trainingImpact, movementImpact } = req.body;
       const outcome = await storage.findMatchingOutcome(
@@ -6757,7 +6800,7 @@ Return format: {"category": "strength|cardio|hiit|mobility|recovery", "difficult
   });
 
   // Seed initial body map configuration data (idempotent - can be run multiple times)
-  app.post('/api/body-map-config/seed', isAuthenticated, async (req, res) => {
+  app.post('/api/body-map-config/seed', isAuthenticated, requireAdmin, async (req, res) => {
     try {
       // Check if all required areas already exist
       const existingAreas = await storage.getBodyMapAreas();
@@ -7211,7 +7254,7 @@ Return format: {"category": "strength|cardio|hiit|mobility|recovery", "difficult
   });
 
   // Search route
-  app.get('/api/search', async (req, res) => {
+  app.get('/api/search', isAuthenticated, async (req, res) => {
     try {
       const { q } = req.query;
       if (!q || typeof q !== 'string') {
@@ -10270,9 +10313,7 @@ Rules:
   app.post('/api/habits', isAuthenticated, async (req: any, res) => {
     try {
       const userId = req.user.claims.sub;
-      console.log("=== POST /api/habits DEBUG ===");
-      console.log("req.body:", JSON.stringify(req.body, null, 2));
-      
+
       const habitData = { 
         ...req.body, 
         userId,
@@ -10930,7 +10971,7 @@ Rules:
   });
 
   // Admin: Sync video durations from Mux for all content without duration
-  app.post('/api/admin/sync-mux-durations', isAuthenticated, async (req: any, res) => {
+  app.post('/api/admin/sync-mux-durations', isAuthenticated, requireAdmin, async (req: any, res) => {
     try {
       // Get all content items with muxPlaybackId but no duration
       const contentWithoutDuration = await db
@@ -14374,7 +14415,7 @@ Keep your response concise, practical, and evidence-based. Do not use em dashes.
   });
 
   // Admin CRUD for breath techniques
-  app.post('/api/admin/breathwork/techniques', isAuthenticated, async (req: any, res) => {
+  app.post('/api/admin/breathwork/techniques', isAuthenticated, requireAdmin, async (req: any, res) => {
     try {
       const technique = await storage.createBreathTechnique(req.body);
       res.status(201).json(technique);
@@ -14384,7 +14425,7 @@ Keep your response concise, practical, and evidence-based. Do not use em dashes.
     }
   });
 
-  app.patch('/api/admin/breathwork/techniques/:id', isAuthenticated, async (req: any, res) => {
+  app.patch('/api/admin/breathwork/techniques/:id', isAuthenticated, requireAdmin, async (req: any, res) => {
     try {
       const id = parseInt(req.params.id);
       const technique = await storage.updateBreathTechnique(id, req.body);
@@ -14395,7 +14436,7 @@ Keep your response concise, practical, and evidence-based. Do not use em dashes.
     }
   });
 
-  app.delete('/api/admin/breathwork/techniques/:id', isAuthenticated, async (req: any, res) => {
+  app.delete('/api/admin/breathwork/techniques/:id', isAuthenticated, requireAdmin, async (req: any, res) => {
     try {
       const id = parseInt(req.params.id);
       await storage.deleteBreathTechnique(id);
@@ -15391,7 +15432,7 @@ Keep your response concise, practical, and evidence-based. Do not use em dashes.
   // ============================================
 
   // Workday Positions - Admin CRUD
-  app.get('/api/admin/workday/positions', isAuthenticated, async (req: any, res) => {
+  app.get('/api/admin/workday/positions', isAuthenticated, requireAdmin, async (req: any, res) => {
     try {
       const positions = await storage.getAllWorkdayPositions();
       res.json(positions);
@@ -15401,7 +15442,7 @@ Keep your response concise, practical, and evidence-based. Do not use em dashes.
     }
   });
 
-  app.get('/api/admin/workday/positions/:id', isAuthenticated, async (req: any, res) => {
+  app.get('/api/admin/workday/positions/:id', isAuthenticated, requireAdmin, async (req: any, res) => {
     try {
       const position = await storage.getWorkdayPositionById(parseInt(req.params.id));
       if (!position) return res.status(404).json({ message: "Position not found" });
@@ -15412,7 +15453,7 @@ Keep your response concise, practical, and evidence-based. Do not use em dashes.
     }
   });
 
-  app.post('/api/admin/workday/positions', isAuthenticated, async (req: any, res) => {
+  app.post('/api/admin/workday/positions', isAuthenticated, requireAdmin, async (req: any, res) => {
     try {
       const validated = insertWorkdayPositionSchema.parse(req.body);
       const position = await storage.createWorkdayPosition(validated);
@@ -15423,7 +15464,7 @@ Keep your response concise, practical, and evidence-based. Do not use em dashes.
     }
   });
 
-  app.patch('/api/admin/workday/positions/:id', isAuthenticated, async (req: any, res) => {
+  app.patch('/api/admin/workday/positions/:id', isAuthenticated, requireAdmin, async (req: any, res) => {
     try {
       const position = await storage.updateWorkdayPosition(parseInt(req.params.id), req.body);
       res.json(position);
@@ -15433,7 +15474,7 @@ Keep your response concise, practical, and evidence-based. Do not use em dashes.
     }
   });
 
-  app.delete('/api/admin/workday/positions/:id', isAuthenticated, async (req: any, res) => {
+  app.delete('/api/admin/workday/positions/:id', isAuthenticated, requireAdmin, async (req: any, res) => {
     try {
       await storage.deleteWorkdayPosition(parseInt(req.params.id));
       res.status(204).send();
@@ -15444,7 +15485,7 @@ Keep your response concise, practical, and evidence-based. Do not use em dashes.
   });
 
   // Workday Micro-Resets - Admin CRUD
-  app.get('/api/admin/workday/micro-resets', isAuthenticated, async (req: any, res) => {
+  app.get('/api/admin/workday/micro-resets', isAuthenticated, requireAdmin, async (req: any, res) => {
     try {
       const targetArea = req.query.targetArea as string | undefined;
       const resets = await storage.getWorkdayMicroResets(targetArea);
@@ -15455,7 +15496,7 @@ Keep your response concise, practical, and evidence-based. Do not use em dashes.
     }
   });
 
-  app.get('/api/admin/workday/micro-resets/:id', isAuthenticated, async (req: any, res) => {
+  app.get('/api/admin/workday/micro-resets/:id', isAuthenticated, requireAdmin, async (req: any, res) => {
     try {
       const reset = await storage.getWorkdayMicroResetById(parseInt(req.params.id));
       if (!reset) return res.status(404).json({ message: "Micro-reset not found" });
@@ -15466,7 +15507,7 @@ Keep your response concise, practical, and evidence-based. Do not use em dashes.
     }
   });
 
-  app.post('/api/admin/workday/micro-resets', isAuthenticated, async (req: any, res) => {
+  app.post('/api/admin/workday/micro-resets', isAuthenticated, requireAdmin, async (req: any, res) => {
     try {
       const validated = insertWorkdayMicroResetSchema.parse(req.body);
       const reset = await storage.createWorkdayMicroReset(validated);
@@ -15477,7 +15518,7 @@ Keep your response concise, practical, and evidence-based. Do not use em dashes.
     }
   });
 
-  app.patch('/api/admin/workday/micro-resets/:id', isAuthenticated, async (req: any, res) => {
+  app.patch('/api/admin/workday/micro-resets/:id', isAuthenticated, requireAdmin, async (req: any, res) => {
     try {
       const reset = await storage.updateWorkdayMicroReset(parseInt(req.params.id), req.body);
       res.json(reset);
@@ -15487,7 +15528,7 @@ Keep your response concise, practical, and evidence-based. Do not use em dashes.
     }
   });
 
-  app.delete('/api/admin/workday/micro-resets/:id', isAuthenticated, async (req: any, res) => {
+  app.delete('/api/admin/workday/micro-resets/:id', isAuthenticated, requireAdmin, async (req: any, res) => {
     try {
       await storage.deleteWorkdayMicroReset(parseInt(req.params.id));
       res.status(204).send();
@@ -15498,7 +15539,7 @@ Keep your response concise, practical, and evidence-based. Do not use em dashes.
   });
 
   // Workday Aches & Fixes - Admin CRUD
-  app.get('/api/admin/workday/aches-fixes', isAuthenticated, async (req: any, res) => {
+  app.get('/api/admin/workday/aches-fixes', isAuthenticated, requireAdmin, async (req: any, res) => {
     try {
       const fixes = await storage.getWorkdayAchesFixes();
       res.json(fixes);
@@ -15508,7 +15549,7 @@ Keep your response concise, practical, and evidence-based. Do not use em dashes.
     }
   });
 
-  app.get('/api/admin/workday/aches-fixes/:id', isAuthenticated, async (req: any, res) => {
+  app.get('/api/admin/workday/aches-fixes/:id', isAuthenticated, requireAdmin, async (req: any, res) => {
     try {
       const fix = await storage.getWorkdayAchesFixById(parseInt(req.params.id));
       if (!fix) return res.status(404).json({ message: "Aches & fix not found" });
@@ -15519,7 +15560,7 @@ Keep your response concise, practical, and evidence-based. Do not use em dashes.
     }
   });
 
-  app.post('/api/admin/workday/aches-fixes', isAuthenticated, async (req: any, res) => {
+  app.post('/api/admin/workday/aches-fixes', isAuthenticated, requireAdmin, async (req: any, res) => {
     try {
       const validated = insertWorkdayAchesFixSchema.parse(req.body);
       const fix = await storage.createWorkdayAchesFix(validated);
@@ -15530,7 +15571,7 @@ Keep your response concise, practical, and evidence-based. Do not use em dashes.
     }
   });
 
-  app.patch('/api/admin/workday/aches-fixes/:id', isAuthenticated, async (req: any, res) => {
+  app.patch('/api/admin/workday/aches-fixes/:id', isAuthenticated, requireAdmin, async (req: any, res) => {
     try {
       const fix = await storage.updateWorkdayAchesFix(parseInt(req.params.id), req.body);
       res.json(fix);
@@ -15540,7 +15581,7 @@ Keep your response concise, practical, and evidence-based. Do not use em dashes.
     }
   });
 
-  app.delete('/api/admin/workday/aches-fixes/:id', isAuthenticated, async (req: any, res) => {
+  app.delete('/api/admin/workday/aches-fixes/:id', isAuthenticated, requireAdmin, async (req: any, res) => {
     try {
       await storage.deleteWorkdayAchesFix(parseInt(req.params.id));
       res.status(204).send();
@@ -15551,7 +15592,7 @@ Keep your response concise, practical, and evidence-based. Do not use em dashes.
   });
 
   // Workday Desk Setups - Admin CRUD
-  app.get('/api/admin/workday/desk-setups', isAuthenticated, async (req: any, res) => {
+  app.get('/api/admin/workday/desk-setups', isAuthenticated, requireAdmin, async (req: any, res) => {
     try {
       const deskType = req.query.deskType as string | undefined;
       const positionType = req.query.positionType as string | undefined;
@@ -15563,7 +15604,7 @@ Keep your response concise, practical, and evidence-based. Do not use em dashes.
     }
   });
 
-  app.get('/api/admin/workday/desk-setups/:id', isAuthenticated, async (req: any, res) => {
+  app.get('/api/admin/workday/desk-setups/:id', isAuthenticated, requireAdmin, async (req: any, res) => {
     try {
       const setup = await storage.getWorkdayDeskSetupById(parseInt(req.params.id));
       if (!setup) return res.status(404).json({ message: "Desk setup not found" });
@@ -15574,7 +15615,7 @@ Keep your response concise, practical, and evidence-based. Do not use em dashes.
     }
   });
 
-  app.post('/api/admin/workday/desk-setups', isAuthenticated, async (req: any, res) => {
+  app.post('/api/admin/workday/desk-setups', isAuthenticated, requireAdmin, async (req: any, res) => {
     try {
       const validated = insertWorkdayDeskSetupSchema.parse(req.body);
       const setup = await storage.createWorkdayDeskSetup(validated);
@@ -15585,7 +15626,7 @@ Keep your response concise, practical, and evidence-based. Do not use em dashes.
     }
   });
 
-  app.patch('/api/admin/workday/desk-setups/:id', isAuthenticated, async (req: any, res) => {
+  app.patch('/api/admin/workday/desk-setups/:id', isAuthenticated, requireAdmin, async (req: any, res) => {
     try {
       const setup = await storage.updateWorkdayDeskSetup(parseInt(req.params.id), req.body);
       res.json(setup);
@@ -15595,7 +15636,7 @@ Keep your response concise, practical, and evidence-based. Do not use em dashes.
     }
   });
 
-  app.delete('/api/admin/workday/desk-setups/:id', isAuthenticated, async (req: any, res) => {
+  app.delete('/api/admin/workday/desk-setups/:id', isAuthenticated, requireAdmin, async (req: any, res) => {
     try {
       await storage.deleteWorkdayDeskSetup(parseInt(req.params.id));
       res.status(204).send();
@@ -15606,7 +15647,7 @@ Keep your response concise, practical, and evidence-based. Do not use em dashes.
   });
 
   // Workday Desk Tips - Admin CRUD
-  app.get('/api/admin/workday/desk-tips', isAuthenticated, async (req: any, res) => {
+  app.get('/api/admin/workday/desk-tips', isAuthenticated, requireAdmin, async (req: any, res) => {
     try {
       const tips = await storage.getWorkdayDeskTips();
       res.json(tips);
@@ -15616,7 +15657,7 @@ Keep your response concise, practical, and evidence-based. Do not use em dashes.
     }
   });
 
-  app.get('/api/admin/workday/desk-tips/:id', isAuthenticated, async (req: any, res) => {
+  app.get('/api/admin/workday/desk-tips/:id', isAuthenticated, requireAdmin, async (req: any, res) => {
     try {
       const tip = await storage.getWorkdayDeskTipById(parseInt(req.params.id));
       if (!tip) return res.status(404).json({ message: "Desk tip not found" });
@@ -15627,7 +15668,7 @@ Keep your response concise, practical, and evidence-based. Do not use em dashes.
     }
   });
 
-  app.post('/api/admin/workday/desk-tips', isAuthenticated, async (req: any, res) => {
+  app.post('/api/admin/workday/desk-tips', isAuthenticated, requireAdmin, async (req: any, res) => {
     try {
       const validated = insertWorkdayDeskTipSchema.parse(req.body);
       const tip = await storage.createWorkdayDeskTip(validated);
@@ -15638,7 +15679,7 @@ Keep your response concise, practical, and evidence-based. Do not use em dashes.
     }
   });
 
-  app.patch('/api/admin/workday/desk-tips/:id', isAuthenticated, async (req: any, res) => {
+  app.patch('/api/admin/workday/desk-tips/:id', isAuthenticated, requireAdmin, async (req: any, res) => {
     try {
       const tip = await storage.updateWorkdayDeskTip(parseInt(req.params.id), req.body);
       res.json(tip);
@@ -15648,7 +15689,7 @@ Keep your response concise, practical, and evidence-based. Do not use em dashes.
     }
   });
 
-  app.delete('/api/admin/workday/desk-tips/:id', isAuthenticated, async (req: any, res) => {
+  app.delete('/api/admin/workday/desk-tips/:id', isAuthenticated, requireAdmin, async (req: any, res) => {
     try {
       await storage.deleteWorkdayDeskTip(parseInt(req.params.id));
       res.status(204).send();
@@ -15659,7 +15700,7 @@ Keep your response concise, practical, and evidence-based. Do not use em dashes.
   });
 
   // Admin - Backfill enrollment snapshots for existing enrollments
-  app.post('/api/admin/backfill-enrollment-snapshots', isAuthenticated, async (req: any, res) => {
+  app.post('/api/admin/backfill-enrollment-snapshots', isAuthenticated, requireAdmin, async (req: any, res) => {
     try {
       const result = await storage.backfillEnrollmentSnapshots();
       res.json({
@@ -15674,7 +15715,7 @@ Keep your response concise, practical, and evidence-based. Do not use em dashes.
   });
   
   // Admin - Regenerate enrollment snapshots with full multi-week data
-  app.post('/api/admin/regenerate-enrollment-snapshots', isAuthenticated, async (req: any, res) => {
+  app.post('/api/admin/regenerate-enrollment-snapshots', isAuthenticated, requireAdmin, async (req: any, res) => {
     try {
       const result = await storage.regenerateEnrollmentSnapshots();
       res.json({
@@ -15901,7 +15942,7 @@ Keep your response concise, practical, and evidence-based. Do not use em dashes.
       res.json(out);
     } catch (error) {
       console.error('Error fetching desk references:', error);
-      res.json({ seated: null, standing: null, alternative: null });
+      res.status(500).json({ message: 'Failed to fetch reference photos' });
     }
   });
 
@@ -15981,7 +16022,7 @@ Keep your response concise, practical, and evidence-based. Do not use em dashes.
     return buf;
   }
 
-  app.get('/api/workday/scans/:id/audio', isAuthenticated, async (req: any, res) => {
+  app.get('/api/workday/scans/:id/audio', isAuthenticated, aiTtsRateLimit, async (req: any, res) => {
     try {
       const userId = req.user.claims.sub;
       const id = parseInt(req.params.id);
@@ -16030,7 +16071,7 @@ Keep your response concise, practical, and evidence-based. Do not use em dashes.
   });
 
   // AI Desk Setup Analyzer
-  app.post('/api/workday/analyze-desk', isAuthenticated, async (req: any, res) => {
+  app.post('/api/workday/analyze-desk', isAuthenticated, aiVisionRateLimit, async (req: any, res) => {
     try {
       const { imageBase64, deskType, positionType } = req.body;
       
@@ -17899,7 +17940,7 @@ RULES:
   });
 
   // Mindfulness Tools - Admin CRUD
-  app.get('/api/admin/mindfulness', isAuthenticated, async (req: any, res) => {
+  app.get('/api/admin/mindfulness', isAuthenticated, requireAdmin, async (req: any, res) => {
     try {
       const tools = await storage.getMindfulnessTools();
       res.json(tools);
@@ -17909,7 +17950,7 @@ RULES:
     }
   });
 
-  app.post('/api/admin/mindfulness', isAuthenticated, async (req: any, res) => {
+  app.post('/api/admin/mindfulness', isAuthenticated, requireAdmin, async (req: any, res) => {
     try {
       const validated = insertMindfulnessToolSchema.parse(req.body);
       const tool = await storage.createMindfulnessTool(validated);
@@ -17920,7 +17961,7 @@ RULES:
     }
   });
 
-  app.patch('/api/admin/mindfulness/:id', isAuthenticated, async (req: any, res) => {
+  app.patch('/api/admin/mindfulness/:id', isAuthenticated, requireAdmin, async (req: any, res) => {
     try {
       const tool = await storage.updateMindfulnessTool(parseInt(req.params.id), req.body);
       res.json(tool);
@@ -17930,7 +17971,7 @@ RULES:
     }
   });
 
-  app.delete('/api/admin/mindfulness/:id', isAuthenticated, async (req: any, res) => {
+  app.delete('/api/admin/mindfulness/:id', isAuthenticated, requireAdmin, async (req: any, res) => {
     try {
       await storage.deleteMindfulnessTool(parseInt(req.params.id));
       res.json({ message: "Mindfulness tool deleted" });

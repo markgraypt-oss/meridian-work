@@ -3,6 +3,7 @@ import { storage } from "../storage";
 import { aiCall } from "../ai";
 import { getUserDataContext, getFeatureConfig } from "../aiProvider";
 import { getTopMemoriesText } from "./memory";
+import { notify } from "../notifications";
 
 // Phrases that drift toward medical advice. We replace them with neutral
 // coaching language as a defence-in-depth pass on top of the system-prompt
@@ -250,7 +251,7 @@ Return only the JSON object now.`;
   // ignored the system prompt rules.
   content = sanitizeBriefingContent(content);
 
-  return storage.createCoachBriefing({
+  const briefing = await storage.createCoachBriefing({
     userId,
     briefingDate: dateKey,
     type,
@@ -258,4 +259,24 @@ Return only the JSON object now.`;
     contextSnapshot,
     source,
   });
+
+  // Fire a push / in-app notification for fresh morning briefings so the
+  // coach feels proactive even if the user has not opened the dashboard
+  // yet. Quiet hours, daily cap, and per-channel preferences are honored
+  // by notify(). Only fire when the briefing is for *today* — skip any
+  // historical backfill so users aren't pinged about old days.
+  const todayKey = todayKeyForUser(new Date());
+  if (type === "morning" && briefing.briefingDate === todayKey) {
+    const headline = (content.greeting || `Morning briefing ready`).trim();
+    const firstFocus = (content.focus?.[0] || content.summary || "").trim();
+    notify({
+      userId,
+      category: "coach",
+      title: headline,
+      body: firstFocus,
+      data: { url: `/?briefing=${briefing.id}`, briefingId: briefing.id, type },
+    }).catch((err) => console.error("[coach-briefing] notify failed:", err));
+  }
+
+  return briefing;
 }

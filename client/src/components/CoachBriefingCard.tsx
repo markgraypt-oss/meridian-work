@@ -1,3 +1,4 @@
+import { useEffect, useRef } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Link } from "wouter";
 import { Card, CardContent } from "@/components/ui/card";
@@ -19,6 +20,27 @@ export default function CoachBriefingCard() {
     staleTime: 5 * 60 * 1000,
     refetchOnWindowFocus: false,
   });
+
+  const cardRef = useRef<HTMLDivElement | null>(null);
+
+  // When the dashboard is opened from a briefing notification (which links
+  // to /?briefing=<id>), scroll the briefing card into view once it has
+  // rendered so the user lands directly on the content the push referred to.
+  useEffect(() => {
+    if (!data || typeof window === "undefined") return;
+    const params = new URLSearchParams(window.location.search);
+    const briefingId = params.get("briefing");
+    if (!briefingId) return;
+    if (String(data.id) !== briefingId) return;
+    const t = window.setTimeout(() => {
+      cardRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+      // Clean the query param so a refresh doesn't re-scroll.
+      const url = new URL(window.location.href);
+      url.searchParams.delete("briefing");
+      window.history.replaceState({}, "", url.toString());
+    }, 150);
+    return () => window.clearTimeout(t);
+  }, [data]);
 
   if (isLoading) {
     return (
@@ -44,7 +66,7 @@ export default function CoachBriefingCard() {
   const content = (data.content || {}) as BriefingContent;
 
   return (
-    <div className="mx-4 mt-3 mb-1" data-testid="coach-briefing-card">
+    <div ref={cardRef} className="mx-4 mt-3 mb-1" data-testid="coach-briefing-card">
       <Card className="border border-[#0cc9a9]/30 bg-gradient-to-br from-[#0cc9a9]/10 to-transparent overflow-hidden">
         <CardContent className="p-4">
           <div className="flex items-center justify-between mb-2">

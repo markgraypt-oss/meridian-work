@@ -1,3 +1,9 @@
+// CONTAINMENT: This module powers admin company reports and CSV exports.
+// The Daily Readiness score (server/dailyReadiness.ts, table
+// daily_readiness_history) is intentionally PERSONAL-ONLY and must NEVER
+// be aggregated into report snapshots, exported to CSV, or surfaced in any
+// cohort-level output. If you find yourself reaching for that table here,
+// reconsider — the product decision is to keep it strictly user-facing.
 import { db } from "./db";
 import { users, checkIns, bodyMapLogs, burnoutScores, reportSettings } from "@shared/schema";
 import { eq, and, gte, lte, sql, count, avg, sum, isNotNull, ne, inArray, desc, isNull } from "drizzle-orm";
@@ -773,7 +779,7 @@ export async function getCompanyReport(
   const bodyMapStats = await computeBodyMapStats(userIds, start, end, totalUsersInCompany, prevStart, prevEnd, companyName);
   const burnoutStats = await computeBurnoutStats(userIds, start, end, prevStart, prevEnd, companyName);
 
-  return {
+  const report: CompanyReport = {
     companyName,
     window: `${windowDays}d`,
     eligible: true,
@@ -787,4 +793,11 @@ export async function getCompanyReport(
     bodyMapStats,
     burnoutStats,
   };
+  // CONTAINMENT: Hard runtime guard — Daily Readiness (Beta, User-Only)
+  // MUST NEVER appear in admin company reports or any downstream CSV/PDF
+  // export built from this object. Throwing here makes containment
+  // regressions fail loudly rather than leak silently.
+  const { assertNoReadinessLeak } = await import("./dailyReadiness");
+  assertNoReadinessLeak(report, "reportingEngine.getCompanyReport");
+  return report;
 }

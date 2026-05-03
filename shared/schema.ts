@@ -3169,5 +3169,42 @@ export const userTrackStreaks = pgTable("user_track_streaks", {
 export type UserTrackStreak = typeof userTrackStreaks.$inferSelect;
 export type InsertUserTrackStreak = typeof userTrackStreaks.$inferInsert;
 
+// =============================================
+// DAILY READINESS (Beta, User-Only)
+// =============================================
+// Personal 0-100 readiness score computed nightly from sleep / pain /
+// energy / nutrition / movement / recovery inputs. Strictly user-facing —
+// never aggregated into admin reports, CSV exports, or AI narrators.
+// One row per (user, date). Inputs are persisted alongside the score so
+// the algorithm can be re-run on historical data when v2 lands.
+export const dailyReadinessHistory = pgTable("daily_readiness_history", {
+  id: serial("id").primaryKey(),
+  userId: varchar("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+  date: varchar("date").notNull(), // YYYY-MM-DD (local day)
+  // Normalised 0-10 inputs. Null when no signal was available that day.
+  sleepInput: real("sleep_input"),
+  painInput: real("pain_input"),       // inverted: 10 = no pain, 0 = severe
+  energyInput: real("energy_input"),
+  nutritionInput: real("nutrition_input"),
+  movementInput: real("movement_input"),
+  recoveryInput: real("recovery_input"),
+  inputCount: integer("input_count").notNull().default(0),
+  // 0-100. Null when fewer than the minimum required inputs were available.
+  score: integer("score"),
+  algorithmVersion: varchar("algorithm_version").notNull().default("v1"),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+}, (t) => [
+  uniqueIndex("idx_daily_readiness_user_date").on(t.userId, t.date),
+  index("idx_daily_readiness_user").on(t.userId),
+]);
+export type DailyReadinessHistory = typeof dailyReadinessHistory.$inferSelect;
+export type InsertDailyReadinessHistory = typeof dailyReadinessHistory.$inferInsert;
+export const insertDailyReadinessHistorySchema = createInsertSchema(dailyReadinessHistory).omit({
+  id: true,
+  createdAt: true,
+  updatedAt: true,
+});
+
 // Chat models for AI conversations
 export * from "./models/chat";

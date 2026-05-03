@@ -23,7 +23,8 @@ export type ActivityType =
   | "breathwork"
   | "sleep_log"
   | "hydration_goal"
-  | "perfect_week";
+  | "perfect_week"
+  | "readiness_weekly_baseline";
 
 export type StreakTrack = "checkin" | "movement" | "recovery" | "nutrition";
 
@@ -54,6 +55,9 @@ const DEFAULTS: EngagementDefaults = {
     sleep_log: { basePoints: 15, dailyCap: 1, track: "recovery" },
     hydration_goal: { basePoints: 10, dailyCap: 1, track: "nutrition" },
     perfect_week: { basePoints: 150, dailyCap: 1 },
+    // Daily Readiness (Beta): +100 for 5+ days in a week above personal
+    // 30-day rolling average. Awarded weekly by server/dailyReadiness.ts.
+    readiness_weekly_baseline: { basePoints: 100, dailyCap: 1 },
   },
   weeklyCaps: { soft1: 500, soft1Multiplier: 0.5, soft2: 1000, soft2Multiplier: 0.25 },
   streakBonuses: [
@@ -392,40 +396,99 @@ export async function computeEngagementIndex(
 } | null> {
   if (userIds.length < minCohortSize) return null;
 
-  // Active users in window (had any points tx)
+  // CONTAINMENT: Daily Readiness (Beta, User-Only) is strictly excluded
+  // from every company-facing Engagement Index input. We exclude its
+  // activity type from:
+  //   - the active-users-in-window count
+  //   - the per-user weekly points sum
+  //   - the per-user lifetime points sum (so derived level is unaffected)
+  //   - the top-activities cohort breakdown
+  // A user whose ONLY activity in-window is a readiness reward must not
+  // count toward `activeUsers`.
+  const READINESS_EXCLUDED = ["readiness_weekly_baseline"] as const;
+
+  // Active users in window (had any non-readiness points tx).
   const activeRes = await db.execute(sql`
     SELECT COUNT(DISTINCT user_id)::int AS c
     FROM points_transactions
     WHERE user_id = ANY(${userIds}::varchar[])
       AND created_at >= ${startDate}
       AND created_at <= ${endDate}
+      AND activity_type NOT IN ('readiness_weekly_baseline')
   `);
-  const activeUsers = Number(((activeRes as any).rows?.[0] || (activeRes as any)[0])?.c ?? 0);
+  const activeRows = (activeRes as unknown as { rows?: Array<{ c: number }> }).rows ?? [];
+  const activeUsers = Number(activeRows[0]?.c ?? 0);
   if (activeUsers < minCohortSize) return null;
+
+  // Per-user readiness contributions to subtract from user_points totals.
+  // weekStart on user_points is the Monday of the current week, so "this
+  // week's" readiness points = sum of awarded_points where created_at >=
+  // that weekStart. Lifetime readiness = all-time sum per user.
+  const readinessRes = await db.execute(sql`
+    SELECT
+      pt.user_id AS user_id,
+      COALESCE(SUM(pt.awarded_points), 0)::int AS lifetime,
+      COALESCE(SUM(CASE
+        WHEN up.week_start IS NOT NULL
+         AND pt.created_at >= (up.week_start || ' 00:00:00')::timestamp
+        THEN pt.awarded_points ELSE 0 END), 0)::int AS this_week
+    FROM points_transactions pt
+    LEFT JOIN user_points up ON up.user_id = pt.user_id
+    WHERE pt.user_id = ANY(${userIds}::varchar[])
+      AND pt.activity_type IN ('readiness_weekly_baseline')
+    GROUP BY pt.user_id
+  `);
+  const readinessRows =
+    (readinessRes as unknown as { rows?: Array<{ user_id: string; lifetime: number; this_week: number }> })
+      .rows ?? [];
+  const readinessByUser = new Map<string, { lifetime: number; thisWeek: number }>();
+  for (const r of readinessRows) {
+    readinessByUser.set(r.user_id, { lifetime: Number(r.lifetime), thisWeek: Number(r.this_week) });
+  }
 
   const upRows = await db
     .select()
     .from(userPoints)
     .where(sql`${userPoints.userId} = ANY(${userIds}::varchar[])`);
-  const avgWeekPoints = upRows.length > 0
-    ? Math.round(upRows.reduce((s, r) => s + (r.weekPoints || 0), 0) / upRows.length)
+
+  // Recompute level from (totalPoints - readiness lifetime) using the
+  // same engagement config so readiness rewards never inflate avgLevel.
+  const cfg = await getEngagementConfig();
+  const adjusted = upRows.map((r) => {
+    const r0 = readinessByUser.get(r.userId) ?? { lifetime: 0, thisWeek: 0 };
+    const adjTotal = Math.max(0, (r.totalPoints || 0) - r0.lifetime);
+    const adjWeek = Math.max(0, (r.weekPoints || 0) - r0.thisWeek);
+    const lvl = pickLevel(adjTotal, cfg.levels);
+    return { weekPoints: adjWeek, level: lvl.level };
+  });
+  const avgWeekPoints = adjusted.length > 0
+    ? Math.round(adjusted.reduce((s, r) => s + r.weekPoints, 0) / adjusted.length)
     : 0;
-  const avgLevel = upRows.length > 0
-    ? Math.round((upRows.reduce((s, r) => s + (r.level || 1), 0) / upRows.length) * 10) / 10
+  const avgLevel = adjusted.length > 0
+    ? Math.round((adjusted.reduce((s, r) => s + r.level, 0) / adjusted.length) * 10) / 10
     : 1;
 
+  // Top activities cohort tile — also excludes readiness.
   const txRes = await db.execute(sql`
     SELECT activity_type, COUNT(*)::int AS c
     FROM points_transactions
     WHERE user_id = ANY(${userIds}::varchar[])
       AND created_at >= ${startDate}
       AND created_at <= ${endDate}
+      AND activity_type NOT IN ('readiness_weekly_baseline')
     GROUP BY activity_type
     ORDER BY c DESC
     LIMIT 5
   `);
-  const txRows = (txRes as any).rows || txRes;
-  const topActivities = (txRows as any[]).map((r) => ({ activityType: r.activity_type, count: Number(r.c) }));
+  const txRows = (txRes as unknown as { rows?: Array<{ activity_type: string; c: number }> }).rows ?? [];
+  const topActivities = txRows.map((r) => ({
+    activityType: r.activity_type,
+    count: Number(r.c),
+  }));
+  // Defensive invariant: readiness must never appear in topActivities.
+  if (topActivities.some((a) => READINESS_EXCLUDED.includes(a.activityType as typeof READINESS_EXCLUDED[number]))) {
+    throw new Error("[readiness-containment] readiness activity leaked into Engagement Index topActivities");
+  }
 
   const trackRows = await db
     .select()

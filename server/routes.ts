@@ -17151,6 +17151,47 @@ Format your response as JSON with this exact structure:
     }
   });
 
+  // ----------------------------------------------------------------------
+  // Daily Readiness (Beta, User-Only)
+  // Personal score — feature-flagged via DAILY_READINESS_ENABLED.
+  // Strictly user-facing; never exposed via admin or CSV endpoints.
+  // ----------------------------------------------------------------------
+  app.get('/api/daily-readiness/today', isAuthenticated, async (req: any, res) => {
+    try {
+      const dr = await import("./dailyReadiness");
+      if (!dr.isFeatureEnabled()) {
+        return res.json({ enabled: false, date: null, score: null, inputCount: 0, daysOfHistory: 0 });
+      }
+      const userId = req.user.claims.sub;
+      // Compute on-demand for "today" so the card reflects the latest inputs
+      // even before the nightly job runs. Use the shared local-day helper
+      // so /today and the nightly job agree on date boundaries.
+      const today = dr.todayKey();
+      await dr.computeAndStoreForUserDay(userId, today);
+      const data = await dr.getTodayForUser(userId);
+      res.json({ enabled: true, ...data });
+    } catch (error: any) {
+      console.error("Error fetching daily readiness today:", error?.message);
+      res.status(500).json({ message: "Failed to load readiness" });
+    }
+  });
+
+  app.get('/api/daily-readiness/history', isAuthenticated, async (req: any, res) => {
+    try {
+      const dr = await import("./dailyReadiness");
+      if (!dr.isFeatureEnabled()) {
+        return res.json({ enabled: false, history: [] });
+      }
+      const userId = req.user.claims.sub;
+      const days = Math.min(Math.max(parseInt(String(req.query.days || "30"), 10) || 30, 1), 90);
+      const history = await dr.getHistoryForUser(userId, days);
+      res.json({ enabled: true, history });
+    } catch (error: any) {
+      console.error("Error fetching daily readiness history:", error?.message);
+      res.status(500).json({ message: "Failed to load readiness history" });
+    }
+  });
+
   // Read tunables (admin only).
   app.get('/api/admin/engagement/config', isAuthenticated, async (req: any, res) => {
     try {
@@ -17241,7 +17282,12 @@ Format your response as JSON with this exact structure:
           cohortSize: userIds.length,
         });
       }
-      res.json({ eligible: true, window: `${windowDays}d`, ...data });
+      // CONTAINMENT: Hard guard — fail loudly if any Daily Readiness
+      // identifier ever appears in the admin Engagement Index payload.
+      const { assertNoReadinessLeak } = await import("./dailyReadiness");
+      const payload = { eligible: true, window: `${windowDays}d`, ...data };
+      assertNoReadinessLeak(payload, "admin.engagementIndex");
+      res.json(payload);
     } catch (error: any) {
       console.error("Engagement index failed:", error?.message);
       res.status(500).json({ message: "Failed to compute engagement index" });

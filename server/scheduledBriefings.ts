@@ -255,8 +255,33 @@ async function tick(): Promise<void> {
 
     // Piggy-back the proactive coach briefing sweep on this tick.
     await sweepCoachBriefings(rows.map((r) => r.id));
+
+    // Piggy-back the nightly Daily Readiness compute (feature-flagged).
+    // Runs once per local-night window (02:00-04:00). The compute itself is
+    // upsert-based and idempotent, so re-running within the window is safe.
+    await maybeRunNightlyReadiness();
   } catch (err) {
     console.error("[briefings] tick error:", err);
+  }
+}
+
+const READINESS_HOUR_START = 2;
+const READINESS_HOUR_END = 4;
+let readinessLastRunDate: string | null = null;
+async function maybeRunNightlyReadiness(): Promise<void> {
+  try {
+    const hour = new Date().getHours();
+    if (hour < READINESS_HOUR_START || hour >= READINESS_HOUR_END) return;
+    const mod = await import("./dailyReadiness");
+    if (!mod.isFeatureEnabled()) return;
+    // Local-day key (not UTC) so the once-per-day guard aligns with the
+    // 02:00-04:00 LOCAL window above.
+    const today = mod.todayKey();
+    if (readinessLastRunDate === today) return;
+    await mod.runNightlyReadinessCompute();
+    readinessLastRunDate = today;
+  } catch (e) {
+    console.error("[daily-readiness] tick error:", e);
   }
 }
 

@@ -6,6 +6,7 @@ import { and, eq, desc } from "drizzle-orm";
 import { aiCall } from "./ai";
 import { getEffectiveReportSettings } from "./reportingEngine";
 import type { CompanyReport } from "./reportingEngine";
+import { assertNoReadinessLeak } from "./dailyReadiness";
 
 export const ExecutiveSummarySchema = z.object({
   headline: z.string().max(200),
@@ -37,7 +38,7 @@ export interface NarrativeResult {
 // snapshot hash. Excludes any user-identifying fields by construction (the
 // reporting engine already returns aggregates).
 function buildSnapshot(report: CompanyReport) {
-  return {
+  const snapshot = {
     company: report.companyName,
     window: report.window,
     totalUsers: report.totalUsersInCompany,
@@ -49,6 +50,12 @@ function buildSnapshot(report: CompanyReport) {
     bodyMapStats: report.bodyMapStats,
     burnoutStats: report.burnoutStats,
   };
+  // CONTAINMENT: Hard guard — fail loudly if any Daily Readiness data
+  // ever finds its way into the admin/AI narrator snapshot. This is in
+  // addition to the prompt-level guardrail, since the snapshot is also
+  // hashed and persisted.
+  assertNoReadinessLeak(snapshot, "reportNarrator.buildSnapshot");
+  return snapshot;
 }
 
 function canonicalize(value: unknown): unknown {
@@ -83,7 +90,7 @@ Hard rules:
 - No demographic inferences. No legal advice. No HR/disciplinary recommendations.
 - Output MUST be raw JSON matching the requested schema. No prose, no markdown.
 - Engagement metrics (points/XP totals, streak averages, activity counts, levels) MAY be discussed as cohort-level participation and habit-formation signals.
-- DO NOT reference, infer, or recommend any "Daily Readiness" score, biometric readiness rating, HRV-derived readiness, or similar individual-level readiness construct. That feature is out of scope for these reports.`;
+- DO NOT reference, infer, or recommend any "Daily Readiness" score, biometric readiness rating, HRV-derived readiness, or similar individual-level readiness construct. That feature is intentionally personal-only and is excluded from all admin reports, CSV exports, and AI narrative outputs.`;
 
 function buildPrompt(report: CompanyReport): string {
   const snapshot = buildSnapshot(report);

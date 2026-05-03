@@ -293,6 +293,7 @@ export const workouts = pgTable("workouts", {
   equipment: text("equipment").array(), // array of equipment needed
   imageUrl: text("image_url"),
   muxPlaybackId: text("mux_playback_id"), // main workout video for video workout type
+  videoUrl: text("video_url"), // Legacy local upload path; new workouts use muxPlaybackId. Kept for back-compat with admin uploader.
   exercises: jsonb("exercises"), // array of exercise objects with details (legacy - for migration)
   routineType: text("routine_type").notNull().default("workout"), // 'workout', 'stretching', 'corrective'
   workoutType: text("workout_type").notNull().default("regular"), // 'regular', 'interval', 'circuit', 'video'
@@ -693,7 +694,6 @@ export const programModificationSuggestions = pgTable("program_modification_sugg
   recoveryPlanId: integer("recovery_plan_id").notNull().references(() => recoveryPlanSuggestions.id, { onDelete: "cascade" }),
   userId: varchar("user_id").notNull().references(() => users.id),
   enrollmentId: integer("enrollment_id").notNull().references(() => userProgramEnrollments.id, { onDelete: "cascade" }),
-  programExerciseId: integer("program_exercise_id").references(() => programExercises.id, { onDelete: "set null" }), // DEPRECATED: legacy column
   blockExerciseId: integer("block_exercise_id").references(() => programmeBlockExercises.id, { onDelete: "set null" }), // New: references block exercises
   modificationType: text("modification_type").notNull(), // 'replace', 'reduce_intensity', 'skip', 'modify_reps', 'modify_sets'
   originalExerciseName: text("original_exercise_name").notNull(),
@@ -2837,6 +2837,19 @@ export const insertNotificationSchema = createInsertSchema(notifications).omit({
   pushDeliveredAt: true,
   readAt: true,
 });
+
+// Workday desk reference images (one image per posture position). Maintained via
+// admin UI in `server/routes.ts` and read by the desk setup feature. Defined here
+// so drizzle-kit push doesn't see it as drift / propose to drop it.
+export const workdayDeskReferences = pgTable("workday_desk_references", {
+  position: text("position").primaryKey(),
+  imageUrl: text("image_url").notNull(),
+  updatedBy: text("updated_by"),
+  updatedAt: timestamp("updated_at").defaultNow(),
+});
+
+export type WorkdayDeskReference = typeof workdayDeskReferences.$inferSelect;
+export type InsertWorkdayDeskReference = typeof workdayDeskReferences.$inferInsert;
 
 // Web push subscriptions. A user can have multiple (one per browser/device).
 export const pushSubscriptions = pgTable("push_subscriptions", {

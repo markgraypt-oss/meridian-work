@@ -27,7 +27,12 @@ All server-side AI calls go through `server/ai/index.ts` `aiCall()` wrapper, whi
 ### Database
 - **ORM & Database**: Drizzle ORM with PostgreSQL.
 - **Schema Design**: Relational schema for users, exercise library, programs, workouts, videos, recipes, body map logs, injury tracking, check-ins, user progress, and learning paths.
-- **Migration Strategy**: Drizzle-kit.
+- **Migration Strategy**: Drizzle-kit `db:push` is the source of truth — schema in `shared/schema.ts` is pushed directly to Postgres (no migration files committed). Policy:
+  - Keep `npm run db:push` clean. If it prompts for renames, truncations, or "data-loss" warnings, resolve them before merging — do not work around with raw SQL except as a one-shot data migration.
+  - For destructive diffs (column drops, type narrowing): first audit data with `psql`, migrate any rows worth keeping into the new column, then run `db:push` so it can drop the old column safely.
+  - For renames drizzle can't infer (table or column), pre-apply the rename via `psql` (`ALTER TABLE … RENAME …`) so push sees a clean diff instead of guessing.
+  - Tables maintained outside Drizzle (e.g. `workday_desk_references`, accessed via raw SQL in `server/routes.ts`) must still be declared in `shared/schema.ts` so push doesn't try to drop them.
+  - Helper: `scripts/drizzle-push.py` runs `npm run db:push` under a pty and auto-accepts the safe default for each prompt — useful in non-interactive environments. It still aborts on `Found data-loss statements`, which must be resolved manually.
 
 ### Authentication & Authorization
 - **Provider**: Replit Auth (OpenID Connect).

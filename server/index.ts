@@ -128,5 +128,9 @@ app.use((req, res, next) => {
     import("./wearables/scheduler").then(({ startWearableScheduler }) => {
       startWearableScheduler();
     }).catch((e) => console.error("[startup] wearables scheduler failed:", e));
+    // Start daily morning training briefing scheduler
+    import("./scheduledBriefings").then(({ startBriefingScheduler }) => {
+      startBriefingScheduler();
+    }).catch((e) => console.error("[startup] briefings scheduler failed:", e));
   });
 })();

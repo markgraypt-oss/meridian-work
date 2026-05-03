@@ -1552,9 +1552,12 @@ export class DatabaseStorage implements IStorage {
     opts?: { limit?: number; unreadOnly?: boolean },
   ): Promise<Notification[]> {
     const limit = Math.min(Math.max(opts?.limit ?? 30, 1), 100);
+    // Hidden marker rows (data._hidden = true) are written by background
+    // jobs purely for idempotency/dedupe and must never surface in the bell.
+    const notHidden = sql`(${notifications.data} IS NULL OR (${notifications.data}->>'_hidden') IS DISTINCT FROM 'true')`;
     const where = opts?.unreadOnly
-      ? and(eq(notifications.userId, userId), isNull(notifications.readAt))
-      : eq(notifications.userId, userId);
+      ? and(eq(notifications.userId, userId), isNull(notifications.readAt), notHidden)
+      : and(eq(notifications.userId, userId), notHidden);
     return await db
       .select()
       .from(notifications)
@@ -1564,10 +1567,11 @@ export class DatabaseStorage implements IStorage {
   }
 
   async countUnreadNotifications(userId: string): Promise<number> {
+    const notHidden = sql`(${notifications.data} IS NULL OR (${notifications.data}->>'_hidden') IS DISTINCT FROM 'true')`;
     const [row] = await db
       .select({ c: sql<number>`count(*)` })
       .from(notifications)
-      .where(and(eq(notifications.userId, userId), isNull(notifications.readAt)));
+      .where(and(eq(notifications.userId, userId), isNull(notifications.readAt), notHidden));
     return Number(row?.c || 0);
   }
 

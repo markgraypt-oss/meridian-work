@@ -87,6 +87,7 @@ import AdminAiCoaching from "@/pages/admin/AdminAiCoaching";
 import AdminAiActivity from "@/pages/admin/AdminAiActivity";
 import AdminDeskReferences from "@/pages/admin/AdminDeskReferences";
 import AdminBurnoutCalibration from "@/pages/admin/AdminBurnoutCalibration";
+import AdminEngagement from "@/pages/admin/AdminEngagement";
 import AdminWeeklyCheckinPreview from "@/pages/admin/AdminWeeklyCheckinPreview";
 import AdminOutcomeEditor from "@/pages/admin-outcome-editor";
 import AdminUsers from "@/pages/admin-users";
@@ -328,6 +329,7 @@ function Router() {
               <Route path="/admin/ai-activity" component={AdminAiActivity} />
               <Route path="/admin/workday/desk-references" component={AdminDeskReferences} />
               <Route path="/admin/burnout-calibration" component={AdminBurnoutCalibration} />
+              <Route path="/admin/engagement" component={AdminEngagement} />
               <Route path="/admin/weekly-checkin-preview" component={AdminWeeklyCheckinPreview} />
               <Route path="/admin/outcome-editor/:id" component={AdminOutcomeEditor} />
               <Route path="/admin/users" component={AdminUsers} />

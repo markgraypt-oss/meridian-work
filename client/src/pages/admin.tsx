@@ -12,7 +12,7 @@ import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/component
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
-import { Plus, Edit, Trash2, Users, BookOpen, Play, ChefHat, Dumbbell, Search, X, Filter, ChevronDown, MapPin, Sparkles, BarChart3, Building2 } from "lucide-react";
+import { Plus, Edit, Trash2, Users, BookOpen, Play, ChefHat, Dumbbell, Search, X, Filter, ChevronDown, MapPin, Sparkles, BarChart3, Building2, Trophy } from "lucide-react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { apiRequest } from "@/lib/queryClient";
 import { isUnauthorizedError } from "@/lib/authUtils";
@@ -1264,6 +1264,23 @@ export default function AdminPanel() {
                 <div className="text-2xl font-bold text-[#0cc9a9]">Monitor</div>
                 <p className="text-xs text-muted-foreground">
                   Threshold accuracy & trends
+                </p>
+              </CardContent>
+            </Card>
+
+            <Card
+              className="cursor-pointer hover:shadow-lg transition-shadow"
+              onClick={() => navigate('/admin/engagement')}
+              data-testid="card-admin-engagement"
+            >
+              <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                <CardTitle className="text-sm font-medium">Engagement Tunables</CardTitle>
+                <Trophy className="h-4 w-4 text-[#0cc9a9]" />
+              </CardHeader>
+              <CardContent>
+                <div className="text-2xl font-bold text-[#0cc9a9]">Tune</div>
+                <p className="text-xs text-muted-foreground">
+                  Points, caps, streaks & levels
                 </p>
               </CardContent>
             </Card>

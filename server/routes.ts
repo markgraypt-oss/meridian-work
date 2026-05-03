@@ -17041,10 +17041,34 @@ Format your response as JSON with this exact structure:
       if (!currentUser?.isAdmin) return res.status(403).json({ message: "Admin access required" });
       const companyName = (req.query.company as string) || undefined;
       const effective = await getEffectiveReportSettings(companyName);
-      res.json({ effective, companyName: companyName ?? null });
+      let hasOverride = false;
+      if (companyName) {
+        const { eq: dEq } = await import("drizzle-orm");
+        const rows = await db.select({ id: reportSettingsTable.id }).from(reportSettingsTable).where(dEq(reportSettingsTable.companyName, companyName)).limit(1);
+        hasOverride = rows.length > 0;
+      }
+      res.json({ effective, companyName: companyName ?? null, hasOverride });
     } catch (error) {
       console.error("Error fetching report settings:", error);
       res.status(500).json({ message: "Failed to fetch report settings" });
+    }
+  });
+
+  app.delete('/api/admin/reports/settings', isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = req.user.claims.sub;
+      const currentUser = await storage.getUser(userId);
+      if (!currentUser?.isAdmin) return res.status(403).json({ message: "Admin access required" });
+      const companyName = (req.query.company as string) || "";
+      if (!companyName) return res.status(400).json({ message: "company query parameter is required (cannot delete the global default)" });
+      const { eq: dEq } = await import("drizzle-orm");
+      await db.delete(reportSettingsTable).where(dEq(reportSettingsTable.companyName, companyName));
+      invalidateReportSettingsCache();
+      const effective = await getEffectiveReportSettings(companyName);
+      res.json({ effective, companyName, hasOverride: false });
+    } catch (error) {
+      console.error("Error deleting report settings:", error);
+      res.status(500).json({ message: "Failed to delete report settings" });
     }
   });
 

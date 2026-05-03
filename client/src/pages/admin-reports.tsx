@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useAuth } from "@/hooks/useAuth";
 import { useLocation } from "wouter";
 import TopHeader from "@/components/TopHeader";
@@ -51,6 +51,7 @@ type ReportSettingsResponse = {
     narrativeMaxAgeMinutes: number;
   };
   companyName: string | null;
+  hasOverride?: boolean;
 };
 
 function narrativeToMarkdown(companyName: string, windowLabel: string, n: ExecutiveSummary, generatedAt?: string | null): string {
@@ -661,25 +662,56 @@ export default function AdminReports() {
     queryKey: ["/api/admin/reports/settings"],
     enabled: !!user,
   });
+
+  const [settingsTarget, setSettingsTarget] = useState<string | null>(null);
+  const settingsTargetKey = settingsTarget ?? "__global__";
+  const { data: targetSettingsData, isFetching: targetSettingsLoading } = useQuery<ReportSettingsResponse>({
+    queryKey: ["/api/admin/reports/settings", settingsTargetKey],
+    queryFn: async () => {
+      const url = settingsTarget
+        ? `/api/admin/reports/settings?company=${encodeURIComponent(settingsTarget)}`
+        : `/api/admin/reports/settings`;
+      const res = await fetch(url, { credentials: "include" });
+      if (!res.ok) throw new Error("Failed to load settings");
+      return res.json();
+    },
+    enabled: !!user && settingsOpen,
+  });
+
   const [settingsForm, setSettingsForm] = useState<{ minCohortSize: string; severityThreshold: string; trendThreshold: string; burnoutBands: string; narrativeMaxAgeMinutes: string }>({ minCohortSize: "", severityThreshold: "", trendThreshold: "", burnoutBands: "", narrativeMaxAgeMinutes: "" });
+
+  const applySettingsToForm = (data: ReportSettingsResponse) => {
+    setSettingsForm({
+      minCohortSize: String(data.effective.minCohortSize),
+      severityThreshold: String(data.effective.severityThreshold),
+      trendThreshold: String(data.effective.trendThreshold),
+      burnoutBands: data.effective.burnoutBands.join(","),
+      narrativeMaxAgeMinutes: String(data.effective.narrativeMaxAgeMinutes),
+    });
+  };
+
   const openSettings = () => {
-    if (settingsData) {
-      setSettingsForm({
-        minCohortSize: String(settingsData.effective.minCohortSize),
-        severityThreshold: String(settingsData.effective.severityThreshold),
-        trendThreshold: String(settingsData.effective.trendThreshold),
-        burnoutBands: settingsData.effective.burnoutBands.join(","),
-        narrativeMaxAgeMinutes: String(settingsData.effective.narrativeMaxAgeMinutes),
-      });
-    }
+    setSettingsTarget(selectedCompany);
+    if (settingsData && !selectedCompany) applySettingsToForm(settingsData);
     setSettingsOpen(true);
   };
+
+  const lastAppliedKeyRef = useRef<string>("");
+  useEffect(() => {
+    if (!targetSettingsData) return;
+    const key = `${targetSettingsData.companyName ?? "__global__"}|${targetSettingsData.effective.minCohortSize}|${targetSettingsData.effective.severityThreshold}|${targetSettingsData.effective.trendThreshold}|${targetSettingsData.effective.burnoutBands.join(",")}|${targetSettingsData.effective.narrativeMaxAgeMinutes}|${targetSettingsData.hasOverride ? 1 : 0}`;
+    if (lastAppliedKeyRef.current !== key) {
+      lastAppliedKeyRef.current = key;
+      applySettingsToForm(targetSettingsData);
+    }
+  }, [targetSettingsData]);
+
   const saveSettings = useMutation({
     mutationFn: async () => {
       const bands = settingsForm.burnoutBands.split(",").map((s) => parseInt(s.trim())).filter((n) => !isNaN(n));
       if (bands.length !== 4) throw new Error("Burnout bands must be 4 comma-separated numbers (e.g. 20,40,60,80)");
       const payload = {
-        companyName: null,
+        companyName: settingsTarget,
         minCohortSize: parseInt(settingsForm.minCohortSize),
         severityThreshold: parseInt(settingsForm.severityThreshold),
         trendThreshold: parseFloat(settingsForm.trendThreshold),
@@ -695,9 +727,26 @@ export default function AdminReports() {
       queryClient.invalidateQueries({ queryKey: ["/api/admin/reports/company"] });
       queryClient.invalidateQueries({ queryKey: ["/api/admin/reports/narrative"] });
       setSettingsOpen(false);
-      toast({ title: "Settings saved", description: "Report thresholds updated." });
+      toast({ title: "Settings saved", description: settingsTarget ? `Overrides saved for ${settingsTarget}.` : "Global thresholds updated." });
     },
     onError: (err: any) => toast({ title: "Save failed", description: err?.message || "Unknown error", variant: "destructive" }),
+  });
+
+  const clearOverride = useMutation({
+    mutationFn: async () => {
+      if (!settingsTarget) throw new Error("Cannot clear the global default");
+      const res = await apiRequest("DELETE", `/api/admin/reports/settings?company=${encodeURIComponent(settingsTarget)}`);
+      return res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/admin/reports/settings"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/admin/reports/companies"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/admin/reports/company"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/admin/reports/narrative"] });
+      lastAppliedKeyRef.current = "";
+      toast({ title: "Override cleared", description: `${settingsTarget} now uses the global defaults.` });
+    },
+    onError: (err: any) => toast({ title: "Clear failed", description: err?.message || "Unknown error", variant: "destructive" }),
   });
 
   const { data: engagementData, isLoading: engagementLoading } = useQuery<{
@@ -905,6 +954,34 @@ export default function AdminReports() {
               <DialogTitle className="text-foreground">Report Thresholds</DialogTitle>
             </DialogHeader>
             <div className="space-y-3">
+              <div>
+                <Label className="text-muted-foreground text-xs">Apply to</Label>
+                <Select
+                  value={settingsTarget ?? "__global__"}
+                  onValueChange={(v) => {
+                    setSettingsTarget(v === "__global__" ? null : v);
+                    lastAppliedKeyRef.current = "";
+                  }}
+                >
+                  <SelectTrigger className="bg-background border-border text-foreground" data-testid="select-settings-target">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent className="bg-card border-border">
+                    <SelectItem value="__global__" className="text-foreground">Global default</SelectItem>
+                    {companies.map((c) => (
+                      <SelectItem key={c.companyName} value={c.companyName} className="text-foreground">{c.companyName}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                <p className="text-xs text-muted-foreground/70 mt-1">
+                  {settingsTarget
+                    ? (targetSettingsData?.hasOverride
+                        ? `${settingsTarget} has its own override. Showing effective values for this company.`
+                        : `${settingsTarget} currently uses the global default. Saving will create a per-company override.`)
+                    : "Editing the global default used when a company has no override."}
+                  {targetSettingsLoading ? " Loading…" : ""}
+                </p>
+              </div>
               <div className="grid grid-cols-2 gap-3">
                 <div>
                   <Label htmlFor="minCohort" className="text-muted-foreground text-xs">Min cohort size</Label>
@@ -930,9 +1007,20 @@ export default function AdminReports() {
               </div>
             </div>
             <DialogFooter>
+              {settingsTarget && targetSettingsData?.hasOverride && (
+                <Button
+                  variant="outline"
+                  onClick={() => clearOverride.mutate()}
+                  disabled={clearOverride.isPending}
+                  className="border-border text-muted-foreground hover:text-foreground mr-auto"
+                  data-testid="button-clear-override"
+                >
+                  {clearOverride.isPending ? "Clearing…" : "Clear override"}
+                </Button>
+              )}
               <Button variant="ghost" onClick={() => setSettingsOpen(false)}>Cancel</Button>
-              <Button onClick={() => saveSettings.mutate()} disabled={saveSettings.isPending} className="bg-[#0cc9a9] hover:bg-[#0cc9a9]/80 text-black" data-testid="button-save-settings">
-                {saveSettings.isPending ? "Saving…" : "Save"}
+              <Button onClick={() => saveSettings.mutate()} disabled={saveSettings.isPending || targetSettingsLoading || !targetSettingsData} className="bg-[#0cc9a9] hover:bg-[#0cc9a9]/80 text-black" data-testid="button-save-settings">
+                {saveSettings.isPending ? "Saving…" : targetSettingsLoading ? "Loading…" : "Save"}
               </Button>
             </DialogFooter>
           </DialogContent>

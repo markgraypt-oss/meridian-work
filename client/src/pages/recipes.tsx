@@ -1,4 +1,4 @@
-import { useState, useMemo } from "react";
+import { useState, useMemo, useEffect } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { useLocation } from "wouter";
 import { saveScrollPosition } from "@/hooks/use-scroll-restoration";
@@ -59,6 +59,8 @@ export default function Recipes() {
   const [selectedDietary, setSelectedDietary] = useState<string[]>([]);
   const [selectedIngredients, setSelectedIngredients] = useState<string[]>([]);
   const [filterOpen, setFilterOpen] = useState(false);
+  const RECIPES_PAGE_SIZE = 20;
+  const [visibleCount, setVisibleCount] = useState(RECIPES_PAGE_SIZE);
 
   const { data: recipes = [], isLoading } = useQuery<Recipe[]>({
     queryKey: ["/api/recipes"],
@@ -117,6 +119,13 @@ export default function Recipes() {
     });
   }, [recipes, searchQuery, selectedCategory, maxPrepTime, selectedDietary, selectedIngredients]);
 
+  useEffect(() => {
+    setVisibleCount(RECIPES_PAGE_SIZE);
+  }, [searchQuery, selectedCategory, maxPrepTime, selectedDietary, selectedIngredients]);
+
+  const visibleRecipes = filteredRecipes.slice(0, visibleCount);
+  const hasMoreRecipes = visibleCount < filteredRecipes.length;
+
   const clearFilters = () => {
     setSearchQuery("");
     setSelectedCategory("all");
@@ -171,7 +180,7 @@ export default function Recipes() {
           <h1 className="text-xl font-bold absolute left-1/2 -translate-x-1/2">Recipes</h1>
           <Sheet open={filterOpen} onOpenChange={setFilterOpen}>
             <SheetTrigger asChild>
-              <Button variant="outline" size="icon" className="relative" data-testid="button-filters">
+              <Button variant="outline" size="icon" className="relative min-h-[44px] min-w-[44px]" data-testid="button-filters">
                 <SlidersHorizontal className="h-5 w-5" />
                 {activeFilterCount > 0 && (
                   <span className="absolute -top-1 -right-1 bg-primary text-primary-foreground text-xs rounded-full h-5 w-5 flex items-center justify-center">
@@ -270,6 +279,12 @@ export default function Recipes() {
         <div className="relative">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
           <Input
+            type="search"
+            inputMode="search"
+            enterKeyHint="search"
+            autoCapitalize="none"
+            autoCorrect="off"
+            spellCheck={false}
             placeholder="Search recipes or ingredients..."
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
@@ -368,10 +383,10 @@ export default function Recipes() {
             )}
           </div>
         ) : (
-          filteredRecipes.map((recipe) => (
+          visibleRecipes.map((recipe) => (
             <Card
               key={recipe.id}
-              className="p-4 cursor-pointer hover:bg-muted/50 transition-colors"
+              className="p-4 min-h-[88px] cursor-pointer hover:bg-muted/50 transition-colors active:bg-muted"
               onClick={() => navigate(`/recipe/${recipe.id}`)}
               data-testid={`card-recipe-${recipe.id}`}
             >
@@ -409,6 +424,16 @@ export default function Recipes() {
               </div>
             </Card>
           ))
+        )}
+        {hasMoreRecipes && !isLoading && (
+          <Button
+            variant="outline"
+            className="w-full min-h-[44px]"
+            onClick={() => setVisibleCount((c) => c + RECIPES_PAGE_SIZE)}
+            data-testid="button-load-more-recipes"
+          >
+            Load more ({filteredRecipes.length - visibleCount} remaining)
+          </Button>
         )}
       </div>
     </div>

@@ -389,6 +389,8 @@ export default function AddFood() {
             <span className="text-muted-foreground">Number of Servings</span>
             <Input
               type="number"
+              inputMode="decimal"
+              enterKeyHint="done"
               step="0.5"
               min="0.5"
               value={detailServings}
@@ -678,6 +680,8 @@ export default function AddFood() {
                 <Input
                   id="servingSize"
                   type="number"
+                  inputMode="decimal"
+                  enterKeyHint="next"
                   value={servingSize}
                   onChange={(e) => setServingSize(e.target.value)}
                   placeholder="100"
@@ -707,6 +711,8 @@ export default function AddFood() {
                 <Input
                   id="servingQuantity"
                   type="number"
+                  inputMode="decimal"
+                  enterKeyHint="next"
                   step="0.5"
                   value={servingQuantity}
                   onChange={(e) => setServingQuantity(e.target.value)}
@@ -722,6 +728,8 @@ export default function AddFood() {
               <Input
                 id="calories"
                 type="number"
+                inputMode="numeric"
+                enterKeyHint="next"
                 value={calories}
                 onChange={(e) => setCalories(e.target.value)}
                 placeholder="165"
@@ -737,6 +745,8 @@ export default function AddFood() {
                 <Input
                   id="protein"
                   type="number"
+                  inputMode="decimal"
+                  enterKeyHint="next"
                   step="0.1"
                   value={protein}
                   onChange={(e) => {
@@ -757,6 +767,8 @@ export default function AddFood() {
                 <Input
                   id="carbs"
                   type="number"
+                  inputMode="decimal"
+                  enterKeyHint="next"
                   step="0.1"
                   value={carbs}
                   onChange={(e) => {
@@ -777,6 +789,8 @@ export default function AddFood() {
                 <Input
                   id="fat"
                   type="number"
+                  inputMode="decimal"
+                  enterKeyHint="done"
                   step="0.1"
                   value={fat}
                   onChange={(e) => {

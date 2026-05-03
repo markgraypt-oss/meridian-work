@@ -1194,6 +1194,8 @@ function ProfilePhase({
             </div>
             <Input
               type="number"
+              inputMode="decimal"
+              enterKeyHint="next"
               value={data.height}
               onChange={(e) => onChange({ ...data, height: e.target.value })}
               placeholder={data.heightUnit === "cm" ? "e.g. 175" : "e.g. 5.9"}
@@ -1232,6 +1234,8 @@ function ProfilePhase({
             </div>
             <Input
               type="number"
+              inputMode="decimal"
+              enterKeyHint="done"
               value={data.weight}
               onChange={(e) => onChange({ ...data, weight: e.target.value })}
               placeholder={data.weightUnit === "kg" ? "e.g. 75" : "e.g. 165"}
@@ -2755,6 +2759,8 @@ function RecommendationsPhase({
                   <Label className="text-muted-foreground text-xs">Current weight</Label>
                   <Input
                     type="number"
+                    inputMode="decimal"
+                    enterKeyHint="next"
                     placeholder={weightData.unit === "kg" ? "85" : "187"}
                     value={weightData.currentWeight}
                     onChange={(e) => onChange({ ...data, weightGoalData: { ...weightData, currentWeight: e.target.value } })}
@@ -2765,6 +2771,8 @@ function RecommendationsPhase({
                   <Label className="text-muted-foreground text-xs">Target weight</Label>
                   <Input
                     type="number"
+                    inputMode="decimal"
+                    enterKeyHint="done"
                     placeholder={weightData.unit === "kg" ? "78" : "172"}
                     value={weightData.targetWeight}
                     onChange={(e) => onChange({ ...data, weightGoalData: { ...weightData, targetWeight: e.target.value } })}

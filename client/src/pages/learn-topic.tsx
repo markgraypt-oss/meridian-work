@@ -21,6 +21,9 @@ export default function LearnTopicPage() {
   const [pathContentMap, setPathContentMap] = useState<Record<number, any[]>>({});
   const [showBackToTop, setShowBackToTop] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
+  const VIDEOS_PAGE_SIZE = 20;
+  const [visibleVideoCount, setVisibleVideoCount] = useState(VIDEOS_PAGE_SIZE);
+  useEffect(() => { setVisibleVideoCount(VIDEOS_PAGE_SIZE); }, [searchQuery, slug]);
 
   useEffect(() => {
     if (!isLoading && !isAuthenticated) {
@@ -271,6 +274,12 @@ export default function LearnTopicPage() {
           <div className="relative mb-6">
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
             <Input
+              type="search"
+              inputMode="search"
+              enterKeyHint="search"
+              autoCapitalize="none"
+              autoCorrect="off"
+              spellCheck={false}
               placeholder="Search videos..."
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
@@ -295,7 +304,10 @@ export default function LearnTopicPage() {
                 );
               }
               
-              return filteredContent.map((item: any) => {
+              const pagedContent = filteredContent.slice(0, visibleVideoCount);
+              const hasMoreVideos = visibleVideoCount < filteredContent.length;
+              return (<>
+              {pagedContent.map((item: any) => {
                 const isCompleted = completedIds.includes(item.id);
                 const watchPct = (watchProgressMap as Record<string, number>)[String(item.id)] ?? 0;
                 const showProgress = isCompleted || watchPct > 0;
@@ -332,7 +344,18 @@ export default function LearnTopicPage() {
                     </CardContent>
                   </Card>
                 );
-              });
+              })}
+              {hasMoreVideos && (
+                <Button
+                  variant="outline"
+                  className="w-full min-h-[44px]"
+                  onClick={() => setVisibleVideoCount((c) => c + VIDEOS_PAGE_SIZE)}
+                  data-testid="button-load-more-videos"
+                >
+                  Load more ({filteredContent.length - visibleVideoCount} remaining)
+                </Button>
+              )}
+              </>);
             })()}
           </div>
         </div>

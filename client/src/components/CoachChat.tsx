@@ -733,6 +733,8 @@ export default function CoachChat({ isOpen, onOpenChange }: CoachChatProps) {
                 value={input}
                 onChange={(e) => setInput(e.target.value)}
                 onKeyDown={handleKeyDown}
+                enterKeyHint="send"
+                autoCapitalize="sentences"
                 placeholder="Ask Meridian Coach anything"
                 className="w-full rounded-full border-0 text-sm h-10 pr-12 pl-4"
                 style={{

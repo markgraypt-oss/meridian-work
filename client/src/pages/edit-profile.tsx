@@ -302,6 +302,8 @@ export default function EditProfile() {
               {heightUnit === "cm" ? (
                 <Input
                   type="number"
+                  inputMode="numeric"
+                  enterKeyHint="done"
                   value={height}
                   onChange={(e) => setHeight(e.target.value)}
                   placeholder="Height in cm"
@@ -312,6 +314,8 @@ export default function EditProfile() {
                   <div className="flex-1 relative">
                     <Input
                       type="number"
+                      inputMode="numeric"
+                      enterKeyHint="next"
                       value={feet}
                       onChange={(e) => setFeet(e.target.value)}
                       placeholder="Feet"
@@ -322,6 +326,8 @@ export default function EditProfile() {
                   <div className="flex-1 relative">
                     <Input
                       type="number"
+                      inputMode="numeric"
+                      enterKeyHint="done"
                       value={inches}
                       onChange={(e) => setInches(e.target.value)}
                       placeholder="Inches"

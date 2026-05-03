@@ -254,6 +254,8 @@ export default function ProgressAddEntryPage() {
             <div className="flex items-center gap-1">
               <Input
                 type="number"
+                inputMode="decimal"
+                enterKeyHint="next"
                 step="0.1"
                 value={bodyWeight}
                 onChange={(e) => setBodyWeight(e.target.value)}
@@ -270,6 +272,8 @@ export default function ProgressAddEntryPage() {
             <div className="flex items-center gap-1">
               <Input
                 type="number"
+                inputMode="decimal"
+                enterKeyHint="next"
                 step="0.1"
                 value={fatPercent}
                 onChange={(e) => setFatPercent(e.target.value)}

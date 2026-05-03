@@ -13,7 +13,7 @@ export default function LearnVideoStandalone() {
   const [, navigate] = useLocation();
 
   const { data: video, isLoading } = useQuery<Video>({
-    queryKey: ["/api/videos", contentId],
+    queryKey: [`/api/videos/${contentId}`],
     enabled: contentId > 0,
   });
 

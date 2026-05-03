@@ -434,7 +434,7 @@ function buildRecommendationPrompt(intake: any, programs: any[], paths: any[], h
 
 MATCHING RULES (strict priority order):
 1. ENVIRONMENT (hard filter): Only recommend programmes matching the user's training environment. "home" users get bodyweight or home_gym programmes. "gym" users get full_gym programmes. "both" users can get any.
-2. EXPERIENCE LEVEL (hard filter): Programme difficulty must match user's experience level exactly.
+2. EXPERIENCE LEVEL (HARD FILTER — NO EXCEPTIONS): A programme's "difficulty" field must match the user's experience level exactly. NEVER recommend an "advanced" programme to a "beginner" user, even as a secondary suggestion or stretch goal — it will be discarded by the system. NEVER recommend a "beginner" programme to an "advanced" user. If no programmes match the user's exact experience level, return an empty programmes list rather than substituting a mismatched level.
 3. FREQUENCY (strong preference): Programme training days/week should be within ±1 of user's chosen frequency. Exact match is best.
 4. DURATION (preference): Programme duration per session should fit within the user's available time.
 5. EQUIPMENT ACCESS: "Full gym access" means all equipment is available. Otherwise, check the "requires" list for each programme and only recommend it if the user has access to all required equipment. Do not recommend programmes requiring equipment the user does not have.
@@ -480,15 +480,27 @@ Respond in this exact JSON format:
 Only use IDs from the lists above. Be concise with reasons (1 sentence each).`;
 }
 
-function parseAiRecommendations(text: string, programs: any[], paths: any[], habits: any[]): { programs: any[]; path: any; habits: any[] } {
+function parseAiRecommendations(text: string, programs: any[], paths: any[], habits: any[], userExperienceLevel?: string): { programs: any[]; path: any; habits: any[] } {
   try {
     const jsonMatch = text.match(/\{[\s\S]*\}/);
     if (!jsonMatch) return { programs: [], path: null, habits: [] };
 
     const parsed = JSON.parse(jsonMatch[0]);
 
+    const userLevel = (userExperienceLevel || '').toString().toLowerCase().trim();
     const validPrograms = (parsed.programs || [])
-      .filter((p: any) => programs.find(prog => prog.id === p.id))
+      .filter((p: any) => {
+        const prog = programs.find(prog => prog.id === p.id);
+        if (!prog) return false;
+        // HARD FILTER: experience level must match exactly. The model
+        // sometimes ignores the prompt's hard-filter rule and slips in
+        // a mismatched-level programme as a "stretch" suggestion. Drop
+        // any such programme here so it never reaches the user.
+        if (userLevel && prog.difficulty && prog.difficulty.toString().toLowerCase().trim() !== userLevel) {
+          return false;
+        }
+        return true;
+      })
       .map((p: any) => {
         const full = programs.find(prog => prog.id === p.id);
         return { ...full, recommended: !!p.recommended, reason: p.reason };
@@ -1316,7 +1328,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
             model: config.model,
           });
 
-          const parsed = parseAiRecommendations(aiResponse.text, enrichedPrograms, activePaths, activeHabits);
+          const parsed = parseAiRecommendations(aiResponse.text, enrichedPrograms, activePaths, activeHabits, intake.experienceLevel);
           if (parsed.programs.length > 0) {
             const env = intake.trainingEnvironment || intake.environment || '';
             const userLevel = intake.experienceLevel || '';

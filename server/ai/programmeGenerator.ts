@@ -68,7 +68,7 @@ export function filterCatalogueByEquipment(catalogue: CatalogueEntry[], equipmen
 }
 
 // Drop catalogue entries that match an injured / contraindicated muscle group.
-function filterCatalogueByContraindications(
+export function filterCatalogueByContraindications(
   catalogue: CatalogueEntry[],
   avoidMuscles: string[],
   avoidExerciseIds: number[],

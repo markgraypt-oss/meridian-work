@@ -3,7 +3,7 @@ import express, { type Request, Response, NextFunction } from "express";
 import { registerRoutes } from "./routes";
 import { setupVite, serveStatic, log } from "./vite";
 import { video } from "./mux";
-import { runProfileImageMigrationOnce, ensureCoachTablesOnce, seedMeditationsOnce } from "./startupMigrations";
+import { runProfileImageMigrationOnce, seedMeditationsOnce } from "./startupMigrations";
 
 const app = express();
 
@@ -123,9 +123,6 @@ app.use((req, res, next) => {
     // cloud storage. Idempotent — does nothing on subsequent boots once done.
     runProfileImageMigrationOnce().catch((e) => {
       console.error("[startup-migration] profile-images failed:", e);
-    });
-    ensureCoachTablesOnce().catch((e) => {
-      console.error("[startup-migration] coach tables failed:", e);
     });
     seedMeditationsOnce().catch((e) => {
       console.error("[startup-migration] meditations failed:", e);

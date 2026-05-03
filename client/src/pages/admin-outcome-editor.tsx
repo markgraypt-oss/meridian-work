@@ -450,7 +450,7 @@ export default function AdminOutcomeEditor() {
               {/* Basic Info */}
               <div className="space-y-4">
                 <h4 className="font-semibold border-b pb-2">Basic Information</h4>
-                <div className="grid grid-cols-2 gap-4">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                   <div>
                     <Label htmlFor="name">Internal Name</Label>
                     <Input 
@@ -493,7 +493,7 @@ export default function AdminOutcomeEditor() {
               <div className="space-y-4">
                 <h4 className="font-semibold border-b pb-2">Conditions (all must match)</h4>
                 
-                <div className="grid grid-cols-2 gap-4">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                   <div>
                     <Label htmlFor="severityMin">Severity Min</Label>
                     <Select value={formSeverityMin} onValueChange={setFormSeverityMin}>
@@ -1120,6 +1120,10 @@ export default function AdminOutcomeEditor() {
                               <div className="relative">
                                 <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-muted-foreground" />
                                 <Input
+                                  type="search"
+                                  inputMode="search"
+                                  enterKeyHint="search"
+                                  autoComplete="off"
                                   placeholder="Search exercises..."
                                   value={exerciseSearchQuery}
                                   onChange={(e) => setExerciseSearchQuery(e.target.value)}

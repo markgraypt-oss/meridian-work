@@ -227,7 +227,10 @@ export default function WorkoutSelector({ selectedDate, onBack, onSelectWorkout 
           <div className="relative mt-4">
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
             <Input
-              type="text"
+              type="search"
+              inputMode="search"
+              enterKeyHint="search"
+              autoComplete="off"
               placeholder="Search workouts..."
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}

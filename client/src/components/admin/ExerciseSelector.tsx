@@ -135,6 +135,10 @@ export function ExerciseSelector({ exercises, onAddExercise, hideMovementFilters
         <div className="relative">
           <Search className="absolute left-3 top-3 h-4 w-4 text-muted-foreground" />
           <Input
+            type="search"
+            inputMode="search"
+            enterKeyHint="search"
+            autoComplete="off"
             placeholder="Search exercises by name..."
             value={searchTerm}
             onChange={(e) => { setSearchTerm(e.target.value); setVisibleCount(PAGE_SIZE); }}

@@ -186,6 +186,10 @@ export default function AdminUsers() {
         <div className="relative mb-6">
           <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-muted-foreground" />
           <Input
+            type="search"
+            inputMode="search"
+            enterKeyHint="search"
+            autoComplete="off"
             placeholder="Search by name, email, or company..."
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
@@ -250,7 +254,7 @@ export default function AdminUsers() {
       </div>
 
       <Dialog open={showUserForm} onOpenChange={setShowUserForm}>
-        <DialogContent>
+        <DialogContent className="max-h-[90vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle>{editingUser ? "Edit User" : "Invite User"}</DialogTitle>
           </DialogHeader>
@@ -260,6 +264,9 @@ export default function AdminUsers() {
               <Input
                 id="email"
                 type="email"
+                inputMode="email"
+                autoComplete="email"
+                enterKeyHint="next"
                 value={formData.email}
                 onChange={(e) => setFormData({ ...formData, email: e.target.value })}
                 required
@@ -271,7 +278,7 @@ export default function AdminUsers() {
                 </p>
               )}
             </div>
-            <div className="grid grid-cols-2 gap-4">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <div className="space-y-2">
                 <Label htmlFor="firstName">First Name</Label>
                 <Input

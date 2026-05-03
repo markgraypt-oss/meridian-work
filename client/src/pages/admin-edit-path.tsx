@@ -388,6 +388,10 @@ export default function AdminEditPath() {
 
             <div className="space-y-4">
               <Input
+                type="search"
+                inputMode="search"
+                enterKeyHint="search"
+                autoComplete="off"
                 placeholder="Search content..."
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}

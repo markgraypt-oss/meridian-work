@@ -718,7 +718,7 @@ export default function AdminCompanies() {
                 </CardTitle>
               </CardHeader>
               <CardContent className="pb-4 space-y-3">
-                <div className="grid grid-cols-2 gap-3">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                   <div className="p-3 rounded-lg bg-background border border-border">
                     <div className="flex items-center gap-2 mb-1">
                       <span className="text-xs text-muted-foreground">Burnout Score</span>
@@ -1047,6 +1047,10 @@ export default function AdminCompanies() {
         <div className="relative mb-4">
           <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-muted-foreground" />
           <Input
+            type="search"
+            inputMode="search"
+            enterKeyHint="search"
+            autoComplete="off"
             placeholder="Search companies by name..."
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
@@ -1188,7 +1192,7 @@ export default function AdminCompanies() {
                 placeholder="Company name"
               />
             </div>
-            <div className="grid grid-cols-2 gap-4">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <div className="space-y-2">
                 <Label htmlFor="industry">Industry</Label>
                 <Input
@@ -1208,7 +1212,7 @@ export default function AdminCompanies() {
                 />
               </div>
             </div>
-            <div className="grid grid-cols-2 gap-4">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <div className="space-y-2">
                 <Label htmlFor="contactName">Primary Contact Name</Label>
                 <Input
@@ -1223,13 +1227,15 @@ export default function AdminCompanies() {
                 <Input
                   id="contactEmail"
                   type="email"
+                  inputMode="email"
+                  autoComplete="email"
                   value={companyForm.primaryContactEmail}
                   onChange={(e) => setCompanyForm({ ...companyForm, primaryContactEmail: e.target.value })}
                   placeholder="email@company.com"
                 />
               </div>
             </div>
-            <div className="grid grid-cols-2 gap-4">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <div className="space-y-2">
                 <Label htmlFor="joinDate">Join Date</Label>
                 <Input
@@ -1249,12 +1255,14 @@ export default function AdminCompanies() {
                 />
               </div>
             </div>
-            <div className="grid grid-cols-2 gap-4">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <div className="space-y-2">
                 <Label htmlFor="maxUsers">Max Users</Label>
                 <Input
                   id="maxUsers"
                   type="number"
+                  inputMode="numeric"
+                  pattern="[0-9]*"
                   value={companyForm.maxUsers}
                   onChange={(e) => setCompanyForm({ ...companyForm, maxUsers: e.target.value })}
                   placeholder="Unlimited"
@@ -1276,7 +1284,7 @@ export default function AdminCompanies() {
                 </Select>
               </div>
             </div>
-            <div className="grid grid-cols-2 gap-4">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <div className="space-y-2">
                 <Label htmlFor="contractStart">Contract Start</Label>
                 <Input
@@ -1296,7 +1304,7 @@ export default function AdminCompanies() {
                 />
               </div>
             </div>
-            <div className="grid grid-cols-2 gap-4">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <div className="space-y-2">
                 <Label htmlFor="renewalDate2">Renewal Date</Label>
                 <Input
@@ -1323,7 +1331,7 @@ export default function AdminCompanies() {
                 </Select>
               </div>
             </div>
-            <div className="grid grid-cols-2 gap-4">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <div className="space-y-2">
                 <Label htmlFor="accountManager">Account Manager</Label>
                 <Input
@@ -1338,6 +1346,8 @@ export default function AdminCompanies() {
                 <Input
                   id="accountManagerEmail"
                   type="email"
+                  inputMode="email"
+                  autoComplete="email"
                   value={companyForm.accountManagerEmail}
                   onChange={(e) => setCompanyForm({ ...companyForm, accountManagerEmail: e.target.value })}
                   placeholder="manager@company.com"
@@ -1415,7 +1425,7 @@ export default function AdminCompanies() {
   function renderBenefitDialog() {
     return (
       <Dialog open={showBenefitForm} onOpenChange={setShowBenefitForm}>
-        <DialogContent>
+        <DialogContent className="max-h-[90vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle>{editingBenefit ? "Edit Benefit" : "Add Benefit"}</DialogTitle>
           </DialogHeader>
@@ -1456,7 +1466,7 @@ export default function AdminCompanies() {
                 placeholder="Describe this benefit..."
               />
             </div>
-            <div className="grid grid-cols-2 gap-4">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <div className="space-y-2">
                 <Label htmlFor="benefitLink">Link</Label>
                 <Input
@@ -1521,7 +1531,7 @@ export default function AdminCompanies() {
   function renderAssignUserDialog() {
     return (
       <Dialog open={showAssignUser} onOpenChange={setShowAssignUser}>
-        <DialogContent>
+        <DialogContent className="max-h-[90vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle>Assign User to Company</DialogTitle>
           </DialogHeader>
@@ -1529,6 +1539,10 @@ export default function AdminCompanies() {
             <div className="relative">
               <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-muted-foreground" />
               <Input
+                type="search"
+                inputMode="search"
+                enterKeyHint="search"
+                autoComplete="off"
                 placeholder="Search users..."
                 value={assignUserSearch}
                 onChange={(e) => setAssignUserSearch(e.target.value)}
@@ -1574,7 +1588,7 @@ export default function AdminCompanies() {
   function renderBulkInviteDialog() {
     return (
       <Dialog open={showBulkInvite} onOpenChange={setShowBulkInvite}>
-        <DialogContent>
+        <DialogContent className="max-h-[90vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle>Bulk Invite Users</DialogTitle>
           </DialogHeader>
@@ -1610,7 +1624,7 @@ export default function AdminCompanies() {
   function renderDeptDialog() {
     return (
       <Dialog open={showDeptForm} onOpenChange={setShowDeptForm}>
-        <DialogContent>
+        <DialogContent className="max-h-[90vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle>{editingDept ? "Edit Department" : "Add Department"}</DialogTitle>
           </DialogHeader>

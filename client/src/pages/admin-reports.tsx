@@ -1111,7 +1111,7 @@ export default function AdminReports() {
                     </div>
                   </div>
 
-                  <div className="grid grid-cols-2 gap-4 mb-6">
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-6">
                     <div>
                       <p className="text-xs text-muted-foreground uppercase mb-2">Trajectory</p>
                       <div className="space-y-1.5">

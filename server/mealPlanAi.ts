@@ -168,6 +168,60 @@ export async function generateAiPlan(input: AiPlanInput): Promise<AiPlan | null>
   return result.data;
 }
 
+// ---------- Single-slot gap fill ----------
+//
+// Used by `buildPlanForUser` after the main plan is built: for every
+// (dayIndex × slot × isSide) that the catalog selector and the inline
+// `aiRecipe` field both failed to fill, we ask the model to invent ONE
+// lightweight recipe that satisfies the user's filters. The caller then
+// persists each result into the `recipes` table with `aiGenerated=true`
+// and links it from `meal_plan_meals`. If this AI call fails for a slot
+// the caller falls back to a deterministic placeholder so plans are
+// never empty.
+
+const SingleAiRecipeSchema = z.object({ recipe: AiGeneratedRecipeSchema });
+
+export interface GapFillInput {
+  userId: string;
+  slotType: string; // 'breakfast' | 'lunch' | 'dinner' | 'snack' | 'main' | 'side'
+  isSide: boolean;
+  targetCalories: number;
+  macroSplit: string;
+  dietaryPreference: string;
+  excludedIngredients: string[];
+  maxPrepTime?: number | null;
+}
+
+export async function generateGapFillRecipe(input: GapFillInput): Promise<AiGeneratedRecipe | null> {
+  const role = input.isSide ? "side dish" : input.slotType;
+  const prompt = [
+    `Invent a single ${role} recipe to fill a gap in a 7-day meal plan.`,
+    `Target ~${input.targetCalories} kcal, macro split: ${input.macroSplit}.`,
+    `Dietary preference: ${input.dietaryPreference}.`,
+    input.excludedIngredients.length
+      ? `Avoid these ingredients: ${input.excludedIngredients.join(", ")}.`
+      : "",
+    input.maxPrepTime ? `Max total prep time: ${input.maxPrepTime} minutes.` : "",
+    "Return realistic title, category, calories, protein, carbs, fat, ingredients (list of strings), and short instructions (list of strings).",
+    'Respond ONLY with raw JSON: {"recipe":{"title":"...","category":"...","calories":500,"protein":30,"carbs":50,"fat":15,"ingredients":["..."],"instructions":["..."]}}',
+  ].filter(Boolean).join("\n");
+
+  try {
+    const result = await aiCall({
+      feature: "meal_plan_gap_fill",
+      userId: input.userId,
+      prompt,
+      schema: SingleAiRecipeSchema,
+      maxTokens: 800,
+      temperature: 0.5,
+    });
+    return result.data?.recipe ?? null;
+  } catch (err: any) {
+    console.error("[meal_plan_gap_fill] failed:", err?.message);
+    return null;
+  }
+}
+
 // ---------- Shopping list ----------
 
 const SECTION_KEYWORDS: { section: string; words: string[] }[] = [

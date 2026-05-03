@@ -15966,6 +15966,13 @@ Keep your response concise, practical, and evidence-based. Do not use em dashes.
       }
       const expectedSlots = mealEntries.map((e) => ({ slotIndex: e.slotIndex, isSide: e.isSide, type: e.type }));
       const slotKcal = Math.max(150, Math.round(caloriesPerDay / Math.max(1, mealEntries.length)));
+      // Try a real per-slot AI gap-fill first when the user opted into AI.
+      // For each missing (day × slot × isSide) we ask the model to invent a
+      // single recipe matching the user's filters, persist it as an
+      // aiGenerated recipe, and link it from meal_plan_meals. If the AI
+      // call fails for a slot we fall back to a deterministic placeholder
+      // (also flagged aiGenerated) so the plan is never left incomplete.
+      const { generateGapFillRecipe } = await import('./mealPlanAi');
       for (let dayIndex = 1; dayIndex <= 7; dayIndex++) {
         // Make sure the day row exists
         let dayRec = dayIdByIndex.get(dayIndex);
@@ -15977,29 +15984,76 @@ Keep your response concise, practical, and evidence-based. Do not use em dashes.
         for (const exp of expectedSlots) {
           const k = `${dayIndex}:${exp.slotIndex}:${exp.isSide ? 1 : 0}`;
           if (seen.has(k)) continue;
-          // Placeholder recipe with balanced macros (40/30/30 protein/carb/fat by kcal)
-          const cal = exp.isSide ? Math.round(slotKcal * 0.4) : slotKcal;
-          const protein = Math.round((cal * 0.3) / 4);
-          const carbs = Math.round((cal * 0.4) / 4);
-          const fat = Math.round((cal * 0.3) / 9);
-          const titleType = exp.isSide ? 'side' : exp.type;
-          const created = await storage.createRecipe({
-            title: `Quick ${titleType} placeholder`,
-            description: `Auto-filled placeholder so your plan is never empty. Replace this with the regenerate button.`,
-            category: exp.isSide ? 'main' : exp.type,
-            totalTime: 15,
-            servings: 1,
-            calories: cal, protein, carbs, fat,
-            ingredients: ['Pick your favorite balanced ingredients'],
-            instructions: ['Replace this placeholder via the Regenerate button on the meal card.'],
-            tags: ['placeholder'],
-            dietaryPreferences: dietaryPreference !== 'no_preference' ? [dietaryPreference] : [],
-            aiGenerated: true,
-          });
+
+          const targetCal = exp.isSide ? Math.round(slotKcal * 0.4) : slotKcal;
           const mealTypeWithSlot = exp.isSide ? `side_${exp.slotIndex}` : `${exp.type}_${exp.slotIndex}`;
+
+          let recipeRow: { id: number; calories: number; protein: number; carbs: number; fat: number } | null = null;
+
+          if (useAi) {
+            const aiRecipe = await generateGapFillRecipe({
+              userId,
+              slotType: exp.type,
+              isSide: exp.isSide,
+              targetCalories: targetCal,
+              macroSplit,
+              dietaryPreference,
+              excludedIngredients,
+              maxPrepTime,
+            });
+            if (aiRecipe) {
+              const created = await storage.createRecipe({
+                title: aiRecipe.title,
+                description: 'AI-generated to fill a gap in your meal plan.',
+                category: aiRecipe.category,
+                totalTime: aiRecipe.totalTime ?? 15,
+                servings: 1,
+                calories: aiRecipe.calories,
+                protein: aiRecipe.protein,
+                carbs: aiRecipe.carbs,
+                fat: aiRecipe.fat,
+                ingredients: aiRecipe.ingredients,
+                instructions: aiRecipe.instructions,
+                tags: ['ai-generated'],
+                dietaryPreferences: dietaryPreference !== 'no_preference' ? [dietaryPreference] : [],
+                aiGenerated: true,
+              });
+              recipeRow = {
+                id: created.id,
+                calories: created.calories,
+                protein: created.protein,
+                carbs: created.carbs,
+                fat: created.fat,
+              };
+            }
+          }
+
+          if (!recipeRow) {
+            // Deterministic placeholder fallback (40/30/30 protein/carb/fat by kcal)
+            const cal = targetCal;
+            const protein = Math.round((cal * 0.3) / 4);
+            const carbs = Math.round((cal * 0.4) / 4);
+            const fat = Math.round((cal * 0.3) / 9);
+            const titleType = exp.isSide ? 'side' : exp.type;
+            const created = await storage.createRecipe({
+              title: `Quick ${titleType} placeholder`,
+              description: `Auto-filled placeholder so your plan is never empty. Replace this with the regenerate button.`,
+              category: exp.isSide ? 'main' : exp.type,
+              totalTime: 15,
+              servings: 1,
+              calories: cal, protein, carbs, fat,
+              ingredients: ['Pick your favorite balanced ingredients'],
+              instructions: ['Replace this placeholder via the Regenerate button on the meal card.'],
+              tags: ['placeholder'],
+              dietaryPreferences: dietaryPreference !== 'no_preference' ? [dietaryPreference] : [],
+              aiGenerated: true,
+            });
+            recipeRow = { id: created.id, calories: cal, protein, carbs, fat };
+          }
+
           await storage.createMealPlanMeal({
-            mealPlanDayId: dayRec.id, mealType: mealTypeWithSlot, recipeId: created.id,
-            calories: cal, protein, carbs, fat,
+            mealPlanDayId: dayRec.id, mealType: mealTypeWithSlot, recipeId: recipeRow.id,
+            calories: recipeRow.calories, protein: recipeRow.protein, carbs: recipeRow.carbs, fat: recipeRow.fat,
             position: dayRec.meals++, locked: false,
           });
         }

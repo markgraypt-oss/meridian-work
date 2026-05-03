@@ -10,7 +10,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Skeleton } from "@/components/ui/skeleton";
 import { isUnauthorizedError } from "@/lib/authUtils";
 import { apiRequest, queryClient } from "@/lib/queryClient";
-import { RefreshCw, Check, Settings, Plus, ChevronLeft, Flame, Beef, Wheat, Droplet, X, Calendar, Utensils, ShoppingCart, Lock, LockOpen } from "lucide-react";
+import { RefreshCw, Check, Settings, Plus, ChevronLeft, Flame, Beef, Wheat, Droplet, X, Calendar, Utensils, ShoppingCart, Lock, LockOpen, Sparkles } from "lucide-react";
 import type { Recipe } from "@shared/schema";
 
 interface MealPlanMeal {
@@ -382,12 +382,24 @@ export default function MealPlanPage() {
                                     </Button>
                                   </div>
                                 </div>
-                                <h4 
-                                  className={`font-medium text-white mb-1 line-clamp-1 cursor-pointer hover:text-cyan-400 ${isSideMeal(meal.mealType) ? 'text-xs' : 'text-sm mb-2'}`}
-                                  onClick={() => navigate(`/recipes/${meal.recipeId}`)}
-                                >
-                                  {meal.recipe.title}
-                                </h4>
+                                <div className="flex items-center gap-1.5 mb-1">
+                                  <h4 
+                                    className={`font-medium text-white line-clamp-1 cursor-pointer hover:text-cyan-400 ${isSideMeal(meal.mealType) ? 'text-xs' : 'text-sm'}`}
+                                    onClick={() => navigate(`/recipes/${meal.recipeId}`)}
+                                  >
+                                    {meal.recipe.title}
+                                  </h4>
+                                  {meal.recipe.aiGenerated && (
+                                    <Badge
+                                      variant="outline"
+                                      className="h-4 px-1 py-0 text-[9px] uppercase tracking-wide border-cyan-500/40 bg-cyan-500/10 text-cyan-300 flex items-center gap-0.5 shrink-0"
+                                      data-testid={`badge-ai-${meal.id}`}
+                                    >
+                                      <Sparkles className="w-2.5 h-2.5" />
+                                      AI
+                                    </Badge>
+                                  )}
+                                </div>
                                 <div className={`flex items-center gap-2 ${isSideMeal(meal.mealType) ? 'text-[10px]' : 'text-xs gap-3'}`}>
                                   <span className="text-orange-400 flex items-center gap-1">
                                     <Flame className="w-3 h-3" />

@@ -13,6 +13,7 @@ import DailyCheckInDialog from "@/components/daily-check-in/DailyCheckInDialog";
 import ViewCheckInCard from "@/components/daily-check-in/ViewCheckInCard";
 import DashboardLearnCard from "@/components/DashboardLearnCard";
 import DashboardHydrationCard from "@/components/DashboardHydrationCard";
+import WearableTodayCard from "@/components/dashboard/WearableTodayCard";
 import PathSelectionDialog from "@/components/PathSelectionDialog";
 import MyProgressSection from "@/components/dashboard/MyProgressSection";
 import CalendarPopup from "@/components/CalendarPopup";
@@ -1080,6 +1081,8 @@ export default function Dashboard() {
 
             {/* Breath Session tile - hidden until scheduling feature is implemented */}
 
+
+            <WearableTodayCard />
 
             <DashboardLearnCard 
               enrolledPaths={enrolledLearningPaths}

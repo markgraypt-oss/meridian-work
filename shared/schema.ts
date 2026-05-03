@@ -5,6 +5,7 @@ import {
   timestamp,
   jsonb,
   index,
+  uniqueIndex,
   serial,
   integer,
   boolean,
@@ -2679,6 +2680,79 @@ export const burnoutCalibrationEvents = pgTable("burnout_calibration_events", {
 export type BurnoutCalibrationEvent = typeof burnoutCalibrationEvents.$inferSelect;
 export type InsertBurnoutCalibrationEvent = typeof burnoutCalibrationEvents.$inferInsert;
 export const insertBurnoutCalibrationEventSchema = createInsertSchema(burnoutCalibrationEvents).omit({ id: true, createdAt: true });
+
+// ====================================================================
+// WEARABLES INTEGRATION
+// ====================================================================
+// Per-user OAuth/upload connection to a wearable provider
+export const wearableConnections = pgTable("wearable_connections", {
+  id: serial("id").primaryKey(),
+  userId: varchar("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+  provider: text("provider").notNull(), // 'oura' | 'whoop' | 'google_fit' | 'apple_health'
+  status: text("status").notNull().default("connected"), // 'connected' | 'disconnected' | 'error' | 'needs_reauth'
+  // Tokens are AES-256-GCM encrypted at rest. Format: base64(iv|authTag|ciphertext)
+  accessTokenEnc: text("access_token_enc"),
+  refreshTokenEnc: text("refresh_token_enc"),
+  tokenExpiresAt: timestamp("token_expires_at"),
+  providerUserId: text("provider_user_id"), // external account id (eg Oura user id)
+  scopes: text("scopes").array(),
+  connectedAt: timestamp("connected_at").defaultNow(),
+  lastSyncAt: timestamp("last_sync_at"),
+  lastSyncStatus: text("last_sync_status"), // 'ok' | 'error'
+  lastSyncError: text("last_sync_error"),
+  meta: jsonb("meta"), // provider-specific metadata
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+});
+
+export type WearableConnection = typeof wearableConnections.$inferSelect;
+export type InsertWearableConnection = typeof wearableConnections.$inferInsert;
+
+// Normalised daily metrics from wearables. Idempotent per (user, date, provider).
+export const wearableMetricsDaily = pgTable("wearable_metrics_daily", {
+  id: serial("id").primaryKey(),
+  userId: varchar("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+  provider: text("provider").notNull(), // source provider
+  date: text("date").notNull(), // YYYY-MM-DD (local day per provider)
+  sleepMinutes: integer("sleep_minutes"),
+  sleepDeepMinutes: integer("sleep_deep_minutes"),
+  sleepRemMinutes: integer("sleep_rem_minutes"),
+  sleepLightMinutes: integer("sleep_light_minutes"),
+  sleepAwakeMinutes: integer("sleep_awake_minutes"),
+  sleepScore: integer("sleep_score"), // 0-100 if provided
+  hrvMs: integer("hrv_ms"),
+  restingHrBpm: integer("resting_hr_bpm"),
+  steps: integer("steps"),
+  activeMinutes: integer("active_minutes"),
+  caloriesBurned: integer("calories_burned"),
+  readinessScore: integer("readiness_score"), // 0-100 (Oura) / recovery (Whoop)
+  strainScore: integer("strain_score"), // Whoop strain 0-21 stored *10 -> 0-210
+  workoutCount: integer("workout_count"),
+  raw: jsonb("raw"), // raw provider payload for audit
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+}, (t) => ({
+  userDateProvider: uniqueIndex("wearable_metrics_user_date_provider_idx").on(t.userId, t.date, t.provider),
+}));
+
+export type WearableMetricsDaily = typeof wearableMetricsDaily.$inferSelect;
+export type InsertWearableMetricsDaily = typeof wearableMetricsDaily.$inferInsert;
+
+// Per-sync log of fetch attempts (visible to user/admin for debugging)
+export const wearableSyncLogs = pgTable("wearable_sync_logs", {
+  id: serial("id").primaryKey(),
+  userId: varchar("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+  provider: text("provider").notNull(),
+  status: text("status").notNull(), // 'ok' | 'error' | 'partial'
+  startedAt: timestamp("started_at").defaultNow(),
+  completedAt: timestamp("completed_at"),
+  daysSynced: integer("days_synced").default(0),
+  errorMessage: text("error_message"),
+  trigger: text("trigger"), // 'manual' | 'scheduled' | 'oauth_callback'
+});
+
+export type WearableSyncLog = typeof wearableSyncLogs.$inferSelect;
+export type InsertWearableSyncLog = typeof wearableSyncLogs.$inferInsert;
 
 // Mindfulness Tools
 export const mindfulnessTools = pgTable("mindfulness_tools", {

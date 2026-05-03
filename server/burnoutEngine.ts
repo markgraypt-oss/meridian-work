@@ -1,4 +1,4 @@
-import type { CheckIn, BodyMapLog, WorkoutLog, SleepEntry, StepEntry } from "@shared/schema";
+import type { CheckIn, BodyMapLog, WorkoutLog, SleepEntry, StepEntry, WearableMetricsDaily } from "@shared/schema";
 
 interface BurnoutDriver {
   key: string;
@@ -23,6 +23,55 @@ interface BurnoutDataSources {
   bodyMapLogs?: BodyMapLog[];
   sleepEntries?: SleepEntry[];
   stepEntries?: StepEntry[];
+  // Wearable-sourced daily metrics. When present we PREFER these over the
+  // self-reported sleep/step entries because they are objective measurements.
+  wearableMetrics?: WearableMetricsDaily[];
+}
+
+// Convert wearable_metrics_daily rows into the SleepEntry/StepEntry shapes
+// the existing scoring functions already understand. We pick the highest-priority
+// provider per day (oura > whoop > apple_health > google_fit).
+const WEARABLE_PRIORITY: Record<string, number> = { oura: 4, whoop: 3, apple_health: 2, google_fit: 1 };
+
+function pickBestPerDay(metrics: WearableMetricsDaily[]): WearableMetricsDaily[] {
+  const byDate = new Map<string, WearableMetricsDaily>();
+  for (const m of metrics) {
+    const cur = byDate.get(m.date);
+    if (!cur || (WEARABLE_PRIORITY[m.provider] || 0) > (WEARABLE_PRIORITY[cur.provider] || 0)) {
+      byDate.set(m.date, m);
+    }
+  }
+  return Array.from(byDate.values());
+}
+
+function wearablesToSleepEntries(metrics: WearableMetricsDaily[]): SleepEntry[] {
+  return pickBestPerDay(metrics)
+    .filter((m) => m.sleepMinutes != null)
+    .map((m) => ({
+      id: 0, userId: m.userId,
+      date: new Date(`${m.date}T00:00:00Z`),
+      durationMinutes: m.sleepMinutes!,
+      quality: null, bedTime: null, wakeTime: null,
+      deepSleepMinutes: m.sleepDeepMinutes ?? null,
+      lightSleepMinutes: m.sleepLightMinutes ?? null,
+      remSleepMinutes: m.sleepRemMinutes ?? null,
+      awakeMinutes: m.sleepAwakeMinutes ?? null,
+      sleepScore: m.sleepScore ?? null,
+      notes: null, createdAt: m.createdAt,
+    }) as SleepEntry);
+}
+
+function wearablesToStepEntries(metrics: WearableMetricsDaily[]): StepEntry[] {
+  return pickBestPerDay(metrics)
+    .filter((m) => m.steps != null)
+    .map((m) => ({
+      id: 0, userId: m.userId,
+      date: new Date(`${m.date}T00:00:00Z`),
+      steps: m.steps!,
+      distance: null,
+      activeMinutes: m.activeMinutes ?? null,
+      notes: null, createdAt: m.createdAt,
+    }) as StepEntry);
 }
 
 // --- Normalisation helpers ---
@@ -364,7 +413,24 @@ const SOURCE_WEIGHTS = {
 };
 
 export function computeBurnoutScore(data: BurnoutDataSources): BurnoutResult {
-  const { checkIns, workoutLogs, bodyMapLogs, sleepEntries, stepEntries } = data;
+  const { checkIns, workoutLogs, bodyMapLogs } = data;
+  // Wearable preference: when wearable metrics exist for a date, use them as
+  // the authoritative sleep/step source. Days not covered by wearables fall
+  // back to manual entries so users with partial wearable coverage are not
+  // penalised.
+  const wearableSleep = data.wearableMetrics ? wearablesToSleepEntries(data.wearableMetrics) : [];
+  const wearableSteps = data.wearableMetrics ? wearablesToStepEntries(data.wearableMetrics) : [];
+  const wearableSleepDates = new Set(wearableSleep.map((e) => e.date.toISOString().slice(0, 10)));
+  const wearableStepDates = new Set(wearableSteps.map((e) => e.date.toISOString().slice(0, 10)));
+
+  const sleepEntries = [
+    ...wearableSleep,
+    ...((data.sleepEntries || []).filter((e) => !wearableSleepDates.has(new Date(e.date).toISOString().slice(0, 10)))),
+  ];
+  const stepEntries = [
+    ...wearableSteps,
+    ...((data.stepEntries || []).filter((e) => !wearableStepDates.has(new Date(e.date).toISOString().slice(0, 10)))),
+  ];
 
   const hasCheckIns = checkIns.length > 0;
   const hasWorkouts = workoutLogs && workoutLogs.length > 0;

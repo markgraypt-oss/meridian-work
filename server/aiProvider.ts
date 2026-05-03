@@ -472,47 +472,112 @@ export async function getUserDataContext(userId: string, feature: string): Promi
       }
     }
 
+    // Pre-fetch wearable data once if any wearable-relevant domain is requested.
+    // We prefer wearable_metrics_daily over self-reported entries because they
+    // are objective device measurements; we tag the source as "from <device>".
+    const PROVIDER_LABEL: Record<string, string> = {
+      oura: "Oura Ring", whoop: "WHOOP", apple_health: "Apple Health", google_fit: "Google Fit",
+    };
+    const PROVIDER_PRIORITY: Record<string, number> = { oura: 4, whoop: 3, apple_health: 2, google_fit: 1 };
+    let wearableRows: any[] = [];
+    let wearableByDate = new Map<string, any>();
+    if (domains.includes('sleep') || domains.includes('steps') || domains.includes('resting_hr')) {
+      try {
+        const { getRecentWearableMetrics } = await import('./wearables');
+        const w = await getRecentWearableMetrics(userId, 14);
+        wearableRows = w.rows;
+        for (const r of wearableRows) {
+          const cur = wearableByDate.get(r.date);
+          if (!cur || (PROVIDER_PRIORITY[r.provider] || 0) > (PROVIDER_PRIORITY[cur.provider] || 0)) {
+            wearableByDate.set(r.date, r);
+          }
+        }
+      } catch (e) {
+        console.error('[ai-context] wearable fetch failed', e);
+      }
+    }
+    const bestWearableDays = Array.from(wearableByDate.values()).sort((a, b) => b.date.localeCompare(a.date));
+
     if (domains.includes('sleep')) {
-      const sleepEntries = await storage.getSleepEntries(userId, 14);
-      if (sleepEntries.length > 0) {
-        context += '\n\n--- Sleep Tracking (last 14 entries) ---';
-        const avgDuration = sleepEntries.reduce((s, e) => s + (e.durationMinutes || 0), 0) / sleepEntries.length;
-        const avgQuality = sleepEntries.filter(e => e.quality).reduce((s, e) => s + (e.quality || 0), 0) / (sleepEntries.filter(e => e.quality).length || 1);
-        context += `\nAvg duration: ${(avgDuration / 60).toFixed(1)} hours, Avg quality: ${avgQuality.toFixed(1)}/10`;
-        const latest = sleepEntries[0];
-        if (latest) {
-          context += `\nMost recent: ${(latest.durationMinutes / 60).toFixed(1)} hours${latest.quality ? `, quality ${latest.quality}/10` : ''}${latest.bedTime ? `, bed: ${latest.bedTime}` : ''}${latest.wakeTime ? `, wake: ${latest.wakeTime}` : ''}`;
+      const wSleep = bestWearableDays.filter((d) => d.sleepMinutes != null);
+      if (wSleep.length > 0) {
+        const avgDuration = wSleep.reduce((s, e) => s + (e.sleepMinutes || 0), 0) / wSleep.length;
+        const latest = wSleep[0];
+        const src = PROVIDER_LABEL[latest.provider] || latest.provider;
+        context += `\n\n--- Sleep (last ${wSleep.length} days, from ${src}) ---`;
+        context += `\nAvg duration: ${(avgDuration / 60).toFixed(1)} hours`;
+        context += `\nMost recent (${latest.date}, from ${PROVIDER_LABEL[latest.provider] || latest.provider}): ${(latest.sleepMinutes / 60).toFixed(1)} hours${latest.sleepScore ? `, score ${latest.sleepScore}/100` : ''}${latest.sleepDeepMinutes ? `, deep ${Math.round(latest.sleepDeepMinutes)}min` : ''}${latest.sleepRemMinutes ? `, REM ${Math.round(latest.sleepRemMinutes)}min` : ''}`;
+        if (latest.hrvMs) context += `, HRV ${Math.round(latest.hrvMs)}ms`;
+      } else {
+        const sleepEntries = await storage.getSleepEntries(userId, 14);
+        if (sleepEntries.length > 0) {
+          context += '\n\n--- Sleep Tracking (last 14 entries, self-reported) ---';
+          const avgDuration = sleepEntries.reduce((s, e) => s + (e.durationMinutes || 0), 0) / sleepEntries.length;
+          const avgQuality = sleepEntries.filter(e => e.quality).reduce((s, e) => s + (e.quality || 0), 0) / (sleepEntries.filter(e => e.quality).length || 1);
+          context += `\nAvg duration: ${(avgDuration / 60).toFixed(1)} hours, Avg quality: ${avgQuality.toFixed(1)}/10`;
+          const latest = sleepEntries[0];
+          if (latest) {
+            context += `\nMost recent: ${(latest.durationMinutes / 60).toFixed(1)} hours${latest.quality ? `, quality ${latest.quality}/10` : ''}${latest.bedTime ? `, bed: ${latest.bedTime}` : ''}${latest.wakeTime ? `, wake: ${latest.wakeTime}` : ''}`;
+          }
         }
       }
     }
 
     if (domains.includes('steps')) {
-      const stepEntries = await storage.getStepEntries(userId, 14);
-      if (stepEntries.length > 0) {
-        context += '\n\n--- Step Tracking (last 14 entries) ---';
-        const avgSteps = stepEntries.reduce((s, e) => s + (e.steps || 0), 0) / stepEntries.length;
+      const wSteps = bestWearableDays.filter((d) => d.steps != null);
+      if (wSteps.length > 0) {
+        const avgSteps = wSteps.reduce((s, e) => s + (e.steps || 0), 0) / wSteps.length;
+        const latest = wSteps[0];
+        const src = PROVIDER_LABEL[latest.provider] || latest.provider;
+        context += `\n\n--- Activity (last ${wSteps.length} days, from ${src}) ---`;
         context += `\nAvg daily steps: ${Math.round(avgSteps).toLocaleString()}`;
-        const latest = stepEntries[0];
-        if (latest) {
-          context += `\nMost recent: ${latest.steps.toLocaleString()} steps${latest.activeMinutes ? `, ${latest.activeMinutes} active minutes` : ''}`;
+        context += `\nMost recent (${latest.date}, from ${PROVIDER_LABEL[latest.provider] || latest.provider}): ${latest.steps.toLocaleString()} steps${latest.activeMinutes ? `, ${latest.activeMinutes} active min` : ''}${latest.caloriesBurned ? `, ${latest.caloriesBurned} kcal` : ''}`;
+      } else {
+        const stepEntries = await storage.getStepEntries(userId, 14);
+        if (stepEntries.length > 0) {
+          context += '\n\n--- Step Tracking (last 14 entries, self-reported) ---';
+          const avgSteps = stepEntries.reduce((s, e) => s + (e.steps || 0), 0) / stepEntries.length;
+          context += `\nAvg daily steps: ${Math.round(avgSteps).toLocaleString()}`;
+          const latest = stepEntries[0];
+          if (latest) {
+            context += `\nMost recent: ${latest.steps.toLocaleString()} steps${latest.activeMinutes ? `, ${latest.activeMinutes} active minutes` : ''}`;
+          }
         }
       }
     }
 
     if (domains.includes('resting_hr')) {
-      const hrEntries = await storage.getRestingHREntries(userId, 14);
-      if (hrEntries.length > 0) {
-        context += '\n\n--- Resting Heart Rate (last 14 entries) ---';
-        const avgBpm = hrEntries.reduce((s, e) => s + (e.bpm || 0), 0) / hrEntries.length;
+      const wHr = bestWearableDays.filter((d) => d.restingHrBpm != null);
+      if (wHr.length > 0) {
+        const avgBpm = wHr.reduce((s, e) => s + (e.restingHrBpm || 0), 0) / wHr.length;
+        const latest = wHr[0];
+        const src = PROVIDER_LABEL[latest.provider] || latest.provider;
+        context += `\n\n--- Resting Heart Rate (last ${wHr.length} days, from ${src}) ---`;
         context += `\nAvg resting HR: ${Math.round(avgBpm)} bpm`;
-        const latest = hrEntries[0];
-        if (latest) context += `\nMost recent: ${latest.bpm} bpm`;
-        if (hrEntries.length >= 7) {
-          const recentAvg = hrEntries.slice(0, 7).reduce((s, e) => s + e.bpm, 0) / 7;
-          const olderAvg = hrEntries.slice(7).reduce((s, e) => s + e.bpm, 0) / (hrEntries.length - 7);
+        context += `\nMost recent (${latest.date}, from ${PROVIDER_LABEL[latest.provider] || latest.provider}): ${latest.restingHrBpm} bpm${latest.hrvMs ? `, HRV ${Math.round(latest.hrvMs)}ms` : ''}${latest.readinessScore ? `, readiness ${latest.readinessScore}/100` : ''}`;
+        if (wHr.length >= 7) {
+          const recentAvg = wHr.slice(0, 7).reduce((s, e) => s + e.restingHrBpm, 0) / 7;
+          const olderAvg = wHr.slice(7).reduce((s, e) => s + e.restingHrBpm, 0) / (wHr.length - 7);
           const trend = recentAvg - olderAvg;
           if (Math.abs(trend) > 2) {
             context += `\nTrend: ${trend > 0 ? 'increasing' : 'decreasing'} by ~${Math.abs(Math.round(trend))} bpm`;
+          }
+        }
+      } else {
+        const hrEntries = await storage.getRestingHREntries(userId, 14);
+        if (hrEntries.length > 0) {
+          context += '\n\n--- Resting Heart Rate (last 14 entries, self-reported) ---';
+          const avgBpm = hrEntries.reduce((s, e) => s + (e.bpm || 0), 0) / hrEntries.length;
+          context += `\nAvg resting HR: ${Math.round(avgBpm)} bpm`;
+          const latest = hrEntries[0];
+          if (latest) context += `\nMost recent: ${latest.bpm} bpm`;
+          if (hrEntries.length >= 7) {
+            const recentAvg = hrEntries.slice(0, 7).reduce((s, e) => s + e.bpm, 0) / 7;
+            const olderAvg = hrEntries.slice(7).reduce((s, e) => s + e.bpm, 0) / (hrEntries.length - 7);
+            const trend = recentAvg - olderAvg;
+            if (Math.abs(trend) > 2) {
+              context += `\nTrend: ${trend > 0 ? 'increasing' : 'decreasing'} by ~${Math.abs(Math.round(trend))} bpm`;
+            }
           }
         }
       }

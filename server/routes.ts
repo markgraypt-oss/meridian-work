@@ -17618,12 +17618,14 @@ Respond as the Recovery Coach. Reference their specific assessment data and prov
       const startDate = new Date();
       startDate.setDate(startDate.getDate() - 30);
 
-      const [checkInData, workoutLogData, bodyMapData, sleepData, stepData] = await Promise.all([
+      const { getRecentWearableMetrics } = await import('./wearables');
+      const [checkInData, workoutLogData, bodyMapData, sleepData, stepData, wearable] = await Promise.all([
         storage.getCheckInsInRange(userId, startDate, endDate),
         storage.getUserWorkoutLogs(userId, 100),
         storage.getBodyMapLogs(userId),
         storage.getSleepEntries(userId, 60),
         storage.getStepEntries(userId, 60),
+        getRecentWearableMetrics(userId, 30),
       ]);
 
       const result = computeBurnoutScore({
@@ -17632,6 +17634,7 @@ Respond as the Recovery Coach. Reference their specific assessment data and prov
         bodyMapLogs: bodyMapData,
         sleepEntries: sleepData,
         stepEntries: stepData,
+        wearableMetrics: wearable.rows,
       });
 
       const saved = await storage.createBurnoutScore({
@@ -17980,6 +17983,10 @@ RULES:
       res.status(500).json({ message: "Failed to delete mindfulness tool" });
     }
   });
+
+  // Wearables
+  const { registerWearableRoutes } = await import('./wearables/routes');
+  registerWearableRoutes(app);
 
   const httpServer = createServer(app);
   return httpServer;

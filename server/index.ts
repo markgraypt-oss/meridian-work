@@ -124,5 +124,9 @@ app.use((req, res, next) => {
     runProfileImageMigrationOnce().catch((e) => {
       console.error("[startup-migration] profile-images failed:", e);
     });
+    // Start wearables sync scheduler
+    import("./wearables/scheduler").then(({ startWearableScheduler }) => {
+      startWearableScheduler();
+    }).catch((e) => console.error("[startup] wearables scheduler failed:", e));
   });
 })();

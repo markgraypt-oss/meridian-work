@@ -17288,7 +17288,15 @@ Format your response as JSON with this exact structure:
     try {
       const dr = await import("./dailyReadiness");
       if (!dr.isFeatureEnabled()) {
-        return res.json({ enabled: false, date: null, score: null, inputCount: 0, daysOfHistory: 0 });
+        return res.json({
+          enabled: false,
+          date: null,
+          score: null,
+          inputCount: 0,
+          daysOfHistory: 0,
+          inputs: { sleep: null, pain: null, energy: null, nutrition: null, movement: null, recovery: null },
+          sources: { sleep: null, pain: null, energy: null, nutrition: null, movement: null, recovery: null },
+        });
       }
       const userId = req.user.claims.sub;
       // Compute on-demand for "today" so the card reflects the latest inputs

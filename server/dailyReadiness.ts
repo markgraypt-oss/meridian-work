@@ -50,6 +50,27 @@ export interface ReadinessInputs {
   recovery: number | null;
 }
 
+/**
+ * Per-input provenance — which underlying log produced the value. `null`
+ * means the input was missing for the day. Surfaced to the dashboard so
+ * users can see why their score looks the way it does and what to log next.
+ */
+export type ReadinessInputSource =
+  | "wearable"
+  | "check-in"
+  | "body-map"
+  | "sleep-log"
+  | "meal-log"
+  | "workout-log"
+  | "step-log";
+
+export type ReadinessInputSources = Record<keyof ReadinessInputs, ReadinessInputSource | null>;
+
+export interface ReadinessInputsWithSources {
+  inputs: ReadinessInputs;
+  sources: ReadinessInputSources;
+}
+
 export interface ReadinessResult {
   inputs: ReadinessInputs;
   inputCount: number;
@@ -160,7 +181,10 @@ function endOfLocalDay(dateKey: string): Date {
  * Build the six readiness inputs for a single user on a single local day.
  * Each input is normalised to 0-10. Missing data => null (not zero).
  */
-export async function gatherInputsForDay(userId: string, dateKey: string): Promise<ReadinessInputs> {
+export async function gatherInputsForDay(
+  userId: string,
+  dateKey: string,
+): Promise<ReadinessInputsWithSources> {
   const dayStart = startOfLocalDay(dateKey);
   const dayEnd = endOfLocalDay(dateKey);
 
@@ -187,12 +211,22 @@ export async function gatherInputsForDay(userId: string, dateKey: string): Promi
     .orderBy(desc(wearableMetricsDaily.updatedAt));
   const wear = wearableRows[0];
 
+  const sources: ReadinessInputSources = {
+    sleep: null,
+    pain: null,
+    energy: null,
+    nutrition: null,
+    movement: null,
+    recovery: null,
+  };
+
   // --- Sleep ---
   // Prefer wearable sleepScore (0-100 → /10); else manual sleepEntries duration
   // (target 8h ⇒ score 10); else check-in sleepScore (1-5 → 2,4,6,8,10).
   let sleep: number | null = null;
   if (wear?.sleepScore != null) {
     sleep = clamp(wear.sleepScore / 10, 0, 10);
+    sources.sleep = "wearable";
   } else {
     const sleepRows = await db
       .select()
@@ -210,12 +244,15 @@ export async function gatherInputsForDay(userId: string, dateKey: string): Promi
       const score = se.sleepScore;
       if (score != null) {
         sleep = clamp(score / 10, 0, 10);
+        sources.sleep = "sleep-log";
       } else if (se.durationMinutes != null) {
         sleep = clamp((se.durationMinutes / 60 / 8) * 10, 0, 10);
+        sources.sleep = "sleep-log";
       }
     }
     if (sleep == null && ci?.sleepScore != null) {
       sleep = clamp(ci.sleepScore * 2, 0, 10);
+      sources.sleep = "check-in";
     }
   }
 
@@ -235,15 +272,18 @@ export async function gatherInputsForDay(userId: string, dateKey: string): Promi
   if (bmRows.length > 0) {
     const worst = Math.max(...bmRows.map((r) => r.severity || 0));
     pain = clamp(10 - worst, 0, 10);
+    sources.pain = "body-map";
   } else if (ci) {
     // No body-map log: derive from check-in painOrInjury flag (10 if no pain).
     pain = ci.painOrInjury ? 4 : 10;
+    sources.pain = "check-in";
   }
 
   // --- Energy ---
   let energy: number | null = null;
   if (ci?.energyScore != null) {
     energy = clamp(ci.energyScore * 2, 0, 10);
+    sources.energy = "check-in";
   }
 
   // --- Nutrition ---
@@ -265,6 +305,7 @@ export async function gatherInputsForDay(userId: string, dateKey: string): Promi
   const mealCount = Number(mealRow[0]?.c || 0);
   if (mealCount > 0) {
     nutrition = clamp((Math.min(mealCount, 3) / 3) * 10, 0, 10);
+    sources.nutrition = "meal-log";
   }
 
   // --- Movement ---
@@ -283,8 +324,10 @@ export async function gatherInputsForDay(userId: string, dateKey: string): Promi
     .limit(1);
   if (woRows.length > 0) {
     movement = 10;
+    sources.movement = "workout-log";
   } else if (wear?.steps != null) {
     movement = clamp((wear.steps / 10000) * 10, 0, 10);
+    sources.movement = "wearable";
   } else {
     const stepRows = await db
       .select()
@@ -300,6 +343,7 @@ export async function gatherInputsForDay(userId: string, dateKey: string): Promi
     const se = stepRows[0];
     if (se?.steps != null) {
       movement = clamp((se.steps / 10000) * 10, 0, 10);
+      sources.movement = "step-log";
     }
   }
 
@@ -308,6 +352,7 @@ export async function gatherInputsForDay(userId: string, dateKey: string): Promi
   let recovery: number | null = null;
   if (wear?.readinessScore != null) {
     recovery = clamp(wear.readinessScore / 10, 0, 10);
+    sources.recovery = "wearable";
   } else if (ci?.moodScore != null || ci?.stressScore != null) {
     const parts: number[] = [];
     if (ci.moodScore != null) parts.push(clamp(ci.moodScore * 2, 0, 10));
@@ -315,10 +360,11 @@ export async function gatherInputsForDay(userId: string, dateKey: string): Promi
     if (ci.practicedMindfulness) parts.push(10);
     if (parts.length > 0) {
       recovery = parts.reduce((s, v) => s + v, 0) / parts.length;
+      sources.recovery = "check-in";
     }
   }
 
-  return {
+  const inputs: ReadinessInputs = {
     sleep: sleep == null ? null : Math.round(sleep * 10) / 10,
     pain: pain == null ? null : Math.round(pain * 10) / 10,
     energy: energy == null ? null : Math.round(energy * 10) / 10,
@@ -326,6 +372,7 @@ export async function gatherInputsForDay(userId: string, dateKey: string): Promi
     movement: movement == null ? null : Math.round(movement * 10) / 10,
     recovery: recovery == null ? null : Math.round(recovery * 10) / 10,
   };
+  return { inputs, sources };
 }
 
 /** Compute and upsert a single user/day row. Returns the result. */
@@ -333,7 +380,7 @@ export async function computeAndStoreForUserDay(
   userId: string,
   dateKey: string,
 ): Promise<ReadinessResult> {
-  const inputs = await gatherInputsForDay(userId, dateKey);
+  const { inputs } = await gatherInputsForDay(userId, dateKey);
   const result = computeDailyReadinessV1(inputs);
   await db
     .insert(dailyReadinessHistory)
@@ -401,6 +448,8 @@ export async function getTodayForUser(userId: string): Promise<{
   score: number | null;
   inputCount: number;
   daysOfHistory: number;
+  inputs: ReadinessInputs;
+  sources: ReadinessInputSources;
 }> {
   const today = toDateKey(new Date());
   const [row] = await db
@@ -412,11 +461,18 @@ export async function getTodayForUser(userId: string): Promise<{
     .select({ c: sql<number>`count(*)` })
     .from(dailyReadinessHistory)
     .where(and(eq(dailyReadinessHistory.userId, userId), sql`${dailyReadinessHistory.score} IS NOT NULL`));
+  // Re-derive sources for today's inputs. The persisted row only stores
+  // the numeric values, not their provenance, so we re-run the gather to
+  // attach a source label per input. Cheap (same query the route just ran)
+  // and keeps the storage schema unchanged.
+  const { inputs, sources } = await gatherInputsForDay(userId, today);
   return {
     date: today,
     score: row?.score ?? null,
     inputCount: row?.inputCount ?? 0,
     daysOfHistory: Number(total[0]?.c || 0),
+    inputs,
+    sources,
   };
 }
 

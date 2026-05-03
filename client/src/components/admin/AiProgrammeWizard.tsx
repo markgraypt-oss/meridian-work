@@ -81,6 +81,7 @@ export default function AiProgrammeWizard({ open, onOpenChange, defaultProgramme
   const [preview, setPreview] = useState<PreviewResponse | null>(null);
   const [activeWeek, setActiveWeek] = useState(0);
   const [pickerCtx, setPickerCtx] = useState<{ weekIdx: number; dayIdx: number; workoutIdx: number; blockIdx: number; exIdx: number } | null>(null);
+  const [regenTarget, setRegenTarget] = useState<{ weekIdx: number; dayIdx: number; workoutIdx: number | null } | null>(null);
 
   const { data: exerciseLibrary } = useQuery<ExerciseLibraryItem[]>({
     queryKey: ["/api/exercises"],
@@ -135,7 +136,50 @@ export default function AiProgrammeWizard({ open, onOpenChange, defaultProgramme
     },
   });
 
-  const isBusy = generate.isPending || save.isPending;
+  const regenSection = useMutation({
+    mutationFn: async (target: { weekIdx: number; dayIdx: number; workoutIdx: number | null }) => {
+      if (!preview) throw new Error("No preview to regenerate");
+      const week = preview.data.weeks[target.weekIdx];
+      const day = week.days[target.dayIdx];
+      const res = await apiRequest("POST", "/api/ai/programmes/regenerate-section", {
+        inputs: preview.inputs,
+        existingProgramme: preview.data,
+        weekNumber: week.weekNumber,
+        targetDayPosition: day.position,
+        workoutIndex: target.workoutIdx,
+      });
+      return { result: await res.json(), target };
+    },
+    onSuccess: ({ result, target }) => {
+      if (!result?.ok) {
+        toast({ title: "Regeneration failed", description: result?.error || "Try again.", variant: "destructive" });
+        return;
+      }
+      updatePreview(p => {
+        const day = p.weeks[target.weekIdx]?.days[target.dayIdx];
+        if (!day) return p;
+        if (result.kind === "workout" && target.workoutIdx !== null) {
+          day.workouts[target.workoutIdx] = result.data as GenWorkout;
+        } else if (result.kind === "day") {
+          day.workouts = (result.data.workouts || []) as GenWorkout[];
+          day.position = result.data.position ?? day.position;
+        }
+        return p;
+      });
+      toast({ title: "Section regenerated", description: result.kind === "day" ? "Day updated." : "Workout updated." });
+    },
+    onError: (err: any) => {
+      toast({ title: "Regeneration failed", description: err?.message || "Try again.", variant: "destructive" });
+    },
+  });
+
+  const isBusy = generate.isPending || save.isPending || regenSection.isPending;
+  const isRegenerating = (weekIdx: number, dayIdx: number, workoutIdx: number | null) =>
+    regenSection.isPending && regenTarget?.weekIdx === weekIdx && regenTarget?.dayIdx === dayIdx && regenTarget?.workoutIdx === workoutIdx;
+  function triggerRegen(weekIdx: number, dayIdx: number, workoutIdx: number | null) {
+    setRegenTarget({ weekIdx, dayIdx, workoutIdx });
+    regenSection.mutate({ weekIdx, dayIdx, workoutIdx });
+  }
 
   function updatePreview(mut: (p: GenProgramme) => GenProgramme) {
     if (!preview) return;
@@ -315,15 +359,33 @@ export default function AiProgrammeWizard({ open, onOpenChange, defaultProgramme
             <div className="border rounded-md p-3 max-h-[460px] overflow-y-auto space-y-4 text-sm">
               {(preview.data.weeks[activeWeek]?.days || []).map((day, dIdx) => (
                 <div key={dIdx} className="border rounded-md p-3 space-y-3">
-                  <div className="font-semibold">Day {day.position}</div>
+                  <div className="flex items-center justify-between">
+                    <div className="font-semibold">Day {day.position}</div>
+                    <Button size="sm" variant="outline" disabled={isBusy}
+                      onClick={() => triggerRegen(activeWeek, dIdx, null)}
+                      data-testid={`button-regen-day-${activeWeek}-${dIdx}`}>
+                      {isRegenerating(activeWeek, dIdx, null)
+                        ? <><Loader2 className="h-3 w-3 mr-1 animate-spin" />Regenerating…</>
+                        : <><RefreshCw className="h-3 w-3 mr-1" />Regenerate day</>}
+                    </Button>
+                  </div>
                   {day.workouts.map((w, wIdx) => (
                     <div key={wIdx} className="space-y-2 ml-2">
-                      <Input
-                        value={w.name}
-                        onChange={(e) => updatePreview(p => { p.weeks[activeWeek].days[dIdx].workouts[wIdx].name = e.target.value; return p; })}
-                        className="font-medium"
-                        data-testid={`input-edit-workout-name-${activeWeek}-${dIdx}-${wIdx}`}
-                      />
+                      <div className="flex items-center gap-2">
+                        <Input
+                          value={w.name}
+                          onChange={(e) => updatePreview(p => { p.weeks[activeWeek].days[dIdx].workouts[wIdx].name = e.target.value; return p; })}
+                          className="font-medium"
+                          data-testid={`input-edit-workout-name-${activeWeek}-${dIdx}-${wIdx}`}
+                        />
+                        <Button size="sm" variant="outline" disabled={isBusy}
+                          onClick={() => triggerRegen(activeWeek, dIdx, wIdx)}
+                          data-testid={`button-regen-workout-${activeWeek}-${dIdx}-${wIdx}`}>
+                          {isRegenerating(activeWeek, dIdx, wIdx)
+                            ? <><Loader2 className="h-3 w-3 mr-1 animate-spin" />Regenerating…</>
+                            : <><RefreshCw className="h-3 w-3 mr-1" />Regenerate workout</>}
+                        </Button>
+                      </div>
                       <div className="text-xs text-muted-foreground">{w.category} · {w.duration}min · {w.difficulty}</div>
                       {w.blocks.map((b, bIdx) => (
                         <div key={bIdx} className="ml-2 border-l pl-3 space-y-2">

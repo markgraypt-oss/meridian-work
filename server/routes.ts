@@ -7677,6 +7677,78 @@ Return format: {"category": "strength|cardio|hiit|mobility|recovery", "difficult
     }
   });
 
+  app.post('/api/ai/programmes/regenerate-section', isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = req.user.claims.sub;
+      const requester = await storage.getUser(userId);
+      if (!requester?.isAdmin) {
+        return res.status(403).json({ message: "Admin only" });
+      }
+      const { regenerateProgrammeSection, generatedProgrammeSchema } = await import('./ai/programmeGenerator');
+      const existingProgramme = generatedProgrammeSchema.parse(req.body.existingProgramme);
+      const inputs = req.body.inputs || {};
+      const weekNumber = parseInt(req.body.weekNumber, 10);
+      const targetDayPosition = parseInt(req.body.targetDayPosition, 10);
+      const workoutIndexRaw = req.body.workoutIndex;
+      const workoutIndex = workoutIndexRaw === undefined || workoutIndexRaw === null
+        ? null
+        : parseInt(workoutIndexRaw, 10);
+      if (!Number.isFinite(weekNumber) || !Number.isFinite(targetDayPosition)) {
+        return res.status(400).json({ message: "weekNumber and targetDayPosition are required" });
+      }
+      const targetWeek = existingProgramme.weeks.find((w: any) => w.weekNumber === weekNumber);
+      if (!targetWeek) {
+        return res.status(400).json({ message: `Week ${weekNumber} not found in existing programme` });
+      }
+      const targetDay = targetWeek.days.find((d: any) => d.position === targetDayPosition);
+      if (!targetDay) {
+        return res.status(400).json({ message: `Day ${targetDayPosition} not found in week ${weekNumber}` });
+      }
+      if (typeof workoutIndex === "number" && Number.isFinite(workoutIndex)) {
+        if (workoutIndex < 0 || workoutIndex >= targetDay.workouts.length) {
+          return res.status(400).json({ message: `workoutIndex ${workoutIndex} out of range for week ${weekNumber} day ${targetDayPosition}` });
+        }
+      }
+      const contraindications: string[] = Array.isArray(inputs.contraindications)
+        ? inputs.contraindications.map((s: any) => String(s)).filter(Boolean)
+        : [];
+      const avoidExerciseIds: number[] = Array.isArray(inputs.avoidExerciseIds)
+        ? inputs.avoidExerciseIds.map((n: any) => parseInt(n, 10)).filter((n: number) => Number.isFinite(n))
+        : [];
+      const normalisedInputs = {
+        goal: String(inputs.goal || 'general_strength'),
+        equipment: String(inputs.equipment || 'full_gym'),
+        weeks: Math.max(1, Math.min(8, parseInt(inputs.weeks ?? '4', 10) || 4)),
+        daysPerWeek: Math.max(1, Math.min(7, parseInt(inputs.daysPerWeek ?? '3', 10) || 3)),
+        sessionDuration: Math.max(10, Math.min(180, parseInt(inputs.sessionDuration ?? '45', 10) || 45)),
+        difficulty: String(inputs.difficulty || 'beginner'),
+        audience: inputs.audience ? String(inputs.audience) : undefined,
+        notes: inputs.notes ? String(inputs.notes) : undefined,
+        programmeType: inputs.programmeType ? String(inputs.programmeType) : 'main',
+        targetUserId: inputs.targetUserId ? String(inputs.targetUserId) : null,
+        contraindications,
+        avoidExerciseIds,
+      };
+      const result = await regenerateProgrammeSection({
+        inputs: normalisedInputs,
+        existingProgramme,
+        weekNumber,
+        targetDayPosition,
+        workoutIndex: typeof workoutIndex === "number" && Number.isFinite(workoutIndex) ? workoutIndex : null,
+      }, userId);
+      if (!result.ok) {
+        return res.status(502).json({ message: result.error, validationOutcome: result.validationOutcome, logId: result.logId });
+      }
+      res.json(result);
+    } catch (error: any) {
+      if (error?.name === 'ZodError') {
+        return res.status(400).json({ message: "Invalid existing programme payload", errors: error.errors });
+      }
+      console.error("[ai/programmes/regenerate-section] error:", error);
+      res.status(500).json({ message: "Failed to regenerate section", error: error?.message });
+    }
+  });
+
   app.post('/api/ai/programmes/save', isAuthenticated, async (req: any, res) => {
     try {
       const userId = req.user.claims.sub;

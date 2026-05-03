@@ -582,6 +582,250 @@ export async function generateWorkoutWithAI(inputs: WorkoutInputs, userId: strin
 }
 
 // ---------------------------------------------------------------------------
+// Section regeneration — regenerate a single day or workout in an existing
+// draft, using the rest of the draft (and any admin edits already applied) as
+// context so the new section complements what surrounds it.
+// ---------------------------------------------------------------------------
+
+export interface RegenerateSectionArgs {
+  inputs: ProgrammeInputs;
+  existingProgramme: GeneratedProgramme;
+  weekNumber: number;
+  targetDayPosition: number;
+  workoutIndex?: number | null;
+}
+
+function summariseProgramme(prog: GeneratedProgramme, exclude: { weekNumber: number; dayPosition: number; workoutIndex?: number | null }): string {
+  const lines: string[] = [];
+  for (const wk of prog.weeks) {
+    for (const day of wk.days) {
+      for (let i = 0; i < day.workouts.length; i++) {
+        const w = day.workouts[i];
+        const isExcluded =
+          wk.weekNumber === exclude.weekNumber &&
+          day.position === exclude.dayPosition &&
+          (typeof exclude.workoutIndex !== "number" || exclude.workoutIndex === i);
+        if (isExcluded) continue;
+        const ids = w.blocks.flatMap(b => b.exercises.map(e => e.exerciseLibraryId));
+        lines.push(`W${wk.weekNumber}D${day.position}#${i + 1} "${w.name}" (${w.category}, ${w.duration}min) ids:[${ids.join(",")}]`);
+      }
+    }
+  }
+  return lines.join("\n");
+}
+
+function buildRegenerateDayPrompt(args: RegenerateSectionArgs, catalogueText: string, contextSummary: string, retryHint?: string): string {
+  const hints = buildContextHints(args.inputs);
+  return [
+    "You are an evidence-based S&C coach REPLACING a single day inside an existing programme draft.",
+    `Generate ONE day for week ${args.weekNumber}, day position ${args.targetDayPosition}, with exactly the same number of workouts and overall session length the rest of the programme uses.`,
+    "Pick exercises ONLY from the catalogue below by their numeric `exerciseLibraryId`. Never invent IDs.",
+    "Avoid medical claims. Do not diagnose, prescribe, or describe injuries.",
+    hints,
+    retryHint || "",
+    "",
+    "Programme inputs:",
+    JSON.stringify(args.inputs, null, 2),
+    "",
+    "Other days already in the draft (do not duplicate primary muscle work or workout names; complement them):",
+    contextSummary || "(no other days)",
+    "",
+    `Exercise catalogue (${catalogueText.split("\n").length} entries shown):`,
+    catalogueText,
+    "",
+    "Respond with ONLY valid JSON matching this shape (no prose, no markdown):",
+    `{"position": ${args.targetDayPosition}, "workouts": [{
+      "name": string, "description": string|null,
+      "category": "strength"|"cardio"|"hiit"|"mobility"|"recovery",
+      "difficulty": "beginner"|"intermediate"|"advanced",
+      "duration": number,
+      "blocks": [{
+        "section": "warmup"|"main",
+        "blockType": "single"|"superset"|"triset"|"circuit",
+        "rest": string|null,
+        "exercises": [{
+          "exerciseLibraryId": number,
+          "sets": [{"reps": string|number, "rest": string?}],
+          "load": string|null, "tempo": string|null, "notes": string|null
+        }]
+      }]
+    }]}`,
+    `Each workout must be near ${args.inputs.sessionDuration} minutes total.`,
+  ].filter(Boolean).join("\n");
+}
+
+function buildRegenerateWorkoutPrompt(args: RegenerateSectionArgs, catalogueText: string, contextSummary: string, retryHint?: string): string {
+  const hints = buildContextHints(args.inputs);
+  return [
+    "You are an evidence-based S&C coach REPLACING a single workout inside an existing programme draft.",
+    `Generate ONE workout for week ${args.weekNumber}, day ${args.targetDayPosition}, slot index ${args.workoutIndex ?? 0}.`,
+    "Pick exercises ONLY from the catalogue below by their numeric `exerciseLibraryId`. Never invent IDs.",
+    "Avoid medical claims. Do not diagnose, prescribe, or describe injuries.",
+    hints,
+    retryHint || "",
+    "",
+    "Programme inputs:",
+    JSON.stringify(args.inputs, null, 2),
+    "",
+    "Other workouts already in the draft (complement them; avoid duplicating primary muscle work):",
+    contextSummary || "(no other workouts)",
+    "",
+    `Exercise catalogue (${catalogueText.split("\n").length} entries shown):`,
+    catalogueText,
+    "",
+    "Respond with ONLY valid JSON matching this shape (no prose, no markdown):",
+    `{"name": string, "description": string|null,
+      "category": "strength"|"cardio"|"hiit"|"mobility"|"recovery",
+      "difficulty": "beginner"|"intermediate"|"advanced",
+      "duration": number,
+      "blocks": [{
+        "section": "warmup"|"main",
+        "blockType": "single"|"superset"|"triset"|"circuit",
+        "rest": string|null,
+        "exercises": [{
+          "exerciseLibraryId": number,
+          "sets": [{"reps": string|number, "rest": string?}],
+          "load": string|null, "tempo": string|null, "notes": string|null
+        }]
+      }]}`,
+    `Total duration must be near ${args.inputs.sessionDuration} minutes.`,
+  ].filter(Boolean).join("\n");
+}
+
+export type RegenerateSectionResult =
+  | { ok: true; kind: "day"; weekNumber: number; data: z.infer<typeof dayPlanSchema>; logId?: number; validationOutcome?: any; safetyFlags?: any }
+  | { ok: true; kind: "workout"; weekNumber: number; dayPosition: number; workoutIndex: number; data: GeneratedWorkout; logId?: number; validationOutcome?: any; safetyFlags?: any }
+  | { ok: false; error: string; logId?: number; validationOutcome?: any };
+
+export async function regenerateProgrammeSection(args: RegenerateSectionArgs, userId: string): Promise<RegenerateSectionResult> {
+  const fullCatalogue = await loadExerciseCatalogue();
+  const equipFiltered = filterCatalogueByEquipment(fullCatalogue, args.inputs.equipment);
+  const filtered = filterCatalogueByContraindications(
+    equipFiltered,
+    args.inputs.contraindications || [],
+    args.inputs.avoidExerciseIds || [],
+  );
+  const validIds = new Set(filtered.map(c => c.id));
+  const catalogueText = compactCatalogueForPrompt(filtered);
+
+  const isWorkout = typeof args.workoutIndex === "number" && args.workoutIndex >= 0;
+  const contextSummary = summariseProgramme(args.existingProgramme, {
+    weekNumber: args.weekNumber,
+    dayPosition: args.targetDayPosition,
+    workoutIndex: isWorkout ? args.workoutIndex! : null,
+  });
+
+  if (isWorkout) {
+    const schema = generatedWorkoutSchema as unknown as z.ZodType<GeneratedWorkout>;
+    let result = await aiCall<GeneratedWorkout>({
+      feature: "programme_section_regen",
+      prompt: buildRegenerateWorkoutPrompt(args, catalogueText, contextSummary),
+      userId,
+      schema,
+      maxTokens: 2500,
+      temperature: 0.4,
+      timeoutMs: 45_000,
+    });
+    if (result.data) {
+      const ids = result.data.blocks.flatMap(b => b.exercises.map(e => e.exerciseLibraryId));
+      const bad = unknownIds(ids, validIds);
+      if (bad.length > 0) {
+        const retryHint = `Your previous response used exerciseLibraryId values not in the catalogue: ${bad.join(", ")}. Use only valid catalogue IDs.`;
+        result = await aiCall<GeneratedWorkout>({
+          feature: "programme_section_regen",
+          prompt: buildRegenerateWorkoutPrompt(args, catalogueText, contextSummary, retryHint),
+          userId,
+          schema,
+          maxTokens: 2500,
+          temperature: 0.2,
+          timeoutMs: 45_000,
+        });
+        if (result.data) {
+          const stillBad = unknownIds(result.data.blocks.flatMap(b => b.exercises.map(e => e.exerciseLibraryId)), validIds);
+          if (stillBad.length > 0) {
+            return { ok: false, error: `Generator returned exerciseLibraryId values not in the catalogue after one repair attempt: ${stillBad.join(", ")}`, logId: result.logId, validationOutcome: result.validationOutcome };
+          }
+        }
+      }
+    }
+    if (!result.data) {
+      return { ok: false, error: result.error || "Section regenerator failed to return valid JSON", logId: result.logId, validationOutcome: result.validationOutcome };
+    }
+    const pruned = pruneWorkout(result.data, filtered);
+    if (pruned.blocks.length === 0) {
+      return { ok: false, error: "Regenerated workout contained no usable exercises after catalogue check", logId: result.logId, validationOutcome: result.validationOutcome };
+    }
+    return {
+      ok: true,
+      kind: "workout",
+      weekNumber: args.weekNumber,
+      dayPosition: args.targetDayPosition,
+      workoutIndex: args.workoutIndex!,
+      data: pruned,
+      logId: result.logId,
+      validationOutcome: result.validationOutcome,
+      safetyFlags: result.safetyFlags,
+    };
+  }
+
+  // Day regeneration
+  const daySchema = dayPlanSchema as unknown as z.ZodType<z.infer<typeof dayPlanSchema>>;
+  let result = await aiCall<z.infer<typeof dayPlanSchema>>({
+    feature: "programme_section_regen",
+    prompt: buildRegenerateDayPrompt(args, catalogueText, contextSummary),
+    userId,
+    schema: daySchema,
+    maxTokens: 4000,
+    temperature: 0.4,
+    timeoutMs: 60_000,
+  });
+  if (result.data) {
+    const ids = result.data.workouts.flatMap(w => w.blocks.flatMap(b => b.exercises.map(e => e.exerciseLibraryId)));
+    const bad = unknownIds(ids, validIds);
+    if (bad.length > 0) {
+      const retryHint = `Your previous response used exerciseLibraryId values not in the catalogue: ${bad.join(", ")}. Use only valid catalogue IDs.`;
+      result = await aiCall<z.infer<typeof dayPlanSchema>>({
+        feature: "programme_section_regen",
+        prompt: buildRegenerateDayPrompt(args, catalogueText, contextSummary, retryHint),
+        userId,
+        schema: daySchema,
+        maxTokens: 4000,
+        temperature: 0.2,
+        timeoutMs: 60_000,
+      });
+      if (result.data) {
+        const stillBad = unknownIds(result.data.workouts.flatMap(w => w.blocks.flatMap(b => b.exercises.map(e => e.exerciseLibraryId))), validIds);
+        if (stillBad.length > 0) {
+          return { ok: false, error: `Generator returned exerciseLibraryId values not in the catalogue after one repair attempt: ${stillBad.join(", ")}`, logId: result.logId, validationOutcome: result.validationOutcome };
+        }
+      }
+    }
+  }
+  if (!result.data) {
+    return { ok: false, error: result.error || "Section regenerator failed to return valid JSON", logId: result.logId, validationOutcome: result.validationOutcome };
+  }
+  const prunedDay = {
+    ...result.data,
+    position: args.targetDayPosition,
+    workouts: result.data.workouts
+      .map(w => pruneWorkout(w, filtered))
+      .filter(w => w.blocks.length > 0),
+  };
+  if (prunedDay.workouts.length === 0) {
+    return { ok: false, error: "Regenerated day contained no usable exercises after catalogue check", logId: result.logId, validationOutcome: result.validationOutcome };
+  }
+  return {
+    ok: true,
+    kind: "day",
+    weekNumber: args.weekNumber,
+    data: prunedDay,
+    logId: result.logId,
+    validationOutcome: result.validationOutcome,
+    safetyFlags: result.safetyFlags,
+  };
+}
+
+// ---------------------------------------------------------------------------
 // Persistence
 // ---------------------------------------------------------------------------
 

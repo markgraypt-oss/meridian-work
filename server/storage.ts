@@ -305,12 +305,16 @@ import {
   mealPlans,
   mealPlanDays,
   mealPlanMeals,
+  shoppingLists,
   type MealPlan,
   type InsertMealPlan,
   type MealPlanDay,
   type InsertMealPlanDay,
   type MealPlanMeal,
   type InsertMealPlanMeal,
+  type ShoppingList,
+  type InsertShoppingList,
+  type ShoppingListItem,
   workdayPositions,
   workdayMicroResets,
   workdayAchesFixes,
@@ -393,7 +397,7 @@ import {
   type InsertMindfulnessTool,
 } from "@shared/schema";
 import { db } from "./db";
-import { eq, desc, and, ilike, or, gte, lte, inArray, lt, asc, sql, isNull, isNotNull, aliasedTable } from "drizzle-orm";
+import { eq, ne, desc, and, ilike, or, gte, lte, inArray, lt, asc, sql, isNull, isNotNull, aliasedTable } from "drizzle-orm";
 
 export interface IStorage {
   // User operations
@@ -997,6 +1001,8 @@ export interface IStorage {
   getUserMealPlan(userId: string): Promise<MealPlan | undefined>;
   getMealPlanWithDetails(mealPlanId: number): Promise<{ plan: MealPlan; days: (MealPlanDay & { meals: (MealPlanMeal & { recipe: Recipe })[] })[] } | undefined>;
   createMealPlan(plan: InsertMealPlan): Promise<MealPlan>;
+  createMealPlanInactive(plan: InsertMealPlan): Promise<MealPlan>;
+  activateMealPlan(planId: number, userId: string): Promise<void>;
   updateMealPlan(id: number, plan: Partial<InsertMealPlan>): Promise<MealPlan>;
   deleteMealPlan(id: number): Promise<void>;
   createMealPlanDay(day: InsertMealPlanDay): Promise<MealPlanDay>;
@@ -1014,7 +1020,11 @@ export interface IStorage {
     mealType?: string;
     targetCaloriesPerMeal?: number;
     maxCalories?: number;
+    maxPrepTime?: number | null;
   }): Promise<Recipe[]>;
+  getShoppingListByPlan(planId: number): Promise<ShoppingList | undefined>;
+  upsertShoppingList(list: InsertShoppingList): Promise<ShoppingList>;
+  updateShoppingListItems(id: number, items: ShoppingListItem[]): Promise<ShoppingList>;
 
   // Workday Engine - Positions operations
   getWorkdayPositions(): Promise<WorkdayPosition[]>;
@@ -10685,6 +10695,23 @@ export class DatabaseStorage implements IStorage {
     return created;
   }
 
+  // Insert a plan without touching the user's currently-active plan. Use
+  // together with `activateMealPlan` to perform a safe, atomic swap.
+  async createMealPlanInactive(plan: InsertMealPlan): Promise<MealPlan> {
+    const [created] = await db.insert(mealPlans).values({ ...plan, isActive: false }).returning();
+    return created;
+  }
+
+  // Atomically deactivate every other plan for this user and activate `planId`.
+  async activateMealPlan(planId: number, userId: string): Promise<void> {
+    await db.transaction(async (tx) => {
+      await tx.update(mealPlans).set({ isActive: false })
+        .where(and(eq(mealPlans.userId, userId), ne(mealPlans.id, planId)));
+      await tx.update(mealPlans).set({ isActive: true })
+        .where(eq(mealPlans.id, planId));
+    });
+  }
+
   async updateMealPlan(id: number, plan: Partial<InsertMealPlan>): Promise<MealPlan> {
     const [updated] = await db
       .update(mealPlans)
@@ -10730,6 +10757,34 @@ export class DatabaseStorage implements IStorage {
     await db.delete(mealPlanMeals).where(eq(mealPlanMeals.id, id));
   }
 
+  async getShoppingListByPlan(planId: number): Promise<ShoppingList | undefined> {
+    const [list] = await db.select().from(shoppingLists).where(eq(shoppingLists.mealPlanId, planId)).limit(1);
+    return list;
+  }
+
+  async upsertShoppingList(list: InsertShoppingList): Promise<ShoppingList> {
+    const existing = await this.getShoppingListByPlan(list.mealPlanId);
+    if (existing) {
+      const [updated] = await db
+        .update(shoppingLists)
+        .set({ items: list.items, aiGenerated: list.aiGenerated ?? false, updatedAt: new Date() })
+        .where(eq(shoppingLists.id, existing.id))
+        .returning();
+      return updated;
+    }
+    const [created] = await db.insert(shoppingLists).values(list).returning();
+    return created;
+  }
+
+  async updateShoppingListItems(id: number, items: ShoppingListItem[]): Promise<ShoppingList> {
+    const [updated] = await db
+      .update(shoppingLists)
+      .set({ items, updatedAt: new Date() })
+      .where(eq(shoppingLists.id, id))
+      .returning();
+    return updated;
+  }
+
   async getRecipesForMealPlan(options: {
     caloriesPerDay: number;
     macroSplit: string;
@@ -10740,6 +10795,7 @@ export class DatabaseStorage implements IStorage {
     mealType?: string;
     targetCaloriesPerMeal?: number;
     maxCalories?: number;
+    maxPrepTime?: number | null;
   }): Promise<Recipe[]> {
     const conditions: any[] = [];
 
@@ -10774,6 +10830,11 @@ export class DatabaseStorage implements IStorage {
 
     if (options.excludeRecipeIds && options.excludeRecipeIds.length > 0) {
       allRecipes = allRecipes.filter((r) => !options.excludeRecipeIds!.includes(r.id));
+    }
+
+    if (options.maxPrepTime && options.maxPrepTime > 0) {
+      const cap = options.maxPrepTime;
+      allRecipes = allRecipes.filter((r) => !r.totalTime || r.totalTime <= cap);
     }
 
     // Score and sort recipes by how well they match calorie and macro targets

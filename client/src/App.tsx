@@ -143,6 +143,7 @@ import WodDetail from "@/pages/wod-detail";
 import RecipeDetail from "@/pages/recipe-detail";
 import Recipes from "@/pages/recipes";
 import MealPlan from "@/pages/meal-plan";
+import ShoppingListPage from "@/pages/shopping-list";
 import TopHeader from "@/components/TopHeader";
 import BottomNavigation from "@/components/BottomNavigation";
 import FloatingActionButton from "@/components/FloatingActionButton";
@@ -298,6 +299,7 @@ function Router() {
               <Route path="/supplement-history" component={SupplementHistory} />
               <Route path="/supplement-history/:id" component={SupplementHistoryDetail} />
               <Route path="/meal-plan" component={MealPlan} />
+              <Route path="/shopping-list" component={ShoppingListPage} />
               <Route path="/recipes" component={Recipes} />
               <Route path="/recipe/:id" component={RecipeDetail} />
               <Route path="/calendar" component={Calendar} />

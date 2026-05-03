@@ -280,6 +280,7 @@ export const recipes = pgTable("recipes", {
   allergens: text("allergens").array(),
   dietaryPreferences: text("dietary_preferences").array(),
   keyIngredients: text("key_ingredients").array(),
+  aiGenerated: boolean("ai_generated").notNull().default(false),
   createdAt: timestamp("created_at").defaultNow(),
 });
 
@@ -2255,6 +2256,9 @@ export const mealPlans = pgTable("meal_plans", {
   mealSlots: jsonb("meal_slots").$type<{ type: string; sides?: number }[]>(), // Array of meal slot configurations
   dietaryPreference: text("dietary_preference").notNull().default("no_preference"), // 'no_preference', 'vegan', 'vegetarian', 'pescatarian', 'paleo'
   excludedIngredients: text("excluded_ingredients").array(), // ['fish', 'shellfish', 'soy', 'dairy', etc.]
+  maxPrepTime: integer("max_prep_time"), // optional cap in minutes; null = no preference
+  aiGenerated: boolean("ai_generated").notNull().default(false),
+  useAi: boolean("use_ai").notNull().default(true),
   isActive: boolean("is_active").notNull().default(true),
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow(),
@@ -2282,6 +2286,7 @@ export const mealPlanMeals = pgTable("meal_plan_meals", {
   ateToday: boolean("ate_today").notNull().default(false),
   ateTodayDate: timestamp("ate_today_date"),
   position: integer("position").notNull().default(0), // for ordering within day
+  locked: boolean("locked").notNull().default(false),
   createdAt: timestamp("created_at").defaultNow(),
 });
 
@@ -2297,6 +2302,29 @@ export type InsertMealPlanMeal = typeof mealPlanMeals.$inferInsert;
 export const insertMealPlanSchema = createInsertSchema(mealPlans).omit({ id: true, createdAt: true, updatedAt: true });
 export const insertMealPlanDaySchema = createInsertSchema(mealPlanDays).omit({ id: true, createdAt: true });
 export const insertMealPlanMealSchema = createInsertSchema(mealPlanMeals).omit({ id: true, createdAt: true });
+
+// Shopping list - aggregated ingredients for a meal plan
+export type ShoppingListItem = {
+  name: string;
+  section: string; // 'produce' | 'protein' | 'dairy' | 'pantry' | 'bakery' | 'frozen' | 'other'
+  quantity?: string; // human-readable e.g. "2 cups", "300g"
+  recipeIds: number[]; // recipe ids that contributed to this item
+  checked: boolean;
+};
+
+export const shoppingLists = pgTable("shopping_lists", {
+  id: serial("id").primaryKey(),
+  userId: varchar("user_id").notNull().references(() => users.id),
+  mealPlanId: integer("meal_plan_id").notNull().references(() => mealPlans.id, { onDelete: "cascade" }),
+  items: jsonb("items").$type<ShoppingListItem[]>().notNull().default([]),
+  aiGenerated: boolean("ai_generated").notNull().default(false),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+});
+
+export type ShoppingList = typeof shoppingLists.$inferSelect;
+export type InsertShoppingList = typeof shoppingLists.$inferInsert;
+export const insertShoppingListSchema = createInsertSchema(shoppingLists).omit({ id: true, createdAt: true, updatedAt: true });
 
 // ============================================
 // WORKDAY ENGINE TABLES

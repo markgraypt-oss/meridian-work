@@ -10,7 +10,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Skeleton } from "@/components/ui/skeleton";
 import { isUnauthorizedError } from "@/lib/authUtils";
 import { apiRequest, queryClient } from "@/lib/queryClient";
-import { RefreshCw, Check, Settings, Plus, ChevronLeft, Flame, Beef, Wheat, Droplet, X, Calendar, Utensils } from "lucide-react";
+import { RefreshCw, Check, Settings, Plus, ChevronLeft, Flame, Beef, Wheat, Droplet, X, Calendar, Utensils, ShoppingCart, Lock, LockOpen } from "lucide-react";
 import type { Recipe } from "@shared/schema";
 
 interface MealPlanMeal {
@@ -25,6 +25,7 @@ interface MealPlanMeal {
   position: number;
   ateToday: boolean | null;
   ateTodayDate: Date | null;
+  locked: boolean;
   recipe: Recipe;
 }
 
@@ -92,6 +93,18 @@ export default function MealPlanPage() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['/api/meal-plan'] });
       toast({ title: 'Meal updated!', description: 'A new recipe has been selected.' });
+    },
+    onError: (error: Error) => {
+      toast({ title: 'Error', description: error.message, variant: 'destructive' });
+    },
+  });
+
+  const toggleLockMutation = useMutation({
+    mutationFn: async ({ mealId, locked }: { mealId: number; locked: boolean }) => {
+      return apiRequest('PATCH', `/api/meal-plan/meal/${mealId}/lock`, { locked });
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['/api/meal-plan'] });
     },
     onError: (error: Error) => {
       toast({ title: 'Error', description: error.message, variant: 'destructive' });
@@ -233,7 +246,7 @@ export default function MealPlanPage() {
               </p>
               <Button 
                 className="bg-cyan-500 hover:bg-cyan-600 text-white"
-                onClick={() => navigate('/meal-plan-settings')}
+                onClick={() => navigate('/nutrition/meal-plan-settings')}
                 data-testid="button-create-plan"
               >
                 <Plus className="w-4 h-4 mr-2" />
@@ -256,6 +269,15 @@ export default function MealPlanPage() {
                 <Button
                   variant="ghost"
                   size="icon"
+                  onClick={() => navigate('/shopping-list')}
+                  className="text-zinc-400 hover:text-white"
+                  data-testid="button-shopping-list"
+                >
+                  <ShoppingCart className="w-5 h-5" />
+                </Button>
+                <Button
+                  variant="ghost"
+                  size="icon"
                   onClick={() => regeneratePlanMutation.mutate(mealPlanData.plan.id)}
                   disabled={regeneratePlanMutation.isPending}
                   className="text-zinc-400 hover:text-white"
@@ -267,7 +289,7 @@ export default function MealPlanPage() {
                   variant="ghost" 
                   size="icon" 
                   className="text-zinc-400 hover:text-white"
-                  onClick={() => navigate('/meal-plan-settings')}
+                  onClick={() => navigate('/nutrition/meal-plan-settings')}
                   data-testid="button-settings"
                 >
                   <Settings className="w-5 h-5" />
@@ -334,16 +356,31 @@ export default function MealPlanPage() {
                                   <span className={`text-zinc-500 ${isSideMeal(meal.mealType) ? 'text-[10px]' : 'text-xs'}`}>
                                     {getMealTypeIcon(meal.mealType)} {getMealTypeLabel(meal.mealType)}
                                   </span>
-                                  <Button
-                                    variant="ghost"
-                                    size="sm"
-                                    className="h-6 w-6 p-0 text-zinc-500 hover:text-cyan-400"
-                                    onClick={() => regenerateMealMutation.mutate(meal.id)}
-                                    disabled={regenerateMealMutation.isPending}
-                                    data-testid={`button-refresh-meal-${meal.id}`}
-                                  >
-                                    <RefreshCw className={`w-3 h-3 ${regenerateMealMutation.isPending ? 'animate-spin' : ''}`} />
-                                  </Button>
+                                  <div className="flex items-center gap-1">
+                                    <Button
+                                      variant="ghost"
+                                      size="sm"
+                                      className={`h-6 w-6 p-0 ${meal.locked ? 'text-cyan-400' : 'text-zinc-500 hover:text-cyan-400'}`}
+                                      onClick={() => toggleLockMutation.mutate({ mealId: meal.id, locked: !meal.locked })}
+                                      disabled={toggleLockMutation.isPending}
+                                      title={meal.locked ? 'Unlock meal (allow replacement on regenerate)' : 'Lock meal (keep when regenerating plan)'}
+                                      data-testid={`button-lock-meal-${meal.id}`}
+                                    >
+                                      {meal.locked
+                                        ? <Lock className="w-3 h-3" />
+                                        : <LockOpen className="w-3 h-3" />}
+                                    </Button>
+                                    <Button
+                                      variant="ghost"
+                                      size="sm"
+                                      className="h-6 w-6 p-0 text-zinc-500 hover:text-cyan-400"
+                                      onClick={() => regenerateMealMutation.mutate(meal.id)}
+                                      disabled={regenerateMealMutation.isPending || meal.locked}
+                                      data-testid={`button-refresh-meal-${meal.id}`}
+                                    >
+                                      <RefreshCw className={`w-3 h-3 ${regenerateMealMutation.isPending ? 'animate-spin' : ''}`} />
+                                    </Button>
+                                  </div>
                                 </div>
                                 <h4 
                                   className={`font-medium text-white mb-1 line-clamp-1 cursor-pointer hover:text-cyan-400 ${isSideMeal(meal.mealType) ? 'text-xs' : 'text-sm mb-2'}`}

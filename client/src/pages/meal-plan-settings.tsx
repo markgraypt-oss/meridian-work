@@ -57,9 +57,11 @@ export default function MealPlanSettings() {
     mealSlots: DEFAULT_MEAL_SLOTS as MealSlot[],
     dietaryPreference: 'no_preference',
     excludedIngredients: [] as string[],
+    maxPrepTime: null as number | null,
+    useAi: true,
   });
 
-  const [activeDrawer, setActiveDrawer] = useState<'calories' | 'macros' | 'dietary' | 'addMeal' | 'addSides' | null>(null);
+  const [activeDrawer, setActiveDrawer] = useState<'calories' | 'macros' | 'dietary' | 'prepTime' | 'addMeal' | 'addSides' | null>(null);
   const [selectedSlotIndex, setSelectedSlotIndex] = useState<number | null>(null);
 
   const { data: mealPlanData } = useQuery<{
@@ -71,6 +73,9 @@ export default function MealPlanSettings() {
       mealSlots: MealSlot[] | null;
       dietaryPreference: string;
       excludedIngredients: string[];
+      maxPrepTime?: number | null;
+      aiGenerated?: boolean;
+      useAi?: boolean;
     };
   }>({
     queryKey: ['/api/meal-plan'],
@@ -89,15 +94,18 @@ export default function MealPlanSettings() {
   useEffect(() => {
     if (mealPlanData?.plan) {
       const planMealSlots = mealPlanData.plan.mealSlots;
-      setSettings({
+      setSettings((prev) => ({
+        ...prev,
         caloriesPerDay: mealPlanData.plan.caloriesPerDay,
         macroSplit: mealPlanData.plan.macroSplit,
-        mealSlots: planMealSlots && planMealSlots.length >= 2 
-          ? planMealSlots 
+        mealSlots: planMealSlots && planMealSlots.length >= 2
+          ? planMealSlots
           : DEFAULT_MEAL_SLOTS,
         dietaryPreference: mealPlanData.plan.dietaryPreference,
         excludedIngredients: mealPlanData.plan.excludedIngredients || [],
-      });
+        maxPrepTime: mealPlanData.plan.maxPrepTime ?? null,
+        useAi: mealPlanData.plan.useAi ?? true,
+      }));
     }
   }, [mealPlanData]);
 
@@ -272,6 +280,40 @@ export default function MealPlanSettings() {
               <span className="bg-[#0cc9a9] text-foreground font-medium px-2 py-0.5 rounded">{getDietaryLabel(settings.dietaryPreference)}</span>
               <ChevronRight className="w-4 h-4 text-muted-foreground" />
             </div>
+          </div>
+
+          <div
+            className="flex items-center justify-between py-5 border-b border-border cursor-pointer"
+            onClick={() => setActiveDrawer('prepTime')}
+            data-testid="row-prep-time"
+          >
+            <span className="text-foreground">Max prep time</span>
+            <div className="flex items-center gap-1">
+              <span className="bg-[#0cc9a9] text-foreground font-medium px-2 py-0.5 rounded">
+                {settings.maxPrepTime ? `${settings.maxPrepTime} min` : 'Any'}
+              </span>
+              <ChevronRight className="w-4 h-4 text-muted-foreground" />
+            </div>
+          </div>
+
+          <div
+            className="flex items-center justify-between py-5 border-b border-border"
+            data-testid="row-use-ai"
+          >
+            <div>
+              <span className="text-foreground block">Use AI planner</span>
+              <span className="text-xs text-muted-foreground">Falls back to recipe library if AI is unavailable</span>
+            </div>
+            <button
+              type="button"
+              role="switch"
+              aria-checked={settings.useAi}
+              onClick={() => setSettings({ ...settings, useAi: !settings.useAi })}
+              className={`relative inline-flex h-6 w-11 items-center rounded-full transition ${settings.useAi ? 'bg-[#0cc9a9]' : 'bg-muted'}`}
+              data-testid="toggle-use-ai"
+            >
+              <span className={`inline-block h-4 w-4 transform rounded-full bg-white transition ${settings.useAi ? 'translate-x-6' : 'translate-x-1'}`} />
+            </button>
           </div>
         </div>
 
@@ -450,6 +492,29 @@ export default function MealPlanSettings() {
                 data-testid={`option-dietary-${option.value}`}
               >
                 {option.label}
+              </div>
+            ))}
+          </div>
+        </DrawerContent>
+      </Drawer>
+
+      <Drawer open={activeDrawer === 'prepTime'} onOpenChange={(open) => !open && setActiveDrawer(null)}>
+        <DrawerContent>
+          <DrawerHeader className="border-b border-border">
+            <DrawerTitle className="text-center">Max prep time</DrawerTitle>
+          </DrawerHeader>
+          <div className="pb-6">
+            {[null, 15, 20, 30, 45, 60].map((minutes) => (
+              <div
+                key={String(minutes)}
+                className={`py-4 px-6 border-b border-border/50 cursor-pointer hover:bg-muted/50 ${settings.maxPrepTime === minutes ? 'bg-[#0cc9a9]/20 font-medium' : ''}`}
+                onClick={() => {
+                  setSettings({ ...settings, maxPrepTime: minutes });
+                  setActiveDrawer(null);
+                }}
+                data-testid={`option-prep-${minutes ?? 'any'}`}
+              >
+                {minutes === null ? 'Any (no limit)' : `Under ${minutes} minutes`}
               </div>
             ))}
           </div>

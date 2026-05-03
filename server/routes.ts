@@ -15203,99 +15203,29 @@ Keep your response concise, practical, and evidence-based. Do not use em dashes.
   app.post('/api/meal-plan', isAuthenticated, async (req: any, res) => {
     try {
       const userId = req.user.claims.sub;
-      const { caloriesPerDay, macroSplit, mealsPerDay, mealSlots, dietaryPreference, excludedIngredients } = req.body;
+      const {
+        caloriesPerDay, macroSplit, mealSlots, dietaryPreference,
+        excludedIngredients, maxPrepTime, useAi,
+      } = req.body;
 
-      // Convert mealSlots to meal entries for generation
-      // Each slot becomes one or more meals (main with sides becomes main + side dishes)
-      interface MealEntry { type: string; slotIndex: number; isMain: boolean; isSide: boolean; parentIndex?: number; }
-      const getMealEntries = (slots: { type: string; sides?: number }[]): MealEntry[] => {
-        const entries: MealEntry[] = [];
-        slots.forEach((slot, slotIndex) => {
-          if (slot.type === 'main') {
-            entries.push({ type: 'main', slotIndex, isMain: true, isSide: false });
-            const sideCount = slot.sides || 0;
-            for (let s = 0; s < sideCount; s++) {
-              entries.push({ type: 'side', slotIndex, isMain: false, isSide: true, parentIndex: entries.length - 1 - s });
-            }
-          } else {
-            entries.push({ type: slot.type, slotIndex, isMain: false, isSide: false });
-          }
-        });
-        return entries;
-      };
-
-      // Default slots if none provided (backward compatibility)
       const defaultSlots = [{ type: 'breakfast' }, { type: 'main', sides: 0 }, { type: 'main', sides: 0 }];
       const slots = mealSlots && Array.isArray(mealSlots) && mealSlots.length >= 2 ? mealSlots : defaultSlots;
+      const useAiFlag = useAi !== false;
 
-      const plan = await storage.createMealPlan({
-        userId, caloriesPerDay, macroSplit, mealsPerDay: slots.length, dietaryPreference,
+      const result = await buildPlanForUser({
+        userId,
+        caloriesPerDay,
+        macroSplit,
+        slots,
+        dietaryPreference,
         excludedIngredients: excludedIngredients || [],
-        mealSlots: slots,
+        maxPrepTime: maxPrepTime ?? null,
+        useAi: useAiFlag,
       });
 
-      const mealEntries = getMealEntries(slots);
-      const usedRecipeIds: number[] = [];
-
-      for (let dayIndex = 1; dayIndex <= 7; dayIndex++) {
-        const day = await storage.createMealPlanDay({ mealPlanId: plan.id, dayIndex, totalCalories: 0 });
-        let dayCalories = 0;
-        const dailyMax = Math.round(caloriesPerDay * 1.10);
-        
-        for (let i = 0; i < mealEntries.length; i++) {
-          const entry = mealEntries[i];
-          const mealsRemaining = mealEntries.length - i;
-          
-          if (dayCalories >= dailyMax) break;
-          
-          const roomUntilMax = dailyMax - dayCalories;
-          if (roomUntilMax < 50) continue;
-          
-          // Sides get smaller calorie allocation
-          const targetCaloriesPerMeal = entry.isSide 
-            ? Math.round(roomUntilMax / mealsRemaining * 0.4) 
-            : Math.round(roomUntilMax / mealsRemaining);
-          const maxCalories = roomUntilMax;
-          
-          // Map meal type for recipe search - sides search for smaller main dishes
-          const mealTypeForSearch = entry.type === 'side' ? 'main' : entry.type;
-          
-          const recipes = await storage.getRecipesForMealPlan({
-            caloriesPerDay, macroSplit, mealsPerDay: slots.length, dietaryPreference,
-            excludedIngredients: excludedIngredients || [],
-            excludeRecipeIds: usedRecipeIds,
-            mealType: mealTypeForSearch,
-            targetCaloriesPerMeal,
-            maxCalories,
-          });
-
-          if (recipes.length > 0) {
-            const validRecipe = recipes.find(r => dayCalories + r.calories <= dailyMax);
-            
-            if (validRecipe) {
-              usedRecipeIds.push(validRecipe.id);
-              // Include slot index in mealType for proper grouping: type_slotIndex
-              const mealTypeWithSlot = entry.isSide 
-                ? `side_${entry.slotIndex}` 
-                : `${entry.type}_${entry.slotIndex}`;
-              await storage.createMealPlanMeal({
-                mealPlanDayId: day.id, 
-                mealType: mealTypeWithSlot, 
-                recipeId: validRecipe.id,
-                calories: validRecipe.calories, protein: validRecipe.protein, carbs: validRecipe.carbs, fat: validRecipe.fat,
-                position: i,
-              });
-              dayCalories += validRecipe.calories;
-            }
-          }
-        }
-        await storage.updateMealPlanDay(day.id, { totalCalories: dayCalories });
-      }
-
-      const details = await storage.getMealPlanWithDetails(plan.id);
-      res.json(details);
-    } catch (error) {
-      console.error("Error creating meal plan:", error);
+      res.json(result);
+    } catch (error: any) {
+      console.error("Error creating meal plan:", error?.message || error);
       res.status(500).json({ message: "Failed to create meal plan" });
     }
   });
@@ -15397,13 +15327,20 @@ Keep your response concise, practical, and evidence-based. Do not use em dashes.
         if (meal) { currentMeal = meal; dayData = day; break; }
       }
       if (!currentMeal) return res.status(404).json({ message: "Meal not found" });
+      if (currentMeal.locked) return res.status(400).json({ message: "Meal is locked. Unlock it first to regenerate." });
+
+      // Normalize stored mealType (e.g. "main_1", "side_2", "breakfast_0") to a
+      // base category understood by getRecipesForMealPlan.
+      const baseTypeRaw = currentMeal.mealType.split('_')[0] || 'main';
+      const baseType = baseTypeRaw === 'side' ? 'main' : baseTypeRaw;
 
       const allUsedIds = fullPlan.days.flatMap((d) => d.meals.map((m) => m.recipeId));
       const recipes = await storage.getRecipesForMealPlan({
         caloriesPerDay: fullPlan.plan.caloriesPerDay, macroSplit: fullPlan.plan.macroSplit,
         mealsPerDay: fullPlan.plan.mealsPerDay, dietaryPreference: fullPlan.plan.dietaryPreference,
         excludedIngredients: fullPlan.plan.excludedIngredients || [],
-        excludeRecipeIds: allUsedIds, mealType: currentMeal.mealType,
+        excludeRecipeIds: allUsedIds, mealType: baseType,
+        maxPrepTime: fullPlan.plan.maxPrepTime ?? null,
       });
 
       let newRecipe;
@@ -15412,7 +15349,8 @@ Keep your response concise, practical, and evidence-based. Do not use em dashes.
           caloriesPerDay: fullPlan.plan.caloriesPerDay, macroSplit: fullPlan.plan.macroSplit,
           mealsPerDay: fullPlan.plan.mealsPerDay, dietaryPreference: fullPlan.plan.dietaryPreference,
           excludedIngredients: fullPlan.plan.excludedIngredients || [],
-          excludeRecipeIds: [currentMeal.recipeId], mealType: currentMeal.mealType,
+          excludeRecipeIds: [currentMeal.recipeId], mealType: baseType,
+          maxPrepTime: fullPlan.plan.maxPrepTime ?? null,
         });
         if (fallback.length === 0) return res.status(400).json({ message: "No alternative available" });
         newRecipe = fallback[Math.floor(Math.random() * fallback.length)];
@@ -15440,101 +15378,253 @@ Keep your response concise, practical, and evidence-based. Do not use em dashes.
   app.post('/api/meal-plan/:id/regenerate', isAuthenticated, async (req: any, res) => {
     try {
       const planId = parseInt(req.params.id);
-      const existingPlan = await storage.getUserMealPlan(req.user.claims.sub);
+      const userId = req.user.claims.sub;
+      const existingPlan = await storage.getUserMealPlan(userId);
       if (!existingPlan || existingPlan.id !== planId) return res.status(404).json({ message: "Meal plan not found" });
 
-      // Convert mealSlots to meal entries for generation
-      interface MealEntry { type: string; slotIndex: number; isMain: boolean; isSide: boolean; parentIndex?: number; }
-      const getMealEntries = (slots: { type: string; sides?: number }[]): MealEntry[] => {
-        const entries: MealEntry[] = [];
-        slots.forEach((slot, slotIndex) => {
-          if (slot.type === 'main') {
-            entries.push({ type: 'main', slotIndex, isMain: true, isSide: false });
-            const sideCount = slot.sides || 0;
-            for (let s = 0; s < sideCount; s++) {
-              entries.push({ type: 'side', slotIndex, isMain: false, isSide: true, parentIndex: entries.length - 1 - s });
-            }
-          } else {
-            entries.push({ type: slot.type, slotIndex, isMain: false, isSide: false });
-          }
-        });
-        return entries;
-      };
-
-      // Default slots if none provided
       const defaultSlots = [{ type: 'breakfast' }, { type: 'main', sides: 0 }, { type: 'main', sides: 0 }];
       const existingSlots = existingPlan.mealSlots as { type: string; sides?: number }[] | null;
-      
-      // Use new settings from request body, falling back to existing plan values
       const requestSlots = req.body.mealSlots;
-      const slots = requestSlots && Array.isArray(requestSlots) && requestSlots.length >= 2 
-        ? requestSlots 
+      const slots = requestSlots && Array.isArray(requestSlots) && requestSlots.length >= 2
+        ? requestSlots
         : (existingSlots && existingSlots.length >= 2 ? existingSlots : defaultSlots);
 
-      const settings = {
+      // Snapshot locked meals from the existing plan BEFORE we touch anything
+      const existingDetails = await storage.getMealPlanWithDetails(planId);
+      const lockedMeals: { dayIndex: number; slotIndex: number; isSide: boolean; recipeId: number; recipeTitle: string; calories: number; protein: number; carbs: number; fat: number; mealType: string; position: number }[] = [];
+      if (existingDetails) {
+        for (const day of existingDetails.days) {
+          for (const meal of day.meals) {
+            if (meal.locked && meal.recipeId) {
+              const parts = meal.mealType.split('_');
+              const slotIndex = parseInt(parts.pop() || '0');
+              const isSide = parts[0] === 'side';
+              lockedMeals.push({
+                dayIndex: day.dayIndex, slotIndex, isSide,
+                recipeId: meal.recipeId,
+                recipeTitle: meal.recipe?.title || `recipe ${meal.recipeId}`,
+                calories: meal.calories, protein: meal.protein, carbs: meal.carbs, fat: meal.fat,
+                mealType: meal.mealType, position: meal.position ?? 0,
+              });
+            }
+          }
+        }
+      }
+
+      // Build the new plan FIRST. The new plan is created INACTIVE inside
+      // buildPlanForUser and only flipped to active (with the old plan
+      // deactivated in the same transaction) after every day/meal/shopping
+      // list has been persisted. So a build failure here leaves the user's
+      // current plan intact and still active.
+      const result = await buildPlanForUser({
+        userId,
         caloriesPerDay: req.body.caloriesPerDay ?? existingPlan.caloriesPerDay,
         macroSplit: req.body.macroSplit ?? existingPlan.macroSplit,
-        mealsPerDay: slots.length,
-        mealSlots: slots,
+        slots,
         dietaryPreference: req.body.dietaryPreference ?? existingPlan.dietaryPreference,
         excludedIngredients: req.body.excludedIngredients ?? existingPlan.excludedIngredients ?? [],
-      };
-
-      await storage.deleteMealPlan(planId);
-      const newPlan = await storage.createMealPlan({
-        userId: req.user.claims.sub, caloriesPerDay: settings.caloriesPerDay, macroSplit: settings.macroSplit,
-        mealsPerDay: settings.mealsPerDay, dietaryPreference: settings.dietaryPreference,
-        excludedIngredients: settings.excludedIngredients,
-        mealSlots: settings.mealSlots,
+        maxPrepTime: req.body.maxPrepTime ?? existingPlan.maxPrepTime ?? null,
+        useAi: req.body.useAi ?? existingPlan.useAi ?? true,
+        lockedMeals,
       });
 
-      const mealEntries = getMealEntries(slots);
-      const usedRecipeIds: number[] = [];
+      // Replacement persisted; safe to remove the old plan now.
+      try {
+        await storage.deleteMealPlan(planId);
+      } catch (delErr: any) {
+        console.error("[meal_plan] failed to delete old plan after regenerate:", delErr?.message);
+      }
+      return res.json(result);
+    } catch (error: any) {
+      console.error("Error regenerating meal plan:", error?.message || error);
+      return res.status(500).json({ message: "Failed to regenerate meal plan" });
+    }
+  });
 
-      for (let dayIndex = 1; dayIndex <= 7; dayIndex++) {
-        const day = await storage.createMealPlanDay({ mealPlanId: newPlan.id, dayIndex, totalCalories: 0 });
+  // Toggle lock on an individual meal (preserved across regenerate)
+  app.patch('/api/meal-plan/meal/:mealId/lock', isAuthenticated, async (req: any, res) => {
+    try {
+      const mealId = parseInt(req.params.mealId);
+      const userId = req.user.claims.sub;
+      const plan = await storage.getUserMealPlan(userId);
+      if (!plan) return res.status(404).json({ message: "No meal plan found" });
+      const fullPlan = await storage.getMealPlanWithDetails(plan.id);
+      if (!fullPlan) return res.status(404).json({ message: "Meal plan not found" });
+      const owns = fullPlan.days.some((d) => d.meals.some((m) => m.id === mealId));
+      if (!owns) return res.status(404).json({ message: "Meal not found" });
+      const updated = await storage.updateMealPlanMeal(mealId, { locked: !!req.body.locked });
+      res.json(updated);
+    } catch (error: any) {
+      console.error("Error toggling lock:", error?.message);
+      res.status(500).json({ message: "Failed to toggle lock" });
+    }
+  });
+
+  // Internal helper used by both create and regenerate. Tries AI first, then
+  // falls back to the existing scoring-based selector. Always persists a plan.
+  async function buildPlanForUser(opts: {
+    userId: string;
+    caloriesPerDay: number;
+    macroSplit: string;
+    slots: { type: string; sides?: number }[];
+    dietaryPreference: string;
+    excludedIngredients: string[];
+    maxPrepTime: number | null;
+    useAi: boolean;
+    lockedMeals?: { dayIndex: number; slotIndex: number; isSide: boolean; recipeId: number; recipeTitle: string; calories: number; protein: number; carbs: number; fat: number; mealType: string; position: number }[];
+  }) {
+    const { userId, caloriesPerDay, macroSplit, slots, dietaryPreference, excludedIngredients, maxPrepTime, useAi } = opts;
+    const lockedMeals = opts.lockedMeals || [];
+    const { generateAiPlan, getMealEntries } = await import('./mealPlanAi');
+
+    const mealEntries = getMealEntries(slots);
+    const dailyMax = Math.round(caloriesPerDay * 1.10);
+
+    let aiPlan: Awaited<ReturnType<typeof generateAiPlan>> | null = null;
+    let aiCandidates: Awaited<ReturnType<typeof storage.getRecipesForMealPlan>> = [];
+    if (useAi) {
+      try {
+        aiCandidates = await storage.getRecipesForMealPlan({
+          caloriesPerDay, macroSplit, mealsPerDay: slots.length, dietaryPreference,
+          excludedIngredients, maxPrepTime,
+        });
+        // Always attempt AI (even with empty catalog — the model may fully gap-fill).
+        aiPlan = await generateAiPlan({
+          userId, caloriesPerDay, macroSplit, dietaryPreference,
+          excludedIngredients, maxPrepTime, mealSlots: slots, recipes: aiCandidates,
+          lockedMeals: lockedMeals.map((l) => ({
+            dayIndex: l.dayIndex, slotIndex: l.slotIndex, isSide: l.isSide,
+            recipeId: l.recipeId, recipeTitle: l.recipeTitle,
+          })),
+        });
+      } catch (err: any) {
+        console.error('[meal_plan_generation] AI failed, falling back:', err?.message);
+      }
+    }
+
+    // Insert as INACTIVE so the user's currently-active plan stays intact
+    // until we've persisted every day/meal/shopping-list. We activate at the
+    // end via `activateMealPlan` (a single transaction).
+    const plan = await storage.createMealPlanInactive({
+      userId, caloriesPerDay, macroSplit, mealsPerDay: slots.length, dietaryPreference,
+      excludedIngredients,
+      mealSlots: slots,
+      maxPrepTime: maxPrepTime ?? undefined,
+      aiGenerated: !!aiPlan,
+      useAi,
+    });
+
+    // Build a lookup keyed by day+slot+isSide so we can enforce locked meals
+    const lockedKey = (d: number, s: number, side: boolean) => `${d}:${s}:${side ? 1 : 0}`;
+    const lockedByKey = new Map(lockedMeals.map((l) => [lockedKey(l.dayIndex, l.slotIndex, l.isSide), l]));
+
+    if (aiPlan) {
+      const recipeMap = new Map<number, any>();
+      const candidateRecipes = await storage.getRecipesForMealPlan({
+        caloriesPerDay, macroSplit, mealsPerDay: slots.length, dietaryPreference,
+        excludedIngredients, maxPrepTime,
+      });
+      for (const r of candidateRecipes) recipeMap.set(r.id, r);
+
+      for (const aiDay of aiPlan.days) {
+        const day = await storage.createMealPlanDay({ mealPlanId: plan.id, dayIndex: aiDay.dayIndex, totalCalories: 0 });
         let dayCalories = 0;
-        const dailyMax = Math.round(settings.caloriesPerDay * 1.10);
-        
+        let position = 0;
+        const seenSlots = new Set<string>();
+        for (const m of aiDay.meals) {
+          const k = lockedKey(aiDay.dayIndex, m.slotIndex, m.isSide);
+          seenSlots.add(k);
+          const lock = lockedByKey.get(k);
+          let recipeId: number;
+          let cals: number, p: number, c: number, f: number;
+          if (lock) {
+            recipeId = lock.recipeId; cals = lock.calories; p = lock.protein; c = lock.carbs; f = lock.fat;
+          } else if (m.recipeId !== undefined) {
+            const recipe = recipeMap.get(m.recipeId);
+            if (!recipe) continue;
+            recipeId = recipe.id; cals = recipe.calories; p = recipe.protein; c = recipe.carbs; f = recipe.fat;
+          } else if (m.aiRecipe) {
+            // Persist AI-generated gap-fill as a real recipe so the rest of the
+            // app (shopping list, mark-eaten -> food log) just works.
+            const created = await storage.createRecipe({
+              title: m.aiRecipe.title,
+              description: `AI-generated to fill a gap in your meal plan.`,
+              category: m.aiRecipe.category,
+              totalTime: m.aiRecipe.totalTime ?? 20,
+              servings: 1,
+              calories: m.aiRecipe.calories,
+              protein: m.aiRecipe.protein,
+              carbs: m.aiRecipe.carbs,
+              fat: m.aiRecipe.fat,
+              ingredients: m.aiRecipe.ingredients,
+              instructions: m.aiRecipe.instructions,
+              tags: ['ai-generated'],
+              dietaryPreferences: dietaryPreference !== 'no_preference' ? [dietaryPreference] : [],
+              aiGenerated: true,
+            });
+            recipeId = created.id; cals = created.calories; p = created.protein; c = created.carbs; f = created.fat;
+          } else {
+            continue;
+          }
+          const mealTypeWithSlot = m.isSide ? `side_${m.slotIndex}` : `${slots[m.slotIndex]?.type || 'main'}_${m.slotIndex}`;
+          await storage.createMealPlanMeal({
+            mealPlanDayId: day.id, mealType: mealTypeWithSlot, recipeId,
+            calories: cals, protein: p, carbs: c, fat: f,
+            position: position++, locked: !!lock,
+          });
+          dayCalories += cals;
+        }
+        // Defensive: insert any locked meals the AI may have dropped
+        for (const l of lockedMeals.filter((x) => x.dayIndex === aiDay.dayIndex)) {
+          if (seenSlots.has(lockedKey(l.dayIndex, l.slotIndex, l.isSide))) continue;
+          await storage.createMealPlanMeal({
+            mealPlanDayId: day.id, mealType: l.mealType, recipeId: l.recipeId,
+            calories: l.calories, protein: l.protein, carbs: l.carbs, fat: l.fat,
+            position: position++, locked: true,
+          });
+          dayCalories += l.calories;
+        }
+        await storage.updateMealPlanDay(day.id, { totalCalories: dayCalories });
+      }
+    } else {
+      // Fallback: existing scoring-based generator
+      const usedRecipeIds: number[] = [];
+      for (let dayIndex = 1; dayIndex <= 7; dayIndex++) {
+        const day = await storage.createMealPlanDay({ mealPlanId: plan.id, dayIndex, totalCalories: 0 });
+        let dayCalories = 0;
         for (let i = 0; i < mealEntries.length; i++) {
           const entry = mealEntries[i];
+          // If this slot is locked, reuse the locked recipe and skip selection
+          const lock = lockedByKey.get(lockedKey(dayIndex, entry.slotIndex, entry.isSide));
+          if (lock) {
+            await storage.createMealPlanMeal({
+              mealPlanDayId: day.id, mealType: lock.mealType, recipeId: lock.recipeId,
+              calories: lock.calories, protein: lock.protein, carbs: lock.carbs, fat: lock.fat,
+              position: i, locked: true,
+            });
+            dayCalories += lock.calories;
+            continue;
+          }
           const mealsRemaining = mealEntries.length - i;
-          
           if (dayCalories >= dailyMax) break;
-          
           const roomUntilMax = dailyMax - dayCalories;
           if (roomUntilMax < 50) continue;
-          
-          // Sides get smaller calorie allocation
-          const targetCaloriesPerMeal = entry.isSide 
-            ? Math.round(roomUntilMax / mealsRemaining * 0.4) 
+          const targetCaloriesPerMeal = entry.isSide
+            ? Math.round((roomUntilMax / mealsRemaining) * 0.4)
             : Math.round(roomUntilMax / mealsRemaining);
-          const maxCalories = roomUntilMax;
-          
-          // Map meal type for recipe search - sides search for smaller main dishes
           const mealTypeForSearch = entry.type === 'side' ? 'main' : entry.type;
-          
           const recipes = await storage.getRecipesForMealPlan({
-            caloriesPerDay: settings.caloriesPerDay, macroSplit: settings.macroSplit, mealsPerDay: settings.mealsPerDay,
-            dietaryPreference: settings.dietaryPreference, excludedIngredients: settings.excludedIngredients,
-            excludeRecipeIds: usedRecipeIds, mealType: mealTypeForSearch,
-            targetCaloriesPerMeal,
-            maxCalories,
+            caloriesPerDay, macroSplit, mealsPerDay: slots.length, dietaryPreference,
+            excludedIngredients, excludeRecipeIds: usedRecipeIds, mealType: mealTypeForSearch,
+            targetCaloriesPerMeal, maxCalories: roomUntilMax, maxPrepTime,
           });
-
           if (recipes.length > 0) {
-            const validRecipe = recipes.find(r => dayCalories + r.calories <= dailyMax);
-            
+            const validRecipe = recipes.find((r) => dayCalories + r.calories <= dailyMax);
             if (validRecipe) {
               usedRecipeIds.push(validRecipe.id);
-              // Include slot index in mealType for proper grouping: type_slotIndex
-              const mealTypeWithSlot = entry.isSide 
-                ? `side_${entry.slotIndex}` 
-                : `${entry.type}_${entry.slotIndex}`;
+              const mealTypeWithSlot = entry.isSide ? `side_${entry.slotIndex}` : `${entry.type}_${entry.slotIndex}`;
               await storage.createMealPlanMeal({
-                mealPlanDayId: day.id, 
-                mealType: mealTypeWithSlot, 
-                recipeId: validRecipe.id,
+                mealPlanDayId: day.id, mealType: mealTypeWithSlot, recipeId: validRecipe.id,
                 calories: validRecipe.calories, protein: validRecipe.protein, carbs: validRecipe.carbs, fat: validRecipe.fat,
                 position: i,
               });
@@ -15544,12 +15634,164 @@ Keep your response concise, practical, and evidence-based. Do not use em dashes.
         }
         await storage.updateMealPlanDay(day.id, { totalCalories: dayCalories });
       }
+    }
 
-      const details = await storage.getMealPlanWithDetails(newPlan.id);
-      res.json(details);
-    } catch (error) {
-      console.error("Error regenerating meal plan:", error);
-      res.status(500).json({ message: "Failed to regenerate meal plan" });
+    // ---- Completeness guard ----
+    // Every (dayIndex × slot × isSide) MUST exist before we activate. If the
+    // AI or fallback selector failed to fill a slot (e.g. catalog overfiltered),
+    // create a deterministic placeholder recipe and insert it so the user
+    // never sees an empty/incomplete plan.
+    {
+      const built = await storage.getMealPlanWithDetails(plan.id);
+      const seen = new Set<string>();
+      const dayIdByIndex = new Map<number, { id: number; meals: number }>();
+      if (built) {
+        for (const d of built.days) {
+          dayIdByIndex.set(d.dayIndex, { id: d.id, meals: d.meals.length });
+          for (const m of d.meals) {
+            const parts = m.mealType.split('_');
+            const slotIdx = parseInt(parts.pop() || '0');
+            const isSide = parts[0] === 'side';
+            seen.add(`${d.dayIndex}:${slotIdx}:${isSide ? 1 : 0}`);
+          }
+        }
+      }
+      const expectedSlots = mealEntries.map((e) => ({ slotIndex: e.slotIndex, isSide: e.isSide, type: e.type }));
+      const slotKcal = Math.max(150, Math.round(caloriesPerDay / Math.max(1, mealEntries.length)));
+      for (let dayIndex = 1; dayIndex <= 7; dayIndex++) {
+        // Make sure the day row exists
+        let dayRec = dayIdByIndex.get(dayIndex);
+        if (!dayRec) {
+          const created = await storage.createMealPlanDay({ mealPlanId: plan.id, dayIndex, totalCalories: 0 });
+          dayRec = { id: created.id, meals: 0 };
+          dayIdByIndex.set(dayIndex, dayRec);
+        }
+        for (const exp of expectedSlots) {
+          const k = `${dayIndex}:${exp.slotIndex}:${exp.isSide ? 1 : 0}`;
+          if (seen.has(k)) continue;
+          // Placeholder recipe with balanced macros (40/30/30 protein/carb/fat by kcal)
+          const cal = exp.isSide ? Math.round(slotKcal * 0.4) : slotKcal;
+          const protein = Math.round((cal * 0.3) / 4);
+          const carbs = Math.round((cal * 0.4) / 4);
+          const fat = Math.round((cal * 0.3) / 9);
+          const titleType = exp.isSide ? 'side' : exp.type;
+          const created = await storage.createRecipe({
+            title: `Quick ${titleType} placeholder`,
+            description: `Auto-filled placeholder so your plan is never empty. Replace this with the regenerate button.`,
+            category: exp.isSide ? 'main' : exp.type,
+            totalTime: 15,
+            servings: 1,
+            calories: cal, protein, carbs, fat,
+            ingredients: ['Pick your favorite balanced ingredients'],
+            instructions: ['Replace this placeholder via the Regenerate button on the meal card.'],
+            tags: ['placeholder'],
+            dietaryPreferences: dietaryPreference !== 'no_preference' ? [dietaryPreference] : [],
+            aiGenerated: true,
+          });
+          const mealTypeWithSlot = exp.isSide ? `side_${exp.slotIndex}` : `${exp.type}_${exp.slotIndex}`;
+          await storage.createMealPlanMeal({
+            mealPlanDayId: dayRec.id, mealType: mealTypeWithSlot, recipeId: created.id,
+            calories: cal, protein, carbs, fat,
+            position: dayRec.meals++, locked: false,
+          });
+        }
+      }
+    }
+
+    // Auto-build shopping list (best-effort)
+    try {
+      const details = await storage.getMealPlanWithDetails(plan.id);
+      if (details) {
+        const recipes = details.days.flatMap((d) => d.meals.map((m) => m.recipe).filter(Boolean));
+        const { buildShoppingList } = await import('./mealPlanAi');
+        const built = await buildShoppingList({ userId, recipes });
+        await storage.upsertShoppingList({
+          userId, mealPlanId: plan.id, items: built.items, aiGenerated: built.aiGenerated,
+        });
+      }
+    } catch (err: any) {
+      console.error('[shopping_list] auto-build failed:', err?.message);
+    }
+
+    // Everything persisted — flip the new plan to active and the old one off
+    // in a single transaction.
+    await storage.activateMealPlan(plan.id, userId);
+
+    return await storage.getMealPlanWithDetails(plan.id);
+  }
+
+  // ----- Shopping list routes -----
+  app.get('/api/shopping-list', isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = req.user.claims.sub;
+      const plan = await storage.getUserMealPlan(userId);
+      if (!plan) return res.json({ list: null, planId: null });
+
+      let list = await storage.getShoppingListByPlan(plan.id);
+      if (!list) {
+        const details = await storage.getMealPlanWithDetails(plan.id);
+        if (details) {
+          const recipes = details.days.flatMap((d) => d.meals.map((m) => m.recipe).filter(Boolean));
+          const { buildShoppingList } = await import('./mealPlanAi');
+          const built = await buildShoppingList({ userId, recipes });
+          list = await storage.upsertShoppingList({
+            userId, mealPlanId: plan.id, items: built.items, aiGenerated: built.aiGenerated,
+          });
+        }
+      }
+      return res.json({ list: list || null, planId: plan.id });
+    } catch (error: any) {
+      console.error('Error fetching shopping list:', error?.message);
+      res.status(500).json({ message: 'Failed to fetch shopping list' });
+    }
+  });
+
+  app.patch('/api/shopping-list/:id', isAuthenticated, async (req: any, res) => {
+    try {
+      const id = parseInt(req.params.id);
+      const userId = req.user.claims.sub;
+      const existing = await storage.getShoppingListByPlan(
+        (await storage.getUserMealPlan(userId))?.id ?? -1,
+      );
+      if (!existing || existing.id !== id) return res.status(404).json({ message: 'Not found' });
+
+      const ShoppingListItemSchema = z.object({
+        name: z.string().min(1).max(200),
+        section: z.string().min(1).max(40),
+        quantity: z.string().max(200).optional(),
+        recipeIds: z.array(z.number().int()).max(200),
+        checked: z.boolean(),
+      });
+      const ItemsSchema = z.object({ items: z.array(ShoppingListItemSchema).max(500) });
+      const parsed = ItemsSchema.safeParse(req.body);
+      if (!parsed.success) {
+        return res.status(400).json({ message: 'Invalid items payload', details: parsed.error.flatten() });
+      }
+      const updated = await storage.updateShoppingListItems(id, parsed.data.items);
+      res.json(updated);
+    } catch (error: any) {
+      console.error('Error updating shopping list:', error?.message);
+      res.status(500).json({ message: 'Failed to update shopping list' });
+    }
+  });
+
+  app.post('/api/shopping-list/regenerate', isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = req.user.claims.sub;
+      const plan = await storage.getUserMealPlan(userId);
+      if (!plan) return res.status(404).json({ message: 'No active meal plan' });
+      const details = await storage.getMealPlanWithDetails(plan.id);
+      if (!details) return res.status(404).json({ message: 'Plan not found' });
+      const recipes = details.days.flatMap((d) => d.meals.map((m) => m.recipe).filter(Boolean));
+      const { buildShoppingList } = await import('./mealPlanAi');
+      const built = await buildShoppingList({ userId, recipes });
+      const list = await storage.upsertShoppingList({
+        userId, mealPlanId: plan.id, items: built.items, aiGenerated: built.aiGenerated,
+      });
+      res.json(list);
+    } catch (error: any) {
+      console.error('Error regenerating shopping list:', error?.message);
+      res.status(500).json({ message: 'Failed to regenerate shopping list' });
     }
   });
 

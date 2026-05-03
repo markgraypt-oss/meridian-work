@@ -1,8 +1,52 @@
 import { db } from "./db";
-import { users, checkIns, bodyMapLogs, burnoutScores } from "@shared/schema";
-import { eq, and, gte, lte, sql, count, avg, sum, isNotNull, ne, inArray, desc } from "drizzle-orm";
+import { users, checkIns, bodyMapLogs, burnoutScores, reportSettings } from "@shared/schema";
+import { eq, and, gte, lte, sql, count, avg, sum, isNotNull, ne, inArray, desc, isNull } from "drizzle-orm";
 
-const MIN_USERS_THRESHOLD = 5;
+// Defaults, used as a fallback when no row exists in `report_settings`.
+const DEFAULT_REPORT_SETTINGS = {
+  minCohortSize: 5,
+  severityThreshold: 4,
+  trendThreshold: 0.2,
+  burnoutBands: [20, 40, 60, 80] as number[],
+  narrativeMaxAgeMinutes: 60,
+};
+
+export type EffectiveReportSettings = typeof DEFAULT_REPORT_SETTINGS;
+
+let cachedSettings: { value: EffectiveReportSettings; expiresAt: number } | null = null;
+
+export async function getEffectiveReportSettings(companyName?: string): Promise<EffectiveReportSettings> {
+  // 30s in-process cache so repeated reads inside one report don't hammer the DB.
+  if (!companyName && cachedSettings && cachedSettings.expiresAt > Date.now()) {
+    return cachedSettings.value;
+  }
+  try {
+    const rows = companyName
+      ? await db.select().from(reportSettings).where(eq(reportSettings.companyName, companyName)).limit(1)
+      : [];
+    const globalRows = await db.select().from(reportSettings).where(isNull(reportSettings.companyName)).limit(1);
+    const row = rows[0] ?? globalRows[0];
+    const value: EffectiveReportSettings = row
+      ? {
+          minCohortSize: row.minCohortSize ?? DEFAULT_REPORT_SETTINGS.minCohortSize,
+          severityThreshold: row.severityThreshold ?? DEFAULT_REPORT_SETTINGS.severityThreshold,
+          trendThreshold: row.trendThreshold ?? DEFAULT_REPORT_SETTINGS.trendThreshold,
+          burnoutBands: Array.isArray(row.burnoutBands) && (row.burnoutBands as number[]).length === 4
+            ? (row.burnoutBands as number[])
+            : DEFAULT_REPORT_SETTINGS.burnoutBands,
+          narrativeMaxAgeMinutes: row.narrativeMaxAgeMinutes ?? DEFAULT_REPORT_SETTINGS.narrativeMaxAgeMinutes,
+        }
+      : DEFAULT_REPORT_SETTINGS;
+    if (!companyName) cachedSettings = { value, expiresAt: Date.now() + 30_000 };
+    return value;
+  } catch {
+    return DEFAULT_REPORT_SETTINGS;
+  }
+}
+
+export function invalidateReportSettingsCache() {
+  cachedSettings = null;
+}
 
 export type TimeWindow = "7" | "30" | "90";
 export type TrendDirection = "improving" | "stable" | "declining";
@@ -204,11 +248,10 @@ async function computeMetrics(
 
 function computeTrends(
   current: AggregateMetrics | null,
-  previous: AggregateMetrics | null
+  previous: AggregateMetrics | null,
+  threshold: number = 0.2
 ): TrendData | null {
   if (!current || !previous) return null;
-
-  const threshold = 0.2;
 
   function direction(
     curr: number | null,
@@ -293,11 +336,12 @@ async function computeBodyMapStats(
   endDate: Date,
   totalUsers: number,
   prevStartDate: Date,
-  prevEndDate: Date
+  prevEndDate: Date,
+  companyName?: string
 ): Promise<BodyMapStats | null> {
   if (userIds.length === 0) return null;
 
-  const SEVERITY_THRESHOLD = 4;
+  const SEVERITY_THRESHOLD = (await getEffectiveReportSettings(companyName)).severityThreshold;
   const parameterizedIds = sql.join(userIds.map(id => sql`${id}`), sql`, `);
 
   const summaryResult = await db.execute(sql`
@@ -489,10 +533,11 @@ export async function getCompanySummaries(): Promise<CompanySummary[]> {
   `);
 
   const rows = (result as any).rows || result;
+  const settings = await getEffectiveReportSettings();
   return (rows as any[]).map((row: any) => ({
     companyName: row.company_name,
     userCount: Number(row.total_users),
-    eligible: Number(row.non_admin_count) >= MIN_USERS_THRESHOLD,
+    eligible: Number(row.non_admin_count) >= settings.minCohortSize,
   }));
 }
 
@@ -501,7 +546,8 @@ async function computeBurnoutStats(
   startDate: Date,
   endDate: Date,
   prevStartDate: Date,
-  prevEndDate: Date
+  prevEndDate: Date,
+  companyName?: string
 ): Promise<BurnoutStats | null> {
   if (userIds.length === 0) return null;
 
@@ -540,11 +586,13 @@ async function computeBurnoutStats(
   });
 
   const riskBands = { optimal: 0, mild: 0, moderate: 0, high: 0, severe: 0 };
+  const burnoutSettings = await getEffectiveReportSettings(companyName);
+  const [b1, b2, b3, b4] = burnoutSettings.burnoutBands;
   scores.forEach(s => {
-    if (s <= 20) riskBands.optimal++;
-    else if (s <= 40) riskBands.mild++;
-    else if (s <= 60) riskBands.moderate++;
-    else if (s <= 80) riskBands.high++;
+    if (s <= b1) riskBands.optimal++;
+    else if (s <= b2) riskBands.mild++;
+    else if (s <= b3) riskBands.moderate++;
+    else if (s <= b4) riskBands.high++;
     else riskBands.severe++;
   });
 
@@ -627,13 +675,14 @@ export async function getCompanyReport(
 ): Promise<CompanyReport> {
   const userIds = await getCompanyUserIds(companyName);
   const totalUsersInCompany = userIds.length;
+  const settings = await getEffectiveReportSettings(companyName);
 
-  if (totalUsersInCompany < MIN_USERS_THRESHOLD) {
+  if (totalUsersInCompany < settings.minCohortSize) {
     return {
       companyName,
       window: `${windowDays}d`,
       eligible: false,
-      reason: `Minimum ${MIN_USERS_THRESHOLD} non-admin users required for anonymous reporting. Currently ${totalUsersInCompany} user(s).`,
+      reason: `Minimum ${settings.minCohortSize} non-admin users required for anonymous reporting. Currently ${totalUsersInCompany} user(s).`,
       totalUsersInCompany,
       metrics: null,
       previousMetrics: null,
@@ -663,7 +712,7 @@ export async function getCompanyReport(
   const currentMetrics = await computeMetrics(userIds, start, end);
   const previousMetrics = await computeMetrics(userIds, prevStart, prevEnd);
 
-  const trends = computeTrends(currentMetrics, previousMetrics);
+  const trends = computeTrends(currentMetrics, previousMetrics, settings.trendThreshold);
   const risks = computeRiskSignals(currentMetrics);
 
   const activeUsers = currentMetrics?.uniqueUsers || 0;
@@ -721,8 +770,8 @@ export async function getCompanyReport(
   }
 
   const interpretations = generateInterpretations(currentMetrics, trends, risks);
-  const bodyMapStats = await computeBodyMapStats(userIds, start, end, totalUsersInCompany, prevStart, prevEnd);
-  const burnoutStats = await computeBurnoutStats(userIds, start, end, prevStart, prevEnd);
+  const bodyMapStats = await computeBodyMapStats(userIds, start, end, totalUsersInCompany, prevStart, prevEnd, companyName);
+  const burnoutStats = await computeBurnoutStats(userIds, start, end, prevStart, prevEnd, companyName);
 
   return {
     companyName,

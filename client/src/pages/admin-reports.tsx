@@ -8,9 +8,122 @@ import { Badge } from "@/components/ui/badge";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Calendar } from "@/components/ui/calendar";
-import { TrendingUp, TrendingDown, Minus, AlertTriangle, Shield, Brain, Heart, Users, Activity, BarChart3, Calendar as CalendarIcon, ChevronRight, Download, CheckCircle2, AlertCircle, Info, Lightbulb, ShieldCheck } from "lucide-react";
-import { useQuery } from "@tanstack/react-query";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogFooter } from "@/components/ui/dialog";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { TrendingUp, TrendingDown, Minus, AlertTriangle, Shield, Brain, Heart, Users, Activity, BarChart3, Calendar as CalendarIcon, ChevronRight, Download, CheckCircle2, AlertCircle, Info, Lightbulb, ShieldCheck, Sparkles, RefreshCw, FileText, Settings as SettingsIcon, Copy } from "lucide-react";
+import { useQuery, useMutation } from "@tanstack/react-query";
 import { format, parse } from "date-fns";
+import { apiRequest, queryClient } from "@/lib/queryClient";
+import { useToast } from "@/hooks/use-toast";
+
+type ExecutiveSummary = {
+  headline: string;
+  summary: string;
+  highlights: string[];
+  risks: string[];
+  recommendations: string[];
+  caveats?: string[];
+};
+
+type NarrativeResponse = {
+  narrative: ExecutiveSummary | null;
+  cached: boolean;
+  suppressed: boolean;
+  suppressionReason?: string;
+  snapshotHash: string;
+  windowKey: string;
+  cohortSize: number;
+  provider?: string | null;
+  model?: string | null;
+  createdAt?: string | null;
+  validationOutcome?: string;
+  safetyFlags?: string[];
+  error?: string;
+};
+
+type ReportSettingsResponse = {
+  effective: {
+    minCohortSize: number;
+    severityThreshold: number;
+    trendThreshold: number;
+    burnoutBands: number[];
+    narrativeMaxAgeMinutes: number;
+  };
+  companyName: string | null;
+};
+
+function narrativeToMarkdown(companyName: string, windowLabel: string, n: ExecutiveSummary, generatedAt?: string | null): string {
+  const lines: string[] = [];
+  lines.push(`# Executive Summary — ${companyName}`);
+  lines.push(`*Window: ${windowLabel}${generatedAt ? ` · Generated: ${new Date(generatedAt).toLocaleString()}` : ""}*`);
+  lines.push("");
+  lines.push(`## ${n.headline}`);
+  lines.push("");
+  lines.push(n.summary);
+  if (n.highlights?.length) {
+    lines.push("");
+    lines.push("## Highlights");
+    n.highlights.forEach((h) => lines.push(`- ${h}`));
+  }
+  if (n.risks?.length) {
+    lines.push("");
+    lines.push("## Risks");
+    n.risks.forEach((r) => lines.push(`- ${r}`));
+  }
+  if (n.recommendations?.length) {
+    lines.push("");
+    lines.push("## Recommendations");
+    n.recommendations.forEach((r) => lines.push(`- ${r}`));
+  }
+  if (n.caveats && n.caveats.length) {
+    lines.push("");
+    lines.push("## Caveats");
+    n.caveats.forEach((c) => lines.push(`- ${c}`));
+  }
+  return lines.join("\n");
+}
+
+function downloadText(content: string, filename: string, mime: string) {
+  const blob = new Blob([content], { type: mime });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = filename;
+  a.click();
+  URL.revokeObjectURL(url);
+}
+
+function printNarrativeAsPdf(companyName: string, windowLabel: string, n: ExecutiveSummary, generatedAt?: string | null) {
+  const w = window.open("", "_blank", "width=900,height=1100");
+  if (!w) return;
+  const escMap: Record<string, string> = { "&": "&amp;", "<": "&lt;", ">": "&gt;" };
+  const esc = (s: string) => s.replace(/[&<>]/g, (c) => escMap[c] ?? c);
+  const list = (arr?: string[]) => (arr && arr.length) ? `<ul>${arr.map((x) => `<li>${esc(x)}</li>`).join("")}</ul>` : "<p><em>None</em></p>";
+  const html = `<!doctype html><html><head><meta charset="utf-8"/><title>Executive Summary — ${esc(companyName)}</title>
+<style>
+body{font-family:-apple-system,Segoe UI,Roboto,sans-serif;color:#111;max-width:780px;margin:40px auto;padding:0 24px;line-height:1.5;}
+h1{font-size:22px;margin:0 0 4px;} h2{font-size:14px;margin:18px 0 6px;text-transform:uppercase;letter-spacing:.04em;color:#333;border-bottom:1px solid #ddd;padding-bottom:4px;}
+.meta{color:#666;font-size:12px;margin-bottom:16px;} .headline{font-size:18px;font-weight:600;margin:8px 0;}
+ul{margin:6px 0 6px 20px;padding:0;} li{margin:4px 0;font-size:13px;}
+.footer{margin-top:24px;font-size:11px;color:#888;border-top:1px solid #eee;padding-top:8px;}
+@media print { body { margin: 20px; } }
+</style></head><body>
+<h1>Executive Summary — ${esc(companyName)}</h1>
+<div class="meta">Window: ${esc(windowLabel)}${generatedAt ? ` · Generated: ${new Date(generatedAt).toLocaleString()}` : ""}</div>
+<div class="headline">${esc(n.headline)}</div>
+<p>${esc(n.summary)}</p>
+<h2>Highlights</h2>${list(n.highlights)}
+<h2>Risks</h2>${list(n.risks)}
+<h2>Recommendations</h2>${list(n.recommendations)}
+${n.caveats && n.caveats.length ? `<h2>Caveats</h2>${list(n.caveats)}` : ""}
+<div class="footer">All data anonymous and aggregated. No individual user data is included.</div>
+<script>window.onload=()=>setTimeout(()=>window.print(),200);</script>
+</body></html>`;
+  w.document.open();
+  w.document.write(html);
+  w.document.close();
+}
 
 type CompanySummary = {
   companyName: string;
@@ -244,7 +357,7 @@ function getCurrentMonthStr(): string {
   return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`;
 }
 
-function exportReportToCSV(report: CompanyReport, timeWindow: string, showMonthOverMonth: boolean, customStartDate?: string, customEndDate?: string) {
+function exportReportToCSV(report: CompanyReport, timeWindow: string, showMonthOverMonth: boolean, customStartDate?: string, customEndDate?: string, burnoutBands: number[] = [20, 40, 60, 80]) {
   const num = (v: number | null, dp = 2) => v !== null ? v.toFixed(dp) : "";
   const pct = (v: number | null, dp = 1) => v !== null ? v.toFixed(dp) : "";
   const e = (v: string) => v.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
@@ -401,11 +514,12 @@ function exportReportToCSV(report: CompanyReport, timeWindow: string, showMonthO
     html += `<tr><td ${labelStyle}>Confidence Level</td><td ${cellStyle}>${bConf.label}</td><td ${cellStyle}>${participation}% participation</td><td ${emptyStyle}></td></tr>`;
     html += emptyRow();
     html += `<tr><td ${colHeaderStyle}>Risk Band</td><td ${colHeaderStyle}>Users</td><td ${emptyStyle}></td><td ${emptyStyle}></td></tr>`;
-    html += `<tr><td ${labelStyle}>Optimal (0-20)</td><td ${cellStyle}>${bs.riskBands.optimal}</td><td ${emptyStyle}></td><td ${emptyStyle}></td></tr>`;
-    html += `<tr><td ${labelStyle}>Mild (21-40)</td><td ${cellStyle}>${bs.riskBands.mild}</td><td ${emptyStyle}></td><td ${emptyStyle}></td></tr>`;
-    html += `<tr><td ${labelStyle}>Moderate (41-60)</td><td ${cellStyle}>${bs.riskBands.moderate}</td><td ${emptyStyle}></td><td ${emptyStyle}></td></tr>`;
-    html += `<tr><td ${labelStyle}>High (61-80)</td><td ${cellStyle}>${bs.riskBands.high}</td><td ${emptyStyle}></td><td ${emptyStyle}></td></tr>`;
-    html += `<tr><td ${labelStyle}>Severe (81-100)</td><td ${cellStyle}>${bs.riskBands.severe}</td><td ${emptyStyle}></td><td ${emptyStyle}></td></tr>`;
+    const [b0, b1, b2, b3] = burnoutBands;
+    html += `<tr><td ${labelStyle}>Optimal (0-${b0})</td><td ${cellStyle}>${bs.riskBands.optimal}</td><td ${emptyStyle}></td><td ${emptyStyle}></td></tr>`;
+    html += `<tr><td ${labelStyle}>Mild (${b0 + 1}-${b1})</td><td ${cellStyle}>${bs.riskBands.mild}</td><td ${emptyStyle}></td><td ${emptyStyle}></td></tr>`;
+    html += `<tr><td ${labelStyle}>Moderate (${b1 + 1}-${b2})</td><td ${cellStyle}>${bs.riskBands.moderate}</td><td ${emptyStyle}></td><td ${emptyStyle}></td></tr>`;
+    html += `<tr><td ${labelStyle}>High (${b2 + 1}-${b3})</td><td ${cellStyle}>${bs.riskBands.high}</td><td ${emptyStyle}></td><td ${emptyStyle}></td></tr>`;
+    html += `<tr><td ${labelStyle}>Severe (${b3 + 1}-100)</td><td ${cellStyle}>${bs.riskBands.severe}</td><td ${emptyStyle}></td><td ${emptyStyle}></td></tr>`;
     html += emptyRow();
     html += `<tr><td ${colHeaderStyle}>Trajectory</td><td ${colHeaderStyle}>Users</td><td ${emptyStyle}></td><td ${emptyStyle}></td></tr>`;
     html += `<tr><td ${labelStyle}>Stable</td><td ${cellStyle}>${bs.trajectoryDistribution.stable}</td><td ${emptyStyle}></td><td ${emptyStyle}></td></tr>`;
@@ -492,6 +606,8 @@ export default function AdminReports() {
   const [customStartDate, setCustomStartDate] = useState<string>("");
   const [customEndDate, setCustomEndDate] = useState<string>("");
   const [customDateError, setCustomDateError] = useState<string>("");
+  const [settingsOpen, setSettingsOpen] = useState(false);
+  const { toast } = useToast();
 
   const { data: companies = [], isLoading: companiesLoading } = useQuery<CompanySummary[]>({
     queryKey: ["/api/admin/reports/companies"],
@@ -501,6 +617,88 @@ export default function AdminReports() {
   const monthParam = showMonthOverMonth ? getCurrentMonthStr() : undefined;
 
   const isCustomValid = timeWindow === "custom" && !!customStartDate && !!customEndDate && !customDateError;
+
+  const narrativeKey = ["/api/admin/reports/narrative", selectedCompany, timeWindow, customStartDate, customEndDate, monthParam] as const;
+  const { data: narrativeData, isFetching: narrativeLoading } = useQuery<NarrativeResponse>({
+    queryKey: narrativeKey,
+    queryFn: async () => {
+      const body: any = {};
+      if (timeWindow === "custom" && customStartDate && customEndDate) {
+        body.startDate = customStartDate;
+        body.endDate = customEndDate;
+      } else {
+        body.window = parseInt(timeWindow) || 30;
+      }
+      if (monthParam) body.month = monthParam;
+      const res = await apiRequest("POST", `/api/admin/reports/company/${encodeURIComponent(selectedCompany!)}/narrative`, body);
+      return res.json();
+    },
+    enabled: !!(user && selectedCompany && (timeWindow !== "custom" || isCustomValid)),
+    staleTime: 60_000,
+  });
+
+  const regenerateNarrative = useMutation({
+    mutationFn: async () => {
+      const body: any = { force: true };
+      if (timeWindow === "custom" && customStartDate && customEndDate) {
+        body.startDate = customStartDate;
+        body.endDate = customEndDate;
+      } else {
+        body.window = parseInt(timeWindow) || 30;
+      }
+      if (monthParam) body.month = monthParam;
+      const res = await apiRequest("POST", `/api/admin/reports/company/${encodeURIComponent(selectedCompany!)}/narrative`, body);
+      return res.json() as Promise<NarrativeResponse>;
+    },
+    onSuccess: (data) => {
+      queryClient.setQueryData(narrativeKey, data);
+      toast({ title: "Narrative regenerated", description: data.suppressed ? "Narrative suppressed for this report." : "Fresh AI summary ready." });
+    },
+    onError: (err: any) => toast({ title: "Regenerate failed", description: err?.message || "Unknown error", variant: "destructive" }),
+  });
+
+  const { data: settingsData } = useQuery<ReportSettingsResponse>({
+    queryKey: ["/api/admin/reports/settings"],
+    enabled: !!user,
+  });
+  const [settingsForm, setSettingsForm] = useState<{ minCohortSize: string; severityThreshold: string; trendThreshold: string; burnoutBands: string; narrativeMaxAgeMinutes: string }>({ minCohortSize: "", severityThreshold: "", trendThreshold: "", burnoutBands: "", narrativeMaxAgeMinutes: "" });
+  const openSettings = () => {
+    if (settingsData) {
+      setSettingsForm({
+        minCohortSize: String(settingsData.effective.minCohortSize),
+        severityThreshold: String(settingsData.effective.severityThreshold),
+        trendThreshold: String(settingsData.effective.trendThreshold),
+        burnoutBands: settingsData.effective.burnoutBands.join(","),
+        narrativeMaxAgeMinutes: String(settingsData.effective.narrativeMaxAgeMinutes),
+      });
+    }
+    setSettingsOpen(true);
+  };
+  const saveSettings = useMutation({
+    mutationFn: async () => {
+      const bands = settingsForm.burnoutBands.split(",").map((s) => parseInt(s.trim())).filter((n) => !isNaN(n));
+      if (bands.length !== 4) throw new Error("Burnout bands must be 4 comma-separated numbers (e.g. 20,40,60,80)");
+      const payload = {
+        companyName: null,
+        minCohortSize: parseInt(settingsForm.minCohortSize),
+        severityThreshold: parseInt(settingsForm.severityThreshold),
+        trendThreshold: parseFloat(settingsForm.trendThreshold),
+        burnoutBands: bands,
+        narrativeMaxAgeMinutes: parseInt(settingsForm.narrativeMaxAgeMinutes),
+      };
+      const res = await apiRequest("PUT", "/api/admin/reports/settings", payload);
+      return res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/admin/reports/settings"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/admin/reports/companies"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/admin/reports/company"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/admin/reports/narrative"] });
+      setSettingsOpen(false);
+      toast({ title: "Settings saved", description: "Report thresholds updated." });
+    },
+    onError: (err: any) => toast({ title: "Save failed", description: err?.message || "Unknown error", variant: "destructive" }),
+  });
 
   const { data: report, isLoading: reportLoading } = useQuery<CompanyReport>({
     queryKey: ["/api/admin/reports/company", selectedCompany, timeWindow, monthParam, customStartDate, customEndDate],
@@ -549,7 +747,7 @@ export default function AdminReports() {
                   <span className="flex items-center gap-2 whitespace-nowrap">
                     <span className="truncate max-w-[140px]">{c.companyName}</span>
                     <span className="text-xs text-muted-foreground">({c.userCount} users)</span>
-                    {!c.eligible && <span className="text-xs text-red-400">(min 5)</span>}
+                    {!c.eligible && <span className="text-xs text-red-400">(min {settingsData?.effective.minCohortSize ?? 5})</span>}
                   </span>
                 </SelectItem>
               ))}
@@ -655,19 +853,68 @@ export default function AdminReports() {
           </div>
         )}
 
-        {report && report.eligible && report.metrics && (
-          <div className="flex justify-end mb-4">
+        <div className="flex flex-wrap justify-end gap-2 mb-4">
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={openSettings}
+            className="border-border text-muted-foreground hover:text-foreground"
+            data-testid="button-report-settings"
+          >
+            <SettingsIcon className="h-4 w-4 mr-2" />
+            Thresholds
+          </Button>
+          {report && report.eligible && report.metrics && (
             <Button
               variant="outline"
               size="sm"
-              onClick={() => exportReportToCSV(report, timeWindow, showMonthOverMonth, customStartDate, customEndDate)}
+              onClick={() => exportReportToCSV(report, timeWindow, showMonthOverMonth, customStartDate, customEndDate, settingsData?.effective.burnoutBands)}
               className="border-border text-muted-foreground hover:text-foreground"
             >
               <Download className="h-4 w-4 mr-2" />
               Export Report
             </Button>
-          </div>
-        )}
+          )}
+        </div>
+
+        <Dialog open={settingsOpen} onOpenChange={setSettingsOpen}>
+          <DialogContent className="bg-card border-border max-w-md">
+            <DialogHeader>
+              <DialogTitle className="text-foreground">Report Thresholds</DialogTitle>
+            </DialogHeader>
+            <div className="space-y-3">
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <Label htmlFor="minCohort" className="text-muted-foreground text-xs">Min cohort size</Label>
+                  <Input id="minCohort" type="number" min={2} value={settingsForm.minCohortSize} onChange={(e) => setSettingsForm((s) => ({ ...s, minCohortSize: e.target.value }))} className="bg-background border-border text-foreground" data-testid="input-min-cohort" />
+                </div>
+                <div>
+                  <Label htmlFor="severity" className="text-muted-foreground text-xs">Pain severity threshold (1-10)</Label>
+                  <Input id="severity" type="number" min={1} max={10} value={settingsForm.severityThreshold} onChange={(e) => setSettingsForm((s) => ({ ...s, severityThreshold: e.target.value }))} className="bg-background border-border text-foreground" data-testid="input-severity-threshold" />
+                </div>
+                <div>
+                  <Label htmlFor="trend" className="text-muted-foreground text-xs">Trend threshold</Label>
+                  <Input id="trend" type="number" step="0.05" min={0} value={settingsForm.trendThreshold} onChange={(e) => setSettingsForm((s) => ({ ...s, trendThreshold: e.target.value }))} className="bg-background border-border text-foreground" data-testid="input-trend-threshold" />
+                </div>
+                <div>
+                  <Label htmlFor="cache" className="text-muted-foreground text-xs">Narrative cache (min)</Label>
+                  <Input id="cache" type="number" min={1} value={settingsForm.narrativeMaxAgeMinutes} onChange={(e) => setSettingsForm((s) => ({ ...s, narrativeMaxAgeMinutes: e.target.value }))} className="bg-background border-border text-foreground" data-testid="input-narrative-cache" />
+                </div>
+              </div>
+              <div>
+                <Label htmlFor="bands" className="text-muted-foreground text-xs">Burnout bands (4 comma-separated cutoffs)</Label>
+                <Input id="bands" value={settingsForm.burnoutBands} onChange={(e) => setSettingsForm((s) => ({ ...s, burnoutBands: e.target.value }))} placeholder="20,40,60,80" className="bg-background border-border text-foreground" data-testid="input-burnout-bands" />
+                <p className="text-xs text-muted-foreground/70 mt-1">Optimal ≤ a · Mild ≤ b · Moderate ≤ c · High ≤ d · Severe &gt; d</p>
+              </div>
+            </div>
+            <DialogFooter>
+              <Button variant="ghost" onClick={() => setSettingsOpen(false)}>Cancel</Button>
+              <Button onClick={() => saveSettings.mutate()} disabled={saveSettings.isPending} className="bg-[#0cc9a9] hover:bg-[#0cc9a9]/80 text-black" data-testid="button-save-settings">
+                {saveSettings.isPending ? "Saving…" : "Save"}
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
 
         {!selectedCompany && (
           <Card className="bg-card border-border">
@@ -697,6 +944,158 @@ export default function AdminReports() {
 
         {report && report.eligible && report.metrics && (
           <div className="space-y-6">
+            <Card className="bg-card border-border" data-testid="card-executive-summary">
+              <CardHeader className="pb-3">
+                <div className="flex items-center justify-between flex-wrap gap-2">
+                  <CardTitle className="text-foreground flex items-center gap-2">
+                    <Sparkles className="h-5 w-5 text-[#0cc9a9]" />
+                    Executive Summary
+                    {narrativeData?.cached && !narrativeData.suppressed && (
+                      <span className="text-xs font-normal px-2 py-0.5 rounded-full bg-muted text-muted-foreground">cached</span>
+                    )}
+                  </CardTitle>
+                  <div className="flex gap-2">
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => regenerateNarrative.mutate()}
+                      disabled={regenerateNarrative.isPending || narrativeLoading || !selectedCompany}
+                      className="border-border text-muted-foreground hover:text-foreground"
+                      data-testid="button-regenerate-narrative"
+                    >
+                      <RefreshCw className={`h-4 w-4 mr-2 ${regenerateNarrative.isPending ? "animate-spin" : ""}`} />
+                      Regenerate
+                    </Button>
+                    {narrativeData?.narrative && !narrativeData.suppressed && (
+                      <>
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={async () => {
+                            const md = narrativeToMarkdown(report.companyName, report.window, narrativeData.narrative!, narrativeData.createdAt);
+                            try {
+                              await navigator.clipboard.writeText(md);
+                              toast({ title: "Copied", description: "Markdown copied to clipboard." });
+                            } catch {
+                              toast({ title: "Copy failed", description: "Could not access clipboard.", variant: "destructive" });
+                            }
+                          }}
+                          className="border-border text-muted-foreground hover:text-foreground"
+                          data-testid="button-copy-markdown"
+                        >
+                          <Copy className="h-4 w-4 mr-2" />
+                          Copy MD
+                        </Button>
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={() => downloadText(
+                            narrativeToMarkdown(report.companyName, report.window, narrativeData.narrative!, narrativeData.createdAt),
+                            `${report.companyName.replace(/\s+/g, "_").toLowerCase()}_executive_summary.md`,
+                            "text/markdown;charset=utf-8",
+                          )}
+                          className="border-border text-muted-foreground hover:text-foreground"
+                          data-testid="button-export-markdown"
+                        >
+                          <FileText className="h-4 w-4 mr-2" />
+                          Markdown
+                        </Button>
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={() => printNarrativeAsPdf(report.companyName, report.window, narrativeData.narrative!, narrativeData.createdAt)}
+                          className="border-border text-muted-foreground hover:text-foreground"
+                          data-testid="button-export-pdf"
+                        >
+                          <Download className="h-4 w-4 mr-2" />
+                          PDF
+                        </Button>
+                      </>
+                    )}
+                  </div>
+                </div>
+              </CardHeader>
+              <CardContent>
+                {narrativeLoading && !narrativeData ? (
+                  <div className="flex items-center gap-2 text-muted-foreground py-6">
+                    <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-[#0cc9a9]" />
+                    Generating AI narrative…
+                  </div>
+                ) : narrativeData?.suppressed ? (
+                  <div className="flex items-start gap-2 bg-amber-500/10 border border-amber-500/20 rounded-lg p-3">
+                    <Shield className="h-4 w-4 text-amber-400 mt-0.5 shrink-0" />
+                    <div>
+                      <p className="text-sm text-amber-300 font-medium">Narrative suppressed</p>
+                      <p className="text-xs text-amber-200/80 mt-1">{narrativeData.suppressionReason}</p>
+                    </div>
+                  </div>
+                ) : narrativeData?.error || !narrativeData?.narrative ? (
+                  <div className="text-sm text-muted-foreground py-3">
+                    {narrativeData?.error ? `Could not generate narrative: ${narrativeData.error}` : "No narrative available yet."}
+                  </div>
+                ) : (
+                  <div className="space-y-4">
+                    <div>
+                      <p className="text-base font-semibold text-foreground" data-testid="text-narrative-headline">{narrativeData.narrative.headline}</p>
+                      <p className="text-sm text-muted-foreground mt-2 whitespace-pre-wrap" data-testid="text-narrative-summary">{narrativeData.narrative.summary}</p>
+                    </div>
+                    <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                      <div className="bg-background border border-border rounded-lg p-3">
+                        <p className="text-xs uppercase text-muted-foreground mb-2 flex items-center gap-1">
+                          <CheckCircle2 className="h-3 w-3 text-[#0cc9a9]" /> Highlights
+                        </p>
+                        {narrativeData.narrative.highlights.length === 0 ? (
+                          <p className="text-xs text-muted-foreground/70">None reported</p>
+                        ) : (
+                          <ul className="text-sm text-foreground space-y-1.5">
+                            {narrativeData.narrative.highlights.map((h, i) => (
+                              <li key={i} className="flex items-start gap-1.5"><ChevronRight className="h-3 w-3 mt-1 shrink-0 text-[#0cc9a9]" /><span>{h}</span></li>
+                            ))}
+                          </ul>
+                        )}
+                      </div>
+                      <div className="bg-background border border-border rounded-lg p-3">
+                        <p className="text-xs uppercase text-muted-foreground mb-2 flex items-center gap-1">
+                          <AlertTriangle className="h-3 w-3 text-amber-400" /> Risks
+                        </p>
+                        {narrativeData.narrative.risks.length === 0 ? (
+                          <p className="text-xs text-muted-foreground/70">None flagged</p>
+                        ) : (
+                          <ul className="text-sm text-foreground space-y-1.5">
+                            {narrativeData.narrative.risks.map((r, i) => (
+                              <li key={i} className="flex items-start gap-1.5"><ChevronRight className="h-3 w-3 mt-1 shrink-0 text-amber-400" /><span>{r}</span></li>
+                            ))}
+                          </ul>
+                        )}
+                      </div>
+                      <div className="bg-background border border-border rounded-lg p-3">
+                        <p className="text-xs uppercase text-muted-foreground mb-2 flex items-center gap-1">
+                          <Lightbulb className="h-3 w-3 text-[#0cc9a9]" /> Recommendations
+                        </p>
+                        {narrativeData.narrative.recommendations.length === 0 ? (
+                          <p className="text-xs text-muted-foreground/70">None</p>
+                        ) : (
+                          <ul className="text-sm text-foreground space-y-1.5">
+                            {narrativeData.narrative.recommendations.map((r, i) => (
+                              <li key={i} className="flex items-start gap-1.5"><ChevronRight className="h-3 w-3 mt-1 shrink-0 text-[#0cc9a9]" /><span>{r}</span></li>
+                            ))}
+                          </ul>
+                        )}
+                      </div>
+                    </div>
+                    {narrativeData.narrative.caveats && narrativeData.narrative.caveats.length > 0 && (
+                      <div className="text-xs text-muted-foreground/80 italic">
+                        Caveats: {narrativeData.narrative.caveats.join(" · ")}
+                      </div>
+                    )}
+                    {narrativeData.createdAt && (
+                      <p className="text-xs text-muted-foreground/60">Generated {new Date(narrativeData.createdAt).toLocaleString()} · cohort {narrativeData.cohortSize}</p>
+                    )}
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+
             <Card className="bg-card border-border">
               <CardHeader className="pb-3">
                 <div className="flex items-center justify-between">
@@ -1096,13 +1495,16 @@ export default function AdminReports() {
                       })}
                     </div>
                     <div className="flex flex-wrap gap-3 text-xs">
-                      {[
-                        { key: 'optimal' as const, color: 'bg-[#0cc9a9]', label: 'Optimal (0-20)' },
-                        { key: 'mild' as const, color: 'bg-[#0cc9a9]/60', label: 'Mild (21-40)' },
-                        { key: 'moderate' as const, color: 'bg-orange-400', label: 'Moderate (41-60)' },
-                        { key: 'high' as const, color: 'bg-orange-600', label: 'High (61-80)' },
-                        { key: 'severe' as const, color: 'bg-red-500', label: 'Severe (81+)' },
-                      ].map(band => (
+                      {(() => {
+                        const b = settingsData?.effective.burnoutBands ?? [20, 40, 60, 80];
+                        return [
+                          { key: 'optimal' as const, color: 'bg-[#0cc9a9]', label: `Optimal (0-${b[0]})` },
+                          { key: 'mild' as const, color: 'bg-[#0cc9a9]/60', label: `Mild (${b[0] + 1}-${b[1]})` },
+                          { key: 'moderate' as const, color: 'bg-orange-400', label: `Moderate (${b[1] + 1}-${b[2]})` },
+                          { key: 'high' as const, color: 'bg-orange-600', label: `High (${b[2] + 1}-${b[3]})` },
+                          { key: 'severe' as const, color: 'bg-red-500', label: `Severe (${b[3] + 1}+)` },
+                        ];
+                      })().map(band => (
                         <span key={band.key} className="flex items-center gap-1.5 text-muted-foreground">
                           <span className={`w-2.5 h-2.5 rounded-sm ${band.color}`} />
                           {band.label}: {report.burnoutStats!.riskBands[band.key]}
@@ -1232,7 +1634,7 @@ export default function AdminReports() {
 
             <div className="bg-card/50 rounded-lg border border-border p-4">
               <p className="text-xs text-muted-foreground/70 text-center">
-                All data is anonymous and aggregated. Minimum 5 users required per company.
+                All data is anonymous and aggregated. Minimum {settingsData?.effective.minCohortSize ?? 5} users required per company.
                 No individual user data is accessible through this report.
               </p>
             </div>

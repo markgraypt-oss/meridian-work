@@ -2911,5 +2911,48 @@ export type AiCallLog = typeof aiCallLogs.$inferSelect;
 export type InsertAiCallLog = typeof aiCallLogs.$inferInsert;
 export const insertAiCallLogSchema = createInsertSchema(aiCallLogs).omit({ id: true, createdAt: true });
 
+// Admin Reports — configurable thresholds (singleton row id=1 holds the
+// platform-wide defaults; future per-company overrides can use companyName.)
+export const reportSettings = pgTable("report_settings", {
+  id: serial("id").primaryKey(),
+  companyName: varchar("company_name"), // null = global default
+  minCohortSize: integer("min_cohort_size").notNull().default(5),
+  severityThreshold: integer("severity_threshold").notNull().default(4),
+  trendThreshold: real("trend_threshold").notNull().default(0.2),
+  burnoutBands: jsonb("burnout_bands").notNull().$type<number[]>().default([20, 40, 60, 80] as any),
+  narrativeMaxAgeMinutes: integer("narrative_max_age_minutes").notNull().default(60),
+  updatedAt: timestamp("updated_at").defaultNow(),
+}, (table) => [
+  uniqueIndex("idx_report_settings_company").on(table.companyName),
+  // Enforce at most one global default row (companyName IS NULL).
+  uniqueIndex("idx_report_settings_global_singleton")
+    .on(table.companyName)
+    .where(sql`${table.companyName} IS NULL`),
+]);
+
+export type ReportSettings = typeof reportSettings.$inferSelect;
+export type InsertReportSettings = typeof reportSettings.$inferInsert;
+export const insertReportSettingsSchema = createInsertSchema(reportSettings).omit({ id: true, updatedAt: true });
+
+// Cached AI executive narratives keyed by snapshot hash.
+export const reportNarratives = pgTable("report_narratives", {
+  id: serial("id").primaryKey(),
+  companyName: varchar("company_name").notNull(),
+  windowKey: varchar("window_key").notNull(), // e.g. "30d", "custom:2025-01-01_2025-01-31"
+  snapshotHash: varchar("snapshot_hash").notNull(),
+  narrative: jsonb("narrative").notNull(),
+  provider: varchar("provider"),
+  model: varchar("model"),
+  cohortSize: integer("cohort_size").notNull(),
+  suppressed: boolean("suppressed").notNull().default(false),
+  createdAt: timestamp("created_at").defaultNow(),
+}, (table) => [
+  uniqueIndex("idx_report_narrative_unique").on(table.companyName, table.windowKey, table.snapshotHash),
+  index("idx_report_narrative_company").on(table.companyName),
+]);
+
+export type ReportNarrative = typeof reportNarratives.$inferSelect;
+export type InsertReportNarrative = typeof reportNarratives.$inferInsert;
+
 // Chat models for AI conversations
 export * from "./models/chat";

@@ -16422,7 +16422,108 @@ Format your response as JSON with this exact structure:
   });
 
   // Company Reports API routes (anonymous aggregate reporting)
-  const { getCompanySummaries, getCompanyReport } = await import("./reportingEngine");
+  const { getCompanySummaries, getCompanyReport, getEffectiveReportSettings, invalidateReportSettingsCache } = await import("./reportingEngine");
+  const { generateExecutiveSummary, getCachedExecutiveSummary } = await import("./reportNarrator");
+  const { reportSettings: reportSettingsTable } = await import("@shared/schema");
+
+  app.get('/api/admin/reports/settings', isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = req.user.claims.sub;
+      const currentUser = await storage.getUser(userId);
+      if (!currentUser?.isAdmin) return res.status(403).json({ message: "Admin access required" });
+      const companyName = (req.query.company as string) || undefined;
+      const effective = await getEffectiveReportSettings(companyName);
+      res.json({ effective, companyName: companyName ?? null });
+    } catch (error) {
+      console.error("Error fetching report settings:", error);
+      res.status(500).json({ message: "Failed to fetch report settings" });
+    }
+  });
+
+  app.put('/api/admin/reports/settings', isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = req.user.claims.sub;
+      const currentUser = await storage.getUser(userId);
+      if (!currentUser?.isAdmin) return res.status(403).json({ message: "Admin access required" });
+      const SettingsSchema = z.object({
+        companyName: z.string().nullable().optional(),
+        minCohortSize: z.number().int().min(2).max(1000).optional(),
+        severityThreshold: z.number().int().min(1).max(10).optional(),
+        trendThreshold: z.number().min(0).max(5).optional(),
+        burnoutBands: z.array(z.number().int().min(0).max(100)).length(4).refine(
+          (b) => b[0] < b[1] && b[1] < b[2] && b[2] < b[3],
+          { message: "Burnout bands must be strictly ascending" }
+        ).optional(),
+        narrativeMaxAgeMinutes: z.number().int().min(1).max(10080).optional(),
+      });
+      const parsed = SettingsSchema.parse(req.body || {});
+      const target = parsed.companyName ?? null;
+      const { isNull, eq: dEq, and: dAnd } = await import("drizzle-orm");
+      const where = target === null
+        ? isNull(reportSettingsTable.companyName)
+        : dEq(reportSettingsTable.companyName, target);
+      const existing = await db.select().from(reportSettingsTable).where(where).limit(1);
+      const updateValues: any = { updatedAt: new Date() };
+      if (parsed.minCohortSize !== undefined) updateValues.minCohortSize = parsed.minCohortSize;
+      if (parsed.severityThreshold !== undefined) updateValues.severityThreshold = parsed.severityThreshold;
+      if (parsed.trendThreshold !== undefined) updateValues.trendThreshold = parsed.trendThreshold;
+      if (parsed.burnoutBands !== undefined) updateValues.burnoutBands = parsed.burnoutBands;
+      if (parsed.narrativeMaxAgeMinutes !== undefined) updateValues.narrativeMaxAgeMinutes = parsed.narrativeMaxAgeMinutes;
+      if (existing.length > 0) {
+        await db.update(reportSettingsTable).set(updateValues).where(where);
+      } else {
+        await db.insert(reportSettingsTable).values({ companyName: target, ...updateValues });
+      }
+      invalidateReportSettingsCache();
+      const effective = await getEffectiveReportSettings(target ?? undefined);
+      res.json({ effective, companyName: target });
+    } catch (error: any) {
+      if (error?.issues) return res.status(400).json({ message: "Invalid settings", issues: error.issues });
+      console.error("Error updating report settings:", error);
+      res.status(500).json({ message: "Failed to update report settings" });
+    }
+  });
+
+  app.post('/api/admin/reports/company/:companyName/narrative', isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = req.user.claims.sub;
+      const currentUser = await storage.getUser(userId);
+      if (!currentUser?.isAdmin) return res.status(403).json({ message: "Admin access required" });
+      const { companyName } = req.params;
+      const force = req.body?.force === true || req.query.force === 'true';
+      const windowDays = parseInt(req.body?.window || req.query.window) || 30;
+      const monthStr = (req.body?.month || req.query.month) as string | undefined;
+      const customStart = (req.body?.startDate || req.query.startDate) as string | undefined;
+      const customEnd = (req.body?.endDate || req.query.endDate) as string | undefined;
+
+      let report;
+      if (customStart && customEnd) {
+        const start = new Date(customStart);
+        const end = new Date(customEnd);
+        if (isNaN(start.getTime()) || isNaN(end.getTime())) {
+          return res.status(400).json({ message: "Invalid date format. Use YYYY-MM-DD" });
+        }
+        const diffDays = Math.ceil((end.getTime() - start.getTime()) / (1000 * 60 * 60 * 24));
+        if (diffDays < 7) return res.status(400).json({ message: "Date range must be at least 7 days" });
+        start.setHours(0, 0, 0, 0);
+        end.setHours(23, 59, 59, 999);
+        report = await getCompanyReport(decodeURIComponent(companyName), diffDays, monthStr, start, end);
+      } else {
+        if (windowDays < 7) return res.status(400).json({ message: "Window must be at least 7 days" });
+        report = await getCompanyReport(decodeURIComponent(companyName), windowDays, monthStr);
+      }
+
+      const result = force
+        ? await generateExecutiveSummary(report, { force: true, userId, customStart, customEnd })
+        : (await getCachedExecutiveSummary(report, customStart, customEnd))
+            ?? await generateExecutiveSummary(report, { userId, customStart, customEnd });
+      res.json(result);
+    } catch (error: any) {
+      console.error("Error generating report narrative:", error);
+      res.status(500).json({ message: "Failed to generate narrative", error: error?.message });
+    }
+  });
+
 
   app.get('/api/admin/reports/companies', isAuthenticated, async (req: any, res) => {
     try {

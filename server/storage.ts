@@ -340,6 +340,12 @@ import {
   type InsertPushSubscription,
   coachConversations,
   type CoachConversation,
+  coachBriefings,
+  type CoachBriefing,
+  type InsertCoachBriefing,
+  coachMemory,
+  type CoachMemory,
+  type InsertCoachMemory,
   recommendationEvents,
   type RecommendationEvent,
   type InsertRecommendationEvent,
@@ -1077,6 +1083,19 @@ export interface IStorage {
   createCoachConversation(userId: string, title: string, messages: any[]): Promise<CoachConversation>;
   updateCoachConversation(id: number, userId: string, data: { messages?: any[]; title?: string }): Promise<CoachConversation | undefined>;
   deleteCoachConversation(id: number, userId: string): Promise<void>;
+
+  // Proactive coach briefings
+  getCoachBriefingForDay(userId: string, briefingDate: string, type: string): Promise<CoachBriefing | undefined>;
+  createCoachBriefing(briefing: InsertCoachBriefing): Promise<CoachBriefing>;
+  listCoachBriefings(userId: string, limit?: number): Promise<CoachBriefing[]>;
+
+  // Coach memory
+  getCoachMemory(userId: string): Promise<CoachMemory[]>;
+  getTopCoachMemory(userId: string, limit: number): Promise<CoachMemory[]>;
+  upsertCoachMemory(userId: string, key: string, value: string, opts?: { category?: string; source?: string; importance?: number }): Promise<CoachMemory>;
+  updateCoachMemory(id: number, userId: string, patch: Partial<Pick<CoachMemory, "value" | "category" | "importance">>): Promise<CoachMemory | undefined>;
+  deleteCoachMemory(id: number, userId: string): Promise<void>;
+  clearCoachMemory(userId: string): Promise<void>;
 
   // Recommendation feedback loop operations
   createRecommendationEvent(event: InsertRecommendationEvent): Promise<RecommendationEvent>;
@@ -11364,6 +11383,113 @@ export class DatabaseStorage implements IStorage {
   async deleteCoachConversation(id: number, userId: string): Promise<void> {
     await db.delete(coachConversations)
       .where(and(eq(coachConversations.id, id), eq(coachConversations.userId, userId)));
+  }
+
+  // ---- Coach briefings ----
+  async getCoachBriefingForDay(userId: string, briefingDate: string, type: string): Promise<CoachBriefing | undefined> {
+    const [row] = await db.select().from(coachBriefings)
+      .where(and(
+        eq(coachBriefings.userId, userId),
+        eq(coachBriefings.briefingDate, briefingDate),
+        eq(coachBriefings.type, type),
+      ))
+      .limit(1);
+    return row;
+  }
+
+  async createCoachBriefing(briefing: InsertCoachBriefing): Promise<CoachBriefing> {
+    // Idempotent at the DB level: if another writer (different process or
+    // request) already inserted a briefing for the same (user, date, type),
+    // do nothing and return the existing row instead of throwing on the
+    // unique constraint.
+    const [inserted] = await db.insert(coachBriefings)
+      .values(briefing)
+      .onConflictDoNothing({
+        target: [coachBriefings.userId, coachBriefings.briefingDate, coachBriefings.type],
+      })
+      .returning();
+    if (inserted) return inserted;
+    const existing = await this.getCoachBriefingForDay(
+      briefing.userId,
+      briefing.briefingDate,
+      briefing.type,
+    );
+    if (!existing) throw new Error("Failed to create or fetch coach briefing");
+    return existing;
+  }
+
+  async listCoachBriefings(userId: string, limit: number = 30): Promise<CoachBriefing[]> {
+    return db.select().from(coachBriefings)
+      .where(eq(coachBriefings.userId, userId))
+      .orderBy(desc(coachBriefings.createdAt))
+      .limit(limit);
+  }
+
+  // ---- Coach memory ----
+  async getCoachMemory(userId: string): Promise<CoachMemory[]> {
+    return db.select().from(coachMemory)
+      .where(eq(coachMemory.userId, userId))
+      .orderBy(desc(coachMemory.importance), desc(coachMemory.updatedAt));
+  }
+
+  async getTopCoachMemory(userId: string, limit: number): Promise<CoachMemory[]> {
+    return db.select().from(coachMemory)
+      .where(eq(coachMemory.userId, userId))
+      .orderBy(desc(coachMemory.importance), desc(coachMemory.updatedAt))
+      .limit(limit);
+  }
+
+  async upsertCoachMemory(
+    userId: string,
+    key: string,
+    value: string,
+    opts?: { category?: string; source?: string; importance?: number },
+  ): Promise<CoachMemory> {
+    const [row] = await db.insert(coachMemory).values({
+      userId,
+      key,
+      value,
+      category: opts?.category ?? "general",
+      source: opts?.source ?? "chat",
+      importance: opts?.importance ?? 3,
+    })
+    .onConflictDoUpdate({
+      target: [coachMemory.userId, coachMemory.key],
+      set: {
+        value,
+        category: opts?.category ?? sql`${coachMemory.category}`,
+        source: opts?.source ?? sql`${coachMemory.source}`,
+        importance: opts?.importance ?? sql`${coachMemory.importance}`,
+        updatedAt: new Date(),
+      },
+    })
+    .returning();
+    return row;
+  }
+
+  async updateCoachMemory(
+    id: number,
+    userId: string,
+    patch: Partial<Pick<CoachMemory, "value" | "category" | "importance">>,
+  ): Promise<CoachMemory | undefined> {
+    const updateData: Partial<typeof coachMemory.$inferInsert> = { updatedAt: new Date() };
+    if (patch.value !== undefined) updateData.value = patch.value;
+    if (patch.category !== undefined) updateData.category = patch.category;
+    if (patch.importance !== undefined) updateData.importance = patch.importance;
+    const [row] = await db.update(coachMemory)
+      .set(updateData)
+      .where(and(eq(coachMemory.id, id), eq(coachMemory.userId, userId)))
+      .returning();
+    return row;
+  }
+
+  async deleteCoachMemory(id: number, userId: string): Promise<void> {
+    await db.delete(coachMemory)
+      .where(and(eq(coachMemory.id, id), eq(coachMemory.userId, userId)));
+  }
+
+  async clearCoachMemory(userId: string): Promise<void> {
+    await db.delete(coachMemory).where(eq(coachMemory.userId, userId));
   }
 
   // Recommendation feedback loop implementations

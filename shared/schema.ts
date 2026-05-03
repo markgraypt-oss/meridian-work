@@ -2528,6 +2528,45 @@ export const coachConversations = pgTable("coach_conversations", {
 export type CoachConversation = typeof coachConversations.$inferSelect;
 export type InsertCoachConversation = typeof coachConversations.$inferInsert;
 
+// Proactive coach briefings (morning + evening)
+export const coachBriefings = pgTable("coach_briefings", {
+  id: serial("id").primaryKey(),
+  userId: varchar("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+  briefingDate: text("briefing_date").notNull(), // ISO yyyy-mm-dd, in user's local day
+  type: text("type").notNull(), // 'morning' | 'evening'
+  content: jsonb("content").notNull(), // { summary, focus, nudges[], tomorrow? }
+  contextSnapshot: jsonb("context_snapshot"), // small snapshot of inputs used (burnout, sleep, etc.)
+  source: text("source").notNull().default("ai"), // 'ai' | 'fallback'
+  createdAt: timestamp("created_at").defaultNow(),
+}, (t) => [
+  uniqueIndex("coach_briefings_user_date_type_idx").on(t.userId, t.briefingDate, t.type),
+  index("coach_briefings_user_created_idx").on(t.userId, t.createdAt),
+]);
+
+export type CoachBriefing = typeof coachBriefings.$inferSelect;
+export type InsertCoachBriefing = typeof coachBriefings.$inferInsert;
+export const insertCoachBriefingSchema = createInsertSchema(coachBriefings).omit({ id: true, createdAt: true });
+
+// Per-user persistent coach memory (preferences, contraindications, things tried)
+export const coachMemory = pgTable("coach_memory", {
+  id: serial("id").primaryKey(),
+  userId: varchar("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+  key: text("key").notNull(), // short slug e.g. "preferred_training_time"
+  value: text("value").notNull(), // human-readable fact
+  category: text("category").notNull().default("general"), // 'preference' | 'constraint' | 'tried' | 'goal' | 'general'
+  source: text("source").notNull().default("chat"), // 'chat' | 'manual' | 'briefing'
+  importance: integer("importance").notNull().default(3), // 1-5, top-N injection ranking
+  updatedAt: timestamp("updated_at").defaultNow(),
+  createdAt: timestamp("created_at").defaultNow(),
+}, (t) => [
+  uniqueIndex("coach_memory_user_key_idx").on(t.userId, t.key),
+  index("coach_memory_user_updated_idx").on(t.userId, t.updatedAt),
+]);
+
+export type CoachMemory = typeof coachMemory.$inferSelect;
+export type InsertCoachMemory = typeof coachMemory.$inferInsert;
+export const insertCoachMemorySchema = createInsertSchema(coachMemory).omit({ id: true, createdAt: true, updatedAt: true });
+
 // Recommendation feedback loop - tracks recommendation outcomes for AI learning
 export const recommendationEvents = pgTable("recommendation_events", {
   id: serial("id").primaryKey(),

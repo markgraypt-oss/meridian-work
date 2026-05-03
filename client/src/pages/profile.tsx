@@ -271,6 +271,14 @@ export default function Profile() {
             <span className="text-foreground">Preferences</span>
             <ChevronRight className="h-5 w-5 text-gray-500" />
           </Link>
+          <Link
+            href="/profile/coach-memory"
+            className="w-full px-6 py-4 flex items-center justify-between hover:bg-muted transition-colors"
+            data-testid="button-coach-memory"
+          >
+            <span className="text-foreground">Coach memory</span>
+            <ChevronRight className="h-5 w-5 text-gray-500" />
+          </Link>
         </div>
       </div>
 

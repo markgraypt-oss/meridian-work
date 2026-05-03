@@ -14,6 +14,8 @@ import Landing from "@/pages/landing";
 import ForgotPassword from "@/pages/forgot-password";
 import ResetPassword from "@/pages/reset-password";
 import Dashboard from "@/pages/dashboard-executive";
+import CoachMemoryPage from "@/pages/coach-memory";
+import CoachBriefingsPage from "@/pages/coach-briefings";
 import Training from "@/pages/training";
 import TrainingMainProgramme from "@/pages/training-main-programme";
 import TrainingLibrary from "@/pages/training-library";
@@ -336,6 +338,8 @@ function Router() {
               <Route path="/profile/notifications" component={Notifications} />
               <Route path="/profile/privacy-security" component={PrivacySecurity} />
               <Route path="/profile/help-support" component={HelpSupport} />
+              <Route path="/profile/coach-memory" component={CoachMemoryPage} />
+              <Route path="/coach/briefings" component={CoachBriefingsPage} />
               <Route path="/profile" component={Profile} />
               <Route path="/achievements" component={Achievements} />
               <Route path="/progress/workouts" component={ProgressWorkouts} />

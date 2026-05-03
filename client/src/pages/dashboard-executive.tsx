@@ -17,6 +17,7 @@ import WearableTodayCard from "@/components/dashboard/WearableTodayCard";
 import WeeklyCheckinCard from "@/components/dashboard/WeeklyCheckinCard";
 import PathSelectionDialog from "@/components/PathSelectionDialog";
 import MyProgressSection from "@/components/dashboard/MyProgressSection";
+import CoachBriefingCard from "@/components/CoachBriefingCard";
 import CalendarPopup from "@/components/CalendarPopup";
 import { format, isSameDay } from "date-fns";
 import { useFormattedDate } from "@/hooks/useFormattedDate";
@@ -706,6 +707,9 @@ export default function Dashboard() {
           onDateChange={setSelectedDate}
         />
       </div>
+
+      {/* Proactive coach briefing (morning / evening) */}
+      {isToday && <CoachBriefingCard />}
 
       {/* Onboarding reminder banner */}
       {user && !user.isAdmin && !user.onboardingCompleted && !user.onboardingDismissed && (

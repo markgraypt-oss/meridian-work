@@ -283,6 +283,14 @@ export const FEATURE_DATA_SOURCES: Record<string, { domains: DataDomain[]; descr
     domains: ['body_map', 'programs', 'workouts', 'workout_logs', 'exercises', 'learning_paths', 'check_ins', 'sleep', 'steps', 'resting_hr', 'stress', 'bodyweight', 'body_fat', 'blood_pressure', 'hydration', 'nutrition', 'goals', 'habits', 'programme_library', 'workout_library', 'recipe_library', 'video_library', 'learn_library', 'exercise_library'],
     description: 'Complete platform knowledge: all user health data plus full content libraries (programmes, workouts, exercises, recipes, videos, learning paths) for personalised recommendations',
   },
+  coach_briefing: {
+    domains: ['body_map', 'programs', 'workouts', 'workout_logs', 'check_ins', 'sleep', 'steps', 'resting_hr', 'stress', 'hydration', 'nutrition', 'goals', 'habits'],
+    description: 'Snapshot for proactive morning/evening briefings: body map status, today\'s scheduled programme work, recent workout completions, latest check-in, sleep, steps, resting HR, stress/burnout, hydration, nutrition, goal and habit progress',
+  },
+  coach_memory_extraction: {
+    domains: [],
+    description: 'Lightweight extraction of durable user facts from a single chat exchange — no historical data needed',
+  },
 };
 
 export async function getUserDataContext(userId: string, feature: string): Promise<string> {

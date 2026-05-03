@@ -16876,6 +16876,7 @@ Format your response as JSON with this exact structure:
 
       const { getCoachingContext, getUserDataContext, getFeatureConfig, getCrossCoachContext } = await import('./aiProvider');
       const { aiCall } = await import('./ai');
+      const { getTopMemoriesText, extractAndStoreMemories } = await import('./coach/memory');
 
       const config = await getFeatureConfig('recovery_coach');
       if (!config) {
@@ -16885,6 +16886,10 @@ Format your response as JSON with this exact structure:
       const coachingContext = await getCoachingContext('recovery_coach');
       const userDataContext = await getUserDataContext(userId, 'coach_chat');
       const crossCoachContext = await getCrossCoachContext(userId, 'coach_chat');
+      const memoryText = await getTopMemoriesText(userId, 8);
+      const memoryContext = memoryText
+        ? `\n\nUSER MEMORY (durable facts about this user, use to personalise — do not contradict):\n${memoryText}`
+        : '';
 
       const user = await storage.getUser(userId);
       const userName = user?.firstName || user?.name?.split(' ')[0] || 'there';
@@ -16938,7 +16943,7 @@ PLATFORM KNOWLEDGE RULES:
 - When asked about exercises, reference their target muscles, equipment needed, and movement patterns
 - If a user asks for something that does not exist in the library, say so honestly and suggest the closest alternative
 - Consider the user's equipment access, experience level, time availability, and any movement screening flags when recommending programmes or workouts
-${coachingContext}${userDataContext}${onboardingContext}${crossCoachContext}
+${coachingContext}${userDataContext}${onboardingContext}${crossCoachContext}${memoryContext}
 
 The user's name is ${userName}.${historyText}
 
@@ -16956,9 +16961,134 @@ Respond as the coach. Be personalised, reference their actual data and specific 
       });
 
       res.json({ response: response.text });
+
+      // Fire-and-forget memory extraction. Never block the response.
+      if (response.text && response.text.trim()) {
+        extractAndStoreMemories(userId, message, response.text).catch((e) => {
+          console.error("[coach-memory] background extract failed:", e);
+        });
+      }
     } catch (error) {
       console.error("Error in coach chat:", error);
       res.status(500).json({ message: "Failed to get coach response" });
+    }
+  });
+
+  // ==========================================
+  // Proactive Coach Briefings + Memory
+  // ==========================================
+
+  app.get('/api/coach/briefing/today', isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = req.user.claims.sub;
+      const requested = typeof req.query.type === 'string' ? req.query.type : null;
+      const hour = new Date().getHours();
+      // Auto-pick: morning before 5pm local server time, evening after.
+      const type = (requested === 'morning' || requested === 'evening')
+        ? requested as 'morning' | 'evening'
+        : (hour < 17 ? 'morning' : 'evening');
+
+      const { getOrGenerateBriefing } = await import('./coach/briefings');
+      const briefing = await getOrGenerateBriefing(userId, type);
+      res.json(briefing);
+    } catch (error) {
+      console.error("Error fetching today's briefing:", error);
+      res.status(500).json({ message: "Failed to load briefing" });
+    }
+  });
+
+  app.get('/api/coach/briefings', isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = req.user.claims.sub;
+      const limit = Math.min(Math.max(parseInt(String(req.query.limit ?? '30'), 10) || 30, 1), 100);
+      const rows = await storage.listCoachBriefings(userId, limit);
+      res.json(rows);
+    } catch (error) {
+      console.error("Error listing briefings:", error);
+      res.status(500).json({ message: "Failed to list briefings" });
+    }
+  });
+
+  app.get('/api/coach/memory', isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = req.user.claims.sub;
+      const rows = await storage.getCoachMemory(userId);
+      res.json(rows);
+    } catch (error) {
+      console.error("Error fetching coach memory:", error);
+      res.status(500).json({ message: "Failed to load memory" });
+    }
+  });
+
+  app.post('/api/coach/memory', isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = req.user.claims.sub;
+      const bodySchema = z.object({
+        key: z.string().min(1).max(60).regex(/^[a-z0-9_]+$/, "key must be snake_case"),
+        value: z.string().min(1).max(280),
+        category: z.enum(["preference", "constraint", "tried", "goal", "general"]).optional(),
+        importance: z.number().int().min(1).max(5).optional(),
+      });
+      const parsed = bodySchema.safeParse(req.body);
+      if (!parsed.success) {
+        return res.status(400).json({ message: "Invalid input", errors: parsed.error.flatten() });
+      }
+      const row = await storage.upsertCoachMemory(userId, parsed.data.key, parsed.data.value, {
+        category: parsed.data.category,
+        source: 'manual',
+        importance: parsed.data.importance,
+      });
+      res.json(row);
+    } catch (error) {
+      console.error("Error creating coach memory:", error);
+      res.status(500).json({ message: "Failed to save memory" });
+    }
+  });
+
+  app.patch('/api/coach/memory/:id', isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = req.user.claims.sub;
+      const id = parseInt(req.params.id, 10);
+      if (!Number.isFinite(id)) return res.status(400).json({ message: "Invalid id" });
+      const bodySchema = z.object({
+        value: z.string().min(1).max(280).optional(),
+        category: z.enum(["preference", "constraint", "tried", "goal", "general"]).optional(),
+        importance: z.number().int().min(1).max(5).optional(),
+      });
+      const parsed = bodySchema.safeParse(req.body);
+      if (!parsed.success) {
+        return res.status(400).json({ message: "Invalid input", errors: parsed.error.flatten() });
+      }
+      const row = await storage.updateCoachMemory(id, userId, parsed.data);
+      if (!row) return res.status(404).json({ message: "Not found" });
+      res.json(row);
+    } catch (error) {
+      console.error("Error updating coach memory:", error);
+      res.status(500).json({ message: "Failed to update memory" });
+    }
+  });
+
+  app.delete('/api/coach/memory/:id', isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = req.user.claims.sub;
+      const id = parseInt(req.params.id, 10);
+      if (!Number.isFinite(id)) return res.status(400).json({ message: "Invalid id" });
+      await storage.deleteCoachMemory(id, userId);
+      res.json({ ok: true });
+    } catch (error) {
+      console.error("Error deleting coach memory:", error);
+      res.status(500).json({ message: "Failed to delete memory" });
+    }
+  });
+
+  app.delete('/api/coach/memory', isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = req.user.claims.sub;
+      await storage.clearCoachMemory(userId);
+      res.json({ ok: true });
+    } catch (error) {
+      console.error("Error clearing coach memory:", error);
+      res.status(500).json({ message: "Failed to clear memory" });
     }
   });
 

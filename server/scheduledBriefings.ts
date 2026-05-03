@@ -7,6 +7,7 @@ import {
   users,
 } from "@shared/schema";
 import { notify } from "./notifications";
+import { storage } from "./storage";
 
 const TICK_INTERVAL_MS = 30 * 60 * 1000; // 30 minutes
 const BRIEFING_HOUR_START = 7; // 07:00 local
@@ -178,6 +179,46 @@ async function dispatchForUser(u: BriefingUser, tz: string | null): Promise<void
   }
 }
 
+// Sweep coach_briefings for any user who is "due" but does not yet have a
+// row for today. Runs alongside the existing notification briefing tick so
+// no new background worker is introduced. Generation itself is idempotent
+// at the DB level (unique on user/date/type) and cheap when the row exists.
+async function sweepCoachBriefings(userIds: string[]): Promise<void> {
+  if (userIds.length === 0) return;
+  const hour = new Date().getHours();
+  // Generate morning briefings during the morning window (07:00-12:00) and
+  // evening briefings from 17:00 onward. Outside these windows we leave the
+  // on-demand path to handle requests so we don't spend tokens on users who
+  // are unlikely to open the app.
+  const type: "morning" | "evening" | null =
+    hour >= 7 && hour < 12 ? "morning" : hour >= 17 ? "evening" : null;
+  if (!type) return;
+
+  let mod: typeof import("./coach/briefings");
+  try {
+    mod = await import("./coach/briefings");
+  } catch (e) {
+    console.error("[coach-briefings-sweep] import failed:", e);
+    return;
+  }
+
+  let generated = 0;
+  for (const userId of userIds) {
+    try {
+      const dateKey = mod.todayKeyForUser();
+      const existing = await storage.getCoachBriefingForDay(userId, dateKey, type);
+      if (existing) continue;
+      await mod.getOrGenerateBriefing(userId, type);
+      generated++;
+    } catch (e) {
+      console.error(`[coach-briefings-sweep] failed for ${userId}:`, e);
+    }
+  }
+  if (generated > 0) {
+    console.log(`[coach-briefings-sweep] generated ${generated} ${type} briefing(s)`);
+  }
+}
+
 async function tick(): Promise<void> {
   try {
     // Pull users joined with their training-channel preferences. Users with no
@@ -211,6 +252,9 @@ async function tick(): Promise<void> {
       // an explicit tz so this can be swapped in later without refactoring.
       await dispatchForUser(u, null);
     }
+
+    // Piggy-back the proactive coach briefing sweep on this tick.
+    await sweepCoachBriefings(rows.map((r) => r.id));
   } catch (err) {
     console.error("[briefings] tick error:", err);
   }

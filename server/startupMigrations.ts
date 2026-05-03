@@ -63,6 +63,32 @@ export async function ensureCoachTablesOnce(): Promise<void> {
 }
 
 let hasRunProfileImages = false;
+let hasRunMeditationSeed = false;
+
+const SEED_MEDITATIONS = [
+  { title: "Morning Calm", durationMin: 5, category: "Focus", description: "Start your day with clarity and intention", tags: ["morning", "focus", "energy"] },
+  { title: "Stress Relief", durationMin: 10, category: "Relaxation", description: "Release tension and find your center", tags: ["stress", "relax", "breathwork"] },
+  { title: "Body Scan", durationMin: 15, category: "Awareness", description: "Connect with your body from head to toe", tags: ["awareness", "tension", "recovery"] },
+  { title: "Evening Wind Down", durationMin: 8, category: "Sleep", description: "Prepare your mind for restful sleep", tags: ["sleep", "evening", "wind-down"] },
+  { title: "Focus Boost", durationMin: 7, category: "Focus", description: "Sharpen concentration before deep work", tags: ["focus", "work", "clarity"] },
+  { title: "Compassion Practice", durationMin: 12, category: "Emotional", description: "Cultivate kindness toward yourself and others", tags: ["emotional", "compassion", "mood"] },
+];
+
+export async function seedMeditationsOnce(): Promise<void> {
+  if (hasRunMeditationSeed) return;
+  hasRunMeditationSeed = true;
+  try {
+    const existing = await storage.getMeditations();
+    if (existing.length > 0) return;
+    let order = 0;
+    for (const m of SEED_MEDITATIONS) {
+      await storage.createMeditation({ ...m, orderIndex: order++, isActive: true });
+    }
+    console.log(`[startup-migration] seeded ${SEED_MEDITATIONS.length} meditations`);
+  } catch (err: any) {
+    console.error("[startup-migration] meditation seed failed:", err?.message || err);
+  }
+}
 
 async function uploadBufferAsPublicProfileImage(
   buffer: Buffer,

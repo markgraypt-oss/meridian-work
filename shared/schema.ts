@@ -2993,5 +2993,63 @@ export const reportNarratives = pgTable("report_narratives", {
 export type ReportNarrative = typeof reportNarratives.$inferSelect;
 export type InsertReportNarrative = typeof reportNarratives.$inferInsert;
 
+// ============================================
+// MEDITATIONS CATALOG
+// ============================================
+export const meditations = pgTable("meditations", {
+  id: serial("id").primaryKey(),
+  title: text("title").notNull(),
+  description: text("description"),
+  category: text("category").notNull(),
+  durationMin: integer("duration_min").notNull(),
+  audioUrl: text("audio_url"),
+  tags: text("tags").array(),
+  isActive: boolean("is_active").notNull().default(true),
+  orderIndex: integer("order_index").default(0),
+  createdAt: timestamp("created_at").defaultNow(),
+});
+export type Meditation = typeof meditations.$inferSelect;
+export type InsertMeditation = typeof meditations.$inferInsert;
+export const insertMeditationSchema = createInsertSchema(meditations).omit({ id: true, createdAt: true });
+
+// ============================================
+// SMART RECOMMENDATIONS
+// ============================================
+// One row per (user, contentType, contentId) recommendation. We blow away and
+// re-insert the rows for a user when we regenerate, so this acts as the
+// "current recommendations" cache rather than a long-term log.
+export const recommendations = pgTable("recommendations", {
+  id: serial("id").primaryKey(),
+  userId: varchar("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+  contentType: text("content_type").notNull(), // 'meditation' | 'recipe' | 'video'
+  contentId: integer("content_id").notNull(),
+  score: integer("score").notNull().default(50), // 0-100
+  rationale: text("rationale").notNull(),
+  rank: integer("rank").notNull().default(0),
+  source: text("source").notNull().default("ai"), // 'ai' | 'rule_based'
+  generatedAt: timestamp("generated_at").notNull().defaultNow(),
+}, (table) => [
+  index("idx_recommendations_user").on(table.userId),
+  index("idx_recommendations_user_type").on(table.userId, table.contentType),
+  uniqueIndex("uniq_recommendations_user_content").on(table.userId, table.contentType, table.contentId),
+]);
+export type Recommendation = typeof recommendations.$inferSelect;
+export type InsertRecommendation = typeof recommendations.$inferInsert;
+export const insertRecommendationSchema = createInsertSchema(recommendations).omit({ id: true, generatedAt: true });
+
+export const recommendationDismissals = pgTable("recommendation_dismissals", {
+  id: serial("id").primaryKey(),
+  userId: varchar("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+  contentType: text("content_type").notNull(),
+  contentId: integer("content_id").notNull(),
+  until: timestamp("until").notNull(),
+  createdAt: timestamp("created_at").defaultNow(),
+}, (table) => [
+  index("idx_rec_dismissals_user").on(table.userId),
+  uniqueIndex("uniq_rec_dismissals_user_content").on(table.userId, table.contentType, table.contentId),
+]);
+export type RecommendationDismissal = typeof recommendationDismissals.$inferSelect;
+export type InsertRecommendationDismissal = typeof recommendationDismissals.$inferInsert;
+
 // Chat models for AI conversations
 export * from "./models/chat";

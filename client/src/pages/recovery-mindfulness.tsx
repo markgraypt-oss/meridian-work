@@ -4,7 +4,8 @@ import { useAuth } from "@/hooks/useAuth";
 import { useToast } from "@/hooks/use-toast";
 import { useLocation } from "wouter";
 import { apiRequest, queryClient } from "@/lib/queryClient";
-import { placeholderMeditations, meditationCategories, getCategoryIcon } from "@/lib/meditation-data";
+import { meditationCategories, getCategoryIcon, type MeditationItem } from "@/lib/meditation-data";
+import { RecommendationRail } from "@/components/RecommendationRail";
 import TopHeader from "@/components/TopHeader";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
@@ -54,9 +55,13 @@ function GuidedMeditations() {
   const totalSessions = stats?.totalSessions || 0;
   const totalMinutes = stats?.totalMinutes || 0;
 
+  const { data: allMeditations = [] } = useQuery<MeditationItem[]>({
+    queryKey: ["/api/meditations"],
+  });
+
   const allFiltered = activeCategory === "All"
-    ? placeholderMeditations
-    : placeholderMeditations.filter((m) => m.category === activeCategory);
+    ? allMeditations
+    : allMeditations.filter((m) => m.category === activeCategory);
 
   const visible = allFiltered.slice(0, MAX_VISIBLE);
   const hasMore = allFiltered.length > MAX_VISIBLE;
@@ -384,6 +389,7 @@ export default function RecoveryMindfulness() {
 
       <div className="px-4 pt-20 pb-6">
         <div className="max-w-4xl mx-auto space-y-8">
+          <RecommendationRail variant="section" filterType="meditation" title="Recommended for you" />
           <GuidedMeditations />
           <GratitudeJournal />
           <Soundscapes />

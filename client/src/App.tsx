@@ -52,6 +52,7 @@ import EducationLabPath from "@/pages/education-lab-path";
 import EducationLabBookmarks from "@/pages/education-lab-bookmarks";
 import LearnVideoDetail from "@/pages/learn-video-detail";
 import LearnTopicVideoDetail from "@/pages/learn-topic-video-detail";
+import LearnVideoStandalone from "@/pages/learn-video-standalone";
 import Library from "@/pages/library";
 import Nutrition from "@/pages/nutrition";
 import NutritionGraphs from "@/pages/nutrition-graphs";
@@ -270,6 +271,7 @@ function Router() {
               <Route path="/recovery/desk-health/scan" component={WorkdayDeskScan} />
               <Route path="/learn" component={Learn} />
               <Route path="/learn/path/:pathId/video/:contentId" component={LearnVideoDetail} />
+              <Route path="/learn/video/:contentId" component={LearnVideoStandalone} />
               <Route path="/learn/:slug/video/:contentId" component={LearnTopicVideoDetail} />
               <Route path="/learn/:slug" component={LearnTopic} />
               <Route path="/education-lab/path/:id" component={EducationLabPath} />

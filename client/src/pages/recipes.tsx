@@ -11,6 +11,7 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { ScrollArea, ScrollBar } from "@/components/ui/scroll-area";
 import { Search, SlidersHorizontal, Clock, ChevronRight, X, ChevronLeft } from "lucide-react";
 import type { Recipe } from "@shared/schema";
+import { RecommendationRail } from "@/components/RecommendationRail";
 
 const CATEGORIES = [
   { id: "all", label: "All" },
@@ -359,6 +360,7 @@ export default function Recipes() {
       </div>
 
       <div className="px-4 pt-4 space-y-3">
+        <RecommendationRail variant="section" filterType="recipe" title="Recommended for you" />
         {isLoading ? (
           <div className="space-y-3">
             {[1, 2, 3].map((i) => (

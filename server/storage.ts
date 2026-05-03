@@ -47,6 +47,15 @@ import {
   programmeModificationRecords,
   reassessmentReminders,
   userExtraWorkoutSessions,
+  meditations,
+  type Meditation,
+  type InsertMeditation,
+  recommendations,
+  type Recommendation,
+  type InsertRecommendation,
+  recommendationDismissals,
+  type RecommendationDismissal,
+  type InsertRecommendationDismissal,
   type User,
   type UpsertUser,
   type ExerciseLibraryItem,
@@ -587,6 +596,7 @@ export interface IStorage {
 
   // Video operations
   getVideos(category?: string): Promise<Video[]>;
+  getVideosByIds(ids: number[]): Promise<Video[]>;
   getVideoById(id: number): Promise<Video | undefined>;
   searchVideos(query: string): Promise<Video[]>;
   createVideo(video: InsertVideo): Promise<Video>;
@@ -595,6 +605,7 @@ export interface IStorage {
 
   // Recipe operations
   getRecipes(category?: string): Promise<Recipe[]>;
+  getRecipesByIds(ids: number[]): Promise<Recipe[]>;
   getRecipeById(id: number): Promise<Recipe | undefined>;
   searchRecipes(query: string): Promise<Recipe[]>;
   createRecipe(recipe: InsertRecipe): Promise<Recipe>;
@@ -1177,6 +1188,19 @@ export interface IStorage {
   createMindfulnessTool(tool: InsertMindfulnessTool): Promise<MindfulnessTool>;
   updateMindfulnessTool(id: number, tool: Partial<InsertMindfulnessTool>): Promise<MindfulnessTool>;
   deleteMindfulnessTool(id: number): Promise<void>;
+
+  // Meditations catalog
+  getMeditations(category?: string): Promise<Meditation[]>;
+  getMeditationsByIds(ids: number[]): Promise<Meditation[]>;
+  getMeditationById(id: number): Promise<Meditation | undefined>;
+  createMeditation(med: InsertMeditation): Promise<Meditation>;
+
+  // Smart Recommendations
+  getRecommendations(userId: string): Promise<Recommendation[]>;
+  replaceRecommendations(userId: string, items: InsertRecommendation[]): Promise<Recommendation[]>;
+  clearRecommendations(userId: string): Promise<void>;
+  getActiveDismissals(userId: string): Promise<RecommendationDismissal[]>;
+  createDismissal(dismissal: InsertRecommendationDismissal): Promise<RecommendationDismissal>;
 }
 
 export class DatabaseStorage implements IStorage {
@@ -3647,6 +3671,11 @@ export class DatabaseStorage implements IStorage {
     return video;
   }
 
+  async getVideosByIds(ids: number[]): Promise<Video[]> {
+    if (!ids.length) return [];
+    return await db.select().from(videos).where(inArray(videos.id, ids));
+  }
+
   async searchVideos(query: string): Promise<Video[]> {
     return await db
       .select()
@@ -3691,6 +3720,11 @@ export class DatabaseStorage implements IStorage {
   async getRecipeById(id: number): Promise<Recipe | undefined> {
     const [recipe] = await db.select().from(recipes).where(eq(recipes.id, id));
     return recipe;
+  }
+
+  async getRecipesByIds(ids: number[]): Promise<Recipe[]> {
+    if (!ids.length) return [];
+    return await db.select().from(recipes).where(inArray(recipes.id, ids));
   }
 
   async searchRecipes(query: string): Promise<Recipe[]> {
@@ -11885,6 +11919,73 @@ export class DatabaseStorage implements IStorage {
       .where(eq(mindfulnessTools.id, id))
       .returning();
     return updated;
+  }
+
+  // ============================================
+  // Meditations catalog
+  // ============================================
+  async getMeditations(category?: string): Promise<Meditation[]> {
+    if (category && category !== "All") {
+      return await db.select().from(meditations)
+        .where(and(eq(meditations.isActive, true), eq(meditations.category, category)))
+        .orderBy(asc(meditations.orderIndex), asc(meditations.id));
+    }
+    return await db.select().from(meditations)
+      .where(eq(meditations.isActive, true))
+      .orderBy(asc(meditations.orderIndex), asc(meditations.id));
+  }
+
+  async getMeditationById(id: number): Promise<Meditation | undefined> {
+    const [m] = await db.select().from(meditations).where(eq(meditations.id, id));
+    return m;
+  }
+
+  async getMeditationsByIds(ids: number[]): Promise<Meditation[]> {
+    if (!ids.length) return [];
+    return await db.select().from(meditations).where(inArray(meditations.id, ids));
+  }
+
+  async createMeditation(med: InsertMeditation): Promise<Meditation> {
+    const [created] = await db.insert(meditations).values(med).returning();
+    return created;
+  }
+
+  // ============================================
+  // Smart Recommendations
+  // ============================================
+  async getRecommendations(userId: string): Promise<Recommendation[]> {
+    return await db.select().from(recommendations)
+      .where(eq(recommendations.userId, userId))
+      .orderBy(asc(recommendations.rank));
+  }
+
+  async replaceRecommendations(userId: string, items: InsertRecommendation[]): Promise<Recommendation[]> {
+    await db.delete(recommendations).where(eq(recommendations.userId, userId));
+    if (items.length === 0) return [];
+    const inserted = await db.insert(recommendations).values(items).returning();
+    return inserted;
+  }
+
+  async clearRecommendations(userId: string): Promise<void> {
+    await db.delete(recommendations).where(eq(recommendations.userId, userId));
+  }
+
+  async getActiveDismissals(userId: string): Promise<RecommendationDismissal[]> {
+    const now = new Date();
+    return await db.select().from(recommendationDismissals)
+      .where(and(eq(recommendationDismissals.userId, userId), gte(recommendationDismissals.until, now)));
+  }
+
+  async createDismissal(dismissal: InsertRecommendationDismissal): Promise<RecommendationDismissal> {
+    const [created] = await db
+      .insert(recommendationDismissals)
+      .values(dismissal)
+      .onConflictDoUpdate({
+        target: [recommendationDismissals.userId, recommendationDismissals.contentType, recommendationDismissals.contentId],
+        set: { until: dismissal.until },
+      })
+      .returning();
+    return created;
   }
 
   async deleteMindfulnessTool(id: number): Promise<void> {

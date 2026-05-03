@@ -2,12 +2,12 @@ import { useEffect, useState, useRef, useCallback } from "react";
 import { useAuth } from "@/hooks/useAuth";
 import { useToast } from "@/hooks/use-toast";
 import { useLocation, useParams } from "wouter";
-import { useMutation } from "@tanstack/react-query";
+import { useMutation, useQuery } from "@tanstack/react-query";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import TopHeader from "@/components/TopHeader";
 import { Button } from "@/components/ui/button";
 import { Play, Pause, RotateCcw, Check } from "lucide-react";
-import { placeholderMeditations, getCategoryStyle } from "@/lib/meditation-data";
+import { getCategoryStyle, type MeditationItem } from "@/lib/meditation-data";
 
 export default function MeditationPlayer() {
   const { toast } = useToast();
@@ -15,7 +15,16 @@ export default function MeditationPlayer() {
   const [, navigate] = useLocation();
   const params = useParams<{ id: string }>();
   const meditationId = parseInt(params.id || "1");
-  const meditation = placeholderMeditations.find((m) => m.id === meditationId) || placeholderMeditations[0];
+  const { data: meditations = [] } = useQuery<MeditationItem[]>({
+    queryKey: ["/api/meditations"],
+  });
+  const meditation = meditations.find((m) => m.id === meditationId) || meditations[0] || {
+    id: meditationId,
+    title: "Meditation",
+    durationMin: 5,
+    category: "Focus",
+    description: "",
+  };
   const totalSeconds = meditation.durationMin * 60;
 
   const [isPlaying, setIsPlaying] = useState(false);

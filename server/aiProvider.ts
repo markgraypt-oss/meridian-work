@@ -279,6 +279,10 @@ export const FEATURE_DATA_SOURCES: Record<string, { domains: DataDomain[]; descr
     domains: ['body_map', 'programs', 'workout_logs', 'check_ins', 'sleep', 'steps', 'resting_hr', 'stress', 'bodyweight', 'hydration', 'nutrition', 'habits', 'goals'],
     description: 'Comprehensive health snapshot for proactive greeting: body map pain, program progress, workout history, check-in trends, sleep, steps, heart rate, stress, bodyweight, hydration, nutrition, habits, and goals',
   },
+  smart_recommendations: {
+    domains: ['check_ins', 'sleep', 'stress', 'body_map', 'workout_logs', 'goals', 'nutrition', 'habits'],
+    description: 'Recent check-ins, sleep and stress/burnout signals (incl. recovery-mode flag), current body-map issues, workout cadence, habit compliance, active goals, and dietary preferences for ranking meditations / recipes / videos that fit the user right now',
+  },
   coach_chat: {
     domains: ['body_map', 'programs', 'workouts', 'workout_logs', 'exercises', 'learning_paths', 'check_ins', 'sleep', 'steps', 'resting_hr', 'stress', 'bodyweight', 'body_fat', 'blood_pressure', 'hydration', 'nutrition', 'goals', 'habits', 'programme_library', 'workout_library', 'recipe_library', 'video_library', 'learn_library', 'exercise_library'],
     description: 'Complete platform knowledge: all user health data plus full content libraries (programmes, workouts, exercises, recipes, videos, learning paths) for personalised recommendations',

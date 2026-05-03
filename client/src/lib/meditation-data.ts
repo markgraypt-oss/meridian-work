@@ -7,14 +7,13 @@ import {
   Heart,
 } from "lucide-react";
 
-export const placeholderMeditations = [
-  { id: 1, title: "Morning Calm", durationMin: 5, category: "Focus", description: "Start your day with clarity and intention" },
-  { id: 2, title: "Stress Relief", durationMin: 10, category: "Relaxation", description: "Release tension and find your center" },
-  { id: 3, title: "Body Scan", durationMin: 15, category: "Awareness", description: "Connect with your body from head to toe" },
-  { id: 4, title: "Evening Wind Down", durationMin: 8, category: "Sleep", description: "Prepare your mind for restful sleep" },
-  { id: 5, title: "Focus Boost", durationMin: 7, category: "Focus", description: "Sharpen concentration before deep work" },
-  { id: 6, title: "Compassion Practice", durationMin: 12, category: "Emotional", description: "Cultivate kindness toward yourself and others" },
-];
+export interface MeditationItem {
+  id: number;
+  title: string;
+  durationMin: number;
+  category: string;
+  description: string | null;
+}
 
 export const meditationCategories = ["All", "Focus", "Relaxation", "Awareness", "Sleep", "Emotional"];
 

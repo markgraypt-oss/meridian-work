@@ -2,9 +2,11 @@ import { useEffect, useState } from "react";
 import { useAuth } from "@/hooks/useAuth";
 import { useToast } from "@/hooks/use-toast";
 import { useLocation, useParams } from "wouter";
+import { useQuery } from "@tanstack/react-query";
 import TopHeader from "@/components/TopHeader";
 import { Clock, ChevronRight } from "lucide-react";
-import { placeholderMeditations, meditationCategories, getCategoryIcon } from "@/lib/meditation-data";
+import { meditationCategories, getCategoryIcon, type MeditationItem } from "@/lib/meditation-data";
+import { RecommendationRail } from "@/components/RecommendationRail";
 
 export default function MeditationList() {
   const { toast } = useToast();
@@ -27,9 +29,13 @@ export default function MeditationList() {
     }
   }, [isAuthenticated, isLoading, toast]);
 
+  const { data: meditations = [] } = useQuery<MeditationItem[]>({
+    queryKey: ["/api/meditations"],
+  });
+
   const filtered = activeCategory === "All"
-    ? placeholderMeditations
-    : placeholderMeditations.filter((m) => m.category === activeCategory);
+    ? meditations
+    : meditations.filter((m) => m.category === activeCategory);
 
   if (isLoading) {
     return (
@@ -48,6 +54,7 @@ export default function MeditationList() {
 
       <div className="px-4 pt-20 pb-6">
         <div className="max-w-4xl mx-auto space-y-4">
+          <RecommendationRail variant="section" filterType="meditation" title="Recommended for you" />
           <div className="flex gap-2 overflow-x-auto pb-1 -mx-1 px-1 scrollbar-hide">
             {meditationCategories.map((cat) => (
               <button

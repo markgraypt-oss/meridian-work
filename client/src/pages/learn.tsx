@@ -5,6 +5,7 @@ import { useLocation } from "wouter";
 import { useQuery } from "@tanstack/react-query";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import TopHeader from "@/components/TopHeader";
+import { RecommendationRail } from "@/components/RecommendationRail";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Heart, BookOpen, Play, ChevronDown, ChevronRight } from "lucide-react";
@@ -128,6 +129,7 @@ export default function Learn() {
       
       <div className="px-5 pt-4 pb-6">
         <div className="max-w-4xl mx-auto">
+          <RecommendationRail variant="section" filterType="video" title="Recommended for you" />
           {enrolledPaths.length > 0 && (
             <Collapsible open={myPathsOpen} onOpenChange={setMyPathsOpen} className="mb-8">
               <Card className="bg-card">

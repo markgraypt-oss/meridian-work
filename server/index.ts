@@ -3,7 +3,7 @@ import express, { type Request, Response, NextFunction } from "express";
 import { registerRoutes } from "./routes";
 import { setupVite, serveStatic, log } from "./vite";
 import { video } from "./mux";
-import { runProfileImageMigrationOnce, ensureCoachTablesOnce } from "./startupMigrations";
+import { runProfileImageMigrationOnce, ensureCoachTablesOnce, seedMeditationsOnce } from "./startupMigrations";
 
 const app = express();
 
@@ -126,6 +126,9 @@ app.use((req, res, next) => {
     });
     ensureCoachTablesOnce().catch((e) => {
       console.error("[startup-migration] coach tables failed:", e);
+    });
+    seedMeditationsOnce().catch((e) => {
+      console.error("[startup-migration] meditations failed:", e);
     });
     // Start wearables sync scheduler
     import("./wearables/scheduler").then(({ startWearableScheduler }) => {

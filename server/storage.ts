@@ -345,11 +345,14 @@ import {
   type InsertRecommendationEvent,
   burnoutScores,
   burnoutSettings,
+  weeklyCheckins,
   healthIntegrations,
   type BurnoutScore,
   type InsertBurnoutScore,
   type BurnoutSettings,
   type InsertBurnoutSettings,
+  type WeeklyCheckin,
+  type InsertWeeklyCheckin,
   type HealthIntegration,
   type InsertHealthIntegration,
   companies,
@@ -601,6 +604,13 @@ export interface IStorage {
   getUserCheckIns(userId: string): Promise<CheckIn[]>;
   createCheckIn(checkIn: InsertCheckIn): Promise<CheckIn>;
   getLatestCheckIn(userId: string): Promise<CheckIn | undefined>;
+
+  // Weekly AI check-in operations
+  getWeeklyCheckin(userId: string, weekStart: Date): Promise<WeeklyCheckin | undefined>;
+  getWeeklyCheckinById(id: number): Promise<WeeklyCheckin | undefined>;
+  getUserWeeklyCheckins(userId: string, limit?: number): Promise<WeeklyCheckin[]>;
+  createWeeklyCheckin(checkIn: InsertWeeklyCheckin): Promise<WeeklyCheckin>;
+  updateWeeklyCheckinSuggestions(id: number, accepted: string[], dismissed: string[]): Promise<WeeklyCheckin>;
 
   // Body map operations
   getBodyMapLogs(userId: string): Promise<BodyMapLog[]>;
@@ -11471,6 +11481,39 @@ export class DatabaseStorage implements IStorage {
         sampleSize: m.total,
       };
     });
+  }
+
+  // Weekly AI Check-in operations
+  async getWeeklyCheckin(userId: string, weekStart: Date): Promise<WeeklyCheckin | undefined> {
+    const [row] = await db.select().from(weeklyCheckins)
+      .where(and(eq(weeklyCheckins.userId, userId), eq(weeklyCheckins.weekStart, weekStart)))
+      .limit(1);
+    return row;
+  }
+
+  async getWeeklyCheckinById(id: number): Promise<WeeklyCheckin | undefined> {
+    const [row] = await db.select().from(weeklyCheckins).where(eq(weeklyCheckins.id, id)).limit(1);
+    return row;
+  }
+
+  async getUserWeeklyCheckins(userId: string, limit: number = 12): Promise<WeeklyCheckin[]> {
+    return await db.select().from(weeklyCheckins)
+      .where(eq(weeklyCheckins.userId, userId))
+      .orderBy(desc(weeklyCheckins.weekStart))
+      .limit(limit);
+  }
+
+  async createWeeklyCheckin(checkIn: InsertWeeklyCheckin): Promise<WeeklyCheckin> {
+    const [created] = await db.insert(weeklyCheckins).values(checkIn).returning();
+    return created;
+  }
+
+  async updateWeeklyCheckinSuggestions(id: number, accepted: string[], dismissed: string[]): Promise<WeeklyCheckin> {
+    const [updated] = await db.update(weeklyCheckins)
+      .set({ acceptedSuggestions: accepted, dismissedSuggestions: dismissed })
+      .where(eq(weeklyCheckins.id, id))
+      .returning();
+    return updated;
   }
 
   // Burnout Early Warning operations

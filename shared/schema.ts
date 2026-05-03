@@ -11,6 +11,7 @@ import {
   boolean,
   real,
 } from "drizzle-orm/pg-core";
+import { sql } from "drizzle-orm";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod";
 
@@ -2578,6 +2579,23 @@ export const burnoutSettings = pgTable("burnout_settings", {
 
 export type BurnoutSettings = typeof burnoutSettings.$inferSelect;
 export type InsertBurnoutSettings = typeof burnoutSettings.$inferInsert;
+
+// Weekly AI Check-in - generated weekly summary per user (idempotent per ISO week)
+export const weeklyCheckins = pgTable("weekly_checkins", {
+  id: serial("id").primaryKey(),
+  userId: varchar("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+  weekStart: timestamp("week_start").notNull(), // Monday 00:00 UTC of the ISO week
+  payload: jsonb("payload").notNull(), // { summary: { wins, concerns, trajectory }, suggestions: [...], metrics: {...} }
+  acceptedSuggestions: text("accepted_suggestions").array().notNull().default(sql`ARRAY[]::text[]`),
+  dismissedSuggestions: text("dismissed_suggestions").array().notNull().default(sql`ARRAY[]::text[]`),
+  generatedAt: timestamp("generated_at").defaultNow().notNull(),
+}, (t) => ({
+  userWeekUnique: sql`UNIQUE (${t.userId}, ${t.weekStart})`,
+}));
+
+export type WeeklyCheckin = typeof weeklyCheckins.$inferSelect;
+export type InsertWeeklyCheckin = typeof weeklyCheckins.$inferInsert;
+export const insertWeeklyCheckinSchema = createInsertSchema(weeklyCheckins).omit({ id: true, generatedAt: true });
 
 // Health integration status - ready for mobile day-one
 export const healthIntegrations = pgTable("health_integrations", {

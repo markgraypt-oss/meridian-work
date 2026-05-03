@@ -18248,6 +18248,126 @@ RULES:
     }
   });
 
+  // ===== Weekly AI Check-in Routes =====
+  {
+    const {
+      getOrCreateCurrentWeeklyCheckin,
+      generateWeeklyCheckinPayload,
+      getIsoWeekStart,
+    } = await import("./weeklyCheckin");
+
+    app.get("/api/weekly-checkins/current", isAuthenticated, async (req: any, res) => {
+      try {
+        const userId = req.user.claims.sub;
+        const weekly = await getOrCreateCurrentWeeklyCheckin(userId);
+        res.json(weekly);
+      } catch (error: any) {
+        console.error("Error fetching current weekly check-in:", error?.message);
+        res.status(500).json({ message: "Failed to load weekly check-in" });
+      }
+    });
+
+    app.get("/api/weekly-checkins", isAuthenticated, async (req: any, res) => {
+      try {
+        const userId = req.user.claims.sub;
+        const limit = Math.min(Number(req.query.limit) || 12, 52);
+        const list = await storage.getUserWeeklyCheckins(userId, limit);
+        res.json(list);
+      } catch (error: any) {
+        console.error("Error fetching weekly check-ins:", error?.message);
+        res.status(500).json({ message: "Failed to load weekly check-ins" });
+      }
+    });
+
+    app.get("/api/weekly-checkins/:id", isAuthenticated, async (req: any, res) => {
+      try {
+        const userId = req.user.claims.sub;
+        const id = Number(req.params.id);
+        if (!Number.isFinite(id)) return res.status(400).json({ message: "Invalid id" });
+        const row = await storage.getWeeklyCheckinById(id);
+        if (!row) return res.status(404).json({ message: "Not found" });
+        if (row.userId !== userId) return res.status(403).json({ message: "Forbidden" });
+        res.json(row);
+      } catch (error: any) {
+        console.error("Error fetching weekly check-in:", error?.message);
+        res.status(500).json({ message: "Failed to load weekly check-in" });
+      }
+    });
+
+    const suggestionActionSchema = z.object({
+      suggestionId: z.string().min(1).max(64),
+      action: z.enum(["accept", "dismiss", "reset"]),
+    });
+
+    app.post("/api/weekly-checkins/:id/suggestion", isAuthenticated, async (req: any, res) => {
+      try {
+        const userId = req.user.claims.sub;
+        const id = Number(req.params.id);
+        if (!Number.isFinite(id)) return res.status(400).json({ message: "Invalid id" });
+
+        const row = await storage.getWeeklyCheckinById(id);
+        if (!row) return res.status(404).json({ message: "Not found" });
+        if (row.userId !== userId) return res.status(403).json({ message: "Forbidden" });
+
+        const parsed = suggestionActionSchema.safeParse(req.body);
+        if (!parsed.success) return res.status(400).json({ message: "Invalid body", errors: parsed.error.flatten() });
+
+        const { suggestionId, action } = parsed.data;
+
+        // Validate suggestionId exists in the persisted payload to avoid
+        // accumulating bogus IDs in accepted/dismissed arrays.
+        const payload = row.payload as { suggestions?: { id: string }[] } | null;
+        const validIds = new Set((payload?.suggestions || []).map((s) => s.id));
+        if (!validIds.has(suggestionId)) {
+          return res.status(400).json({ message: "Unknown suggestionId for this check-in" });
+        }
+
+        const accepted = new Set(row.acceptedSuggestions || []);
+        const dismissed = new Set(row.dismissedSuggestions || []);
+        accepted.delete(suggestionId);
+        dismissed.delete(suggestionId);
+        if (action === "accept") accepted.add(suggestionId);
+        if (action === "dismiss") dismissed.add(suggestionId);
+
+        const updated = await storage.updateWeeklyCheckinSuggestions(
+          id,
+          Array.from(accepted),
+          Array.from(dismissed),
+        );
+        res.json(updated);
+      } catch (error: any) {
+        console.error("Error updating weekly check-in suggestion:", error?.message);
+        res.status(500).json({ message: "Failed to update suggestion" });
+      }
+    });
+
+    // Admin preview: regenerate the current-week payload for any user
+    // without persisting. Useful for QA and prompt iteration.
+    app.post("/api/admin/weekly-checkins/preview/:userId", isAuthenticated, async (req: any, res) => {
+      try {
+        const callerId = req.user.claims.sub;
+        const me = await storage.getUser(callerId);
+        if (!me?.isAdmin) return res.status(403).json({ message: "Admin only" });
+        const targetUserId = req.params.userId;
+        if (!targetUserId) return res.status(400).json({ message: "userId required" });
+        const target = await storage.getUser(targetUserId);
+        if (!target) return res.status(404).json({ message: "User not found" });
+
+        const weekStart = getIsoWeekStart();
+        const payload = await generateWeeklyCheckinPayload(targetUserId, weekStart);
+        res.json({
+          userId: targetUserId,
+          weekStart: weekStart.toISOString(),
+          persisted: false,
+          payload,
+        });
+      } catch (error: any) {
+        console.error("Error generating weekly check-in preview:", error?.message);
+        res.status(500).json({ message: "Failed to generate preview" });
+      }
+    });
+  }
+
   const httpServer = createServer(app);
   return httpServer;
 }

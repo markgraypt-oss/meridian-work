@@ -212,6 +212,10 @@ export async function aiCall<T = unknown>(params: AiCallParams<T>): Promise<AiCa
   let rawText = "";
   let parsed: T | null = null;
   let errorMessage: string | undefined;
+  // Track per-leg usage so we can estimate any missing leg independently
+  // (avoids undercount when only one of first/repair returns provider usage).
+  type Leg = { promptTokens?: number; completionTokens?: number; promptText: string; completionText: string };
+  const legs: Leg[] = [];
 
   try {
     const first = await withTimeout(
@@ -223,6 +227,12 @@ export async function aiCall<T = unknown>(params: AiCallParams<T>): Promise<AiCa
       timeoutMs,
     );
     rawText = first.text || "";
+    legs.push({
+      promptTokens: first.usage?.promptTokens,
+      completionTokens: first.usage?.completionTokens,
+      promptText: redactedPrompt,
+      completionText: rawText,
+    });
 
     if (params.schema) {
       const jsonStr = extractJson(rawText);
@@ -250,7 +260,14 @@ export async function aiCall<T = unknown>(params: AiCallParams<T>): Promise<AiCa
             ),
             timeoutMs,
           );
-          rawText = second.text || rawText;
+          const secondText = second.text || "";
+          rawText = secondText || rawText;
+          legs.push({
+            promptTokens: second.usage?.promptTokens,
+            completionTokens: second.usage?.completionTokens,
+            promptText: repairPrompt,
+            completionText: secondText,
+          });
           const jsonStr2 = extractJson(rawText);
           if (jsonStr2) {
             try {
@@ -286,8 +303,20 @@ export async function aiCall<T = unknown>(params: AiCallParams<T>): Promise<AiCa
   }
 
   const latencyMs = Date.now() - startedAt;
-  const promptTokens = estimateTokens(redactedPrompt);
-  const completionTokens = estimateTokens(rawText);
+  // Prefer real provider usage per leg; fall back to ~chars/4 estimate
+  // for whichever leg the provider didn't report. Ensures totals don't
+  // undercount when only one of first/repair returned usage.
+  let promptTokens = 0;
+  let completionTokens = 0;
+  if (legs.length === 0) {
+    promptTokens = estimateTokens(redactedPrompt);
+    completionTokens = estimateTokens(rawText);
+  } else {
+    for (const leg of legs) {
+      promptTokens += leg.promptTokens ?? estimateTokens(leg.promptText);
+      completionTokens += leg.completionTokens ?? estimateTokens(leg.completionText);
+    }
+  }
   const totalTokens = promptTokens + completionTokens;
 
   let logId: number | undefined;
@@ -354,6 +383,8 @@ export async function aiVisionCall(params: AiVisionCallParams): Promise<AiCallRe
   let safetyFlags: string[] = [];
   let rawText = "";
   let errorMessage: string | undefined;
+  let providerPromptTokens: number | undefined;
+  let providerCompletionTokens: number | undefined;
 
   try {
     const result = await withTimeout(
@@ -365,6 +396,8 @@ export async function aiVisionCall(params: AiVisionCallParams): Promise<AiCallRe
       timeoutMs,
     );
     rawText = result.text || "";
+    providerPromptTokens = result.usage?.promptTokens;
+    providerCompletionTokens = result.usage?.completionTokens;
     if (!params.skipSafetyFilter && rawText) {
       const filtered = applySafetyFilter(rawText);
       rawText = filtered.text;
@@ -376,8 +409,8 @@ export async function aiVisionCall(params: AiVisionCallParams): Promise<AiCallRe
   }
 
   const latencyMs = Date.now() - startedAt;
-  const promptTokens = estimateTokens(redactedPrompt);
-  const completionTokens = estimateTokens(rawText);
+  const promptTokens = providerPromptTokens ?? estimateTokens(redactedPrompt);
+  const completionTokens = providerCompletionTokens ?? estimateTokens(rawText);
   const totalTokens = promptTokens + completionTokens;
 
   let logId: number | undefined;

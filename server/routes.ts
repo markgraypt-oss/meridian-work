@@ -19255,12 +19255,16 @@ RULES:
         .limit(500);
 
       // Aggregate over the same window (no row limit) so the dashboard cards
-      // reflect the real total, not just the first 500 rows.
-      const aggRows = await db
+      // reflect the real total, not just the first 500 rows. Pull the
+      // prompt/completion split so we can apply per-model input/output rates
+      // from the price table.
+      const aggRowsDetailed = await db
         .select({
           feature: aiCallLogs.feature,
           model: aiCallLogs.model,
           outcome: aiCallLogs.validationOutcome,
+          promptTokens: aiCallLogs.promptTokens,
+          completionTokens: aiCallLogs.completionTokens,
           totalTokens: aiCallLogs.totalTokens,
           latencyMs: aiCallLogs.latencyMs,
           safetyFlags: aiCallLogs.safetyFlags,
@@ -19268,37 +19272,47 @@ RULES:
         .from(aiCallLogs)
         .where(and(...conditions));
 
-      const byFeatureMap = new Map<string, { count: number; tokens: number }>();
-      const byModelMap = new Map<string, { count: number; tokens: number }>();
+      const { calcCostUsd } = await import('./aiPricing');
+
+      const byFeatureMap = new Map<string, { count: number; tokens: number; costUsd: number }>();
+      const byModelMap = new Map<string, { count: number; tokens: number; costUsd: number }>();
       const byOutcome: Record<string, number> = {};
       let totalTokens = 0;
       let totalLatency = 0;
       let safetyFlagCount = 0;
-      for (const r of aggRows) {
-        const cur = byFeatureMap.get(r.feature) || { count: 0, tokens: 0 };
+      let estimatedCostUsd = 0;
+      for (const r of aggRowsDetailed) {
+        const promptT = r.promptTokens || 0;
+        const compT = r.completionTokens || 0;
+        const totalT = r.totalTokens || promptT + compT;
+        const rowCost = calcCostUsd(r.model, promptT, compT);
+
+        const cur = byFeatureMap.get(r.feature) || { count: 0, tokens: 0, costUsd: 0 };
         cur.count += 1;
-        cur.tokens += r.totalTokens || 0;
+        cur.tokens += totalT;
+        cur.costUsd += rowCost;
         byFeatureMap.set(r.feature, cur);
+
         const modelKey = r.model || 'unknown';
-        const mcur = byModelMap.get(modelKey) || { count: 0, tokens: 0 };
+        const mcur = byModelMap.get(modelKey) || { count: 0, tokens: 0, costUsd: 0 };
         mcur.count += 1;
-        mcur.tokens += r.totalTokens || 0;
+        mcur.tokens += totalT;
+        mcur.costUsd += rowCost;
         byModelMap.set(modelKey, mcur);
+
         const oc = r.outcome || 'unknown';
         byOutcome[oc] = (byOutcome[oc] || 0) + 1;
-        totalTokens += r.totalTokens || 0;
+        totalTokens += totalT;
         totalLatency += r.latencyMs || 0;
+        estimatedCostUsd += rowCost;
         if (r.safetyFlags && r.safetyFlags.length > 0) safetyFlagCount += 1;
       }
-      const totalCalls = aggRows.length;
-      // Blended estimate: ~$3 per million tokens (rough Claude/GPT mix). Used
-      // as a directional cost signal, not an invoice.
-      const estimatedCostUsd = (totalTokens / 1_000_000) * 3;
+      const totalCalls = aggRowsDetailed.length;
       const byFeature = Array.from(byFeatureMap.entries())
-        .map(([feature, v]) => ({ feature, count: v.count, tokens: v.tokens }))
+        .map(([feature, v]) => ({ feature, count: v.count, tokens: v.tokens, costUsd: v.costUsd }))
         .sort((a, b) => b.count - a.count);
       const byModel = Array.from(byModelMap.entries())
-        .map(([model, v]) => ({ model, count: v.count, tokens: v.tokens }))
+        .map(([model, v]) => ({ model, count: v.count, tokens: v.tokens, costUsd: v.costUsd }))
         .sort((a, b) => b.count - a.count);
 
       res.json({

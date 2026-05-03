@@ -8,6 +8,11 @@ export interface VisionAnalysisRequest {
 
 export interface VisionAnalysisResponse {
   text: string;
+  usage?: {
+    promptTokens?: number;
+    completionTokens?: number;
+    totalTokens?: number;
+  };
 }
 
 export interface AIProviderConfig {
@@ -112,7 +117,15 @@ async function analyzeWithAnthropic(
 
   const responseText =
     message.content[0].type === "text" ? message.content[0].text : "";
-  return { text: responseText };
+  return {
+    text: responseText,
+    usage: {
+      promptTokens: message.usage?.input_tokens,
+      completionTokens: message.usage?.output_tokens,
+      totalTokens:
+        (message.usage?.input_tokens ?? 0) + (message.usage?.output_tokens ?? 0),
+    },
+  };
 }
 
 async function analyzeWithOpenAI(
@@ -150,7 +163,14 @@ async function analyzeWithOpenAI(
   });
 
   const responseText = response.choices[0]?.message?.content || "";
-  return { text: responseText };
+  return {
+    text: responseText,
+    usage: {
+      promptTokens: response.usage?.prompt_tokens,
+      completionTokens: response.usage?.completion_tokens,
+      totalTokens: response.usage?.total_tokens,
+    },
+  };
 }
 
 export interface TextAnalysisRequest {
@@ -174,7 +194,15 @@ async function textWithAnthropic(prompt: string, model: string, maxTokens: numbe
   });
 
   const responseText = message.content[0].type === "text" ? message.content[0].text : "";
-  return { text: responseText };
+  return {
+    text: responseText,
+    usage: {
+      promptTokens: message.usage?.input_tokens,
+      completionTokens: message.usage?.output_tokens,
+      totalTokens:
+        (message.usage?.input_tokens ?? 0) + (message.usage?.output_tokens ?? 0),
+    },
+  };
 }
 
 async function textWithOpenAI(prompt: string, model: string, maxTokens: number, temperature?: number): Promise<VisionAnalysisResponse> {
@@ -192,7 +220,14 @@ async function textWithOpenAI(prompt: string, model: string, maxTokens: number, 
   });
 
   const responseText = response.choices[0]?.message?.content || "";
-  return { text: responseText };
+  return {
+    text: responseText,
+    usage: {
+      promptTokens: response.usage?.prompt_tokens,
+      completionTokens: response.usage?.completion_tokens,
+      totalTokens: response.usage?.total_tokens,
+    },
+  };
 }
 
 export async function analyzeText(

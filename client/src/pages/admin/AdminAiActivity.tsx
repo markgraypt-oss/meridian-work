@@ -34,8 +34,8 @@ interface AiCallLogsResponse {
     estimatedCostUsd: number;
     avgLatencyMs: number;
     byOutcome: Record<string, number>;
-    byFeature: { feature: string; count: number; tokens: number }[];
-    byModel: { model: string; count: number; tokens: number }[];
+    byFeature: { feature: string; count: number; tokens: number; costUsd: number }[];
+    byModel: { model: string; count: number; tokens: number; costUsd: number }[];
     safetyFlagCount: number;
   };
 }
@@ -122,7 +122,7 @@ export default function AdminAiActivity() {
             </CardHeader>
             <CardContent>
               <p className="text-3xl font-bold">${(aggregates?.estimatedCostUsd ?? 0).toFixed(2)}</p>
-              <p className="text-xs text-muted-foreground mt-1">Based on average per-1K-token blended rate</p>
+              <p className="text-xs text-muted-foreground mt-1">Per-model input/output rates from public pricing</p>
             </CardContent>
           </Card>
           <Card data-testid="card-latency">
@@ -207,7 +207,7 @@ export default function AdminAiActivity() {
                 {aggregates.byFeature.slice(0, 10).map((f) => (
                   <div key={f.feature} className="flex items-center justify-between text-sm border-b pb-2 last:border-b-0" data-testid={`row-feature-${f.feature}`}>
                     <span className="font-medium">{f.feature}</span>
-                    <span className="text-muted-foreground">{f.count} calls · {f.tokens.toLocaleString()} tokens</span>
+                    <span className="text-muted-foreground">{f.count} calls · {f.tokens.toLocaleString()} tokens · ${f.costUsd.toFixed(4)}</span>
                   </div>
                 ))}
               </div>

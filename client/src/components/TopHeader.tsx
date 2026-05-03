@@ -4,6 +4,7 @@ import { User, ChevronLeft, Calendar, X, Flame } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { isSameDay, format } from "date-fns";
 import { useQuery } from "@tanstack/react-query";
+import NotificationsBell from "@/components/NotificationsBell";
 
 function getStreakStyle(streak: number): { color: string; showFlame: boolean; flameColor: string } {
   if (streak >= 500) {
@@ -132,6 +133,7 @@ export default function TopHeader({
           ) : null}
           
           <div className="flex items-center gap-2">
+            {showProfile && <NotificationsBell />}
             {showCalendarIcon && onTodayClick && (
               <Button
                 onClick={onTodayClick}

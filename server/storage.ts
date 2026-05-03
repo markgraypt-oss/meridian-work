@@ -332,6 +332,12 @@ import {
   notificationPreferences,
   type NotificationPreferences,
   type InsertNotificationPreferences,
+  notifications,
+  type Notification,
+  type InsertNotification,
+  pushSubscriptions,
+  type PushSubscription,
+  type InsertPushSubscription,
   coachConversations,
   type CoachConversation,
   recommendationEvents,
@@ -395,6 +401,17 @@ export interface IStorage {
   // Notification preferences operations
   getNotificationPreferences(userId: string): Promise<NotificationPreferences | undefined>;
   upsertNotificationPreferences(userId: string, data: Partial<InsertNotificationPreferences>): Promise<NotificationPreferences>;
+
+  // Notifications (in-app feed)
+  listUserNotifications(userId: string, opts?: { limit?: number; unreadOnly?: boolean }): Promise<Notification[]>;
+  countUnreadNotifications(userId: string): Promise<number>;
+  markNotificationRead(id: number, userId: string): Promise<void>;
+  markAllNotificationsRead(userId: string): Promise<void>;
+
+  // Push subscriptions
+  upsertPushSubscription(data: InsertPushSubscription): Promise<PushSubscription>;
+  deletePushSubscriptionByEndpoint(userId: string, endpoint: string): Promise<void>;
+  listPushSubscriptions(userId: string): Promise<PushSubscription[]>;
 
   // Exercise Library operations
   getExercises(filters?: {
@@ -1527,6 +1544,73 @@ export class DatabaseStorage implements IStorage {
         .returning();
       return created;
     }
+  }
+
+  // ----- In-app notifications feed -----
+  async listUserNotifications(
+    userId: string,
+    opts?: { limit?: number; unreadOnly?: boolean },
+  ): Promise<Notification[]> {
+    const limit = Math.min(Math.max(opts?.limit ?? 30, 1), 100);
+    const where = opts?.unreadOnly
+      ? and(eq(notifications.userId, userId), isNull(notifications.readAt))
+      : eq(notifications.userId, userId);
+    return await db
+      .select()
+      .from(notifications)
+      .where(where)
+      .orderBy(desc(notifications.createdAt))
+      .limit(limit);
+  }
+
+  async countUnreadNotifications(userId: string): Promise<number> {
+    const [row] = await db
+      .select({ c: sql<number>`count(*)` })
+      .from(notifications)
+      .where(and(eq(notifications.userId, userId), isNull(notifications.readAt)));
+    return Number(row?.c || 0);
+  }
+
+  async markNotificationRead(id: number, userId: string): Promise<void> {
+    await db
+      .update(notifications)
+      .set({ readAt: new Date() })
+      .where(and(eq(notifications.id, id), eq(notifications.userId, userId)));
+  }
+
+  async markAllNotificationsRead(userId: string): Promise<void> {
+    await db
+      .update(notifications)
+      .set({ readAt: new Date() })
+      .where(and(eq(notifications.userId, userId), isNull(notifications.readAt)));
+  }
+
+  // ----- Web push subscriptions -----
+  async upsertPushSubscription(data: InsertPushSubscription): Promise<PushSubscription> {
+    const [existing] = await db
+      .select()
+      .from(pushSubscriptions)
+      .where(eq(pushSubscriptions.endpoint, data.endpoint));
+    if (existing) {
+      const [updated] = await db
+        .update(pushSubscriptions)
+        .set({ userId: data.userId, p256dh: data.p256dh, auth: data.auth, userAgent: data.userAgent ?? existing.userAgent })
+        .where(eq(pushSubscriptions.id, existing.id))
+        .returning();
+      return updated;
+    }
+    const [created] = await db.insert(pushSubscriptions).values(data).returning();
+    return created;
+  }
+
+  async deletePushSubscriptionByEndpoint(userId: string, endpoint: string): Promise<void> {
+    await db
+      .delete(pushSubscriptions)
+      .where(and(eq(pushSubscriptions.userId, userId), eq(pushSubscriptions.endpoint, endpoint)));
+  }
+
+  async listPushSubscriptions(userId: string): Promise<PushSubscription[]> {
+    return await db.select().from(pushSubscriptions).where(eq(pushSubscriptions.userId, userId));
   }
 
   // Exercise Library operations
@@ -11049,6 +11133,26 @@ export class DatabaseStorage implements IStorage {
     if (existing) return null; // Already has badge
     
     const [result] = await db.insert(userBadges).values({ userId, badgeId }).returning();
+
+    // Fire a notification for the new badge. Dynamic import keeps the
+    // notify helper out of the module-init cycle (notifications.ts depends
+    // on storage). Failures here must never block badge awarding.
+    try {
+      const [b] = await db.select().from(badges).where(eq(badges.id, badgeId));
+      if (b) {
+        const { notify } = await import("./notifications");
+        notify({
+          userId,
+          category: "admin",
+          title: `Badge unlocked: ${b.name}`,
+          body: b.description || `You earned the ${b.name} badge.`,
+          data: { url: "/badges", badgeId },
+        }).catch(err => console.error("[awardBadge] notify failed:", err));
+      }
+    } catch (err) {
+      console.error("[awardBadge] notify dispatch error:", err);
+    }
+
     return result;
   }
 

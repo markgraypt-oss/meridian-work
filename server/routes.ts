@@ -5,6 +5,8 @@ import { storage } from "./storage";
 import { db } from "./db";
 import { setupAuth, isAuthenticated, generateResetToken, hashToken, sendUserInviteEmail } from "./replitAuth";
 import rateLimit, { ipKeyGenerator } from "express-rate-limit";
+import { registerNotificationRoutes } from "./notificationsRoutes";
+import { notify } from "./notifications";
 
 // Admin-only gate. Always pair with isAuthenticated. Looks up the calling
 // user from the session and rejects with 403 if they aren't an admin.
@@ -905,6 +907,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Auth middleware
   await setupAuth(app);
 
+  // ==========================================================================
+  // Notifications system: in-app feed, web-push subscribe/unsubscribe, test.
+  // The notify() helper is in server/notifications.ts and is also called from
+  // feature endpoints (badge award, daily check-in, welcome) below.
+  // ==========================================================================
+  registerNotificationRoutes(app);
+
   // Serve attached assets
   app.use(express.static(path.resolve(import.meta.dirname, "..", "attached_assets")));
   
@@ -1342,6 +1351,20 @@ export async function registerRoutes(app: Express): Promise<Server> {
         console.error("Error logging recommendation events:", recErr);
       }
 
+      // Surface that fresh recommendations are ready as a coach
+      // notification. Suppressed silently when the user has the coach
+      // category disabled (notify() respects per-category toggles).
+      const totalRecs = (recommendedPrograms?.length || 0) + (recommendedPath ? 1 : 0) + (recommendedHabits?.length || 0);
+      if (totalRecs > 0) {
+        notify({
+          userId,
+          category: 'coach',
+          title: 'Your personalised plan is ready',
+          body: `We picked ${totalRecs} recommendation${totalRecs === 1 ? '' : 's'} for you. Open onboarding to review and confirm.`,
+          data: { url: '/onboarding' },
+        }).catch(err => console.error('[recommendations.generated] notify failed:', err));
+      }
+
       res.json({
         programmes: recommendedPrograms,
         learningPaths: recommendedPath ? [recommendedPath] : [],
@@ -1374,6 +1397,25 @@ export async function registerRoutes(app: Express): Promise<Server> {
         completionPercent,
         enrollmentId,
       });
+      // Surface programme-level recommendation events to the user as a
+      // coach notification. Skipped events are silent (would be noisy).
+      if (eventType === 'enrolled') {
+        notify({
+          userId,
+          category: 'coach',
+          title: 'New programme recommendation accepted',
+          body: 'You enrolled in a recommended programme. Open it to see this week\'s sessions.',
+          data: { url: '/programs', programId },
+        }).catch(err => console.error('[recommendations.enrolled] notify failed:', err));
+      } else if (eventType === 'completed') {
+        notify({
+          userId,
+          category: 'coach',
+          title: 'Programme completed',
+          body: 'Great work — your recommended programme is complete. Check the next suggestion.',
+          data: { url: '/programs', programId },
+        }).catch(err => console.error('[recommendations.completed] notify failed:', err));
+      }
       res.json(event);
     } catch (error) {
       console.error("Error logging recommendation event:", error);
@@ -2465,7 +2507,14 @@ export async function registerRoutes(app: Express): Promise<Server> {
     quietHoursEnabled: z.boolean().optional(),
     quietHoursStart: z.string().regex(timeRegex, "Invalid time format").optional(),
     quietHoursEnd: z.string().regex(timeRegex, "Invalid time format").optional(),
-  });
+    // Daily cap + per-category × per-channel toggles (multi-channel system)
+    dailyCap: z.number().int().min(0).max(50).optional(),
+    inAppTraining: z.boolean().optional(), emailTraining: z.boolean().optional(), pushTraining: z.boolean().optional(),
+    inAppRecovery: z.boolean().optional(), emailRecovery: z.boolean().optional(), pushRecovery: z.boolean().optional(),
+    inAppNutrition: z.boolean().optional(), emailNutrition: z.boolean().optional(), pushNutrition: z.boolean().optional(),
+    inAppCoach: z.boolean().optional(), emailCoach: z.boolean().optional(), pushCoach: z.boolean().optional(),
+    inAppAdmin: z.boolean().optional(), emailAdmin: z.boolean().optional(), pushAdmin: z.boolean().optional(),
+  }).passthrough();
 
   app.patch('/api/user/notifications', isAuthenticated, async (req: any, res) => {
     try {
@@ -2496,6 +2545,28 @@ export async function registerRoutes(app: Express): Promise<Server> {
       if (data.quietHoursEnabled !== undefined) updates.quietHoursEnabled = data.quietHoursEnabled;
       if (data.quietHoursStart !== undefined) updates.quietHoursStart = data.quietHoursStart;
       if (data.quietHoursEnd !== undefined) updates.quietHoursEnd = data.quietHoursEnd;
+      // New multi-channel system fields. Listed explicitly so the type
+      // checker validates each access against the parsed schema.
+      const multiChannelData: Pick<typeof data,
+        | 'dailyCap'
+        | 'inAppTraining' | 'emailTraining' | 'pushTraining'
+        | 'inAppRecovery' | 'emailRecovery' | 'pushRecovery'
+        | 'inAppNutrition' | 'emailNutrition' | 'pushNutrition'
+        | 'inAppCoach' | 'emailCoach' | 'pushCoach'
+        | 'inAppAdmin' | 'emailAdmin' | 'pushAdmin'
+      > = data;
+      const passthroughKeys: (keyof typeof multiChannelData)[] = [
+        'dailyCap',
+        'inAppTraining', 'emailTraining', 'pushTraining',
+        'inAppRecovery', 'emailRecovery', 'pushRecovery',
+        'inAppNutrition', 'emailNutrition', 'pushNutrition',
+        'inAppCoach', 'emailCoach', 'pushCoach',
+        'inAppAdmin', 'emailAdmin', 'pushAdmin',
+      ];
+      for (const k of passthroughKeys) {
+        const v = multiChannelData[k];
+        if (v !== undefined) updates[k] = v;
+      }
       
       const prefs = await storage.upsertNotificationPreferences(userId, updates);
       res.json(prefs);
@@ -5103,6 +5174,14 @@ Return format: {"category": "strength|cardio|hiit|mobility|recovery", "difficult
         userId,
       });
       const checkIn = await storage.createCheckIn(checkInData);
+      // Coach acknowledgement notification on check-in completion.
+      notify({
+        userId,
+        category: "coach",
+        title: "Check-in saved",
+        body: "Thanks for checking in. Your coach will use this to tailor today's recommendations.",
+        data: { url: "/check-in" },
+      }).catch(err => console.error("[check-in] notify failed:", err));
       res.json(checkIn);
     } catch (error) {
       console.error("Error creating check-in:", error);
@@ -12716,6 +12795,15 @@ Keep your response concise, practical, and evidence-based. Do not use em dashes.
       storage.updateUserStreak(userId).catch(err => {
         console.error(`[STREAK] Background update failed, will recalculate on next fetch:`, err?.message);
       });
+
+      // Coach acknowledgement notification on check-in completion.
+      notify({
+        userId,
+        category: "coach",
+        title: "Check-in saved",
+        body: "Thanks for checking in. Your coach will use this to tailor today's recommendations.",
+        data: { url: "/check-in" },
+      }).catch(err => console.error("[check-in] notify failed:", err));
 
       // Auto-complete the "Complete Your Check-In" habit (templateId 31) if the user has it
       try {

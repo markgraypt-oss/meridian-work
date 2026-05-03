@@ -102,6 +102,27 @@ export const notificationPreferences = pgTable("notification_preferences", {
   quietHoursEnabled: boolean("quiet_hours_enabled").default(false),
   quietHoursStart: varchar("quiet_hours_start").default("22:00"),
   quietHoursEnd: varchar("quiet_hours_end").default("07:00"),
+  // Daily delivery cap (0 = unlimited). In-app deliveries are always written;
+  // the cap throttles email + push fan-out per user per day.
+  dailyCap: integer("daily_cap").default(8),
+  // Per-category × per-channel toggles for the notify() fan-out helper.
+  // Categories: training | recovery | nutrition | coach | admin.
+  // Channels: in-app | email | push.
+  inAppTraining: boolean("in_app_training").default(true),
+  inAppRecovery: boolean("in_app_recovery").default(true),
+  inAppNutrition: boolean("in_app_nutrition").default(true),
+  inAppCoach: boolean("in_app_coach").default(true),
+  inAppAdmin: boolean("in_app_admin").default(true),
+  emailTraining: boolean("email_training").default(false),
+  emailRecovery: boolean("email_recovery").default(false),
+  emailNutrition: boolean("email_nutrition").default(false),
+  emailCoach: boolean("email_coach").default(true),
+  emailAdmin: boolean("email_admin").default(true),
+  pushTraining: boolean("push_training").default(true),
+  pushRecovery: boolean("push_recovery").default(true),
+  pushNutrition: boolean("push_nutrition").default(false),
+  pushCoach: boolean("push_coach").default(true),
+  pushAdmin: boolean("push_admin").default(false),
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow(),
 });
@@ -2772,6 +2793,68 @@ export const mindfulnessTools = pgTable("mindfulness_tools", {
 export type MindfulnessTool = typeof mindfulnessTools.$inferSelect;
 export type InsertMindfulnessTool = typeof mindfulnessTools.$inferInsert;
 export const insertMindfulnessToolSchema = createInsertSchema(mindfulnessTools).omit({ id: true, createdAt: true, updatedAt: true });
+
+// ============================================================================
+// Notifications System (in-app + email + web push)
+// ============================================================================
+
+// Notification categories used across the platform.
+// Keep this list small and meaningful — each category maps to a user toggle.
+export const NOTIFICATION_CATEGORIES = [
+  "training",   // workout reminders, programme updates
+  "recovery",   // body map, recovery plan, breath/mindfulness
+  "nutrition",  // hydration, supplements, meal plan, weekly recap
+  "coach",      // AI coach proactive nudges, briefings, weekly check-in
+  "admin",      // account/system: welcome, security, badges
+] as const;
+
+export type NotificationCategory = typeof NOTIFICATION_CATEGORIES[number];
+
+// In-app notification rows. One row per delivered notification per user.
+export const notifications = pgTable("notifications", {
+  id: serial("id").primaryKey(),
+  userId: varchar("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+  category: text("category").notNull(), // NotificationCategory
+  title: text("title").notNull(),
+  body: text("body").notNull(),
+  // Optional structured payload (e.g. { route: '/training/main-programme' })
+  data: jsonb("data"),
+  // Per-channel delivery tracking
+  inAppDeliveredAt: timestamp("in_app_delivered_at").defaultNow(),
+  emailDeliveredAt: timestamp("email_delivered_at"),
+  pushDeliveredAt: timestamp("push_delivered_at"),
+  readAt: timestamp("read_at"),
+  createdAt: timestamp("created_at").defaultNow(),
+});
+
+export type Notification = typeof notifications.$inferSelect;
+export type InsertNotification = typeof notifications.$inferInsert;
+export const insertNotificationSchema = createInsertSchema(notifications).omit({
+  id: true,
+  createdAt: true,
+  inAppDeliveredAt: true,
+  emailDeliveredAt: true,
+  pushDeliveredAt: true,
+  readAt: true,
+});
+
+// Web push subscriptions. A user can have multiple (one per browser/device).
+export const pushSubscriptions = pgTable("push_subscriptions", {
+  id: serial("id").primaryKey(),
+  userId: varchar("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+  endpoint: text("endpoint").notNull().unique(),
+  p256dh: text("p256dh").notNull(),
+  auth: text("auth").notNull(),
+  userAgent: text("user_agent"),
+  createdAt: timestamp("created_at").defaultNow(),
+});
+
+export type PushSubscription = typeof pushSubscriptions.$inferSelect;
+export type InsertPushSubscription = typeof pushSubscriptions.$inferInsert;
+export const insertPushSubscriptionSchema = createInsertSchema(pushSubscriptions).omit({
+  id: true,
+  createdAt: true,
+});
 
 // Chat models for AI conversations
 export * from "./models/chat";

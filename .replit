@@ -45,3 +45,9 @@ integrations = ["javascript_log_in_with_replit:1.0.0", "javascript_anthropic_ai_
 [postMerge]
 path = "scripts/post-merge.sh"
 timeoutMs = 20000
+
+[userenv]
+
+[userenv.shared]
+VAPID_PUBLIC_KEY = "BDdy_Y4HGc2hB__0LD1qCiM52zq8wn0bIYE1POYWddcFV6fosmh6VKtkSZfGkE4Elkg9SD66pZYTi2oJqN1GSiI"
+VAPID_SUBJECT = "mailto:no-reply@meridian.work"

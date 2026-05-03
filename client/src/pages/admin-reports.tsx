@@ -11,7 +11,8 @@ import { Calendar } from "@/components/ui/calendar";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogFooter } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { TrendingUp, TrendingDown, Minus, AlertTriangle, Shield, Brain, Heart, Users, Activity, BarChart3, Calendar as CalendarIcon, ChevronRight, Download, CheckCircle2, AlertCircle, Info, Lightbulb, ShieldCheck, Sparkles, RefreshCw, FileText, Settings as SettingsIcon, Copy, Trophy, Flame } from "lucide-react";
+import { TrendingUp, TrendingDown, Minus, AlertTriangle, Shield, Brain, Heart, Users, Activity, BarChart3, Calendar as CalendarIcon, ChevronRight, Download, CheckCircle2, AlertCircle, Info, Lightbulb, ShieldCheck, Sparkles, RefreshCw, FileText, Settings as SettingsIcon, Copy, Trophy, Flame, ChevronDown, Flag } from "lucide-react";
+import { Textarea } from "@/components/ui/textarea";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { format, parse } from "date-fns";
 import { apiRequest, queryClient } from "@/lib/queryClient";
@@ -608,6 +609,10 @@ export default function AdminReports() {
   const [customEndDate, setCustomEndDate] = useState<string>("");
   const [customDateError, setCustomDateError] = useState<string>("");
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [provenanceOpen, setProvenanceOpen] = useState(false);
+  const [feedbackOpen, setFeedbackOpen] = useState(false);
+  const [feedbackCategory, setFeedbackCategory] = useState<string>("inaccurate");
+  const [feedbackComment, setFeedbackComment] = useState<string>("");
   const { toast } = useToast();
 
   const { data: companies = [], isLoading: companiesLoading } = useQuery<CompanySummary[]>({
@@ -636,6 +641,27 @@ export default function AdminReports() {
     },
     enabled: !!(user && selectedCompany && (timeWindow !== "custom" || isCustomValid)),
     staleTime: 60_000,
+  });
+
+  const submitFeedback = useMutation({
+    mutationFn: async () => {
+      if (!narrativeData) throw new Error("No narrative loaded");
+      const res = await apiRequest("POST", "/api/admin/reports/narrative/feedback", {
+        companyName: selectedCompany,
+        windowKey: narrativeData.windowKey,
+        snapshotHash: narrativeData.snapshotHash,
+        category: feedbackCategory,
+        comment: feedbackComment.trim() || undefined,
+      });
+      return res.json();
+    },
+    onSuccess: () => {
+      setFeedbackOpen(false);
+      setFeedbackComment("");
+      setFeedbackCategory("inaccurate");
+      toast({ title: "Feedback recorded", description: "Thanks — we'll review this output." });
+    },
+    onError: (err: any) => toast({ title: "Could not send feedback", description: err?.message || "Unknown error", variant: "destructive" }),
   });
 
   const regenerateNarrative = useMutation({
@@ -1081,6 +1107,16 @@ export default function AdminReports() {
                         <Button
                           variant="outline"
                           size="sm"
+                          onClick={() => setFeedbackOpen(true)}
+                          className="border-border text-muted-foreground hover:text-foreground"
+                          data-testid="button-report-narrative"
+                        >
+                          <Flag className="h-4 w-4 mr-2" />
+                          Report problem
+                        </Button>
+                        <Button
+                          variant="outline"
+                          size="sm"
                           onClick={async () => {
                             const md = narrativeToMarkdown(report.companyName, report.window, narrativeData.narrative!, narrativeData.createdAt);
                             try {
@@ -1198,13 +1234,97 @@ export default function AdminReports() {
                         Caveats: {narrativeData.narrative.caveats.join(" · ")}
                       </div>
                     )}
-                    {narrativeData.createdAt && (
-                      <p className="text-xs text-muted-foreground/60">Generated {new Date(narrativeData.createdAt).toLocaleString()} · cohort {narrativeData.cohortSize}</p>
-                    )}
+                    <div className="border-t border-border/50 pt-2 mt-2">
+                      <button
+                        type="button"
+                        onClick={() => setProvenanceOpen((v) => !v)}
+                        className="flex items-center gap-1.5 text-xs text-muted-foreground/70 hover:text-muted-foreground"
+                        data-testid="button-toggle-provenance"
+                      >
+                        <ChevronDown className={`h-3 w-3 transition-transform ${provenanceOpen ? "rotate-180" : ""}`} />
+                        {narrativeData.createdAt ? `Generated ${new Date(narrativeData.createdAt).toLocaleString()} · cohort ${narrativeData.cohortSize}` : `cohort ${narrativeData.cohortSize}`}
+                        {narrativeData.validationOutcome === "repaired" && (
+                          <span className="ml-1 px-1.5 py-0.5 rounded-full bg-amber-500/15 text-amber-300 border border-amber-500/30">repaired</span>
+                        )}
+                        {narrativeData.safetyFlags && narrativeData.safetyFlags.length > 0 && (
+                          <span className="ml-1 px-1.5 py-0.5 rounded-full bg-red-500/15 text-red-300 border border-red-500/30 inline-flex items-center gap-1">
+                            <ShieldCheck className="h-3 w-3" />
+                            {narrativeData.safetyFlags.length} safety {narrativeData.safetyFlags.length === 1 ? "flag" : "flags"}
+                          </span>
+                        )}
+                      </button>
+                      {provenanceOpen && (
+                        <div className="mt-2 grid grid-cols-2 sm:grid-cols-3 gap-x-4 gap-y-1 text-xs text-muted-foreground/80" data-testid="panel-provenance">
+                          <div><span className="text-muted-foreground/60">Provider:</span> <span className="text-foreground/80">{narrativeData.provider || "—"}</span></div>
+                          <div><span className="text-muted-foreground/60">Model:</span> <span className="text-foreground/80">{narrativeData.model || "—"}</span></div>
+                          <div><span className="text-muted-foreground/60">Validation:</span> <span className="text-foreground/80">{narrativeData.validationOutcome || (narrativeData.cached ? "cached" : "—")}</span></div>
+                          <div><span className="text-muted-foreground/60">Source:</span> <span className="text-foreground/80">{narrativeData.cached ? "cache hit" : "fresh generation"}</span></div>
+                          <div className="col-span-2 break-all"><span className="text-muted-foreground/60">Snapshot:</span> <span className="font-mono text-foreground/80">{narrativeData.snapshotHash}</span></div>
+                          {narrativeData.safetyFlags && narrativeData.safetyFlags.length > 0 && (
+                            <div className="col-span-full"><span className="text-muted-foreground/60">Safety flags:</span> <span className="text-red-300">{narrativeData.safetyFlags.join(", ")}</span></div>
+                          )}
+                        </div>
+                      )}
+                    </div>
                   </div>
                 )}
               </CardContent>
             </Card>
+
+            <Dialog open={feedbackOpen} onOpenChange={setFeedbackOpen}>
+              <DialogContent className="bg-card border-border max-w-md">
+                <DialogHeader>
+                  <DialogTitle className="text-foreground flex items-center gap-2">
+                    <Flag className="h-4 w-4 text-amber-400" />
+                    Report a problem with this summary
+                  </DialogTitle>
+                </DialogHeader>
+                <div className="space-y-3">
+                  <div>
+                    <Label className="text-muted-foreground text-xs">Issue type</Label>
+                    <Select value={feedbackCategory} onValueChange={setFeedbackCategory}>
+                      <SelectTrigger className="bg-background border-border text-foreground" data-testid="select-feedback-category">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent className="bg-card border-border">
+                        <SelectItem value="inaccurate" className="text-foreground">Inaccurate or misleading</SelectItem>
+                        <SelectItem value="unsafe" className="text-foreground">Unsafe / medical claim</SelectItem>
+                        <SelectItem value="off_topic" className="text-foreground">Off topic</SelectItem>
+                        <SelectItem value="tone" className="text-foreground">Wrong tone</SelectItem>
+                        <SelectItem value="other" className="text-foreground">Other</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <div>
+                    <Label className="text-muted-foreground text-xs">Comment (optional)</Label>
+                    <Textarea
+                      value={feedbackComment}
+                      onChange={(e) => setFeedbackComment(e.target.value)}
+                      placeholder="What's wrong with this summary?"
+                      className="bg-background border-border text-foreground min-h-[100px]"
+                      maxLength={2000}
+                      data-testid="textarea-feedback-comment"
+                    />
+                  </div>
+                  {narrativeData?.snapshotHash && (
+                    <p className="text-xs text-muted-foreground/70">
+                      Linked to snapshot <span className="font-mono">{narrativeData.snapshotHash}</span> · {narrativeData.provider || "?"}/{narrativeData.model || "?"}
+                    </p>
+                  )}
+                </div>
+                <DialogFooter>
+                  <Button variant="outline" onClick={() => setFeedbackOpen(false)} className="border-border text-muted-foreground">Cancel</Button>
+                  <Button
+                    onClick={() => submitFeedback.mutate()}
+                    disabled={submitFeedback.isPending}
+                    className="bg-[#0cc9a9] hover:bg-[#0cc9a9]/80 text-black"
+                    data-testid="button-submit-feedback"
+                  >
+                    {submitFeedback.isPending ? "Sending…" : "Send feedback"}
+                  </Button>
+                </DialogFooter>
+              </DialogContent>
+            </Dialog>
 
             <Card className="bg-card border-border">
               <CardHeader className="pb-3">

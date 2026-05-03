@@ -31,6 +31,8 @@ export interface AiCallResult<T> {
   tokens: { prompt?: number; completion?: number; total?: number };
   promptHash: string;
   logId?: number;
+  provider?: string;
+  model?: string;
   error?: string;
 }
 
@@ -314,6 +316,8 @@ export async function aiCall<T = unknown>(params: AiCallParams<T>): Promise<AiCa
     tokens: { prompt: promptTokens, completion: completionTokens, total: totalTokens },
     promptHash,
     logId,
+    provider: config.provider,
+    model: config.model,
     error: errorMessage,
   };
 }

@@ -17116,6 +17116,56 @@ Format your response as JSON with this exact structure:
     }
   });
 
+  app.post('/api/admin/reports/narrative/feedback', isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = req.user.claims.sub;
+      const currentUser = await storage.getUser(userId);
+      if (!currentUser?.isAdmin) return res.status(403).json({ message: "Admin access required" });
+
+      const { reportNarratives, reportNarrativeFeedback } = await import("@shared/schema");
+      const feedbackSchema = z.object({
+        companyName: z.string().min(1),
+        windowKey: z.string().min(1),
+        snapshotHash: z.string().min(1),
+        category: z.enum(["inaccurate", "unsafe", "off_topic", "tone", "other"]),
+        comment: z.string().max(2000).optional(),
+      });
+      const parsed = feedbackSchema.parse(req.body);
+
+      const [existing] = await db
+        .select()
+        .from(reportNarratives)
+        .where(and(
+          eq(reportNarratives.companyName, parsed.companyName),
+          eq(reportNarratives.windowKey, parsed.windowKey),
+          eq(reportNarratives.snapshotHash, parsed.snapshotHash),
+        ))
+        .limit(1);
+
+      const [row] = await db
+        .insert(reportNarrativeFeedback)
+        .values({
+          narrativeId: existing?.id ?? null,
+          companyName: parsed.companyName,
+          windowKey: parsed.windowKey,
+          snapshotHash: parsed.snapshotHash,
+          reportedByUserId: userId,
+          category: parsed.category,
+          comment: parsed.comment ?? null,
+          provider: existing?.provider ?? null,
+          model: existing?.model ?? null,
+          validationOutcome: existing?.validationOutcome ?? null,
+          safetyFlags: existing?.safetyFlags ?? null,
+        })
+        .returning();
+      res.json({ ok: true, feedback: row });
+    } catch (error: any) {
+      if (error?.issues) return res.status(400).json({ message: "Invalid feedback", issues: error.issues });
+      console.error("Error recording narrative feedback:", error);
+      res.status(500).json({ message: "Failed to record feedback" });
+    }
+  });
+
   app.post('/api/admin/reports/company/:companyName/narrative', isAuthenticated, async (req: any, res) => {
     try {
       const userId = req.user.claims.sub;

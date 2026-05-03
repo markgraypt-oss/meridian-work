@@ -178,6 +178,8 @@ export async function getCachedExecutiveSummary(report: CompanyReport, customSta
     cohortSize: cached.cohortSize,
     provider: cached.provider,
     model: cached.model,
+    validationOutcome: cached.validationOutcome ?? undefined,
+    safetyFlags: cached.safetyFlags ?? undefined,
     createdAt: cached.createdAt,
   };
 }
@@ -247,8 +249,10 @@ export async function generateExecutiveSummary(
         windowKey,
         snapshotHash,
         narrative: result.data,
-        provider: null,
-        model: null,
+        provider: result.provider ?? null,
+        model: result.model ?? null,
+        validationOutcome: result.validationOutcome ?? null,
+        safetyFlags: result.safetyFlags && result.safetyFlags.length ? result.safetyFlags : null,
         cohortSize,
         suppressed: false,
       })
@@ -256,6 +260,10 @@ export async function generateExecutiveSummary(
         target: [reportNarratives.companyName, reportNarratives.windowKey, reportNarratives.snapshotHash],
         set: {
           narrative: result.data,
+          provider: result.provider ?? null,
+          model: result.model ?? null,
+          validationOutcome: result.validationOutcome ?? null,
+          safetyFlags: result.safetyFlags && result.safetyFlags.length ? result.safetyFlags : null,
           cohortSize,
           suppressed: false,
           createdAt: new Date(),
@@ -272,6 +280,8 @@ export async function generateExecutiveSummary(
     snapshotHash,
     windowKey,
     cohortSize,
+    provider: result.provider ?? null,
+    model: result.model ?? null,
     validationOutcome: result.validationOutcome,
     safetyFlags: result.safetyFlags,
     createdAt: new Date(),

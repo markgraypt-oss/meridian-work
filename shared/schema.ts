@@ -3018,6 +3018,8 @@ export const reportNarratives = pgTable("report_narratives", {
   narrative: jsonb("narrative").notNull(),
   provider: varchar("provider"),
   model: varchar("model"),
+  validationOutcome: varchar("validation_outcome"), // 'valid' | 'repaired' | 'invalid' | etc.
+  safetyFlags: text("safety_flags").array(),
   cohortSize: integer("cohort_size").notNull(),
   suppressed: boolean("suppressed").notNull().default(false),
   createdAt: timestamp("created_at").defaultNow(),
@@ -3028,6 +3030,43 @@ export const reportNarratives = pgTable("report_narratives", {
 
 export type ReportNarrative = typeof reportNarratives.$inferSelect;
 export type InsertReportNarrative = typeof reportNarratives.$inferInsert;
+
+// Admin feedback on AI-generated narratives. Linked to the snapshot hash so we
+// can reproduce the exact aggregate inputs that produced the flagged output.
+export const reportNarrativeFeedback = pgTable("report_narrative_feedback", {
+  id: serial("id").primaryKey(),
+  narrativeId: integer("narrative_id").references(() => reportNarratives.id, { onDelete: "set null" }),
+  companyName: varchar("company_name").notNull(),
+  windowKey: varchar("window_key").notNull(),
+  snapshotHash: varchar("snapshot_hash").notNull(),
+  reportedByUserId: varchar("reported_by_user_id").references(() => users.id, { onDelete: "set null" }),
+  category: varchar("category").notNull(), // 'inaccurate' | 'unsafe' | 'off_topic' | 'tone' | 'other'
+  comment: text("comment"),
+  provider: varchar("provider"),
+  model: varchar("model"),
+  validationOutcome: varchar("validation_outcome"),
+  safetyFlags: text("safety_flags").array(),
+  status: varchar("status").notNull().default("open"), // 'open' | 'reviewed' | 'resolved'
+  createdAt: timestamp("created_at").defaultNow(),
+}, (table) => [
+  index("idx_narrative_feedback_company").on(table.companyName),
+  index("idx_narrative_feedback_snapshot").on(table.snapshotHash),
+  index("idx_narrative_feedback_status").on(table.status),
+]);
+
+export type ReportNarrativeFeedback = typeof reportNarrativeFeedback.$inferSelect;
+export type InsertReportNarrativeFeedback = typeof reportNarrativeFeedback.$inferInsert;
+export const insertReportNarrativeFeedbackSchema = createInsertSchema(reportNarrativeFeedback).omit({
+  id: true,
+  createdAt: true,
+  status: true,
+  reportedByUserId: true,
+  provider: true,
+  model: true,
+  validationOutcome: true,
+  safetyFlags: true,
+  narrativeId: true,
+});
 
 // ============================================
 // MEDITATIONS CATALOG

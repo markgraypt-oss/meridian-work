@@ -15,9 +15,11 @@ import {
   runEngagementMigration,
   invalidateEngagementConfigCache,
   getEngagementConfig,
+  getWeekStart,
 } from "./engagementEngine";
 import {
   engagementConfig as engagementConfigTable,
+  weeklyCheckins,
 } from "@shared/schema";
 
 // Admin-only gate. Always pair with isAuthenticated. Looks up the calling
@@ -19158,6 +19160,46 @@ RULES:
           Array.from(accepted),
           Array.from(dismissed),
         );
+
+        // Award weekly_checkin points on the first acceptance for the CURRENT
+        // ISO week's check-in. Accepting suggestions on a historical check-in
+        // does not award (would let users farm by reopening old weeks).
+        // Atomic dedupe: conditional UPDATE on weekly_checkins.points_awarded_at
+        // (NULL -> NOW) using RETURNING. Concurrent requests are serialized by
+        // the row lock; only the first claimant gets a returned row and awards
+        // points. Combined with the (user_id, week_start) UNIQUE constraint on
+        // weekly_checkins, this guarantees exactly-once-per-ISO-week awarding.
+        if (action === "accept") {
+          try {
+            const currentWeek = getWeekStart();
+            const rowWeekStart = row.weekStart instanceof Date
+              ? row.weekStart.toISOString().split("T")[0]
+              : String(row.weekStart).split("T")[0];
+            if (rowWeekStart === currentWeek) {
+              const claimed = await db
+                .update(weeklyCheckins)
+                .set({ pointsAwardedAt: new Date() })
+                .where(and(
+                  eq(weeklyCheckins.id, id),
+                  isNull(weeklyCheckins.pointsAwardedAt),
+                ))
+                .returning({ id: weeklyCheckins.id });
+              if (claimed.length > 0) {
+                recordEngagementActivity(userId, "weekly_checkin", {
+                  weeklyCheckinId: id,
+                  weekStart: currentWeek,
+                  triggeredBy: "suggestion_accept",
+                  suggestionId,
+                }).catch(err =>
+                  console.error("[ENGAGEMENT] weekly_checkin award failed:", err?.message)
+                );
+              }
+            }
+          } catch (err: any) {
+            console.error("[ENGAGEMENT] weekly_checkin dedupe failed:", err?.message);
+          }
+        }
+
         res.json(updated);
       } catch (error: any) {
         console.error("Error updating weekly check-in suggestion:", error?.message);

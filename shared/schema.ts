@@ -2662,6 +2662,7 @@ export const weeklyCheckins = pgTable("weekly_checkins", {
   payload: jsonb("payload").notNull(), // { summary: { wins, concerns, trajectory }, suggestions: [...], metrics: {...} }
   acceptedSuggestions: text("accepted_suggestions").array().notNull().default(sql`ARRAY[]::text[]`),
   dismissedSuggestions: text("dismissed_suggestions").array().notNull().default(sql`ARRAY[]::text[]`),
+  pointsAwardedAt: timestamp("points_awarded_at"),
   generatedAt: timestamp("generated_at").defaultNow().notNull(),
 }, (t) => ({
   userWeekUnique: sql`UNIQUE (${t.userId}, ${t.weekStart})`,

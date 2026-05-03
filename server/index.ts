@@ -130,6 +130,11 @@ app.use((req, res, next) => {
     seedMeditationsOnce().catch((e) => {
       console.error("[startup-migration] meditations failed:", e);
     });
+    import("./aiGeneratorMigration").then(({ runAiGeneratorMigrationOnce }) => {
+      runAiGeneratorMigrationOnce().catch((e) => {
+        console.error("[startup-migration] ai-generator failed:", e);
+      });
+    }).catch((e) => console.error("[startup-migration] ai-generator import failed:", e));
     // Start wearables sync scheduler
     import("./wearables/scheduler").then(({ startWearableScheduler }) => {
       startWearableScheduler();

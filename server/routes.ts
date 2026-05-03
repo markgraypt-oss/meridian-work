@@ -7607,6 +7607,178 @@ Return format: {"category": "strength|cardio|hiit|mobility|recovery", "difficult
     }
   });
 
+  // ==========================================================================
+  // AI Programme & Workout Generator (Task #6)
+  // - POST /api/ai/programmes/generate  (admin)  → preview JSON, no DB write
+  // - POST /api/ai/programmes/save      (admin)  → persists programme + audit
+  // - POST /api/ai/workouts/generate    (any user) → preview workout JSON
+  // - POST /api/ai/workouts/save        (any user) → persists personal workout
+  // ==========================================================================
+  app.post('/api/ai/programmes/generate', isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = req.user.claims.sub;
+      const requester = await storage.getUser(userId);
+      if (!requester?.isAdmin) {
+        return res.status(403).json({ message: "Admin only" });
+      }
+      const { generateProgrammeWithAI } = await import('./ai/programmeGenerator');
+      const contraindications: string[] = Array.isArray(req.body.contraindications)
+        ? req.body.contraindications.map((s: any) => String(s)).filter(Boolean)
+        : [];
+      const avoidExerciseIds: number[] = Array.isArray(req.body.avoidExerciseIds)
+        ? req.body.avoidExerciseIds.map((n: any) => parseInt(n, 10)).filter((n: number) => Number.isFinite(n))
+        : [];
+      const inputs = {
+        goal: String(req.body.goal || 'general_strength'),
+        equipment: String(req.body.equipment || 'full_gym'),
+        weeks: Math.max(1, Math.min(8, parseInt(req.body.weeks ?? '4', 10) || 4)),
+        daysPerWeek: Math.max(1, Math.min(7, parseInt(req.body.daysPerWeek ?? '3', 10) || 3)),
+        sessionDuration: Math.max(10, Math.min(180, parseInt(req.body.sessionDuration ?? '45', 10) || 45)),
+        difficulty: String(req.body.difficulty || 'beginner'),
+        audience: req.body.audience ? String(req.body.audience) : undefined,
+        notes: req.body.notes ? String(req.body.notes) : undefined,
+        programmeType: req.body.programmeType ? String(req.body.programmeType) : 'main',
+        targetUserId: req.body.targetUserId ? String(req.body.targetUserId) : null,
+        contraindications,
+        avoidExerciseIds,
+      };
+      const result = await generateProgrammeWithAI(inputs, userId);
+      if (!result.ok) {
+        return res.status(502).json({ message: result.error, validationOutcome: result.validationOutcome, logId: result.logId });
+      }
+      res.json({ inputs, data: result.data, logId: result.logId, safetyFlags: result.safetyFlags, validationOutcome: result.validationOutcome });
+    } catch (error: any) {
+      console.error("[ai/programmes/generate] error:", error);
+      res.status(500).json({ message: "Failed to generate programme", error: error?.message });
+    }
+  });
+
+  app.post('/api/ai/programmes/save', isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = req.user.claims.sub;
+      const requester = await storage.getUser(userId);
+      if (!requester?.isAdmin) {
+        return res.status(403).json({ message: "Admin only" });
+      }
+      const { generatedProgrammeSchema, saveGeneratedProgramme } = await import('./ai/programmeGenerator');
+      const data = generatedProgrammeSchema.parse(req.body.data);
+      const inputs = req.body.inputs || {};
+      const program = await saveGeneratedProgramme({
+        inputs,
+        data,
+        userId,
+        isAdmin: true,
+        aiCallLogId: req.body.logId ? Number(req.body.logId) : undefined,
+        imageUrl: req.body.imageUrl || null,
+      });
+      res.status(201).json(program);
+    } catch (error: any) {
+      if (error?.name === 'ZodError') {
+        return res.status(400).json({ message: "Invalid generated programme payload", errors: error.errors });
+      }
+      console.error("[ai/programmes/save] error:", error);
+      res.status(500).json({ message: "Failed to save generated programme", error: error?.message });
+    }
+  });
+
+  app.post('/api/ai/workouts/generate', isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = req.user.claims.sub;
+      const { generateWorkoutWithAI } = await import('./ai/programmeGenerator');
+
+      // Pull current burnout score and active body-map issues so the model
+      // can adapt today's session. Both are best-effort: we never block the
+      // generator if either lookup fails.
+      let burnoutScore: number | undefined;
+      try {
+        const bs = await storage.getBurnoutScore(userId);
+        if (bs && typeof bs.score === 'number') burnoutScore = bs.score;
+      } catch (e: any) {
+        console.warn("[ai/workouts/generate] burnout lookup failed:", e?.message);
+      }
+      let bodyMap: Array<{ bodyPart: string; severity: number }> = [];
+      try {
+        const logs = await storage.getBodyMapLogs(userId);
+        bodyMap = (logs || [])
+          .filter(l => typeof l.severity === 'number' && l.severity >= 3)
+          .slice(0, 10)
+          .map(l => ({ bodyPart: l.bodyPart, severity: l.severity }));
+      } catch (e: any) {
+        console.warn("[ai/workouts/generate] body-map lookup failed:", e?.message);
+      }
+
+      const contraindications: string[] = Array.isArray(req.body.contraindications)
+        ? req.body.contraindications.map((s: any) => String(s)).filter(Boolean)
+        : [];
+      const avoidExerciseIds: number[] = Array.isArray(req.body.avoidExerciseIds)
+        ? req.body.avoidExerciseIds.map((n: any) => parseInt(n, 10)).filter((n: number) => Number.isFinite(n))
+        : [];
+
+      // Pull current programme context (active enrollment + today's planned
+      // workout) so the AI session complements rather than duplicates it.
+      let programmeContext: any | undefined;
+      try {
+        const today = await storage.getTodayWorkout(userId);
+        if (today) {
+          programmeContext = {
+            programName: today.programName || today.programTitle,
+            goal: today.programGoal,
+            currentWeek: today.week,
+            currentDay: today.day,
+            todayPlannedWorkout: today.workoutName || today.name || null,
+          };
+        }
+      } catch (e: any) {
+        console.warn("[ai/workouts/generate] programme context lookup failed:", e?.message);
+      }
+
+      const inputs = {
+        goal: req.body.goal ? String(req.body.goal) : undefined,
+        equipment: req.body.equipment ? String(req.body.equipment) : undefined,
+        duration: Math.max(5, Math.min(180, parseInt(req.body.duration ?? '30', 10) || 30)),
+        difficulty: String(req.body.difficulty || 'beginner'),
+        focus: req.body.focus ? String(req.body.focus) : undefined,
+        notes: req.body.notes ? String(req.body.notes) : undefined,
+        contraindications,
+        avoidExerciseIds,
+        burnoutScore,
+        bodyMap,
+        programmeContext,
+      };
+      const result = await generateWorkoutWithAI(inputs, userId);
+      if (!result.ok) {
+        return res.status(502).json({ message: result.error, validationOutcome: result.validationOutcome, logId: result.logId });
+      }
+      res.json({ inputs, data: result.data, logId: result.logId, safetyFlags: result.safetyFlags, validationOutcome: result.validationOutcome });
+    } catch (error: any) {
+      console.error("[ai/workouts/generate] error:", error);
+      res.status(500).json({ message: "Failed to generate workout", error: error?.message });
+    }
+  });
+
+  app.post('/api/ai/workouts/save', isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = req.user.claims.sub;
+      const { generatedWorkoutSchema, saveGeneratedWorkout } = await import('./ai/programmeGenerator');
+      const data = generatedWorkoutSchema.parse(req.body.data);
+      const inputs = req.body.inputs || { duration: data.duration, difficulty: data.difficulty };
+      const workout = await saveGeneratedWorkout({
+        inputs,
+        data,
+        userId,
+        aiCallLogId: req.body.logId ? Number(req.body.logId) : undefined,
+        scheduleForToday: req.body.scheduleForToday !== false,
+      });
+      res.status(201).json(workout);
+    } catch (error: any) {
+      if (error?.name === 'ZodError') {
+        return res.status(400).json({ message: "Invalid generated workout payload", errors: error.errors });
+      }
+      console.error("[ai/workouts/save] error:", error);
+      res.status(500).json({ message: "Failed to save generated workout", error: error?.message });
+    }
+  });
+
   // Admin routes - Programs
   app.post('/api/programs', isAuthenticated, async (req: any, res) => {
     try {

@@ -19,6 +19,7 @@ import { isUnauthorizedError } from "@/lib/authUtils";
 import { useToast } from "@/hooks/use-toast";
 import type { Video, Recipe, ExerciseLibraryItem, Workout } from "@shared/schema";
 import { ExerciseManager } from "@/components/admin/ExerciseManager";
+import AiProgrammeWizard from "@/components/admin/AiProgrammeWizard";
 import { MAIN_MUSCLE_OPTIONS, EQUIPMENT_OPTIONS, MOVEMENT_PATTERN_OPTIONS, MOVEMENT_TYPE_OPTIONS, MECHANICS_OPTIONS, LEVEL_OPTIONS } from "@/components/admin/exerciseFilterConstants";
 import AdminMindfulnessTab from "@/pages/admin/AdminMindfulnessTools";
 
@@ -55,6 +56,8 @@ export default function AdminPanel() {
   const urlParams = new URLSearchParams(window.location.search);
   const tabFromUrl = urlParams.get('tab');
   const [activeTab, setActiveTab] = useState(tabFromUrl || "overview");
+  const [aiWizardOpen, setAiWizardOpen] = useState(false);
+  const [aiWizardType, setAiWizardType] = useState<"main" | "stretching" | "corrective">("main");
   
   // Update tab when URL changes
   useEffect(() => {
@@ -1600,10 +1603,16 @@ export default function AdminPanel() {
         <TabsContent value="programs" className="space-y-6">
           <div className="flex justify-between items-center">
             <h2 className="text-2xl font-bold">Training Programmes</h2>
-            <Button onClick={() => navigate('/admin/programmes/new')}>
-              <Plus className="h-4 w-4 mr-2" />
-              Add Programme
-            </Button>
+            <div className="flex gap-2">
+              <Button variant="outline" onClick={() => { setAiWizardType('main'); setAiWizardOpen(true); }} data-testid="button-generate-programme-ai">
+                <Sparkles className="h-4 w-4 mr-2" />
+                Generate with AI
+              </Button>
+              <Button onClick={() => navigate('/admin/programmes/new')}>
+                <Plus className="h-4 w-4 mr-2" />
+                Add Programme
+              </Button>
+            </div>
           </div>
 
           {/* Search and Filter Bar */}
@@ -2537,7 +2546,10 @@ export default function AdminPanel() {
 
             {stretchingSubTab === "programmes" && (
               <div className="space-y-4">
-                <div className="flex justify-end">
+                <div className="flex justify-end gap-2">
+                  <Button variant="outline" onClick={() => { setAiWizardType('stretching'); setAiWizardOpen(true); }} data-testid="button-generate-stretching-ai">
+                    <Sparkles className="h-4 w-4 mr-2" />Generate with AI
+                  </Button>
                   <Button onClick={() => navigate('/admin/programmes/new?programmeType=stretching')}>
                     <Plus className="h-4 w-4 mr-2" />Add Programme
                   </Button>
@@ -2745,7 +2757,10 @@ export default function AdminPanel() {
 
             {correctiveSubTab === "programmes" && (
               <div className="space-y-4">
-                <div className="flex justify-end">
+                <div className="flex justify-end gap-2">
+                  <Button variant="outline" onClick={() => { setAiWizardType('corrective'); setAiWizardOpen(true); }} data-testid="button-generate-corrective-ai">
+                    <Sparkles className="h-4 w-4 mr-2" />Generate with AI
+                  </Button>
                   <Button onClick={() => navigate('/admin/programmes/new?programmeType=corrective')}>
                     <Plus className="h-4 w-4 mr-2" />Add Programme
                   </Button>
@@ -3728,6 +3743,7 @@ export default function AdminPanel() {
           </Card>
         </div>
       )}
+      <AiProgrammeWizard open={aiWizardOpen} onOpenChange={setAiWizardOpen} defaultProgrammeType={aiWizardType} />
     </div>
   );
 }

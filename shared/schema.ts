@@ -2512,6 +2512,7 @@ export const badges = pgTable("badges", {
   tier: text("tier").notNull().default("bronze"), // 'bronze', 'silver', 'gold', 'platinum'
   icon: text("icon").notNull(), // Emoji or icon identifier
   requirement: text("requirement").notNull(), // JSON string with criteria e.g. {"type": "count", "target": 10, "metric": "workouts"}
+  collection: varchar("collection").notNull().default("current"), // 'current' (active gamified set) or 'legacy' (pre-engagement-foundation)
   sortOrder: integer("sort_order").default(0),
   isActive: boolean("is_active").default(true),
   createdAt: timestamp("created_at").defaultNow(),
@@ -3106,6 +3107,66 @@ export const programGenerations = pgTable("program_generations", {
 
 export type ProgramGeneration = typeof programGenerations.$inferSelect;
 export type InsertProgramGeneration = typeof programGenerations.$inferInsert;
+
+// =============================================
+// ENGAGEMENT FOUNDATION (Points/XP, Streaks, Levels)
+// =============================================
+
+// Tunables (point values, level thresholds, streak tracks). Edited via admin UI / seeded by code.
+export const engagementConfig = pgTable("engagement_config", {
+  key: varchar("key").primaryKey(),
+  value: jsonb("value").notNull(),
+  description: text("description"),
+  updatedAt: timestamp("updated_at").defaultNow(),
+});
+export type EngagementConfig = typeof engagementConfig.$inferSelect;
+export type InsertEngagementConfig = typeof engagementConfig.$inferInsert;
+
+// Per-user totals + level. One row per user.
+export const userPoints = pgTable("user_points", {
+  userId: varchar("user_id").primaryKey().references(() => users.id, { onDelete: "cascade" }),
+  totalPoints: integer("total_points").notNull().default(0),
+  weekPoints: integer("week_points").notNull().default(0),
+  weekStart: varchar("week_start"), // YYYY-MM-DD (Monday)
+  level: integer("level").notNull().default(1),
+  levelName: varchar("level_name").notNull().default("Explorer"),
+  updatedAt: timestamp("updated_at").defaultNow(),
+});
+export type UserPoints = typeof userPoints.$inferSelect;
+export type InsertUserPoints = typeof userPoints.$inferInsert;
+
+// Append-only ledger of every points award.
+export const pointsTransactions = pgTable("points_transactions", {
+  id: serial("id").primaryKey(),
+  userId: varchar("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+  activityType: varchar("activity_type").notNull(), // 'daily_checkin', 'workout', 'meal_photo', 'meditation', etc.
+  basePoints: integer("base_points").notNull(),
+  multiplier: real("multiplier").notNull().default(1),
+  awardedPoints: integer("awarded_points").notNull(),
+  cappedReason: varchar("capped_reason"), // null | 'daily_cap' | 'weekly_soft_cap_500' | 'weekly_soft_cap_1000' | 'workout_3rd' | 'workout_4th_plus'
+  metadata: jsonb("metadata"),
+  createdAt: timestamp("created_at").defaultNow(),
+}, (t) => [
+  index("idx_points_tx_user_date").on(t.userId, t.createdAt),
+]);
+export type PointsTransaction = typeof pointsTransactions.$inferSelect;
+export type InsertPointsTransaction = typeof pointsTransactions.$inferInsert;
+
+// Per-user, per-track streaks (Check-in, Movement, Recovery, Nutrition).
+export const userTrackStreaks = pgTable("user_track_streaks", {
+  id: serial("id").primaryKey(),
+  userId: varchar("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+  track: varchar("track").notNull(), // 'checkin' | 'movement' | 'recovery' | 'nutrition'
+  currentStreak: integer("current_streak").notNull().default(0),
+  longestStreak: integer("longest_streak").notNull().default(0),
+  lastActivityDate: varchar("last_activity_date"), // YYYY-MM-DD
+  freezesAvailable: integer("freezes_available").notNull().default(0),
+  updatedAt: timestamp("updated_at").defaultNow(),
+}, (t) => [
+  uniqueIndex("idx_user_track_streak_unique").on(t.userId, t.track),
+]);
+export type UserTrackStreak = typeof userTrackStreaks.$inferSelect;
+export type InsertUserTrackStreak = typeof userTrackStreaks.$inferInsert;
 
 // Chat models for AI conversations
 export * from "./models/chat";

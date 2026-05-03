@@ -11,7 +11,7 @@ import { Calendar } from "@/components/ui/calendar";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogFooter } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { TrendingUp, TrendingDown, Minus, AlertTriangle, Shield, Brain, Heart, Users, Activity, BarChart3, Calendar as CalendarIcon, ChevronRight, Download, CheckCircle2, AlertCircle, Info, Lightbulb, ShieldCheck, Sparkles, RefreshCw, FileText, Settings as SettingsIcon, Copy } from "lucide-react";
+import { TrendingUp, TrendingDown, Minus, AlertTriangle, Shield, Brain, Heart, Users, Activity, BarChart3, Calendar as CalendarIcon, ChevronRight, Download, CheckCircle2, AlertCircle, Info, Lightbulb, ShieldCheck, Sparkles, RefreshCw, FileText, Settings as SettingsIcon, Copy, Trophy, Flame } from "lucide-react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { format, parse } from "date-fns";
 import { apiRequest, queryClient } from "@/lib/queryClient";
@@ -700,6 +700,28 @@ export default function AdminReports() {
     onError: (err: any) => toast({ title: "Save failed", description: err?.message || "Unknown error", variant: "destructive" }),
   });
 
+  const { data: engagementData, isLoading: engagementLoading } = useQuery<{
+    eligible: boolean;
+    reason?: string;
+    cohortSize?: number;
+    window?: string;
+    avgWeekPoints?: number;
+    avgLevel?: number;
+    activeUsers?: number;
+    participationRate?: number;
+    topActivities?: Array<{ activityType: string; count: number }>;
+    avgStreaks?: { checkin: number; movement: number; recovery: number; nutrition: number };
+  }>({
+    queryKey: ["/api/admin/reports/company", selectedCompany, "engagement", timeWindow],
+    queryFn: async () => {
+      const url = `/api/admin/reports/company/${encodeURIComponent(selectedCompany!)}/engagement?window=${timeWindow === "custom" ? 30 : timeWindow}`;
+      const res = await fetch(url, { credentials: "include" });
+      if (!res.ok) throw new Error("Failed to load engagement");
+      return res.json();
+    },
+    enabled: !!(user && selectedCompany),
+  });
+
   const { data: report, isLoading: reportLoading } = useQuery<CompanyReport>({
     queryKey: ["/api/admin/reports/company", selectedCompany, timeWindow, monthParam, customStartDate, customEndDate],
     queryFn: async () => {
@@ -1350,6 +1372,73 @@ export default function AdminReports() {
                 </div>
               </CardContent>
             </Card>
+
+            {selectedCompany && (
+              <Card className="bg-card border-border" data-testid="card-engagement-index">
+                <CardHeader className="pb-3">
+                  <CardTitle className="text-foreground flex items-center gap-2">
+                    <Trophy className="h-5 w-5 text-[#0cc9a9]" />
+                    Engagement Index
+                    <span className="text-xs text-muted-foreground font-normal">(points · streaks · participation)</span>
+                  </CardTitle>
+                </CardHeader>
+                <CardContent>
+                  {engagementLoading ? (
+                    <div className="py-6 text-center text-muted-foreground text-sm">Loading…</div>
+                  ) : !engagementData?.eligible ? (
+                    <div className="flex items-start gap-2 bg-amber-500/10 border border-amber-500/20 rounded-lg p-3">
+                      <Shield className="h-4 w-4 text-amber-400 mt-0.5 shrink-0" />
+                      <p className="text-sm text-amber-200/80">{engagementData?.reason || "Cohort below minimum size for anonymous engagement metrics."}</p>
+                    </div>
+                  ) : (
+                    <>
+                      <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 mb-6">
+                        <div>
+                          <p className="text-xs text-muted-foreground uppercase mb-1">Avg Pts / Week</p>
+                          <p className="text-2xl font-bold text-foreground" data-testid="text-avg-week-points">{engagementData.avgWeekPoints}</p>
+                        </div>
+                        <div>
+                          <p className="text-xs text-muted-foreground uppercase mb-1">Avg Level</p>
+                          <p className="text-2xl font-bold text-foreground">{engagementData.avgLevel}</p>
+                        </div>
+                        <div>
+                          <p className="text-xs text-muted-foreground uppercase mb-1">Active Users</p>
+                          <p className="text-2xl font-bold text-foreground">{engagementData.activeUsers}</p>
+                        </div>
+                        <div>
+                          <p className="text-xs text-muted-foreground uppercase mb-1">Participation</p>
+                          <p className="text-2xl font-bold text-[#0cc9a9]">{engagementData.participationRate}%</p>
+                        </div>
+                      </div>
+                      {engagementData.avgStreaks && (
+                        <div className="grid grid-cols-4 gap-3 mb-4">
+                          {(["checkin", "movement", "recovery", "nutrition"] as const).map((t) => (
+                            <div key={t} className="bg-background border border-border rounded-lg p-2 text-center">
+                              <Flame className="h-4 w-4 text-orange-400 mx-auto mb-1" />
+                              <p className="text-sm font-bold text-foreground">{engagementData.avgStreaks![t]}d</p>
+                              <p className="text-[10px] uppercase text-muted-foreground capitalize">{t}</p>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                      {engagementData.topActivities && engagementData.topActivities.length > 0 && (
+                        <div>
+                          <p className="text-xs text-muted-foreground uppercase mb-2">Top Activities</p>
+                          <div className="space-y-1.5">
+                            {engagementData.topActivities.map((a) => (
+                              <div key={a.activityType} className="flex items-center justify-between py-1.5 px-3 rounded bg-background border border-border">
+                                <span className="text-sm text-foreground capitalize">{a.activityType.replace(/_/g, " ")}</span>
+                                <span className="text-xs text-muted-foreground">{a.count}</span>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+                    </>
+                  )}
+                </CardContent>
+              </Card>
+            )}
 
             {report.bodyMapStats && (
               <Card className="bg-card border-border">

@@ -7,6 +7,18 @@ import { setupAuth, isAuthenticated, generateResetToken, hashToken, sendUserInvi
 import rateLimit, { ipKeyGenerator } from "express-rate-limit";
 import { registerNotificationRoutes } from "./notificationsRoutes";
 import { notify } from "./notifications";
+import {
+  recordEngagementActivity,
+  awardPoints,
+  getUserEngagement,
+  computeEngagementIndex,
+  runEngagementMigration,
+  invalidateEngagementConfigCache,
+  getEngagementConfig,
+} from "./engagementEngine";
+import {
+  engagementConfig as engagementConfigTable,
+} from "@shared/schema";
 
 // Admin-only gate. Always pair with isAuthenticated. Looks up the calling
 // user from the session and rejects with 403 if they aren't an admin.
@@ -4204,6 +4216,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
       storage.updateUserStreak(userId).catch(err => {
         console.error(`[STREAK] Background update failed, will recalculate on next fetch:`, err?.message);
       });
+
+      // Engagement: movement track streak + workout points (non-blocking)
+      recordEngagementActivity(userId, "workout", { workoutLogId: id }).catch(err =>
+        console.error(`[ENGAGEMENT] workout failed:`, err?.message),
+      );
       
       // Check and award eligible badges after workout completion
       try {
@@ -5357,6 +5374,11 @@ Return format: {"category": "strength|cardio|hiit|mobility|recovery", "difficult
       });
       const log = await storage.createBodyMapLog(logData);
       import("./recommendations").then(m => m.invalidateRecommendations(userId)).catch(() => {});
+
+      // Engagement: movement track + body_map points
+      recordEngagementActivity(userId, "body_map", { bodyMapLogId: log.id }).catch(err =>
+        console.error(`[ENGAGEMENT] body_map failed:`, err?.message),
+      );
 
       // Look up body area by name to get the ID
       const bodyArea = await storage.getBodyMapAreaByName(log.bodyPart);
@@ -10097,6 +10119,9 @@ Rules:
       const userId = req.user.claims.sub;
       const mealData = insertMealSchema.parse({ ...req.body, userId });
       const meal = await storage.createMeal(mealData);
+      recordEngagementActivity(userId, "meal_log", { mealId: meal.id }).catch(err =>
+        console.error(`[ENGAGEMENT] meal_log failed:`, err?.message),
+      );
       res.status(201).json(meal);
     } catch (error) {
       console.error("Error creating meal:", error);
@@ -11752,6 +11777,9 @@ Rules:
       try {
         const stats = await storage.getHydrationStatsForDate(userId, new Date());
         if (stats.percentage >= 100) {
+          recordEngagementActivity(userId, "hydration_goal", { date: new Date().toISOString().split("T")[0] }).catch(err =>
+            console.error(`[ENGAGEMENT] hydration_goal failed:`, err?.message),
+          );
           // Find hydration habit (templateId 16) for this user
           const userHabits = await storage.getHabits(userId);
           const hydrationHabit = userHabits.find(h => h.templateId === 16);
@@ -12061,6 +12089,9 @@ Rules:
       });
 
       const log = await storage.createFoodLog(validated);
+      recordEngagementActivity(userId, "meal_log", { foodLogId: log.id, source: "food" }).catch(err =>
+        console.error(`[ENGAGEMENT] meal_log (food) failed:`, err?.message),
+      );
       res.status(201).json(log);
     } catch (error) {
       console.error("Error logging food:", error);
@@ -13004,6 +13035,11 @@ Keep your response concise, practical, and evidence-based. Do not use em dashes.
       storage.updateUserStreak(userId).catch(err => {
         console.error(`[STREAK] Background update failed, will recalculate on next fetch:`, err?.message);
       });
+
+      // Engagement: track streak (checkin) + award points (non-blocking)
+      recordEngagementActivity(userId, "daily_checkin", { checkInId: checkIn.id }).catch(err =>
+        console.error(`[ENGAGEMENT] daily_checkin failed:`, err?.message),
+      );
 
       // Coach acknowledgement notification on check-in completion.
       notify({
@@ -14785,6 +14821,10 @@ Keep your response concise, practical, and evidence-based. Do not use em dashes.
       storage.updateUserStreak(userId).catch(err => {
         console.error(`[STREAK] Background update failed, will recalculate on next fetch:`, err?.message);
       });
+
+      recordEngagementActivity(userId, "breathwork", { sessionId: session.id }).catch(err =>
+        console.error(`[ENGAGEMENT] breathwork failed:`, err?.message),
+      );
       
       // Check and award eligible badges after breathwork session
       try {
@@ -15052,6 +15092,10 @@ Keep your response concise, practical, and evidence-based. Do not use em dashes.
       storage.updateUserStreak(userId).catch(err => {
         console.error(`[STREAK] Background update failed:`, err?.message);
       });
+
+      recordEngagementActivity(userId, "meditation", { sessionId: session.id }).catch(err =>
+        console.error(`[ENGAGEMENT] meditation failed:`, err?.message),
+      );
 
       res.status(201).json(session);
     } catch (error) {
@@ -16996,6 +17040,119 @@ Format your response as JSON with this exact structure:
     } catch (error) {
       console.error("Error fetching company report:", error);
       res.status(500).json({ message: "Failed to fetch company report" });
+    }
+  });
+
+  // ============================================
+  // ENGAGEMENT FOUNDATION (Points/XP, Streaks, Levels)
+  // ============================================
+
+  // Per-user engagement summary for the personal dashboard.
+  app.get('/api/user/engagement', isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = req.user.claims.sub;
+      const data = await getUserEngagement(userId);
+      res.json(data);
+    } catch (error: any) {
+      console.error("Error fetching user engagement:", error?.message);
+      res.status(500).json({ message: "Failed to load engagement" });
+    }
+  });
+
+  // Read tunables (admin only).
+  app.get('/api/admin/engagement/config', isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = req.user.claims.sub;
+      const me = await storage.getUser(userId);
+      if (!me?.isAdmin) return res.status(403).json({ message: "Admin only" });
+      const cfg = await getEngagementConfig();
+      res.json(cfg);
+    } catch (error: any) {
+      console.error("Error fetching engagement config:", error?.message);
+      res.status(500).json({ message: "Failed to load config" });
+    }
+  });
+
+  // Upsert one tunable (admin only). Body: { key, value, description? }
+  app.put('/api/admin/engagement/config', isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = req.user.claims.sub;
+      const me = await storage.getUser(userId);
+      if (!me?.isAdmin) return res.status(403).json({ message: "Admin only" });
+      const ConfigSchema = z.object({
+        key: z.enum(["activities", "weeklyCaps", "streakBonuses", "levels", "trackActivities"]),
+        value: z.any(),
+        description: z.string().optional(),
+      });
+      const parsed = ConfigSchema.parse(req.body || {});
+      const existing = await db.select().from(engagementConfigTable).where(eq(engagementConfigTable.key, parsed.key)).limit(1);
+      if (existing.length > 0) {
+        await db.update(engagementConfigTable)
+          .set({ value: parsed.value, description: parsed.description ?? existing[0].description, updatedAt: new Date() })
+          .where(eq(engagementConfigTable.key, parsed.key));
+      } else {
+        await db.insert(engagementConfigTable).values({ key: parsed.key, value: parsed.value, description: parsed.description ?? null });
+      }
+      invalidateEngagementConfigCache();
+      const cfg = await getEngagementConfig();
+      res.json(cfg);
+    } catch (error: any) {
+      if (error?.issues) return res.status(400).json({ message: "Invalid config", issues: error.issues });
+      console.error("Error updating engagement config:", error?.message);
+      res.status(500).json({ message: "Failed to update config" });
+    }
+  });
+
+  // Idempotent migration: tag legacy badges, seed track streaks, create user_points rows.
+  app.post('/api/admin/engagement/migrate', isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = req.user.claims.sub;
+      const me = await storage.getUser(userId);
+      if (!me?.isAdmin) return res.status(403).json({ message: "Admin only" });
+      const result = await runEngagementMigration();
+      res.json({ ok: true, ...result });
+    } catch (error: any) {
+      console.error("Engagement migration failed:", error?.message);
+      res.status(500).json({ message: "Migration failed", error: error?.message });
+    }
+  });
+
+  // Cohort engagement index for the admin company report (k-anonymity preserving).
+  app.get('/api/admin/reports/company/:companyName/engagement', isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = req.user.claims.sub;
+      const me = await storage.getUser(userId);
+      if (!me?.isAdmin) return res.status(403).json({ message: "Admin only" });
+      const { companyName } = req.params;
+      const windowDays = parseInt(req.query.window as string) || 30;
+      const settings = await getEffectiveReportSettings(decodeURIComponent(companyName));
+      // Reuse the company user-id resolver from reportingEngine.
+      const { getCompanyUserIds } = await import("./reportingEngine");
+      const userIds = await getCompanyUserIds(decodeURIComponent(companyName));
+      if (userIds.length < settings.minCohortSize) {
+        return res.json({
+          eligible: false,
+          reason: `Minimum ${settings.minCohortSize} users required for anonymous engagement metrics.`,
+          cohortSize: userIds.length,
+        });
+      }
+      const end = new Date();
+      end.setHours(23, 59, 59, 999);
+      const start = new Date();
+      start.setDate(start.getDate() - windowDays);
+      start.setHours(0, 0, 0, 0);
+      const data = await computeEngagementIndex(userIds, start, end, settings.minCohortSize);
+      if (!data) {
+        return res.json({
+          eligible: false,
+          reason: `Active cohort below minimum size of ${settings.minCohortSize}.`,
+          cohortSize: userIds.length,
+        });
+      }
+      res.json({ eligible: true, window: `${windowDays}d`, ...data });
+    } catch (error: any) {
+      console.error("Engagement index failed:", error?.message);
+      res.status(500).json({ message: "Failed to compute engagement index" });
     }
   });
 

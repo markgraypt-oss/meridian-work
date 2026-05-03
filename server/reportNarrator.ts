@@ -81,7 +81,9 @@ Hard rules:
 - If the data is sparse, say so plainly in caveats.
 - Use cautious, evidence-aware language ("indicates", "may suggest"). Avoid alarmism.
 - No demographic inferences. No legal advice. No HR/disciplinary recommendations.
-- Output MUST be raw JSON matching the requested schema. No prose, no markdown.`;
+- Output MUST be raw JSON matching the requested schema. No prose, no markdown.
+- Engagement metrics (points/XP totals, streak averages, activity counts, levels) MAY be discussed as cohort-level participation and habit-formation signals.
+- DO NOT reference, infer, or recommend any "Daily Readiness" score, biometric readiness rating, HRV-derived readiness, or similar individual-level readiness construct. That feature is out of scope for these reports.`;
 
 function buildPrompt(report: CompanyReport): string {
   const snapshot = buildSnapshot(report);

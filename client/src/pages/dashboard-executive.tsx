@@ -16,6 +16,7 @@ import { RecommendationRail } from "@/components/RecommendationRail";
 import DashboardHydrationCard from "@/components/DashboardHydrationCard";
 import WearableTodayCard from "@/components/dashboard/WearableTodayCard";
 import WeeklyCheckinCard from "@/components/dashboard/WeeklyCheckinCard";
+import EngagementCard from "@/components/dashboard/EngagementCard";
 import PathSelectionDialog from "@/components/PathSelectionDialog";
 import MyProgressSection from "@/components/dashboard/MyProgressSection";
 import CoachBriefingCard from "@/components/CoachBriefingCard";
@@ -1090,6 +1091,8 @@ export default function Dashboard() {
 
             {/* Breath Session tile - hidden until scheduling feature is implemented */}
 
+
+            <EngagementCard />
 
             <WeeklyCheckinCard />
 

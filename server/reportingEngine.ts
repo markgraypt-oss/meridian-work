@@ -176,7 +176,7 @@ function getMonthRange(year: number, month: number): { start: Date; end: Date } 
   return { start, end };
 }
 
-async function getCompanyUserIds(companyName: string): Promise<string[]> {
+export async function getCompanyUserIds(companyName: string): Promise<string[]> {
   const companyUsers = await db
     .select({ id: users.id })
     .from(users)

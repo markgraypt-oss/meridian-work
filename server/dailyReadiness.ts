@@ -28,6 +28,7 @@ import {
   workoutLogs,
 } from "@shared/schema";
 import { awardPoints } from "./engagementEngine";
+import { notify } from "./notifications";
 
 export const MIN_INPUTS_FOR_SCORE = 3;
 export const ALGORITHM_VERSION = "v1";
@@ -484,6 +485,28 @@ export async function maybeAwardWeeklyBaseline(userId: string, weekStartKey: str
     baseline: Math.round(baseline * 10) / 10,
     aboveBaselineDays: aboveBaseline,
   });
+
+  try {
+    await notify({
+      userId,
+      category: "coach",
+      title: "Weekly readiness reward earned",
+      body: `You hit ${WEEKLY_REWARD_DAYS_REQUIRED}+ above-baseline days last week — +${WEEKLY_REWARD_POINTS} pts.`,
+      data: {
+        kind: "readiness_weekly_baseline",
+        weekStart: weekStartKey,
+        weekEnd: weekEndKey,
+        aboveBaselineDays: aboveBaseline,
+        points: WEEKLY_REWARD_POINTS,
+      },
+    });
+  } catch (err: any) {
+    console.error(
+      `[daily-readiness] weekly reward notify failed user=${userId}:`,
+      err?.message,
+    );
+  }
+
   return true;
 }
 

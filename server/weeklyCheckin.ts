@@ -68,7 +68,7 @@ function avg(values: number[]): number | null {
   return Math.round((values.reduce((a, b) => a + b, 0) / values.length) * 10) / 10;
 }
 
-async function aggregateWeek(userId: string, weekStart: Date): Promise<{
+export async function aggregateWeek(userId: string, weekStart: Date): Promise<{
   metrics: WeeklyCheckinPayload["metrics"];
   weekEnd: Date;
   prevWeekStart: Date;

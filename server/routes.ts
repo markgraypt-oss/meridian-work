@@ -15584,6 +15584,24 @@ Keep your response concise, practical, and evidence-based. Do not use em dashes.
       await storage.updateMealPlanDay(dayData.id, { totalCalories: newDayTotal });
 
       const updated = await storage.getMealPlanWithDetails(fullPlan.plan.id);
+
+      // Rebuild shopping list so it reflects the swapped meal's ingredients.
+      try {
+        if (updated) {
+          const recipes = updated.days.flatMap((d) => d.meals.map((m) => m.recipe).filter(Boolean));
+          const { buildShoppingList } = await import('./mealPlanAi');
+          const built = await buildShoppingList({ userId: req.user.claims.sub, recipes });
+          await storage.upsertShoppingList({
+            userId: req.user.claims.sub,
+            mealPlanId: fullPlan.plan.id,
+            items: built.items,
+            aiGenerated: built.aiGenerated,
+          });
+        }
+      } catch (err: any) {
+        console.error('[shopping_list] rebuild after meal regenerate failed:', err?.message);
+      }
+
       res.json(updated);
     } catch (error) {
       console.error("Error regenerating meal:", error);

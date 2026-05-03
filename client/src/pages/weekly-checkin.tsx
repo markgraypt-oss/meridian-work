@@ -5,7 +5,9 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
-import { ChevronLeft, Sparkles, ThumbsUp, X, Trophy, AlertTriangle, History, Activity } from "lucide-react";
+import { ChevronLeft, Sparkles, ThumbsUp, X, Trophy, AlertTriangle, History, Activity, TrendingUp } from "lucide-react";
+import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip as RTooltip, ResponsiveContainer, Legend } from "recharts";
+import type { ValueType, NameType, Payload } from "recharts/types/component/DefaultTooltipContent";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import TopHeader from "@/components/TopHeader";
@@ -226,6 +228,188 @@ function CheckinDetail({ checkIn }: { checkIn: WeeklyCheckin }) {
   );
 }
 
+interface TrendPoint {
+  id: number;
+  weekStart: string;
+  weekEnd: string;
+  label: string;
+  burnout: number | null;
+  nutrition: number | null;
+  volume: number;
+}
+
+interface ActiveDotProps {
+  cx?: number;
+  cy?: number;
+  stroke?: string;
+  payload?: TrendPoint;
+}
+
+interface ChartTooltipProps {
+  active?: boolean;
+  payload?: Array<Payload<ValueType, NameType>>;
+  onOpen: (id: number) => void;
+}
+
+function ChartTooltip({ active, payload, onOpen }: ChartTooltipProps) {
+  if (!active || !payload || payload.length === 0) return null;
+  const point = payload[0]?.payload as TrendPoint | undefined;
+  if (!point) return null;
+
+  const fmt = (name: NameType, value: ValueType | undefined) => {
+    if (value === null || value === undefined) return "—";
+    if (name === "Volume") return `${Number(value).toLocaleString()} kg`;
+    if (name === "Burnout") return `${value}`;
+    return `${value}%`;
+  };
+
+  return (
+    <div
+      className="rounded-md border border-border bg-popover text-popover-foreground shadow-md text-xs p-2 min-w-[180px]"
+      data-testid={`tooltip-trend-${point.id}`}
+    >
+      <div className="font-medium mb-1">
+        Week of {format(new Date(point.weekStart), "d MMM yyyy")}
+      </div>
+      <div className="space-y-0.5">
+        {payload.map((p) => (
+          <div key={String(p.dataKey)} className="flex items-center justify-between gap-3">
+            <span className="flex items-center gap-1.5">
+              <span
+                className="inline-block w-2 h-2 rounded-full"
+                style={{ background: p.color }}
+              />
+              {p.name}
+            </span>
+            <span className="font-medium">{fmt(p.name as NameType, p.value as ValueType)}</span>
+          </div>
+        ))}
+      </div>
+      <button
+        type="button"
+        className="mt-2 w-full text-left text-[#0cc9a9] hover:underline font-medium"
+        onClick={() => onOpen(point.id)}
+        data-testid={`button-open-trend-${point.id}`}
+      >
+        Open this week →
+      </button>
+    </div>
+  );
+}
+
+function TrendsChart({ checkIns, onPointClick }: { checkIns: WeeklyCheckin[]; onPointClick: (id: number) => void }) {
+  const renderActiveDot = (props: ActiveDotProps) => {
+    const { cx, cy, stroke, payload } = props;
+    if (cx === undefined || cy === undefined) return <g />;
+    return (
+      <circle
+        cx={cx}
+        cy={cy}
+        r={6}
+        fill={stroke}
+        stroke="var(--background)"
+        strokeWidth={2}
+        style={{ cursor: "pointer" }}
+        onClick={() => {
+          if (payload && typeof payload.id === "number") onPointClick(payload.id);
+        }}
+        data-testid={payload ? `trend-dot-${payload.id}` : undefined}
+      />
+    );
+  };
+
+  const data: TrendPoint[] = useMemo(() => {
+    const byWeek = new Map<string, WeeklyCheckin>();
+    for (const c of checkIns) {
+      const key = new Date(c.weekStart).toISOString();
+      const existing = byWeek.get(key);
+      if (!existing || (c.id > existing.id)) byWeek.set(key, c);
+    }
+    return Array.from(byWeek.values())
+      .sort((a, b) => new Date(a.weekStart).getTime() - new Date(b.weekStart).getTime())
+      .slice(-12)
+      .map((c) => {
+        const p = c.payload as WeeklyPayload;
+        const m = p.metrics;
+        const nutrition =
+          m.nutrition.targetDays > 0
+            ? Math.round((m.nutrition.daysWithMeals / m.nutrition.targetDays) * 100)
+            : null;
+        return {
+          id: c.id,
+          weekStart: p.weekStart,
+          weekEnd: p.weekEnd,
+          label: format(new Date(p.weekStart), "d MMM"),
+          burnout: m.burnout.score,
+          nutrition,
+          volume: m.training.totalVolumeKg,
+        };
+      });
+  }, [checkIns]);
+
+  if (data.length < 2) return null;
+
+  return (
+    <Card className="mt-6" data-testid="card-weekly-trends">
+      <CardHeader>
+        <CardTitle className="text-base flex items-center gap-2">
+          <TrendingUp className="h-4 w-4" />
+          Trends · last {data.length} week{data.length === 1 ? "" : "s"}
+        </CardTitle>
+        <p className="text-xs text-muted-foreground">Hover a point and tap "Open this week" to drill in.</p>
+      </CardHeader>
+      <CardContent>
+        <div className="h-72 w-full" data-testid="chart-weekly-trends">
+          <ResponsiveContainer width="100%" height="100%">
+            <LineChart data={data} margin={{ top: 8, right: 8, left: -16, bottom: 0 }}>
+              <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" />
+              <XAxis dataKey="label" tick={{ fontSize: 11 }} stroke="var(--muted-foreground)" />
+              <YAxis yAxisId="pct" domain={[0, 100]} tick={{ fontSize: 11 }} stroke="var(--muted-foreground)" />
+              <YAxis yAxisId="vol" orientation="right" tick={{ fontSize: 11 }} stroke="var(--muted-foreground)" />
+              <RTooltip
+                wrapperStyle={{ pointerEvents: "auto", outline: "none" }}
+                cursor={{ stroke: "var(--border)" }}
+                content={<ChartTooltip onOpen={onPointClick} />}
+              />
+              <Legend wrapperStyle={{ fontSize: 12 }} />
+              <Line
+                yAxisId="pct"
+                type="monotone"
+                dataKey="burnout"
+                name="Burnout"
+                stroke="var(--chart-1)"
+                strokeWidth={2}
+                connectNulls
+                activeDot={renderActiveDot}
+              />
+              <Line
+                yAxisId="vol"
+                type="monotone"
+                dataKey="volume"
+                name="Volume"
+                stroke="var(--chart-2)"
+                strokeWidth={2}
+                connectNulls
+                activeDot={renderActiveDot}
+              />
+              <Line
+                yAxisId="pct"
+                type="monotone"
+                dataKey="nutrition"
+                name="Nutrition adherence"
+                stroke="var(--chart-4)"
+                strokeWidth={2}
+                connectNulls
+                activeDot={renderActiveDot}
+              />
+            </LineChart>
+          </ResponsiveContainer>
+        </div>
+      </CardContent>
+    </Card>
+  );
+}
+
 export default function WeeklyCheckinPage() {
   const [, navigate] = useLocation();
   const [matchedDetail, params] = useRoute<{ id: string }>("/weekly-checkin/:id");
@@ -251,6 +435,12 @@ export default function WeeklyCheckinPage() {
     return list.filter((h) => h.id !== checkIn?.id);
   }, [historyQuery.data, checkIn?.id]);
 
+  const allCheckIns = useMemo(() => {
+    const list = [...(historyQuery.data || [])];
+    if (checkIn && !list.some((h) => h.id === checkIn.id)) list.push(checkIn);
+    return list;
+  }, [historyQuery.data, checkIn]);
+
   return (
     <div className="min-h-screen bg-background">
       <TopHeader />
@@ -273,6 +463,10 @@ export default function WeeklyCheckinPage() {
         )}
 
         {!isLoading && checkIn && <CheckinDetail checkIn={checkIn} />}
+
+        {!isLoading && allCheckIns.length >= 2 && (
+          <TrendsChart checkIns={allCheckIns} onPointClick={(id) => navigate(`/weekly-checkin/${id}`)} />
+        )}
 
         {!isLoading && !checkIn && (
           <Card>

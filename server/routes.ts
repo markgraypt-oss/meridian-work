@@ -17543,7 +17543,7 @@ Format your response as JSON with this exact structure:
 
       const { getCoachingContext, getUserDataContext, getFeatureConfig, getCrossCoachContext } = await import('./aiProvider');
       const { aiCall } = await import('./ai');
-      const { getTopMemoriesText, extractAndStoreMemories } = await import('./coach/memory');
+      const { getTopMemoriesWithRows, extractAndStoreMemories } = await import('./coach/memory');
 
       const config = await getFeatureConfig('recovery_coach');
       if (!config) {
@@ -17553,7 +17553,7 @@ Format your response as JSON with this exact structure:
       const coachingContext = await getCoachingContext('recovery_coach');
       const userDataContext = await getUserDataContext(userId, 'coach_chat');
       const crossCoachContext = await getCrossCoachContext(userId, 'coach_chat');
-      const memoryText = await getTopMemoriesText(userId, 8);
+      const { text: memoryText, rows: memoriesUsed } = await getTopMemoriesWithRows(userId, 8);
       const memoryContext = memoryText
         ? `\n\nUSER MEMORY (durable facts about this user, use to personalise — do not contradict):\n${memoryText}`
         : '';
@@ -17627,7 +17627,7 @@ Respond as the coach. Be personalised, reference their actual data and specific 
         model: config.model,
       });
 
-      res.json({ response: response.text });
+      res.json({ response: response.text, memoriesUsed });
 
       // Fire-and-forget memory extraction. Never block the response.
       if (response.text && response.text.trim()) {

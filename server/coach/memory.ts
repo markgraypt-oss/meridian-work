@@ -28,6 +28,20 @@ export async function getTopMemoriesText(userId: string, n: number = 8): Promise
   }
 }
 
+export async function getTopMemoriesWithRows(
+  userId: string,
+  n: number = 8,
+): Promise<{ text: string; rows: Awaited<ReturnType<typeof storage.getTopCoachMemory>> }> {
+  try {
+    const rows = await storage.getTopCoachMemory(userId, n);
+    if (!rows.length) return { text: "", rows: [] };
+    const text = rows.map((m) => `- (${m.category}) ${m.value}`).join("\n");
+    return { text, rows };
+  } catch {
+    return { text: "", rows: [] };
+  }
+}
+
 /**
  * Extract durable facts from a single chat exchange and upsert them.
  * Fire-and-forget from the chat route; never throws to the caller.

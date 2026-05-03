@@ -3,12 +3,20 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Send, Loader2, Sparkles, Plus, ThumbsUp, ThumbsDown, Mic, Clock, X, ImagePlus, MessageSquarePlus, ArrowLeft, Trash2, ChevronRight } from "lucide-react";
+import { Send, Loader2, Sparkles, Plus, ThumbsUp, ThumbsDown, Mic, Clock, X, ImagePlus, MessageSquarePlus, ArrowLeft, Trash2, ChevronRight, Brain, Pencil, Check } from "lucide-react";
 
+interface UsedMemory {
+  id: number;
+  key: string;
+  value: string;
+  category: string;
+  importance: number;
+}
 
 interface ChatMessage {
   role: 'user' | 'assistant';
   content: string;
+  memoriesUsed?: UsedMemory[];
 }
 
 function renderBold(text: string): React.ReactNode {
@@ -49,6 +57,9 @@ export default function CoachChat({ isOpen, onOpenChange }: CoachChatProps) {
   const [isClosing, setIsClosing] = useState(false);
   const [isVisible, setIsVisible] = useState(false);
   const [feedbackGiven, setFeedbackGiven] = useState<Record<string, 'positive' | 'negative'>>({});
+  const [expandedMemories, setExpandedMemories] = useState<Record<number, boolean>>({});
+  const [editingMemoryId, setEditingMemoryId] = useState<number | null>(null);
+  const [editingMemoryValue, setEditingMemoryValue] = useState('');
   const [isTyping, setIsTyping] = useState(false);
   const [displayedContent, setDisplayedContent] = useState('');
   const [revealedWordCount, setRevealedWordCount] = useState(0);
@@ -215,6 +226,41 @@ export default function CoachChat({ isOpen, onOpenChange }: CoachChatProps) {
     },
   });
 
+  const updateMessageMemory = (memoryId: number, patch: Partial<UsedMemory> | { remove: true }) => {
+    setMessages(prev => prev.map(m => {
+      if (m.role !== 'assistant' || !m.memoriesUsed?.length) return m;
+      if ('remove' in patch) {
+        return { ...m, memoriesUsed: m.memoriesUsed.filter(mem => mem.id !== memoryId) };
+      }
+      return {
+        ...m,
+        memoriesUsed: m.memoriesUsed.map(mem => mem.id === memoryId ? { ...mem, ...patch } : mem),
+      };
+    }));
+  };
+
+  const editMemoryMutation = useMutation({
+    mutationFn: async ({ id, value }: { id: number; value: string }) => {
+      return apiRequest('PATCH', `/api/coach/memory/${id}`, { value });
+    },
+    onSuccess: async (res, vars) => {
+      updateMessageMemory(vars.id, { value: vars.value });
+      setEditingMemoryId(null);
+      setEditingMemoryValue('');
+      queryClient.invalidateQueries({ queryKey: ['/api/coach/memory'] });
+    },
+  });
+
+  const forgetMemoryMutation = useMutation({
+    mutationFn: async (id: number) => {
+      return apiRequest('DELETE', `/api/coach/memory/${id}`);
+    },
+    onSuccess: (_res, id) => {
+      updateMessageMemory(id, { remove: true });
+      queryClient.invalidateQueries({ queryKey: ['/api/coach/memory'] });
+    },
+  });
+
   const deleteConversationMutation = useMutation({
     mutationFn: async (id: number) => {
       return apiRequest('DELETE', `/api/coach/conversations/${id}`);
@@ -328,7 +374,11 @@ export default function CoachChat({ isOpen, onOpenChange }: CoachChatProps) {
     },
     onSuccess: (data) => {
       setMessages(prev => {
-        const updated = [...prev, { role: 'assistant' as const, content: data.response }];
+        const updated = [...prev, {
+          role: 'assistant' as const,
+          content: data.response,
+          memoriesUsed: Array.isArray(data.memoriesUsed) ? data.memoriesUsed : [],
+        }];
         const title = updated.find(m => m.role === 'user')?.content?.slice(0, 60) || 'New conversation';
         saveConversationMutation.mutate({ id: activeConversationId, messages: updated, title });
         return updated;
@@ -626,6 +676,98 @@ export default function CoachChat({ isOpen, onOpenChange }: CoachChatProps) {
                           </>
                         );
                       })()}
+                      {msg.memoriesUsed && msg.memoriesUsed.length > 0 && (
+                        <button
+                          onClick={() => setExpandedMemories(prev => ({ ...prev, [i]: !prev[i] }))}
+                          className={`ml-1 flex items-center gap-1 px-1.5 py-1 rounded-md text-[11px] transition-colors ${expandedMemories[i] ? 'text-primary bg-primary/10' : 'text-muted-foreground/50 hover:text-muted-foreground/80'}`}
+                          data-testid={`button-memories-toggle-${i}`}
+                        >
+                          <Brain className="h-3 w-3" />
+                          <span>{msg.memoriesUsed.length} {msg.memoriesUsed.length === 1 ? 'memory' : 'memories'}</span>
+                        </button>
+                      )}
+                    </div>
+                  )}
+                  {expandedMemories[i] && msg.memoriesUsed && msg.memoriesUsed.length > 0 && (
+                    <div
+                      className="rounded-xl px-3 py-2.5 mt-1 space-y-1.5"
+                      style={{
+                        background: 'rgba(9, 181, 249, 0.04)',
+                        border: '1px solid rgba(9, 181, 249, 0.12)',
+                      }}
+                    >
+                      <p className="text-[10px] font-semibold tracking-[0.1em] uppercase text-muted-foreground/70 flex items-center gap-1">
+                        <Brain className="h-3 w-3" />
+                        Memories used in this reply
+                      </p>
+                      {msg.memoriesUsed.map(mem => (
+                        <div key={mem.id} className="flex items-start gap-2 group">
+                          <span
+                            className="mt-1 px-1.5 py-0.5 rounded text-[9px] font-medium uppercase tracking-wide shrink-0"
+                            style={{ background: 'rgba(0,0,0,0.06)', color: 'rgba(0,0,0,0.55)' }}
+                          >
+                            {mem.category}
+                          </span>
+                          <div className="flex-1 min-w-0">
+                            {editingMemoryId === mem.id ? (
+                              <div className="flex items-center gap-1">
+                                <Input
+                                  value={editingMemoryValue}
+                                  onChange={(e) => setEditingMemoryValue(e.target.value)}
+                                  className="h-7 text-xs"
+                                  maxLength={280}
+                                  autoFocus
+                                  onKeyDown={(e) => {
+                                    if (e.key === 'Enter' && editingMemoryValue.trim()) {
+                                      e.preventDefault();
+                                      editMemoryMutation.mutate({ id: mem.id, value: editingMemoryValue.trim() });
+                                    } else if (e.key === 'Escape') {
+                                      setEditingMemoryId(null);
+                                      setEditingMemoryValue('');
+                                    }
+                                  }}
+                                  data-testid={`input-edit-memory-${mem.id}`}
+                                />
+                                <button
+                                  onClick={() => editingMemoryValue.trim() && editMemoryMutation.mutate({ id: mem.id, value: editingMemoryValue.trim() })}
+                                  className="p-1 rounded text-primary hover:bg-primary/10"
+                                  disabled={editMemoryMutation.isPending}
+                                  data-testid={`button-save-memory-${mem.id}`}
+                                >
+                                  <Check className="h-3.5 w-3.5" />
+                                </button>
+                                <button
+                                  onClick={() => { setEditingMemoryId(null); setEditingMemoryValue(''); }}
+                                  className="p-1 rounded text-muted-foreground/60 hover:bg-muted"
+                                >
+                                  <X className="h-3.5 w-3.5" />
+                                </button>
+                              </div>
+                            ) : (
+                              <div className="flex items-start gap-1">
+                                <p className="text-xs text-foreground/80 flex-1 break-words">{mem.value}</p>
+                                <button
+                                  onClick={() => { setEditingMemoryId(mem.id); setEditingMemoryValue(mem.value); }}
+                                  className="p-1 rounded text-muted-foreground/40 hover:text-muted-foreground/80 opacity-0 group-hover:opacity-100 transition-opacity"
+                                  title="Edit memory"
+                                  data-testid={`button-edit-memory-${mem.id}`}
+                                >
+                                  <Pencil className="h-3 w-3" />
+                                </button>
+                                <button
+                                  onClick={() => forgetMemoryMutation.mutate(mem.id)}
+                                  className="p-1 rounded text-muted-foreground/40 hover:text-destructive opacity-0 group-hover:opacity-100 transition-opacity"
+                                  disabled={forgetMemoryMutation.isPending}
+                                  title="Forget this memory"
+                                  data-testid={`button-forget-memory-${mem.id}`}
+                                >
+                                  <Trash2 className="h-3 w-3" />
+                                </button>
+                              </div>
+                            )}
+                          </div>
+                        </div>
+                      ))}
                     </div>
                   )}
                 </div>

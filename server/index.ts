@@ -143,5 +143,9 @@ app.use((req, res, next) => {
     import("./scheduledBriefings").then(({ startBriefingScheduler }) => {
       startBriefingScheduler();
     }).catch((e) => console.error("[startup] briefings scheduler failed:", e));
+    // Start Monday weekly check-in email scheduler
+    import("./weeklyCheckinScheduler").then(({ startWeeklyCheckinScheduler }) => {
+      startWeeklyCheckinScheduler();
+    }).catch((e) => console.error("[startup] weekly check-in scheduler failed:", e));
   });
 })();

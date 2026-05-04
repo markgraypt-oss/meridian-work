@@ -13,12 +13,12 @@ type Out = z.infer<typeof Schema>;
 const scenario: EvalScenario<Out> = {
   name: "Programme recommendation — beginner home",
   feature: "onboarding_recommendations",
-  prompt: `Recommend up to 3 programmes for this user.
+  prompt: `Recommend programmes for this user.
 
-HARD FILTERS (NO EXCEPTIONS):
-- ENVIRONMENT: only programmes whose equipment matches the user's environment.
-- EXPERIENCE LEVEL: a programme's "difficulty" must equal the user's experience EXACTLY. NEVER suggest an "advanced" programme for a "beginner" user, even as a stretch goal — it will be rejected.
-- EQUIPMENT: only programmes whose required equipment is a subset of what the user has.
+HARD FILTERS (NON-NEGOTIABLE — programmes that fail any filter MUST BE OMITTED ENTIRELY from your output):
+1. EXPERIENCE LEVEL: a programme's "difficulty" must equal the user's experience EXACTLY. If the user is "beginner", DO NOT include any programme whose difficulty is "intermediate" or "advanced" — not as a recommendation, not as a secondary suggestion, not as a stretch goal, not even with recommended:false. Pretend mismatched-level programmes do not exist.
+2. ENVIRONMENT: only programmes whose equipment field matches the user's environment.
+3. EQUIPMENT: only programmes whose required equipment is a subset of what the user has.
 
 USER:
 - Experience: beginner
@@ -32,6 +32,8 @@ ID:1 "Foundations Bodyweight" equipment:bodyweight difficulty:beginner duration:
 ID:2 "Home Strength Starter" equipment:home_gym difficulty:beginner duration:30 days/wk:3 requires:[dumbbells]
 ID:3 "Advanced Powerlifting" equipment:full_gym difficulty:advanced duration:75 days/wk:5 requires:[barbell,rack]
 ID:4 "Office Mobility" equipment:bodyweight difficulty:beginner duration:15 days/wk:5 requires:[]
+
+Before answering, list the user's experience level and silently filter out every programme whose difficulty does not match it. Then choose up to 3 from the survivors only. Mark the single best as recommended:true and the rest recommended:false. If fewer than 3 survive, return fewer.
 
 Respond ONLY with JSON:
 {"programs": [{"id": <number>, "recommended": <boolean>, "reason": "<short>"}]}`,

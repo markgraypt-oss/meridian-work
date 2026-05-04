@@ -397,7 +397,7 @@ import {
   type InsertMindfulnessTool,
 } from "@shared/schema";
 import { db } from "./db";
-import { eq, ne, desc, and, ilike, or, gte, lte, inArray, lt, asc, sql, isNull, isNotNull, aliasedTable } from "drizzle-orm";
+import { eq, ne, desc, and, ilike, or, gte, lte, inArray, lt, asc, sql, isNull, isNotNull, aliasedTable, type SQL } from "drizzle-orm";
 
 export interface IStorage {
   // User operations
@@ -437,10 +437,13 @@ export interface IStorage {
 
   // Exercise Library operations
   getExercises(filters?: {
-    exerciseType?: string;
-    movementPattern?: string;
-    difficulty?: string;
-    equipment?: string;
+    mainMuscle?: string[];
+    equipment?: string[];
+    movement?: string[];
+    mechanics?: string[];
+    level?: string[];
+    limit?: number;
+    offset?: number;
   }): Promise<ExerciseLibraryItem[]>;
   getExerciseById(id: number): Promise<ExerciseLibraryItem | undefined>;
   searchExercises(query: string): Promise<ExerciseLibraryItem[]>;
@@ -1693,56 +1696,45 @@ export class DatabaseStorage implements IStorage {
     limit?: number;
     offset?: number;
   }): Promise<ExerciseLibraryItem[]> {
-    let query = db.select().from(exerciseLibrary);
-    
+    const conditions = [] as SQL[];
+
     if (filters) {
-      // Filter by main muscle
       if (filters.mainMuscle && filters.mainMuscle.length > 0) {
-        query = query.where(
+        conditions.push(
           sql`${exerciseLibrary.mainMuscle} && ARRAY[${sql.join(filters.mainMuscle.map(v => sql`${v}`), sql`, `)}]::text[]`
         );
       }
-      
-      // Filter by equipment
       if (filters.equipment && filters.equipment.length > 0) {
-        query = query.where(
+        conditions.push(
           sql`${exerciseLibrary.equipment} && ARRAY[${sql.join(filters.equipment.map(v => sql`${v}`), sql`, `)}]::text[]`
         );
       }
-      
-      // Filter by movement
       if (filters.movement && filters.movement.length > 0) {
-        query = query.where(
+        conditions.push(
           sql`${exerciseLibrary.movement} && ARRAY[${sql.join(filters.movement.map(v => sql`${v}`), sql`, `)}]::text[]`
         );
       }
-      
-      // Filter by mechanics
       if (filters.mechanics && filters.mechanics.length > 0) {
-        query = query.where(
+        conditions.push(
           sql`${exerciseLibrary.mechanics} && ARRAY[${sql.join(filters.mechanics.map(v => sql`${v}`), sql`, `)}]::text[]`
         );
       }
-      
-      // Filter by level
       if (filters.level && filters.level.length > 0) {
-        query = query.where(
-          inArray(exerciseLibrary.level, filters.level)
-        );
+        conditions.push(inArray(exerciseLibrary.level, filters.level));
       }
     }
-    
-    query = query.orderBy(exerciseLibrary.name);
-    
-    // Apply pagination
-    if (filters?.limit) {
-      query = query.limit(filters.limit);
-    }
-    if (filters?.offset) {
-      query = query.offset(filters.offset);
-    }
-    
-    return await query;
+
+    const baseQuery = db
+      .select()
+      .from(exerciseLibrary)
+      .where(conditions.length > 0 ? and(...conditions) : undefined)
+      .orderBy(exerciseLibrary.name)
+      .$dynamic();
+
+    const withLimit = filters?.limit ? baseQuery.limit(filters.limit) : baseQuery;
+    const withOffset = filters?.offset ? withLimit.offset(filters.offset) : withLimit;
+
+    return await withOffset;
   }
 
   async getExerciseById(id: number): Promise<ExerciseLibraryItem | undefined> {
@@ -3963,7 +3955,7 @@ export class DatabaseStorage implements IStorage {
             ),
             // If viewing today or past, also include overdue reminders
             and(
-              lte(startOfDay, now),
+              sql`${startOfDay} <= ${now}`,
               or(
                 eq(reassessmentReminders.status, 'due'),
                 and(
@@ -4828,11 +4820,12 @@ export class DatabaseStorage implements IStorage {
               rest: mod.suggestedRest || set.rest,
             }));
             
-            if (mod.suggestedSets && mod.suggestedSets !== currentSets.length) {
-              while (updatedSets.length < mod.suggestedSets) {
+            const suggestedSetCount = mod.suggestedSets ? Number(mod.suggestedSets) : 0;
+            if (suggestedSetCount && suggestedSetCount !== currentSets.length) {
+              while (updatedSets.length < suggestedSetCount) {
                 updatedSets.push({ reps: mod.suggestedReps || '10', rest: mod.suggestedRest || 'No Rest' });
               }
-              while (updatedSets.length > mod.suggestedSets) {
+              while (updatedSets.length > suggestedSetCount) {
                 updatedSets.pop();
               }
             }
@@ -5293,19 +5286,24 @@ export class DatabaseStorage implements IStorage {
       return { current, target: 36, label: "workouts", percentage: Math.min((current / 36) * 100, 100) };
     }
 
+    const toDateStr = (d: Date | string): string => {
+      const date = typeof d === 'string' ? new Date(d) : d;
+      return date.toISOString().split('T')[0];
+    };
+
     if (templateId === "30-day-checkin-streak") {
       const rows = await db.select({ date: checkIns.checkInDate }).from(checkIns)
-        .where(and(eq(checkIns.userId, userId), gte(checkIns.checkInDate, startDate.toISOString().split('T')[0])))
+        .where(and(eq(checkIns.userId, userId), gte(checkIns.checkInDate, startDate)))
         .orderBy(asc(checkIns.checkInDate));
-      const current = this.countCurrentStreak(rows.map(r => r.date));
+      const current = this.countCurrentStreak(rows.map(r => toDateStr(r.date)));
       return { current, target: 30, label: "day streak", percentage: Math.min((current / 30) * 100, 100) };
     }
 
     if (templateId === "track-meals-4-weeks") {
       const rows = await db.selectDistinct({ date: mealLogs.date }).from(mealLogs)
         .where(and(eq(mealLogs.userId, userId),
-          gte(mealLogs.date, startDate.toISOString().split('T')[0]),
-          lte(mealLogs.date, endDate.toISOString().split('T')[0])));
+          gte(mealLogs.date, startDate),
+          lte(mealLogs.date, endDate)));
       const current = rows.length;
       return { current, target: 28, label: "days logged", percentage: Math.min((current / 28) * 100, 100) };
     }
@@ -5317,9 +5315,9 @@ export class DatabaseStorage implements IStorage {
       if (!proteinTarget) return { current: 0, target: 30, label: "day streak", percentage: 0 };
       const dailyProtein = await db.select({ date: mealLogs.date, total: sql<number>`sum(${mealFoodEntries.protein})` })
         .from(mealLogs).innerJoin(mealFoodEntries, eq(mealFoodEntries.mealLogId, mealLogs.id))
-        .where(and(eq(mealLogs.userId, userId), gte(mealLogs.date, startDate.toISOString().split('T')[0])))
+        .where(and(eq(mealLogs.userId, userId), gte(mealLogs.date, startDate)))
         .groupBy(mealLogs.date).orderBy(asc(mealLogs.date));
-      const metDays = dailyProtein.filter(d => Number(d.total) >= proteinTarget).map(d => d.date);
+      const metDays = dailyProtein.filter(d => Number(d.total) >= proteinTarget).map(d => toDateStr(d.date));
       const current = this.countCurrentStreak(metDays);
       return { current, target: 30, label: "day streak", percentage: Math.min((current / 30) * 100, 100) };
     }
@@ -5331,9 +5329,9 @@ export class DatabaseStorage implements IStorage {
       const habitIds = userHabits.map(h => h.id);
       const byDay = await db.select({ date: habitCompletions.completedDate, cnt: sql<number>`count(*)` })
         .from(habitCompletions)
-        .where(and(eq(habitCompletions.userId, userId), gte(habitCompletions.completedDate, startDate.toISOString().split('T')[0]), inArray(habitCompletions.habitId, habitIds)))
+        .where(and(eq(habitCompletions.userId, userId), gte(habitCompletions.completedDate, startDate), inArray(habitCompletions.habitId, habitIds)))
         .groupBy(habitCompletions.completedDate).orderBy(asc(habitCompletions.completedDate));
-      const fullDays = byDay.filter(d => Number(d.cnt) >= habitCount).map(d => d.date);
+      const fullDays = byDay.filter(d => Number(d.cnt) >= habitCount).map(d => toDateStr(d.date));
       const current = this.countCurrentStreak(fullDays);
       return { current, target: 14, label: "day streak", percentage: Math.min((current / 14) * 100, 100) };
     }
@@ -5944,7 +5942,7 @@ export class DatabaseStorage implements IStorage {
   }
 
   async getPathContentItemsByTopic(topicId: number): Promise<PathContentItem[]> {
-    return await db
+    const rows = await db
       .select({
         id: pathContentItems.id,
         pathId: pathContentItems.pathId,
@@ -5953,15 +5951,19 @@ export class DatabaseStorage implements IStorage {
         contentType: pathContentItems.contentType,
         contentUrl: pathContentItems.contentUrl,
         thumbnailUrl: pathContentItems.thumbnailUrl,
+        muxPlaybackId: pathContentItems.muxPlaybackId,
         duration: pathContentItems.duration,
         orderIndex: pathContentItems.orderIndex,
         isRequired: pathContentItems.isRequired,
+        tags: pathContentItems.tags,
+        libraryItemId: pathContentItems.libraryItemId,
         createdAt: pathContentItems.createdAt,
       })
       .from(pathContentItems)
       .innerJoin(learningPaths, eq(pathContentItems.pathId, learningPaths.id))
       .where(eq(learningPaths.topicId, topicId))
       .orderBy(pathContentItems.orderIndex);
+    return rows;
   }
 
   async getUserPathAssignments(userId: string): Promise<UserPathAssignment[]> {
@@ -7003,12 +7005,6 @@ export class DatabaseStorage implements IStorage {
     return savedBlocks;
   }
 
-  // Get a single programme workout by ID
-  async getProgrammeWorkoutById(id: number): Promise<ProgrammeWorkout | undefined> {
-    const [workout] = await db.select().from(programmeWorkouts).where(eq(programmeWorkouts.id, id));
-    return workout;
-  }
-
   // Schedule a workout for a future date
   async scheduleWorkout(userId: string, workoutId: number, workoutType: 'individual' | 'programme', workoutName: string, scheduledDate: Date): Promise<ScheduledWorkout> {
     const [scheduled] = await db
@@ -7026,13 +7022,14 @@ export class DatabaseStorage implements IStorage {
 
   // Get scheduled workouts for a user within a date range
   async getScheduledWorkouts(userId: string, fromDate?: Date, toDate?: Date): Promise<ScheduledWorkout[]> {
-    let query = db.select().from(scheduledWorkouts).where(eq(scheduledWorkouts.userId, userId));
-    
+    const conditions = [eq(scheduledWorkouts.userId, userId)];
     if (fromDate && toDate) {
-      query = query.where(and(gte(scheduledWorkouts.scheduledDate, fromDate), lte(scheduledWorkouts.scheduledDate, toDate)));
+      conditions.push(gte(scheduledWorkouts.scheduledDate, fromDate));
+      conditions.push(lte(scheduledWorkouts.scheduledDate, toDate));
     }
-    
-    return await query.orderBy(asc(scheduledWorkouts.scheduledDate));
+    return await db.select().from(scheduledWorkouts)
+      .where(and(...conditions))
+      .orderBy(asc(scheduledWorkouts.scheduledDate));
   }
 
   // Get scheduled workouts for a specific date

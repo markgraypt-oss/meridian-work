@@ -778,6 +778,12 @@ export type InsertEnrollmentWorkoutBlock = typeof enrollmentWorkoutBlocks.$infer
 export type EnrollmentBlockExercise = typeof enrollmentBlockExercises.$inferSelect;
 export type InsertEnrollmentBlockExercise = typeof enrollmentBlockExercises.$inferInsert;
 
+export type UserEnrollmentWorkoutCustomization = typeof userEnrollmentWorkoutCustomizations.$inferSelect;
+export type InsertUserEnrollmentWorkoutCustomization = typeof userEnrollmentWorkoutCustomizations.$inferInsert;
+
+export type UserEnrollmentExerciseCustomization = typeof userEnrollmentExerciseCustomizations.$inferSelect;
+export type InsertUserEnrollmentExerciseCustomization = typeof userEnrollmentExerciseCustomizations.$inferInsert;
+
 export type Workout = typeof workouts.$inferSelect;
 export type InsertWorkout = typeof workouts.$inferInsert;
 

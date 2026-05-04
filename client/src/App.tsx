@@ -160,10 +160,43 @@ function Router() {
 
   // Allow other parts of the app (e.g. the post-workout summary page) to ask the coach to open
   useEffect(() => {
-    const handler = () => setCoachOpen(true);
-    window.addEventListener('open-coach', handler);
-    return () => window.removeEventListener('open-coach', handler);
+    const open = () => setCoachOpen(true);
+    const close = () => setCoachOpen(false);
+    window.addEventListener('open-coach', open);
+    window.addEventListener('close-coach', close);
+    return () => {
+      window.removeEventListener('open-coach', open);
+      window.removeEventListener('close-coach', close);
+    };
   }, []);
+
+  // Deeplink: ?coach=1[&briefing=<id>] (briefing notifications) opens the
+  // Coach panel and focuses the requested briefing inside it.
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    const params = new URLSearchParams(window.location.search);
+    if (params.get('coach') !== '1') return;
+    setCoachOpen(true);
+    params.delete('coach');
+    // Keep ?briefing=<id> so the Coach panel can fetch/focus that briefing,
+    // then strip it after the next tick once the panel has read it.
+    const hadBriefing = params.has('briefing');
+    const qs = params.toString();
+    const newUrl = window.location.pathname + (qs ? `?${qs}` : '') + window.location.hash;
+    window.history.replaceState({}, '', newUrl);
+    if (hadBriefing) {
+      window.dispatchEvent(new Event('focus-briefing'));
+      window.setTimeout(() => {
+        const after = new URLSearchParams(window.location.search);
+        if (after.has('briefing')) {
+          after.delete('briefing');
+          const cleanQs = after.toString();
+          const cleanUrl = window.location.pathname + (cleanQs ? `?${cleanQs}` : '') + window.location.hash;
+          window.history.replaceState({}, '', cleanUrl);
+        }
+      }, 1000);
+    }
+  }, [location]);
   
   const isJustCompletedView =
     location.startsWith('/progress/workout/') &&

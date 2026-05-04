@@ -1107,8 +1107,11 @@ export interface IStorage {
 
   // Proactive coach briefings
   getCoachBriefingForDay(userId: string, briefingDate: string, type: string): Promise<CoachBriefing | undefined>;
+  getCoachBriefingById(id: number, userId: string): Promise<CoachBriefing | undefined>;
   createCoachBriefing(briefing: InsertCoachBriefing): Promise<CoachBriefing>;
   listCoachBriefings(userId: string, limit?: number): Promise<CoachBriefing[]>;
+  markCoachBriefingRead(id: number, userId: string): Promise<CoachBriefing | undefined>;
+  markCoachBriefingDismissed(id: number, userId: string): Promise<CoachBriefing | undefined>;
 
   // Coach memory
   getCoachMemory(userId: string): Promise<CoachMemory[]>;
@@ -11518,6 +11521,33 @@ export class DatabaseStorage implements IStorage {
       .where(eq(coachBriefings.userId, userId))
       .orderBy(desc(coachBriefings.createdAt))
       .limit(limit);
+  }
+
+  async getCoachBriefingById(id: number, userId: string): Promise<CoachBriefing | undefined> {
+    const [row] = await db.select().from(coachBriefings)
+      .where(and(eq(coachBriefings.id, id), eq(coachBriefings.userId, userId)))
+      .limit(1);
+    return row;
+  }
+
+  async markCoachBriefingRead(id: number, userId: string): Promise<CoachBriefing | undefined> {
+    const [row] = await db.update(coachBriefings)
+      .set({ readAt: new Date() })
+      .where(and(eq(coachBriefings.id, id), eq(coachBriefings.userId, userId), isNull(coachBriefings.readAt)))
+      .returning();
+    if (row) return row;
+    // Already read (or not owned): only return if this user owns the row.
+    return this.getCoachBriefingById(id, userId);
+  }
+
+  async markCoachBriefingDismissed(id: number, userId: string): Promise<CoachBriefing | undefined> {
+    const [row] = await db.update(coachBriefings)
+      .set({ dismissedAt: new Date() })
+      .where(and(eq(coachBriefings.id, id), eq(coachBriefings.userId, userId), isNull(coachBriefings.dismissedAt)))
+      .returning();
+    if (row) return row;
+    // Already dismissed (or not owned): only return the row if this user owns it.
+    return this.getCoachBriefingById(id, userId);
   }
 
   // ---- Coach memory ----

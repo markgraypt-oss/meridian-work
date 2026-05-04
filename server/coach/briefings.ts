@@ -274,7 +274,7 @@ Return only the JSON object now.`;
       category: "coach",
       title: headline,
       body: firstFocus,
-      data: { url: `/?briefing=${briefing.id}`, briefingId: briefing.id, type },
+      data: { url: `/?coach=1&briefing=${briefing.id}`, briefingId: briefing.id, type },
     }).catch((err) => console.error("[coach-briefing] notify failed:", err));
   }
 

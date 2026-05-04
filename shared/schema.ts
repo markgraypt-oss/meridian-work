@@ -2572,6 +2572,8 @@ export const coachBriefings = pgTable("coach_briefings", {
   content: jsonb("content").notNull(), // { summary, focus, nudges[], tomorrow? }
   contextSnapshot: jsonb("context_snapshot"), // small snapshot of inputs used (burnout, sleep, etc.)
   source: text("source").notNull().default("ai"), // 'ai' | 'fallback'
+  readAt: timestamp("read_at"),
+  dismissedAt: timestamp("dismissed_at"),
   createdAt: timestamp("created_at").defaultNow(),
 }, (t) => [
   uniqueIndex("coach_briefings_user_date_type_idx").on(t.userId, t.briefingDate, t.type),

@@ -4,6 +4,8 @@ import { apiRequest, queryClient } from "@/lib/queryClient";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Send, Loader2, Sparkles, Plus, ThumbsUp, ThumbsDown, Mic, Clock, X, ImagePlus, MessageSquarePlus, ArrowLeft, Trash2, ChevronRight, Brain, Pencil, Check } from "lucide-react";
+import CoachBriefingPanel from "./CoachBriefingPanel";
+import { useTodayBriefing } from "@/hooks/useTodayBriefing";
 
 interface UsedMemory {
   id: number;
@@ -601,6 +603,7 @@ export default function CoachChat({ isOpen, onOpenChange }: CoachChatProps) {
           </div>
         ) : (
         <div ref={scrollRef} className="flex-1 overflow-y-auto px-4 py-3 space-y-4">
+          <BriefingHeader />
           {messages.length === 0 && !greetingLoading && (
             <div className="flex-1" />
           )}
@@ -925,4 +928,45 @@ export default function CoachChat({ isOpen, onOpenChange }: CoachChatProps) {
       `}</style>
     </>
   );
+}
+
+function BriefingHeader() {
+  const { briefing: today } = useTodayBriefing(true);
+  const focusedId = useFocusedBriefingId();
+  const focusedQuery = useQuery<import("@shared/schema").CoachBriefing>({
+    queryKey: ["/api/coach/briefing", focusedId],
+    queryFn: async () => {
+      const res = await apiRequest("GET", `/api/coach/briefing/${focusedId}`);
+      return res.json();
+    },
+    enabled: !!focusedId && (!today || today.id !== focusedId),
+    staleTime: 60 * 1000,
+    refetchOnWindowFocus: false,
+  });
+  const briefing = focusedId
+    ? (today?.id === focusedId ? today : focusedQuery.data)
+    : today;
+  if (!briefing || briefing.dismissedAt) return null;
+  return <CoachBriefingPanel briefing={briefing} />;
+}
+
+function useFocusedBriefingId(): number | null {
+  const [id, setId] = useState<number | null>(() => readBriefingIdFromUrl());
+  useEffect(() => {
+    const handler = () => setId(readBriefingIdFromUrl());
+    window.addEventListener('focus-briefing', handler);
+    window.addEventListener('popstate', handler);
+    return () => {
+      window.removeEventListener('focus-briefing', handler);
+      window.removeEventListener('popstate', handler);
+    };
+  }, []);
+  return id;
+}
+
+function readBriefingIdFromUrl(): number | null {
+  if (typeof window === 'undefined') return null;
+  const raw = new URLSearchParams(window.location.search).get('briefing');
+  const n = raw ? parseInt(raw, 10) : NaN;
+  return Number.isFinite(n) && n > 0 ? n : null;
 }

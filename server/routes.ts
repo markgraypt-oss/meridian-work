@@ -17858,6 +17858,48 @@ Respond as the coach. Be personalised, reference their actual data and specific 
     }
   });
 
+  app.get('/api/coach/briefing/:id', isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = req.user.claims.sub;
+      const id = parseIdParam(req.params.id);
+      if (!id) return res.status(400).json({ message: "Invalid id" });
+      const row = await storage.getCoachBriefingById(id, userId);
+      if (!row) return res.status(404).json({ message: "Not found" });
+      res.json(row);
+    } catch (error) {
+      console.error("Error loading briefing by id:", error);
+      res.status(500).json({ message: "Failed to load briefing" });
+    }
+  });
+
+  app.post('/api/coach/briefing/:id/read', isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = req.user.claims.sub;
+      const id = parseIdParam(req.params.id);
+      if (!id) return res.status(400).json({ message: "Invalid id" });
+      const row = await storage.markCoachBriefingRead(id, userId);
+      if (!row) return res.status(404).json({ message: "Not found" });
+      res.json(row);
+    } catch (error) {
+      console.error("Error marking briefing read:", error);
+      res.status(500).json({ message: "Failed to mark read" });
+    }
+  });
+
+  app.post('/api/coach/briefing/:id/dismiss', isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = req.user.claims.sub;
+      const id = parseIdParam(req.params.id);
+      if (!id) return res.status(400).json({ message: "Invalid id" });
+      const row = await storage.markCoachBriefingDismissed(id, userId);
+      if (!row) return res.status(404).json({ message: "Not found" });
+      res.json(row);
+    } catch (error) {
+      console.error("Error dismissing briefing:", error);
+      res.status(500).json({ message: "Failed to dismiss" });
+    }
+  });
+
   app.get('/api/coach/briefings', isAuthenticated, async (req: any, res) => {
     try {
       const userId = req.user.claims.sub;

@@ -16839,46 +16839,9 @@ Keep your response concise, practical, and evidence-based. Do not use em dashes.
       const providerConfig = getProviderConfig(coachingSettings || null);
       const coachingContext = await getCoachingContext('desk_scan');
 
-      const prompt = `You are an expert ergonomics consultant analyzing a ${positionType || 'seated'} desk setup. Analyze this workspace image and provide specific, actionable feedback.${coachingContext}
-
-CRITICAL: Your reply MUST be valid JSON only. No prose before or after.
-
-Default to analyzing the photo. A person sitting or standing at their desk is normal and expected, so do NOT refuse just because a person is visible. Refuse ONLY if there is genuinely no workstation visible at all (for example: the photo is of a pet, a meal, a landscape, just the floor or ceiling, a blank wall, or the image is too dark or blurry to make out any furniture). When refusing, return:
-{
-  "notAnalyzable": true,
-  "reason": "short friendly sentence explaining what is missing. Do NOT use em dashes."
-}
-
-In every other case, including when the angle is not ideal, parts of the desk are off-frame, or you can only partially see things, analyze what you CAN see and call out what is hidden as "unclear" issues. Do NOT use em dashes anywhere in your reply. Evaluate and provide feedback on:
-1. **Monitor Position** - Height, distance, and angle (eyes should be level with top third of screen, arm's length away)
-2. **Chair Setup** - Height, back support, armrest position (if visible)
-3. **Keyboard & Mouse** - Position, height, wrist alignment (elbows at 90°, wrists neutral)
-4. **Lighting** - Glare, ambient lighting, screen brightness
-5. **Posture Indicators** - Any visible posture concerns based on the setup
-6. **Desk Organization** - Clutter, frequently used items within reach
-
-For each issue, you MUST also estimate:
-- **bbox**: a bounding box on the photo locating the problem area, expressed as percentages of the image. Format: { "x": 0-100, "y": 0-100, "w": 0-100, "h": 0-100 } where x,y is the top-left corner. If the issue is not localizable to a region of the image (e.g. general lighting), use null.
-- **confidence**: how sure you are this issue is real, given the photo. One of: "visible" (you can clearly see the problem), "likely" (inferred from posture or context), "unclear" (the photo angle hides the truth).
-
-End with a summary score (1-10) and top 3 priority fixes.
-
-Format your response as JSON with this exact structure:
-{
-  "score": number,
-  "summary": "brief overall assessment",
-  "issues": [
-    {
-      "category": "category name",
-      "status": "good" | "needs_improvement" | "critical",
-      "observation": "what you see",
-      "recommendation": "how to fix it",
-      "bbox": { "x": 0-100, "y": 0-100, "w": 0-100, "h": 0-100 } | null,
-      "confidence": "visible" | "likely" | "unclear"
-    }
-  ],
-  "priorityFixes": ["fix 1", "fix 2", "fix 3"]
-}`;
+      const { buildDeskScanPrompt } = await import('./prompts/deskScan');
+      const basePrompt = buildDeskScanPrompt(positionType || 'seated');
+      const prompt = coachingContext ? `${basePrompt}${coachingContext}` : basePrompt;
 
       const userIdForVision = req.user.claims.sub;
       const result = await aiVisionCall({

@@ -45,8 +45,36 @@ interface AnalysisIssue {
   status: "good" | "needs_improvement" | "critical";
   observation: string;
   recommendation: string;
-  bbox?: { x: number; y: number; w: number; h: number } | null;
+  bbox?: {
+    x: number;
+    y: number;
+    w?: number;
+    h?: number;
+    width?: number;
+    height?: number;
+  } | null;
   confidence?: "visible" | "likely" | "unclear";
+}
+
+// The AI prompt asks for normalized 0.0 to 1.0 bbox values with `width`/`height`
+// keys. Older saved scans used 0-100 percentages with `w`/`h`. We discriminate
+// between the two formats by which keys are present (the prompt and old shape
+// happen to use different names), then scale to 0-100 percentages either way.
+function normalizeBbox(bbox: AnalysisIssue['bbox']): { x: number; y: number; w: number; h: number } | null {
+  if (!bbox) return null;
+  const x = typeof bbox.x === 'number' ? bbox.x : NaN;
+  const y = typeof bbox.y === 'number' ? bbox.y : NaN;
+  const hasNewKeys = typeof bbox.width === 'number' && typeof bbox.height === 'number';
+  const hasOldKeys = typeof bbox.w === 'number' && typeof bbox.h === 'number';
+  if (!Number.isFinite(x) || !Number.isFinite(y) || (!hasNewKeys && !hasOldKeys)) return null;
+  const wRaw = hasNewKeys ? (bbox.width as number) : (bbox.w as number);
+  const hRaw = hasNewKeys ? (bbox.height as number) : (bbox.h as number);
+  // Key shape tells us the scale: new (width/height) is normalized 0.0 to 1.0,
+  // old (w/h) is already 0-100 percentages. Defensive fallback: if new-format
+  // values look big (max > 1.5), assume the AI accidentally used percentages.
+  let scale = hasNewKeys ? 100 : 1;
+  if (hasNewKeys && Math.max(x, y, wRaw, hRaw) > 1.5) scale = 1;
+  return { x: x * scale, y: y * scale, w: wRaw * scale, h: hRaw * scale };
 }
 
 interface AnalysisResult {
@@ -600,15 +628,10 @@ export default function WorkdayDeskScan() {
                   {Array.isArray(analysis?.issues) && analysis!.issues.length > 0 && (
                     <div className="absolute inset-0 pointer-events-none">
                       {analysis!.issues
-                        .map((issue, idx) => ({ issue, idx }))
-                        .filter(({ issue }) =>
-                          issue && issue.bbox &&
-                          typeof issue.bbox.x === 'number' && typeof issue.bbox.y === 'number' &&
-                          typeof issue.bbox.w === 'number' && typeof issue.bbox.h === 'number' &&
-                          issue.status !== 'good'
-                        )
-                        .map(({ issue, idx }) => {
-                          const { x, y, w, h } = issue.bbox!;
+                        .map((issue, idx) => ({ issue, idx, box: normalizeBbox(issue?.bbox) }))
+                        .filter(({ issue, box }) => issue && box && issue.status !== 'good')
+                        .map(({ issue, idx, box }) => {
+                          const { x, y, w, h } = box!;
                           const colors = getStatusColor(issue.status);
                           const isActive = activeMarker === idx;
                           return (
@@ -873,7 +896,7 @@ export default function WorkdayDeskScan() {
                     const isExpandable = issue.status !== "good";
                     const conf = getConfidenceLabel(issue.confidence);
                     const isAdded = addedSet.has(addedKey(issue));
-                    const hasMarker = !!issue.bbox && issue.status !== 'good';
+                    const hasMarker = !!normalizeBbox(issue.bbox) && issue.status !== 'good';
                     return (
                       <Card
                         key={originalIdx}

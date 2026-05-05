@@ -53,3 +53,15 @@ id = "zEmDJsMrhyc5Rw10qBrPZ"
 uri = "file://attached_assets/exports/active-workout-txt/WorkoutRatingDialog.tsx.txt"
 type = "text"
 title = "WorkoutRatingDialog.tsx (includes WorkoutCelebration)"
+
+[[outputs]]
+id = "3kAAiEDDM9xJvbDdBlzWc"
+uri = "file://attached_assets/desk-references/ideal-seated.png"
+type = "image"
+title = "Ideal seated desk reference"
+
+[[outputs]]
+id = "XYouHGB3HdagBtzuQ2uq0"
+uri = "file://attached_assets/desk-references/ideal-standing.png"
+type = "image"
+title = "Ideal standing desk reference"

@@ -16843,13 +16843,13 @@ Keep your response concise, practical, and evidence-based. Do not use em dashes.
 
 CRITICAL: Your reply MUST be valid JSON only. No prose before or after.
 
-If the photo does NOT clearly show a workstation (no monitor, no desk, no chair, or the camera is pointed at a person, the floor, a wall, etc.), respond with:
+Default to analyzing the photo. A person sitting or standing at their desk is normal and expected, so do NOT refuse just because a person is visible. Refuse ONLY if there is genuinely no workstation visible at all (for example: the photo is of a pet, a meal, a landscape, just the floor or ceiling, a blank wall, or the image is too dark or blurry to make out any furniture). When refusing, return:
 {
   "notAnalyzable": true,
-  "reason": "short friendly sentence explaining what is missing and what to capture next time"
+  "reason": "short friendly sentence explaining what is missing. Do NOT use em dashes."
 }
 
-Otherwise, evaluate and provide feedback on:
+In every other case, including when the angle is not ideal, parts of the desk are off-frame, or you can only partially see things, analyze what you CAN see and call out what is hidden as "unclear" issues. Do NOT use em dashes anywhere in your reply. Evaluate and provide feedback on:
 1. **Monitor Position** - Height, distance, and angle (eyes should be level with top third of screen, arm's length away)
 2. **Chair Setup** - Height, back support, armrest position (if visible)
 3. **Keyboard & Mouse** - Position, height, wrist alignment (elbows at 90°, wrists neutral)

@@ -8,6 +8,16 @@ import TopHeader from "@/components/TopHeader";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import { LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer } from "recharts";
 import idealSeatedRef from "@assets/desk-references/ideal-seated.png";
 import idealStandingRef from "@assets/desk-references/ideal-standing.png";
@@ -35,7 +45,8 @@ import {
   TrendingUp,
   Clock,
   History,
-  AlertCircle
+  AlertCircle,
+  Trash2
 } from "lucide-react";
 
 type PositionType = "seated" | "standing" | "alternative";
@@ -184,6 +195,7 @@ export default function WorkdayDeskScan() {
   const [showReference, setShowReference] = useState(false);
   const [audioState, setAudioState] = useState<'idle' | 'loading' | 'playing' | 'paused'>('idle');
   const [activeMarker, setActiveMarker] = useState<number | null>(null);
+  const [pendingDeleteId, setPendingDeleteId] = useState<number | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const issueRefs = useRef<Record<number, HTMLDivElement | null>>({});
@@ -268,6 +280,28 @@ export default function WorkdayDeskScan() {
     },
     onError: () => {
       toast({ title: "Couldn't add that one", description: 'Try again in a moment.', variant: 'destructive' });
+    },
+  });
+
+  const deleteScanMutation = useMutation({
+    mutationFn: async (id: number) => {
+      await apiRequest('DELETE', `/api/workday/scans/${id}`);
+      return id;
+    },
+    onSuccess: (deletedId) => {
+      queryClient.invalidateQueries({ queryKey: ['/api/workday/scans'] });
+      // If the user was viewing the scan they just deleted, clear the results view.
+      if (scanId === deletedId) {
+        setImagePreview(null);
+        setAnalysis(null);
+        setScanId(null);
+      }
+      toast({ title: 'Scan deleted' });
+      setPendingDeleteId(null);
+    },
+    onError: () => {
+      toast({ title: "Couldn't delete that scan", description: 'Try again in a moment.', variant: 'destructive' });
+      setPendingDeleteId(null);
     },
   });
 
@@ -568,42 +602,80 @@ export default function WorkdayDeskScan() {
                     ? 'text-emerald-400'
                     : (s.score ?? 0) >= 5 ? 'text-[#0cc9a9]' : 'text-red-400';
                   return (
-                    <button
+                    <div
                       key={s.id}
-                      onClick={() => handleLoadPastScan(s)}
-                      className="flex-shrink-0 w-28 rounded-lg overflow-hidden border border-border bg-background/40 hover:border-[#0cc9a9] transition-colors text-left"
-                      data-testid={`button-past-scan-${s.id}`}
+                      className="relative flex-shrink-0 w-28 rounded-lg overflow-hidden border border-border bg-background/40 hover:border-[#0cc9a9] transition-colors group"
                     >
-                      {s.imageUrl ? (
-                        <img
-                          src={s.imageUrl}
-                          alt="Past scan"
-                          className="w-full h-20 object-cover"
-                        />
-                      ) : (
-                        <div className="w-full h-20 bg-black/40 flex items-center justify-center">
-                          <Camera className="h-5 w-5 text-muted-foreground" />
-                        </div>
-                      )}
-                      <div className="px-2 py-1.5 flex items-center justify-between gap-1">
-                        <div className="flex items-center gap-1 text-[10px] text-muted-foreground min-w-0">
-                          <Clock className="h-3 w-3 flex-shrink-0" />
-                          <span className="truncate">{dateLabel}</span>
-                        </div>
-                        {typeof s.score === 'number' && (
-                          <span className={`text-xs font-bold ${scoreColor}`}>{s.score}</span>
+                      <div
+                        role="button"
+                        tabIndex={0}
+                        onClick={() => handleLoadPastScan(s)}
+                        onKeyDown={(e) => (e.key === 'Enter' || e.key === ' ') && handleLoadPastScan(s)}
+                        className="cursor-pointer text-left"
+                        data-testid={`button-past-scan-${s.id}`}
+                      >
+                        {s.imageUrl ? (
+                          <img
+                            src={s.imageUrl}
+                            alt="Past scan"
+                            className="w-full h-20 object-cover"
+                          />
+                        ) : (
+                          <div className="w-full h-20 bg-black/40 flex items-center justify-center">
+                            <Camera className="h-5 w-5 text-muted-foreground" />
+                          </div>
                         )}
+                        <div className="px-2 py-1.5 flex items-center justify-between gap-1">
+                          <div className="flex items-center gap-1 text-[10px] text-muted-foreground min-w-0">
+                            <Clock className="h-3 w-3 flex-shrink-0" />
+                            <span className="truncate">{dateLabel}</span>
+                          </div>
+                          {typeof s.score === 'number' && (
+                            <span className={`text-xs font-bold ${scoreColor}`}>{s.score}</span>
+                          )}
+                        </div>
                       </div>
-                    </button>
+                      <button
+                        type="button"
+                        onClick={(e) => { e.stopPropagation(); setPendingDeleteId(s.id); }}
+                        className="absolute top-1 right-1 p-1.5 rounded-full bg-black/70 hover:bg-red-500/90 text-white/90 hover:text-white transition-colors opacity-80 hover:opacity-100"
+                        aria-label="Delete this scan"
+                        data-testid={`button-delete-scan-${s.id}`}
+                      >
+                        <Trash2 className="h-3.5 w-3.5" />
+                      </button>
+                    </div>
                   );
                 })}
               </div>
               <p className="text-xs text-muted-foreground mt-2">
-                Tap a scan to revisit your results.
+                Tap a scan to revisit your results, or use the trash icon to remove one.
               </p>
             </CardContent>
           </Card>
         )}
+
+        <AlertDialog open={pendingDeleteId !== null} onOpenChange={(open) => !open && setPendingDeleteId(null)}>
+          <AlertDialogContent>
+            <AlertDialogHeader>
+              <AlertDialogTitle>Delete this scan?</AlertDialogTitle>
+              <AlertDialogDescription>
+                This will remove the photo and results from your history. You can't undo this.
+              </AlertDialogDescription>
+            </AlertDialogHeader>
+            <AlertDialogFooter>
+              <AlertDialogCancel data-testid="button-cancel-delete-scan">Cancel</AlertDialogCancel>
+              <AlertDialogAction
+                onClick={() => pendingDeleteId !== null && deleteScanMutation.mutate(pendingDeleteId)}
+                disabled={deleteScanMutation.isPending}
+                className="bg-red-500 hover:bg-red-600 text-white"
+                data-testid="button-confirm-delete-scan"
+              >
+                {deleteScanMutation.isPending ? 'Deleting...' : 'Delete'}
+              </AlertDialogAction>
+            </AlertDialogFooter>
+          </AlertDialogContent>
+        </AlertDialog>
 
         <Card className="bg-card border-border">
           <CardContent className="p-4">

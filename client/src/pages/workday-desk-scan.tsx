@@ -547,6 +547,19 @@ export default function WorkdayDeskScan() {
       />
       
       <main className="px-4 pt-14 pb-4 space-y-6">
+        <Card className="bg-gradient-to-br from-[#0cc9a9]/20 to-[#0cc9a9]/5 border-[#0cc9a9]/30">
+          <CardContent className="p-4">
+            <div className="flex items-center gap-3 mb-2">
+              <Sparkles className="h-5 w-5 text-[#0cc9a9]" />
+              <h2 className="font-semibold text-[#0cc9a9]">AI-Powered Analysis</h2>
+            </div>
+            <p className="text-sm text-foreground/80">
+              Upload a photo of your desk setup and our AI will analyze your ergonomics, 
+              providing personalized recommendations to reduce pain and improve productivity.
+            </p>
+          </CardContent>
+        </Card>
+
         <div className="space-y-4">
           <h3 className="font-medium text-foreground">Select Your Position</h3>
           <div className="grid grid-cols-3 gap-3">

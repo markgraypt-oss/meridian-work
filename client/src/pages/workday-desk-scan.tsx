@@ -34,7 +34,8 @@ import {
   RefreshCw,
   TrendingUp,
   Clock,
-  History
+  History,
+  AlertCircle
 } from "lucide-react";
 
 type PositionType = "seated" | "standing" | "alternative";
@@ -54,6 +55,8 @@ interface AnalysisResult {
   issues: AnalysisIssue[];
   priorityFixes: string[];
   rawResponse?: string;
+  notAnalyzable?: boolean;
+  reason?: string;
 }
 
 interface DeskScanRow {
@@ -356,10 +359,17 @@ export default function WorkdayDeskScan() {
       setAnalysis(data.analysis);
       setScanId(data.scanId);
       queryClient.invalidateQueries({ queryKey: ['/api/workday/scans'] });
-      toast({ 
-        title: "Analysis complete!", 
-        description: `Your desk scored ${data.analysis.score || 'N/A'}/10` 
-      });
+      if (data.analysis?.notAnalyzable) {
+        toast({
+          title: "We couldn't read that photo",
+          description: data.analysis.reason || "Try a wider shot of your workspace.",
+        });
+      } else {
+        toast({
+          title: "Analysis complete!",
+          description: `Your desk scored ${data.analysis.score || 'N/A'}/10`,
+        });
+      }
     },
     onError: () => {
       toast({
@@ -689,7 +699,68 @@ export default function WorkdayDeskScan() {
           </CardContent>
         </Card>
 
-        {analysis && (
+        {analysis?.notAnalyzable && (
+          <div className="space-y-5 animate-in fade-in slide-in-from-bottom-4">
+            <Card className="bg-card border-amber-500/40">
+              <CardContent className="p-5">
+                <div className="flex items-start gap-3">
+                  <div className="p-2 rounded-full bg-amber-500/15 flex-shrink-0">
+                    <AlertCircle className="h-5 w-5 text-amber-400" />
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <h3 className="text-base font-semibold text-foreground">
+                      We couldn't read that photo
+                    </h3>
+                    <p className="text-sm text-foreground/70 mt-1.5 leading-relaxed">
+                      {analysis.reason || "Try a wider shot showing your monitor, chair and keyboard."}
+                    </p>
+                    <div className="mt-4 rounded-lg bg-background/50 border border-border/50 p-3">
+                      <p className="text-xs font-medium text-foreground/80 mb-2">Tips for a good scan</p>
+                      <ul className="text-xs text-muted-foreground space-y-1 list-disc pl-4">
+                        <li>Step back so your full desk, chair and screen all fit in frame</li>
+                        <li>Stand to the side, not behind the chair</li>
+                        <li>Make sure the room is well lit</li>
+                      </ul>
+                    </div>
+                    <div className="mt-4 flex flex-wrap gap-2">
+                      <Button
+                        size="sm"
+                        onClick={() => {
+                          setAnalysis(null);
+                          setScanId(null);
+                          setImagePreview(null);
+                          handleUploadClick("camera");
+                        }}
+                        className="bg-[#0cc9a9] hover:bg-[#0cc9a9]/90 text-black"
+                        data-testid="button-retake-photo"
+                      >
+                        <Camera className="h-4 w-4 mr-2" />
+                        Take another photo
+                      </Button>
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        onClick={() => {
+                          setAnalysis(null);
+                          setScanId(null);
+                          setImagePreview(null);
+                          handleUploadClick("upload");
+                        }}
+                        className="border-[#0cc9a9]/50 text-[#0cc9a9] hover:bg-[#0cc9a9]/10 hover:text-[#0cc9a9]"
+                        data-testid="button-upload-different"
+                      >
+                        <Upload className="h-4 w-4 mr-2" />
+                        Upload different
+                      </Button>
+                    </div>
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+          </div>
+        )}
+
+        {analysis && !analysis.notAnalyzable && (
           <div className="space-y-5 animate-in fade-in slide-in-from-bottom-4">
             <Card className="bg-card border-border">
               <CardContent className="p-5">

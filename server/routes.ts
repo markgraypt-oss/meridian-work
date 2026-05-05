@@ -16841,7 +16841,15 @@ Keep your response concise, practical, and evidence-based. Do not use em dashes.
 
       const prompt = `You are an expert ergonomics consultant analyzing a ${positionType || 'seated'} desk setup. Analyze this workspace image and provide specific, actionable feedback.${coachingContext}
 
-Please evaluate and provide feedback on:
+CRITICAL: Your reply MUST be valid JSON only. No prose before or after.
+
+If the photo does NOT clearly show a workstation (no monitor, no desk, no chair, or the camera is pointed at a person, the floor, a wall, etc.), respond with:
+{
+  "notAnalyzable": true,
+  "reason": "short friendly sentence explaining what is missing and what to capture next time"
+}
+
+Otherwise, evaluate and provide feedback on:
 1. **Monitor Position** - Height, distance, and angle (eyes should be level with top third of screen, arm's length away)
 2. **Chair Setup** - Height, back support, armrest position (if visible)
 3. **Keyboard & Mouse** - Position, height, wrist alignment (elbows at 90°, wrists neutral)
@@ -16884,22 +16892,44 @@ Format your response as JSON with this exact structure:
       });
 
       const responseText = result.text;
-      
-      let analysis;
+      const userId = req.user.claims.sub;
+
+      let analysis: any;
       try {
         const jsonMatch = responseText.match(/\{[\s\S]*\}/);
         if (jsonMatch) {
           analysis = JSON.parse(jsonMatch[0]);
         } else {
-          analysis = { rawResponse: responseText };
+          analysis = null;
         }
       } catch {
-        analysis = { rawResponse: responseText };
+        analysis = null;
       }
 
-      const userId = req.user.claims.sub;
-      const observations = analysis.issues?.map((i: any) => `${i.category}: ${i.observation}`) || [];
-      const score = typeof analysis.score === 'number' ? analysis.score : null;
+      const hasIssues = Array.isArray(analysis?.issues) && analysis.issues.length > 0;
+      const hasScore = typeof analysis?.score === 'number';
+      const aiSaidNotAnalyzable = analysis?.notAnalyzable === true;
+
+      // If we couldn't get a usable desk analysis, return a structured
+      // "not analyzable" response so the UI can show a friendly message
+      // instead of a confusing 0/10. Don't save a scan record either —
+      // it would pollute history and the score-trend chart.
+      if (!analysis || aiSaidNotAnalyzable || (!hasIssues && !hasScore)) {
+        const fallbackReason = "We couldn't see a desk in this photo. Try a wider shot showing your monitor, chair and keyboard.";
+        const reason = (typeof analysis?.reason === 'string' && analysis.reason.trim())
+          ? analysis.reason.trim()
+          : fallbackReason;
+        return res.json({
+          scanId: null,
+          analysis: {
+            notAnalyzable: true,
+            reason,
+          },
+        });
+      }
+
+      const observations = analysis.issues.map((i: any) => `${i.category}: ${i.observation}`);
+      const score = hasScore ? analysis.score : null;
 
       const scan = await storage.createWorkdayDeskScan({
         userId,

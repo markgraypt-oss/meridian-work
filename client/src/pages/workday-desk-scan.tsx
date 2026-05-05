@@ -542,22 +542,11 @@ export default function WorkdayDeskScan() {
       <TopHeader 
         title="AI Desk Analyzer" 
         onBack={() => navigate("/recovery/desk-health")} 
+        rightActionIcon={scanId !== null ? <Trash2 className="h-5 w-5 text-red-400" /> : undefined}
+        onRightAction={scanId !== null ? () => setPendingDeleteId(scanId) : undefined}
       />
       
       <main className="px-4 pt-14 pb-4 space-y-6">
-        <Card className="bg-gradient-to-br from-[#0cc9a9]/20 to-[#0cc9a9]/5 border-[#0cc9a9]/30">
-          <CardContent className="p-4">
-            <div className="flex items-center gap-3 mb-2">
-              <Sparkles className="h-5 w-5 text-[#0cc9a9]" />
-              <h2 className="font-semibold text-[#0cc9a9]">AI-Powered Analysis</h2>
-            </div>
-            <p className="text-sm text-foreground/80">
-              Upload a photo of your desk setup and our AI will analyze your ergonomics, 
-              providing personalized recommendations to reduce pain and improve productivity.
-            </p>
-          </CardContent>
-        </Card>
-
         <div className="space-y-4">
           <h3 className="font-medium text-foreground">Select Your Position</h3>
           <div className="grid grid-cols-3 gap-3">
@@ -602,54 +591,38 @@ export default function WorkdayDeskScan() {
                     ? 'text-emerald-400'
                     : (s.score ?? 0) >= 5 ? 'text-[#0cc9a9]' : 'text-red-400';
                   return (
-                    <div
+                    <button
                       key={s.id}
-                      className="relative flex-shrink-0 w-28 rounded-lg overflow-hidden border border-border bg-background/40 hover:border-[#0cc9a9] transition-colors group"
+                      onClick={() => handleLoadPastScan(s)}
+                      className="flex-shrink-0 w-28 rounded-lg overflow-hidden border border-border bg-background/40 hover:border-[#0cc9a9] transition-colors text-left"
+                      data-testid={`button-past-scan-${s.id}`}
                     >
-                      <div
-                        role="button"
-                        tabIndex={0}
-                        onClick={() => handleLoadPastScan(s)}
-                        onKeyDown={(e) => (e.key === 'Enter' || e.key === ' ') && handleLoadPastScan(s)}
-                        className="cursor-pointer text-left"
-                        data-testid={`button-past-scan-${s.id}`}
-                      >
-                        {s.imageUrl ? (
-                          <img
-                            src={s.imageUrl}
-                            alt="Past scan"
-                            className="w-full h-20 object-cover"
-                          />
-                        ) : (
-                          <div className="w-full h-20 bg-black/40 flex items-center justify-center">
-                            <Camera className="h-5 w-5 text-muted-foreground" />
-                          </div>
-                        )}
-                        <div className="px-2 py-1.5 flex items-center justify-between gap-1">
-                          <div className="flex items-center gap-1 text-[10px] text-muted-foreground min-w-0">
-                            <Clock className="h-3 w-3 flex-shrink-0" />
-                            <span className="truncate">{dateLabel}</span>
-                          </div>
-                          {typeof s.score === 'number' && (
-                            <span className={`text-xs font-bold ${scoreColor}`}>{s.score}</span>
-                          )}
+                      {s.imageUrl ? (
+                        <img
+                          src={s.imageUrl}
+                          alt="Past scan"
+                          className="w-full h-20 object-cover"
+                        />
+                      ) : (
+                        <div className="w-full h-20 bg-black/40 flex items-center justify-center">
+                          <Camera className="h-5 w-5 text-muted-foreground" />
                         </div>
+                      )}
+                      <div className="px-2 py-1.5 flex items-center justify-between gap-1">
+                        <div className="flex items-center gap-1 text-[10px] text-muted-foreground min-w-0">
+                          <Clock className="h-3 w-3 flex-shrink-0" />
+                          <span className="truncate">{dateLabel}</span>
+                        </div>
+                        {typeof s.score === 'number' && (
+                          <span className={`text-xs font-bold ${scoreColor}`}>{s.score}</span>
+                        )}
                       </div>
-                      <button
-                        type="button"
-                        onClick={(e) => { e.stopPropagation(); setPendingDeleteId(s.id); }}
-                        className="absolute top-1 right-1 p-1.5 rounded-full bg-black/70 hover:bg-red-500/90 text-white/90 hover:text-white transition-colors opacity-80 hover:opacity-100"
-                        aria-label="Delete this scan"
-                        data-testid={`button-delete-scan-${s.id}`}
-                      >
-                        <Trash2 className="h-3.5 w-3.5" />
-                      </button>
-                    </div>
+                    </button>
                   );
                 })}
               </div>
               <p className="text-xs text-muted-foreground mt-2">
-                Tap a scan to revisit your results, or use the trash icon to remove one.
+                Tap a scan to revisit your results.
               </p>
             </CardContent>
           </Card>

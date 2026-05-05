@@ -484,11 +484,16 @@ export async function aiSpeechCall(params: AiSpeechCallParams): Promise<AiSpeech
   let validationOutcome: ValidationOutcome = "no_schema";
 
   try {
+    // The Replit AI Integrations proxy does NOT support /v1/audio/speech,
+    // so TTS must go directly to OpenAI. Require a direct OPENAI_API_KEY.
+    const directKey = process.env.OPENAI_API_KEY;
+    if (!directKey) {
+      throw new Error(
+        "Voice walkthrough is not configured. An OPENAI_API_KEY secret is required for text-to-speech (the AI integrations proxy does not support audio endpoints)."
+      );
+    }
     const OpenAI = (await import("openai")).default;
-    const client = new OpenAI({
-      apiKey: process.env.AI_INTEGRATIONS_OPENAI_API_KEY,
-      baseURL: process.env.AI_INTEGRATIONS_OPENAI_BASE_URL,
-    });
+    const client = new OpenAI({ apiKey: directKey });
     const speech = await withTimeout(
       client.audio.speech.create({
         model,

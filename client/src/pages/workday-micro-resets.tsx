@@ -9,7 +9,7 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
-import { Zap, Clock, Hash, Play, Pause, RotateCcw, X, CheckCircle2 } from "lucide-react";
+import { Zap, Clock, Hash, Play, Pause, RotateCcw, Minus, Plus, X, CheckCircle2 } from "lucide-react";
 import { getMuxThumbnailUrl } from "@/lib/mux";
 import type { WorkdayMicroReset } from "@shared/schema";
 
@@ -125,11 +125,25 @@ function formatTime(seconds: number): string {
   return `${m}:${s.toString().padStart(2, "0")}`;
 }
 
-function ResetTimer({ targetSeconds }: { targetSeconds: number }) {
-  const [secondsLeft, setSecondsLeft] = useState<number>(targetSeconds);
+function ResetTimer({ suggestedSeconds }: { suggestedSeconds: number }) {
+  const STEP = 5;
+  const MIN = 5;
+  const MAX = 600;
+  const [target, setTarget] = useState<number>(suggestedSeconds);
+  const [secondsLeft, setSecondsLeft] = useState<number>(suggestedSeconds);
   const [running, setRunning] = useState<boolean>(false);
   const [completed, setCompleted] = useState<boolean>(false);
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
+  // Keep countdown in sync with target while idle
+  useEffect(() => {
+    if (!running) setSecondsLeft(target);
+  }, [target, running]);
+
+  const adjustTarget = (delta: number) => {
+    setTarget((t) => Math.max(MIN, Math.min(MAX, t + delta)));
+    setCompleted(false);
+  };
 
   useEffect(() => {
     if (!running) return;
@@ -172,7 +186,7 @@ function ResetTimer({ targetSeconds }: { targetSeconds: number }) {
 
   const toggle = () => {
     if (completed) {
-      setSecondsLeft(targetSeconds);
+      setSecondsLeft(target);
       setCompleted(false);
       setRunning(true);
       return;
@@ -183,11 +197,45 @@ function ResetTimer({ targetSeconds }: { targetSeconds: number }) {
   const reset_ = () => {
     setRunning(false);
     setCompleted(false);
-    setSecondsLeft(targetSeconds);
+    setSecondsLeft(target);
   };
 
   return (
     <div className="bg-card border border-border rounded-xl p-4 mb-5">
+      <div className="flex items-center justify-between mb-3">
+        <span className="text-sm text-muted-foreground">How long?</span>
+        <div className="flex items-center gap-2">
+          <Button
+            type="button"
+            variant="outline"
+            size="icon"
+            className="h-8 w-8 border-border"
+            onClick={() => adjustTarget(-STEP)}
+            disabled={target <= MIN || running}
+            data-testid="button-target-decrease"
+          >
+            <Minus className="h-4 w-4" />
+          </Button>
+          <span
+            className="text-base font-semibold text-foreground min-w-[4rem] text-center tabular-nums"
+            data-testid="value-target"
+          >
+            {target}s
+          </span>
+          <Button
+            type="button"
+            variant="outline"
+            size="icon"
+            className="h-8 w-8 border-border"
+            onClick={() => adjustTarget(STEP)}
+            disabled={target >= MAX || running}
+            data-testid="button-target-increase"
+          >
+            <Plus className="h-4 w-4" />
+          </Button>
+        </div>
+      </div>
+
       <div
         className={`w-full rounded-xl py-6 text-center mb-3 ${
           completed
@@ -223,7 +271,7 @@ function ResetTimer({ targetSeconds }: { targetSeconds: number }) {
               <RotateCcw className="h-4 w-4 mr-1" />
               Again
             </>
-          ) : secondsLeft < targetSeconds ? (
+          ) : secondsLeft < target ? (
             <>
               <Play className="h-4 w-4 mr-1 fill-current" />
               Resume
@@ -240,7 +288,7 @@ function ResetTimer({ targetSeconds }: { targetSeconds: number }) {
           variant="outline"
           className="flex-1 border-border"
           onClick={reset_}
-          disabled={!running && secondsLeft === targetSeconds}
+          disabled={!running && secondsLeft === target}
           data-testid="button-timer-reset"
         >
           <RotateCcw className="h-4 w-4 mr-1" />
@@ -324,7 +372,7 @@ function DoItSheet({ reset, onClose }: { reset: WorkdayMicroReset; onClose: () =
           <p className="text-sm text-muted-foreground mb-5">{reset.description}</p>
 
           {!isReps && reset.duration > 0 && (
-            <ResetTimer targetSeconds={reset.duration} />
+            <ResetTimer suggestedSeconds={reset.duration} />
           )}
 
           {/* Steps - always visible, like Working Positions setup tips */}

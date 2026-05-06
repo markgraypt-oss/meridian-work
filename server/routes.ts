@@ -940,6 +940,37 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // ==========================================================================
   registerNotificationRoutes(app);
 
+  // Presigned upload URL endpoint used by the shared uploadImageFile client
+  // helper. Used by both admin flows (e.g. New Position) and authenticated
+  // user flows (e.g. progress photos in ActivityLogForm, custom programme
+  // creation), so we only require authentication here. The corresponding
+  // GET /objects/:objectPath(*) handler is registered separately below with
+  // proper ACL enforcement; we do NOT mount the integration's generic
+  // object-serving route here, to avoid shadowing the ACL-checked handler.
+  app.post(
+    "/api/uploads/request-url",
+    isAuthenticated,
+    async (req, res) => {
+      try {
+        const { name, size, contentType } = req.body ?? {};
+        if (!name) {
+          return res.status(400).json({ error: "Missing required field: name" });
+        }
+        const objectStorageService = new ObjectStorageService();
+        const uploadURL = await objectStorageService.getObjectEntityUploadURL();
+        const objectPath = objectStorageService.normalizeObjectEntityPath(uploadURL);
+        res.json({
+          uploadURL,
+          objectPath,
+          metadata: { name, size, contentType },
+        });
+      } catch (error) {
+        console.error("Error generating upload URL:", error);
+        res.status(500).json({ error: "Failed to generate upload URL" });
+      }
+    },
+  );
+
   // Serve attached assets
   app.use(express.static(path.resolve(import.meta.dirname, "..", "attached_assets")));
   

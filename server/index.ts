@@ -3,7 +3,7 @@ import express, { type Request, Response, NextFunction } from "express";
 import { registerRoutes } from "./routes";
 import { setupVite, serveStatic, log } from "./vite";
 import { video } from "./mux";
-import { runProfileImageMigrationOnce, seedMeditationsOnce } from "./startupMigrations";
+import { runProfileImageMigrationOnce, seedMeditationsOnce, runSchemaSelfHealOnce } from "./startupMigrations";
 
 const app = express();
 
@@ -121,6 +121,9 @@ app.use((req, res, next) => {
     log(`serving on port ${port}`);
     // Fire-and-forget: convert any base64 profile pictures left in the DB to
     // cloud storage. Idempotent — does nothing on subsequent boots once done.
+    runSchemaSelfHealOnce().catch((e) => {
+      console.error("[startup-migration] schema self-heal failed:", e);
+    });
     runProfileImageMigrationOnce().catch((e) => {
       console.error("[startup-migration] profile-images failed:", e);
     });

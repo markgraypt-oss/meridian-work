@@ -1,9 +1,33 @@
 import { storage } from "./storage";
+import { pool } from "./db";
 import { ObjectStorageService, objectStorageClient } from "./replit_integrations/object_storage";
 import { randomUUID } from "crypto";
 
 let hasRunProfileImages = false;
 let hasRunMeditationSeed = false;
+let hasRunSchemaSelfHeal = false;
+
+/**
+ * Idempotent self-heal for schema columns that the app needs but that may not
+ * have been applied to production yet via the Publish-time schema diff.
+ * Each statement uses IF NOT EXISTS so it's safe to run on every boot.
+ */
+const SELF_HEAL_DDL: string[] = [
+  `ALTER TABLE workday_user_profiles ADD COLUMN IF NOT EXISTS active_positions text[]`,
+];
+
+export async function runSchemaSelfHealOnce(): Promise<void> {
+  if (hasRunSchemaSelfHeal) return;
+  hasRunSchemaSelfHeal = true;
+  for (const sql of SELF_HEAL_DDL) {
+    try {
+      await pool.query(sql);
+    } catch (err: any) {
+      console.error("[startup-migration] self-heal failed:", sql, err?.message || err);
+    }
+  }
+  console.log(`[startup-migration] schema self-heal complete (${SELF_HEAL_DDL.length} stmts)`);
+}
 
 const SEED_MEDITATIONS = [
   { title: "Morning Calm", durationMin: 5, category: "Focus", description: "Start your day with clarity and intention", tags: ["morning", "focus", "energy"] },

@@ -180,6 +180,7 @@ export default function WorkdayPositions() {
   });
 
   const preferred = useMemo(() => profile?.preferredPositions ?? [], [profile]);
+  const active = useMemo(() => profile?.activePositions ?? profile?.preferredPositions ?? [], [profile]);
 
   const toggleMutation = useMutation({
     mutationFn: (positionId: number) => {
@@ -188,8 +189,14 @@ export default function WorkdayPositions() {
       const nextPreferred = wasIn
         ? preferred.filter((p) => p !== idStr)
         : [...preferred, idStr];
+      const nextActive = wasIn
+        ? active.filter((p) => p !== idStr)
+        : active.includes(idStr)
+          ? active
+          : [...active, idStr];
       return apiRequest("POST", "/api/workday/profile", {
         preferredPositions: nextPreferred,
+        activePositions: nextActive,
       });
     },
     onSuccess: (_data, positionId) => {

@@ -16602,6 +16602,10 @@ Keep your response concise, practical, and evidence-based. Do not use em dashes.
     try {
       const userId = req.user.claims.sub;
       const profile = await storage.getWorkdayUserProfile(userId);
+      if (profile && profile.activePositions == null) {
+        // Backfill: existing users default to all currently-preferred positions being active
+        profile.activePositions = profile.preferredPositions ?? [];
+      }
       res.json(profile || null);
     } catch (error) {
       console.error("Error fetching workday profile:", error);

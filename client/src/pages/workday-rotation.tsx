@@ -26,32 +26,31 @@ import type { WorkdayUserProfile, WorkdayPosition } from "@shared/schema";
 interface RotationSettings {
   rotationInterval: number;
   notificationsEnabled: boolean;
-  preferredPositions: string[];
+  activePositions: string[];
 }
 
-function PositionToggle({ 
-  position, 
-  isSelected, 
-  onToggle 
-}: { 
-  position: WorkdayPosition; 
-  isSelected: boolean; 
-  onToggle: () => void;
+function PositionToggle({
+  position,
+  isActive,
+  onToggle,
+}: {
+  position: WorkdayPosition;
+  isActive: boolean;
+  onToggle: (next: boolean) => void;
 }) {
   return (
-    <Card 
-      className={`bg-card border-2 transition-all cursor-pointer ${
-        isSelected ? "border-primary" : "border-border"
+    <Card
+      className={`bg-card border-2 transition-all ${
+        isActive ? "border-primary" : "border-border opacity-60"
       }`}
-      onClick={onToggle}
       data-testid={`toggle-position-${position.id}`}
     >
       <CardContent className="p-3 flex items-center gap-3">
         {position.imageUrl ? (
-          <img 
-            src={position.imageUrl} 
+          <img
+            src={position.imageUrl}
             alt={position.name}
-            className="w-12 h-12 object-cover rounded-lg"
+            className={`w-12 h-12 object-cover rounded-lg ${isActive ? "" : "grayscale"}`}
           />
         ) : (
           <div className="w-12 h-12 bg-gray-700 rounded-lg flex items-center justify-center">
@@ -59,13 +58,18 @@ function PositionToggle({
           </div>
         )}
         <div className="flex-1 min-w-0">
-          <h4 className="font-medium text-foreground text-sm">{position.name}</h4>
-          <p className="text-xs text-muted-foreground line-clamp-1">{position.description}</p>
+          <h4 className={`font-medium text-sm ${isActive ? "text-foreground" : "text-muted-foreground"}`}>
+            {position.name}
+          </h4>
+          <p className="text-xs text-muted-foreground line-clamp-1">
+            {isActive ? position.description : "Paused — toggle on to include in rotation"}
+          </p>
         </div>
-        <Switch 
-          checked={isSelected}
+        <Switch
+          checked={isActive}
           onCheckedChange={onToggle}
           className="data-[state=checked]:bg-[#0cc9a9]"
+          data-testid={`switch-position-${position.id}`}
         />
       </CardContent>
     </Card>
@@ -81,7 +85,7 @@ export default function WorkdayRotation() {
   const [settings, setSettings] = useState<RotationSettings>({
     rotationInterval: 45,
     notificationsEnabled: true,
-    preferredPositions: [],
+    activePositions: [],
   });
 
   const { data: positions = [], isLoading: positionsLoading } = useQuery<WorkdayPosition[]>({
@@ -93,6 +97,8 @@ export default function WorkdayRotation() {
     queryKey: ["/api/workday/profile"],
     enabled: isAuthenticated,
   });
+
+  const preferredPositions = profile?.preferredPositions ?? [];
 
   const saveMutation = useMutation({
     mutationFn: (data: Partial<RotationSettings>) =>
@@ -111,7 +117,8 @@ export default function WorkdayRotation() {
       setSettings({
         rotationInterval: profile.rotationInterval || 45,
         notificationsEnabled: profile.notificationsEnabled ?? true,
-        preferredPositions: profile.preferredPositions || [],
+        // Backfill: if activePositions hasn't been set yet (existing user), default to all preferred.
+        activePositions: profile.activePositions ?? profile.preferredPositions ?? [],
       });
     }
   }, [profile]);
@@ -129,13 +136,15 @@ export default function WorkdayRotation() {
     }
   }, [isAuthenticated, authLoading, toast]);
 
-  const togglePosition = (positionId: number) => {
+  const setPositionActive = (positionId: number, active: boolean) => {
     const posIdStr = String(positionId);
     setSettings(prev => ({
       ...prev,
-      preferredPositions: prev.preferredPositions.includes(posIdStr)
-        ? prev.preferredPositions.filter(id => id !== posIdStr)
-        : [...prev.preferredPositions, posIdStr]
+      activePositions: active
+        ? prev.activePositions.includes(posIdStr)
+          ? prev.activePositions
+          : [...prev.activePositions, posIdStr]
+        : prev.activePositions.filter(id => id !== posIdStr),
     }));
   };
 
@@ -228,21 +237,21 @@ export default function WorkdayRotation() {
                 Your Position Rotation
               </h3>
               <p className="text-sm text-muted-foreground mb-4">
-                Toggle off to remove a position. Add new positions from the Working Positions page.
+                Toggle a position off to pause it for now — it stays in your list. Add or remove positions on the Working Positions page.
               </p>
               
               <div className="space-y-3">
                 {positions
-                  .filter((position) => settings.preferredPositions.includes(String(position.id)))
+                  .filter((position) => preferredPositions.includes(String(position.id)))
                   .map((position) => (
                     <PositionToggle
                       key={position.id}
                       position={position}
-                      isSelected={true}
-                      onToggle={() => togglePosition(position.id)}
+                      isActive={settings.activePositions.includes(String(position.id))}
+                      onToggle={(next) => setPositionActive(position.id, next)}
                     />
                   ))}
-                {settings.preferredPositions.length === 0 && (
+                {preferredPositions.length === 0 && (
                   <div className="text-center py-8 px-4 bg-card rounded-xl border border-border">
                     <p className="text-sm text-muted-foreground">
                       No positions in your rotation yet. Add some from the Working Positions page.

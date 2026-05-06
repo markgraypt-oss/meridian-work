@@ -180,15 +180,25 @@ export default function WorkdayPositions() {
   });
 
   const preferred = useMemo(() => profile?.preferredPositions ?? [], [profile]);
+  const active = useMemo(() => profile?.activePositions ?? profile?.preferredPositions ?? [], [profile]);
 
   const toggleMutation = useMutation({
     mutationFn: (positionId: number) => {
       const idStr = String(positionId);
-      const next = preferred.includes(idStr)
+      const wasIn = preferred.includes(idStr);
+      const nextPreferred = wasIn
         ? preferred.filter((p) => p !== idStr)
         : [...preferred, idStr];
+      // When removing from the rotation list, also drop it from active so we don't leave stale entries.
+      // When adding to the rotation list, default it to active.
+      const nextActive = wasIn
+        ? active.filter((p) => p !== idStr)
+        : active.includes(idStr)
+          ? active
+          : [...active, idStr];
       return apiRequest("POST", "/api/workday/profile", {
-        preferredPositions: next,
+        preferredPositions: nextPreferred,
+        activePositions: nextActive,
       });
     },
     onSuccess: (_data, positionId) => {

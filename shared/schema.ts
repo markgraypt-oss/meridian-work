@@ -2422,7 +2422,8 @@ export const workdayUserProfiles = pgTable("workday_user_profiles", {
   id: serial("id").primaryKey(),
   userId: varchar("user_id").notNull().references(() => users.id, { onDelete: "cascade" }).unique(),
   deskType: text("desk_type"), // 'fixed', 'sit_stand', 'laptop_only', 'external_monitor', 'dual_monitor'
-  preferredPositions: text("preferred_positions").array(), // Array of position IDs
+  preferredPositions: text("preferred_positions").array(), // Array of position IDs in user's rotation list (managed on Working Positions page)
+  activePositions: text("active_positions").array(), // Array of position IDs currently active in the rotation (managed on Rotation Planning page); subset of preferredPositions
   rotationInterval: integer("rotation_interval").default(60), // Minutes between position changes
   notificationsEnabled: boolean("notifications_enabled").default(false),
   createdAt: timestamp("created_at").defaultNow(),

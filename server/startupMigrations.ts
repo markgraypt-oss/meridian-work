@@ -99,6 +99,13 @@ const SELF_HEAL_DDL: string[] = [
 
   // Micro-resets: exercise type (timed vs reps) so users can pick how long/how many
   `ALTER TABLE workday_micro_resets ADD COLUMN IF NOT EXISTS exercise_type text NOT NULL DEFAULT 'timed'`,
+
+  // Workday schedule blocks + working hours (Task 60). Required by /api/workday/profile.
+  `ALTER TABLE workday_user_profiles
+     ADD COLUMN IF NOT EXISTS workday_start text,
+     ADD COLUMN IF NOT EXISTS workday_end text,
+     ADD COLUMN IF NOT EXISTS workday_days text[],
+     ADD COLUMN IF NOT EXISTS schedule_blocks jsonb DEFAULT NULL`,
 ];
 
 export async function runSchemaSelfHealOnce(): Promise<void> {

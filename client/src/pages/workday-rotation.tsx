@@ -60,7 +60,7 @@ function PositionToggle({
         )}
         <div className="flex-1 min-w-0">
           <h4 className="font-medium text-foreground text-sm">{position.name}</h4>
-          <p className="text-xs text-muted-foreground">{position.minDuration}-{position.maxDuration} min</p>
+          <p className="text-xs text-muted-foreground line-clamp-1">{position.description}</p>
         </div>
         <Switch 
           checked={isSelected}

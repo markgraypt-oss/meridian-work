@@ -10,16 +10,24 @@ import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
-import { Plus, Pencil, Trash2, X, GripVertical } from "lucide-react";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import { Plus, Pencil, Trash2, X, GripVertical, Check } from "lucide-react";
 import type { WorkdayPosition } from "@shared/schema";
+
+type PositionType = "seated" | "standing" | "alternative";
 
 interface PositionFormData {
   name: string;
   description: string;
   imageUrl: string;
   setupCues: string[];
-  minDuration: number;
-  maxDuration: number;
+  positionType: PositionType;
   orderIndex: number;
   isActive: boolean;
 }
@@ -29,8 +37,7 @@ const defaultFormData: PositionFormData = {
   description: "",
   imageUrl: "",
   setupCues: [],
-  minDuration: 30,
-  maxDuration: 90,
+  positionType: "seated",
   orderIndex: 0,
   isActive: true,
 };
@@ -44,6 +51,7 @@ export default function AdminWorkdayPositions() {
   const [formData, setFormData] = useState<PositionFormData>(defaultFormData);
   const [newCue, setNewCue] = useState("");
   const [uploadingImage, setUploadingImage] = useState(false);
+  const [imageJustUploaded, setImageJustUploaded] = useState(false);
 
   const { data: positions = [], isLoading } = useQuery<WorkdayPosition[]>({
     queryKey: ["/api/admin/workday/positions"],
@@ -54,6 +62,7 @@ export default function AdminWorkdayPositions() {
       apiRequest("POST", "/api/admin/workday/positions", data),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/admin/workday/positions"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/workday/positions"] });
       toast({ title: "Position created successfully" });
       resetForm();
     },
@@ -67,6 +76,7 @@ export default function AdminWorkdayPositions() {
       apiRequest("PATCH", `/api/admin/workday/positions/${id}`, data),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/admin/workday/positions"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/workday/positions"] });
       toast({ title: "Position updated successfully" });
       resetForm();
     },
@@ -80,6 +90,7 @@ export default function AdminWorkdayPositions() {
       apiRequest("DELETE", `/api/admin/workday/positions/${id}`),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/admin/workday/positions"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/workday/positions"] });
       toast({ title: "Position deleted successfully" });
     },
     onError: () => {
@@ -92,21 +103,26 @@ export default function AdminWorkdayPositions() {
     setEditingId(null);
     setShowForm(false);
     setNewCue("");
+    setImageJustUploaded(false);
   };
 
   const handleEdit = (position: WorkdayPosition) => {
+    const positionType: PositionType =
+      position.positionType === "standing" || position.positionType === "alternative"
+        ? position.positionType
+        : "seated";
     setFormData({
       name: position.name,
       description: position.description,
       imageUrl: position.imageUrl || "",
       setupCues: position.setupCues || [],
-      minDuration: position.minDuration || 30,
-      maxDuration: position.maxDuration || 90,
+      positionType,
       orderIndex: position.orderIndex || 0,
       isActive: position.isActive ?? true,
     });
     setEditingId(position.id);
     setShowForm(true);
+    setImageJustUploaded(false);
   };
 
   const handleSubmit = (e: React.FormEvent) => {
@@ -124,16 +140,24 @@ export default function AdminWorkdayPositions() {
     try {
       setUploadingImage(true);
       const uploadData = new FormData();
-      uploadData.append('image', file);
-      const response = await fetch('/api/upload/image', { method: 'POST', body: uploadData, credentials: 'include' });
-      if (!response.ok) throw new Error('Upload failed');
+      uploadData.append("image", file);
+      const response = await fetch("/api/upload/image", {
+        method: "POST",
+        body: uploadData,
+        credentials: "include",
+      });
+      if (!response.ok) throw new Error("Upload failed");
       const result = await response.json();
-      setFormData(prev => ({ ...prev, imageUrl: result.imageUrl || result.url }));
-      toast({ title: "Image uploaded" });
+      const url = result.imageUrl || result.url;
+      if (!url) throw new Error("No image URL returned");
+      setFormData((prev) => ({ ...prev, imageUrl: url }));
+      setImageJustUploaded(true);
+      toast({ title: "Image uploaded", description: "Click Save to attach it to the position." });
     } catch (error) {
       toast({ title: "Upload failed", description: "Could not upload image", variant: "destructive" });
     } finally {
       setUploadingImage(false);
+      event.target.value = "";
     }
   };
 
@@ -151,10 +175,16 @@ export default function AdminWorkdayPositions() {
     });
   };
 
+  const typeLabel = (t: string | null | undefined) => {
+    if (t === "standing") return "Standing";
+    if (t === "alternative") return "Alternative";
+    return "Seated";
+  };
+
   return (
     <div className="min-h-screen bg-background">
       <TopHeader title="Workday Positions" onBack={() => navigate("/admin?tab=desk-health")} />
-      
+
       <div className="p-4 pt-16 space-y-4">
         {!showForm && (
           <Button
@@ -173,12 +203,7 @@ export default function AdminWorkdayPositions() {
               <CardTitle className="text-white">
                 {editingId ? "Edit Position" : "New Position"}
               </CardTitle>
-              <Button
-                variant="ghost"
-                size="icon"
-                onClick={resetForm}
-                data-testid="button-close-form"
-              >
+              <Button variant="ghost" size="icon" onClick={resetForm} data-testid="button-close-form">
                 <X className="h-4 w-4" />
               </Button>
             </CardHeader>
@@ -195,6 +220,25 @@ export default function AdminWorkdayPositions() {
                     required
                     data-testid="input-name"
                   />
+                </div>
+
+                <div className="space-y-2">
+                  <Label htmlFor="positionType">Position type</Label>
+                  <Select
+                    value={formData.positionType}
+                    onValueChange={(value) =>
+                      setFormData({ ...formData, positionType: value as PositionType })
+                    }
+                  >
+                    <SelectTrigger id="positionType" className="bg-background border-border" data-testid="select-position-type">
+                      <SelectValue placeholder="Select a type" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="seated">Seated</SelectItem>
+                      <SelectItem value="standing">Standing</SelectItem>
+                      <SelectItem value="alternative">Alternative</SelectItem>
+                    </SelectContent>
+                  </Select>
                 </div>
 
                 <div className="space-y-2">
@@ -218,22 +262,68 @@ export default function AdminWorkdayPositions() {
                   {formData.imageUrl ? (
                     <div className="space-y-2">
                       <div className="relative inline-block">
-                        <img src={formData.imageUrl} alt="Preview" className="w-48 h-32 object-cover rounded-lg border border-border" onError={(e) => (e.currentTarget.style.display = 'none')} />
-                        <button type="button" className="absolute top-1 right-1 h-6 w-6 rounded-full bg-destructive text-destructive-foreground flex items-center justify-center text-xs font-bold hover:bg-destructive/80" onClick={() => setFormData(prev => ({ ...prev, imageUrl: '' }))}>✕</button>
+                        <img
+                          src={formData.imageUrl}
+                          alt="Preview"
+                          className="w-48 h-32 object-cover rounded-lg border border-border"
+                          onError={(e) => (e.currentTarget.style.display = "none")}
+                        />
+                        <button
+                          type="button"
+                          className="absolute top-1 right-1 h-6 w-6 rounded-full bg-destructive text-destructive-foreground flex items-center justify-center text-xs font-bold hover:bg-destructive/80"
+                          onClick={() => {
+                            setFormData((prev) => ({ ...prev, imageUrl: "" }));
+                            setImageJustUploaded(false);
+                          }}
+                        >
+                          ✕
+                        </button>
                       </div>
+                      {imageJustUploaded && (
+                        <div className="flex items-center gap-1.5 text-xs text-[#0cc9a9]" data-testid="text-image-attached">
+                          <Check className="h-3.5 w-3.5" />
+                          Image attached. Click {editingId ? "Update" : "Create"} to save.
+                        </div>
+                      )}
                       <label className="inline-flex items-center gap-1.5 text-xs text-primary cursor-pointer hover:underline">
                         Replace image
-                        <input type="file" accept="image/jpeg,image/png,image/webp" onChange={handleImageUpload} disabled={uploadingImage} className="hidden" />
+                        <input
+                          type="file"
+                          accept="image/jpeg,image/png,image/webp"
+                          onChange={handleImageUpload}
+                          disabled={uploadingImage}
+                          className="hidden"
+                        />
                       </label>
                     </div>
                   ) : (
                     <label className="flex flex-col items-center justify-center w-48 h-32 border-2 border-dashed border-border rounded-lg cursor-pointer hover:border-primary/50 hover:bg-muted/30 transition-colors">
                       <div className="flex flex-col items-center gap-1.5 text-muted-foreground">
-                        <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+                        <svg
+                          xmlns="http://www.w3.org/2000/svg"
+                          width="24"
+                          height="24"
+                          viewBox="0 0 24 24"
+                          fill="none"
+                          stroke="currentColor"
+                          strokeWidth="1.5"
+                          strokeLinecap="round"
+                          strokeLinejoin="round"
+                        >
+                          <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+                          <polyline points="17 8 12 3 7 8" />
+                          <line x1="12" y1="3" x2="12" y2="15" />
+                        </svg>
                         <span className="text-xs font-medium">Upload Image</span>
                         <span className="text-[10px]">1200 × 800px</span>
                       </div>
-                      <input type="file" accept="image/jpeg,image/png,image/webp" onChange={handleImageUpload} disabled={uploadingImage} className="hidden" />
+                      <input
+                        type="file"
+                        accept="image/jpeg,image/png,image/webp"
+                        onChange={handleImageUpload}
+                        disabled={uploadingImage}
+                        className="hidden"
+                      />
                     </label>
                   )}
                   {uploadingImage && (
@@ -242,31 +332,6 @@ export default function AdminWorkdayPositions() {
                       Uploading...
                     </div>
                   )}
-                </div>
-
-                <div className="grid grid-cols-2 gap-4">
-                  <div className="space-y-2">
-                    <Label htmlFor="minDuration">Min Duration (min)</Label>
-                    <Input
-                      id="minDuration"
-                      type="number"
-                      value={formData.minDuration}
-                      onChange={(e) => setFormData({ ...formData, minDuration: parseInt(e.target.value) || 0 })}
-                      className="bg-background border-border"
-                      data-testid="input-min-duration"
-                    />
-                  </div>
-                  <div className="space-y-2">
-                    <Label htmlFor="maxDuration">Max Duration (min)</Label>
-                    <Input
-                      id="maxDuration"
-                      type="number"
-                      value={formData.maxDuration}
-                      onChange={(e) => setFormData({ ...formData, maxDuration: parseInt(e.target.value) || 0 })}
-                      className="bg-background border-border"
-                      data-testid="input-max-duration"
-                    />
-                  </div>
                 </div>
 
                 <div className="space-y-2">
@@ -305,7 +370,7 @@ export default function AdminWorkdayPositions() {
                 </div>
 
                 <div className="space-y-2">
-                  <Label htmlFor="orderIndex">Order Index</Label>
+                  <Label htmlFor="orderIndex">Display order</Label>
                   <Input
                     id="orderIndex"
                     type="number"
@@ -314,6 +379,7 @@ export default function AdminWorkdayPositions() {
                     className="bg-background border-border"
                     data-testid="input-order-index"
                   />
+                  <p className="text-xs text-muted-foreground">Lower numbers appear first.</p>
                 </div>
 
                 <div className="flex items-center gap-2">
@@ -342,7 +408,9 @@ export default function AdminWorkdayPositions() {
         {isLoading ? (
           <div className="text-center py-8 text-gray-400">Loading...</div>
         ) : positions.length === 0 ? (
-          <div className="text-center py-8 text-gray-400">No positions yet. Add your first position above.</div>
+          <div className="text-center py-8 text-gray-400">
+            No positions yet. Add your first position above.
+          </div>
         ) : (
           <div className="space-y-3">
             {positions.map((position) => (
@@ -361,16 +429,16 @@ export default function AdminWorkdayPositions() {
                       />
                     )}
                     <div className="flex-1 min-w-0">
-                      <div className="flex items-center gap-2">
+                      <div className="flex items-center gap-2 flex-wrap">
                         <h3 className="font-semibold text-white">{position.name}</h3>
+                        <span className="text-xs bg-muted px-2 py-0.5 rounded text-foreground/80">
+                          {typeLabel(position.positionType)}
+                        </span>
                         {!position.isActive && (
                           <span className="text-xs bg-gray-600 px-2 py-0.5 rounded">Inactive</span>
                         )}
                       </div>
                       <p className="text-sm text-gray-400 line-clamp-2">{position.description}</p>
-                      <p className="text-xs text-gray-500 mt-1">
-                        {position.minDuration}-{position.maxDuration} min
-                      </p>
                     </div>
                     <div className="flex gap-2">
                       <Button

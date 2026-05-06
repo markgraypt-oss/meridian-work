@@ -2422,7 +2422,7 @@ export const workdayDeskTips = pgTable("workday_desk_tips", {
 export const scheduleBlockSchema = z.object({
   id: z.string().uuid(),
   type: z.enum(["position", "movement_break"]),
-  positionId: z.string().uuid().nullable(),
+  positionId: z.string().min(1).nullable(),
   durationMinutes: z.number().int().min(5).max(240),
   label: z.string().max(80).nullable(),
 }).superRefine((block, ctx) => {

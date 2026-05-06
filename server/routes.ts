@@ -16226,6 +16226,20 @@ Keep your response concise, practical, and evidence-based. Do not use em dashes.
     }
   });
 
+  app.put('/api/admin/workday/positions/reorder', isAuthenticated, requireAdmin, async (req: any, res) => {
+    try {
+      const { orderedIds } = req.body as { orderedIds?: unknown };
+      if (!Array.isArray(orderedIds) || !orderedIds.every((id) => Number.isInteger(id))) {
+        return res.status(400).json({ message: "orderedIds must be an array of integers" });
+      }
+      await storage.reorderWorkdayPositions(orderedIds as number[]);
+      res.status(204).send();
+    } catch (error) {
+      console.error("Error reordering workday positions:", error);
+      res.status(500).json({ message: "Failed to reorder positions" });
+    }
+  });
+
   // Workday Micro-Resets - Admin CRUD
   app.get('/api/admin/workday/micro-resets', isAuthenticated, requireAdmin, async (req: any, res) => {
     try {

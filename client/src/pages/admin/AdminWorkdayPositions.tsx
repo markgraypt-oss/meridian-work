@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useLocation } from "wouter";
+import { DragDropContext, Droppable, Draggable, type DropResult } from "@hello-pangea/dnd";
 import { apiRequest } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 import TopHeader from "@/components/TopHeader";
@@ -28,7 +29,6 @@ interface PositionFormData {
   imageUrl: string;
   setupCues: string[];
   positionType: PositionType;
-  orderIndex: number;
   isActive: boolean;
 }
 
@@ -38,7 +38,6 @@ const defaultFormData: PositionFormData = {
   imageUrl: "",
   setupCues: [],
   positionType: "seated",
-  orderIndex: 0,
   isActive: true,
 };
 
@@ -85,6 +84,45 @@ export default function AdminWorkdayPositions() {
     },
   });
 
+  const reorderMutation = useMutation({
+    mutationFn: (orderedIds: number[]) =>
+      apiRequest("PUT", "/api/admin/workday/positions/reorder", { orderedIds }),
+    onMutate: async (orderedIds) => {
+      await queryClient.cancelQueries({ queryKey: ["/api/admin/workday/positions"] });
+      const previous = queryClient.getQueryData<WorkdayPosition[]>(["/api/admin/workday/positions"]);
+      if (previous) {
+        const byId = new Map(previous.map((p) => [p.id, p]));
+        const next = orderedIds
+          .map((id, idx) => {
+            const p = byId.get(id);
+            return p ? { ...p, orderIndex: idx } : null;
+          })
+          .filter((p): p is WorkdayPosition => p !== null);
+        queryClient.setQueryData<WorkdayPosition[]>(["/api/admin/workday/positions"], next);
+      }
+      return { previous };
+    },
+    onError: (_err, _vars, context) => {
+      if (context?.previous) {
+        queryClient.setQueryData(["/api/admin/workday/positions"], context.previous);
+      }
+      toast({ title: "Failed to reorder positions", variant: "destructive" });
+    },
+    onSettled: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/admin/workday/positions"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/workday/positions"] });
+    },
+  });
+
+  const handleDragEnd = (result: DropResult) => {
+    if (!result.destination) return;
+    if (result.source.index === result.destination.index) return;
+    const items = Array.from(positions);
+    const [moved] = items.splice(result.source.index, 1);
+    items.splice(result.destination.index, 0, moved);
+    reorderMutation.mutate(items.map((p) => p.id));
+  };
+
   const deleteMutation = useMutation({
     mutationFn: (id: number) =>
       apiRequest("DELETE", `/api/admin/workday/positions/${id}`),
@@ -117,7 +155,6 @@ export default function AdminWorkdayPositions() {
       imageUrl: position.imageUrl || "",
       setupCues: position.setupCues || [],
       positionType,
-      orderIndex: position.orderIndex || 0,
       isActive: position.isActive ?? true,
     });
     setEditingId(position.id);
@@ -369,19 +406,6 @@ export default function AdminWorkdayPositions() {
                   </div>
                 </div>
 
-                <div className="space-y-2">
-                  <Label htmlFor="orderIndex">Display order</Label>
-                  <Input
-                    id="orderIndex"
-                    type="number"
-                    value={formData.orderIndex}
-                    onChange={(e) => setFormData({ ...formData, orderIndex: parseInt(e.target.value) || 0 })}
-                    className="bg-background border-border"
-                    data-testid="input-order-index"
-                  />
-                  <p className="text-xs text-muted-foreground">Lower numbers appear first.</p>
-                </div>
-
                 <div className="flex items-center gap-2">
                   <Switch
                     id="isActive"
@@ -412,58 +436,86 @@ export default function AdminWorkdayPositions() {
             No positions yet. Add your first position above.
           </div>
         ) : (
-          <div className="space-y-3">
-            {positions.map((position) => (
-              <Card
-                key={position.id}
-                className={`bg-card border-border ${!position.isActive ? "opacity-50" : ""}`}
-                data-testid={`card-position-${position.id}`}
-              >
-                <CardContent className="p-4">
-                  <div className="flex items-start gap-4">
-                    {position.imageUrl && (
-                      <img
-                        src={position.imageUrl}
-                        alt={position.name}
-                        className="w-16 h-16 object-cover rounded"
-                      />
-                    )}
-                    <div className="flex-1 min-w-0">
-                      <div className="flex items-center gap-2 flex-wrap">
-                        <h3 className="font-semibold text-white">{position.name}</h3>
-                        <span className="text-xs bg-muted px-2 py-0.5 rounded text-foreground/80">
-                          {typeLabel(position.positionType)}
-                        </span>
-                        {!position.isActive && (
-                          <span className="text-xs bg-gray-600 px-2 py-0.5 rounded">Inactive</span>
-                        )}
-                      </div>
-                      <p className="text-sm text-gray-400 line-clamp-2">{position.description}</p>
-                    </div>
-                    <div className="flex gap-2">
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        onClick={() => handleEdit(position)}
-                        data-testid={`button-edit-${position.id}`}
-                      >
-                        <Pencil className="h-4 w-4" />
-                      </Button>
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        onClick={() => deleteMutation.mutate(position.id)}
-                        className="text-red-400 hover:text-red-300"
-                        data-testid={`button-delete-${position.id}`}
-                      >
-                        <Trash2 className="h-4 w-4" />
-                      </Button>
-                    </div>
-                  </div>
-                </CardContent>
-              </Card>
-            ))}
-          </div>
+          <DragDropContext onDragEnd={handleDragEnd}>
+            <Droppable droppableId="positions-list">
+              {(provided) => (
+                <div
+                  ref={provided.innerRef}
+                  {...provided.droppableProps}
+                  className="space-y-3"
+                >
+                  {positions.map((position, index) => (
+                    <Draggable
+                      key={position.id}
+                      draggableId={String(position.id)}
+                      index={index}
+                    >
+                      {(dragProvided, snapshot) => (
+                        <Card
+                          ref={dragProvided.innerRef}
+                          {...dragProvided.draggableProps}
+                          className={`bg-card border-border transition-colors ${!position.isActive ? "opacity-50" : ""} ${snapshot.isDragging ? "border-primary shadow-lg" : ""}`}
+                          data-testid={`card-position-${position.id}`}
+                        >
+                          <CardContent className="p-4">
+                            <div className="flex items-start gap-3">
+                              <div
+                                {...dragProvided.dragHandleProps}
+                                className="flex-shrink-0 pt-1 cursor-grab active:cursor-grabbing text-gray-500 hover:text-gray-300"
+                                aria-label="Drag to reorder"
+                                data-testid={`drag-handle-${position.id}`}
+                              >
+                                <GripVertical className="h-5 w-5" />
+                              </div>
+                              {position.imageUrl && (
+                                <img
+                                  src={position.imageUrl}
+                                  alt={position.name}
+                                  className="w-16 h-16 object-cover rounded"
+                                />
+                              )}
+                              <div className="flex-1 min-w-0">
+                                <div className="flex items-center gap-2 flex-wrap">
+                                  <h3 className="font-semibold text-white">{position.name}</h3>
+                                  <span className="text-xs bg-muted px-2 py-0.5 rounded text-foreground/80">
+                                    {typeLabel(position.positionType)}
+                                  </span>
+                                  {!position.isActive && (
+                                    <span className="text-xs bg-gray-600 px-2 py-0.5 rounded">Inactive</span>
+                                  )}
+                                </div>
+                                <p className="text-sm text-gray-400 line-clamp-2">{position.description}</p>
+                              </div>
+                              <div className="flex gap-2">
+                                <Button
+                                  variant="ghost"
+                                  size="icon"
+                                  onClick={() => handleEdit(position)}
+                                  data-testid={`button-edit-${position.id}`}
+                                >
+                                  <Pencil className="h-4 w-4" />
+                                </Button>
+                                <Button
+                                  variant="ghost"
+                                  size="icon"
+                                  onClick={() => deleteMutation.mutate(position.id)}
+                                  className="text-red-400 hover:text-red-300"
+                                  data-testid={`button-delete-${position.id}`}
+                                >
+                                  <Trash2 className="h-4 w-4" />
+                                </Button>
+                              </div>
+                            </div>
+                          </CardContent>
+                        </Card>
+                      )}
+                    </Draggable>
+                  ))}
+                  {provided.placeholder}
+                </div>
+              )}
+            </Droppable>
+          </DragDropContext>
         )}
       </div>
     </div>

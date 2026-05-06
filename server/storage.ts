@@ -1036,6 +1036,7 @@ export interface IStorage {
   createWorkdayPosition(position: InsertWorkdayPosition): Promise<WorkdayPosition>;
   updateWorkdayPosition(id: number, position: Partial<InsertWorkdayPosition>): Promise<WorkdayPosition>;
   deleteWorkdayPosition(id: number): Promise<void>;
+  reorderWorkdayPositions(orderedIds: number[]): Promise<void>;
 
   // Workday Engine - Micro-Resets operations
   getWorkdayMicroResets(targetArea?: string): Promise<WorkdayMicroReset[]>;
@@ -10926,7 +10927,14 @@ export class DatabaseStorage implements IStorage {
   }
 
   async createWorkdayPosition(position: InsertWorkdayPosition): Promise<WorkdayPosition> {
-    const [created] = await db.insert(workdayPositions).values(position).returning();
+    const values = { ...position };
+    if (values.orderIndex === undefined || values.orderIndex === null) {
+      const [{ maxOrder }] = await db
+        .select({ maxOrder: sql<number>`COALESCE(MAX(${workdayPositions.orderIndex}), -1)` })
+        .from(workdayPositions);
+      values.orderIndex = Number(maxOrder) + 1;
+    }
+    const [created] = await db.insert(workdayPositions).values(values).returning();
     return created;
   }
 
@@ -10941,6 +10949,18 @@ export class DatabaseStorage implements IStorage {
 
   async deleteWorkdayPosition(id: number): Promise<void> {
     await db.delete(workdayPositions).where(eq(workdayPositions.id, id));
+  }
+
+  async reorderWorkdayPositions(orderedIds: number[]): Promise<void> {
+    if (orderedIds.length === 0) return;
+    await db.transaction(async (tx) => {
+      for (let i = 0; i < orderedIds.length; i++) {
+        await tx
+          .update(workdayPositions)
+          .set({ orderIndex: i, updatedAt: new Date() })
+          .where(eq(workdayPositions.id, orderedIds[i]));
+      }
+    });
   }
 
   // Workday Engine - Micro-Resets operations

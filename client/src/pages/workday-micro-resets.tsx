@@ -9,7 +9,7 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
-import { Zap, Clock, Hash, Play, Pause, RotateCcw, Minus, Plus, X, CheckCircle2 } from "lucide-react";
+import { Zap, Clock, Hash, Play, Pause, RotateCcw, X, CheckCircle2 } from "lucide-react";
 import { getMuxThumbnailUrl } from "@/lib/mux";
 import type { WorkdayMicroReset } from "@shared/schema";
 
@@ -125,12 +125,125 @@ function formatTime(seconds: number): string {
   return `${m}:${s.toString().padStart(2, "0")}`;
 }
 
+const TIME_STEP = 5;
+const TIME_MIN = 5;
+const TIME_MAX = 600;
+const TIME_OPTIONS: number[] = (() => {
+  const arr: number[] = [];
+  for (let s = TIME_MIN; s <= TIME_MAX; s += TIME_STEP) arr.push(s);
+  return arr;
+})();
+const ITEM_HEIGHT = 44;
+
+function TimeWheel({
+  value,
+  onChange,
+  disabled,
+}: {
+  value: number;
+  onChange: (v: number) => void;
+  disabled?: boolean;
+}) {
+  const scrollerRef = useRef<HTMLDivElement | null>(null);
+  const settleRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const lastEmittedRef = useRef<number>(value);
+
+  // Sync external value -> scroll position
+  useEffect(() => {
+    const el = scrollerRef.current;
+    if (!el) return;
+    const idx = TIME_OPTIONS.indexOf(value);
+    if (idx < 0) return;
+    const targetTop = idx * ITEM_HEIGHT;
+    if (Math.abs(el.scrollTop - targetTop) > 1) {
+      el.scrollTo({ top: targetTop, behavior: "auto" });
+    }
+    lastEmittedRef.current = value;
+  }, [value]);
+
+  const handleScroll = () => {
+    const el = scrollerRef.current;
+    if (!el || disabled) return;
+    if (settleRef.current) clearTimeout(settleRef.current);
+    settleRef.current = setTimeout(() => {
+      const idx = Math.round(el.scrollTop / ITEM_HEIGHT);
+      const clamped = Math.max(0, Math.min(TIME_OPTIONS.length - 1, idx));
+      const v = TIME_OPTIONS[clamped];
+      // Snap to exact position
+      const targetTop = clamped * ITEM_HEIGHT;
+      if (Math.abs(el.scrollTop - targetTop) > 1) {
+        el.scrollTo({ top: targetTop, behavior: "smooth" });
+      }
+      if (v !== lastEmittedRef.current) {
+        lastEmittedRef.current = v;
+        onChange(v);
+      }
+    }, 90);
+  };
+
+  return (
+    <div className="relative w-full">
+      {/* Center selection band */}
+      <div
+        className="pointer-events-none absolute left-0 right-0 top-1/2 -translate-y-1/2 h-[44px] rounded-lg border border-[#0cc9a9]/40 bg-[#0cc9a9]/10"
+        aria-hidden
+      />
+      {/* Top/bottom fades */}
+      <div
+        className="pointer-events-none absolute inset-x-0 top-0 h-10 bg-gradient-to-b from-card to-transparent z-10"
+        aria-hidden
+      />
+      <div
+        className="pointer-events-none absolute inset-x-0 bottom-0 h-10 bg-gradient-to-t from-card to-transparent z-10"
+        aria-hidden
+      />
+
+      <div
+        ref={scrollerRef}
+        onScroll={handleScroll}
+        className={`relative h-[132px] overflow-y-scroll no-scrollbar ${
+          disabled ? "opacity-50 pointer-events-none" : ""
+        }`}
+        style={{
+          scrollSnapType: "y mandatory",
+          WebkitOverflowScrolling: "touch",
+          scrollbarWidth: "none",
+        }}
+        data-testid="wheel-time"
+      >
+        <style>{`.no-scrollbar::-webkit-scrollbar{display:none}`}</style>
+        {/* Top spacer so first item can center */}
+        <div style={{ height: ITEM_HEIGHT }} aria-hidden />
+        {TIME_OPTIONS.map((s) => {
+          const selected = s === value;
+          return (
+            <div
+              key={s}
+              style={{ height: ITEM_HEIGHT, scrollSnapAlign: "center" }}
+              className={`flex items-center justify-center text-lg tabular-nums transition-colors ${
+                selected
+                  ? "text-foreground font-semibold"
+                  : "text-muted-foreground"
+              }`}
+            >
+              {s}s
+            </div>
+          );
+        })}
+        {/* Bottom spacer so last item can center */}
+        <div style={{ height: ITEM_HEIGHT }} aria-hidden />
+      </div>
+    </div>
+  );
+}
+
 function ResetTimer({ suggestedSeconds }: { suggestedSeconds: number }) {
-  const STEP = 5;
-  const MIN = 5;
-  const MAX = 600;
-  const [target, setTarget] = useState<number>(suggestedSeconds);
-  const [secondsLeft, setSecondsLeft] = useState<number>(suggestedSeconds);
+  const initial = (() => {
+    const snapped = Math.round(suggestedSeconds / TIME_STEP) * TIME_STEP;
+    return Math.max(TIME_MIN, Math.min(TIME_MAX, snapped));
+  })();
+  const [target, setTarget] = useState<number>(initial);
+  const [secondsLeft, setSecondsLeft] = useState<number>(initial);
   const [running, setRunning] = useState<boolean>(false);
   const [completed, setCompleted] = useState<boolean>(false);
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
@@ -139,11 +252,6 @@ function ResetTimer({ suggestedSeconds }: { suggestedSeconds: number }) {
   useEffect(() => {
     if (!running) setSecondsLeft(target);
   }, [target, running]);
-
-  const adjustTarget = (delta: number) => {
-    setTarget((t) => Math.max(MIN, Math.min(MAX, t + delta)));
-    setCompleted(false);
-  };
 
   useEffect(() => {
     if (!running) return;
@@ -202,38 +310,18 @@ function ResetTimer({ suggestedSeconds }: { suggestedSeconds: number }) {
 
   return (
     <div className="bg-card border border-border rounded-xl p-4 mb-5">
-      <div className="flex items-center justify-between mb-3">
-        <span className="text-sm text-muted-foreground">How long?</span>
-        <div className="flex items-center gap-2">
-          <Button
-            type="button"
-            variant="outline"
-            size="icon"
-            className="h-8 w-8 border-border"
-            onClick={() => adjustTarget(-STEP)}
-            disabled={target <= MIN || running}
-            data-testid="button-target-decrease"
-          >
-            <Minus className="h-4 w-4" />
-          </Button>
-          <span
-            className="text-base font-semibold text-foreground min-w-[4rem] text-center tabular-nums"
-            data-testid="value-target"
-          >
-            {target}s
-          </span>
-          <Button
-            type="button"
-            variant="outline"
-            size="icon"
-            className="h-8 w-8 border-border"
-            onClick={() => adjustTarget(STEP)}
-            disabled={target >= MAX || running}
-            data-testid="button-target-increase"
-          >
-            <Plus className="h-4 w-4" />
-          </Button>
+      <div className="mb-4">
+        <div className="text-sm text-muted-foreground mb-2 text-center">
+          Scroll to set time
         </div>
+        <TimeWheel
+          value={target}
+          onChange={(v) => {
+            setTarget(v);
+            setCompleted(false);
+          }}
+          disabled={running}
+        />
       </div>
 
       <div

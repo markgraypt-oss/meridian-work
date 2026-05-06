@@ -19,6 +19,7 @@ interface MicroResetFormData {
   name: string;
   description: string;
   targetArea: string;
+  exerciseType: "timed" | "reps";
   duration: number;
   steps: string[];
   imageUrl: string;
@@ -31,6 +32,7 @@ const defaultFormData: MicroResetFormData = {
   name: "",
   description: "",
   targetArea: "neck",
+  exerciseType: "timed",
   duration: 60,
   steps: [],
   imageUrl: "",
@@ -111,6 +113,7 @@ export default function AdminWorkdayMicroResets() {
       name: item.name,
       description: item.description,
       targetArea: item.targetArea,
+      exerciseType: ((item as any).exerciseType === "reps" ? "reps" : "timed"),
       duration: item.duration,
       steps: item.steps || [],
       imageUrl: item.imageUrl || "",
@@ -235,15 +238,40 @@ export default function AdminWorkdayMicroResets() {
                 </div>
 
                 <div className="space-y-2">
-                  <Label htmlFor="duration">Duration (seconds)</Label>
+                  <Label htmlFor="exerciseType">Type</Label>
+                  <Select
+                    value={formData.exerciseType}
+                    onValueChange={(value) => setFormData({ ...formData, exerciseType: value as "timed" | "reps", duration: value === "reps" ? 10 : 60 })}
+                  >
+                    <SelectTrigger className="bg-background border-border" data-testid="select-exercise-type">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="timed">Timed (seconds)</SelectItem>
+                      <SelectItem value="reps">Reps (count)</SelectItem>
+                    </SelectContent>
+                  </Select>
+                  <p className="text-xs text-muted-foreground">
+                    Choose whether this movement is held for time or done for a number of reps.
+                  </p>
+                </div>
+
+                <div className="space-y-2">
+                  <Label htmlFor="duration">
+                    Suggested default ({formData.exerciseType === "reps" ? "reps" : "seconds"})
+                  </Label>
                   <Input
                     id="duration"
                     type="number"
+                    min={1}
                     value={formData.duration}
-                    onChange={(e) => setFormData({ ...formData, duration: parseInt(e.target.value) || 60 })}
+                    onChange={(e) => setFormData({ ...formData, duration: parseInt(e.target.value) || 1 })}
                     className="bg-background border-border"
                     data-testid="input-duration"
                   />
+                  <p className="text-xs text-muted-foreground">
+                    Pre-fills the user's picker. They can adjust before starting.
+                  </p>
                 </div>
 
                 <div className="space-y-2">
@@ -387,7 +415,9 @@ export default function AdminWorkdayMicroResets() {
                         </span>
                       </div>
                       <p className="text-sm text-gray-400 line-clamp-2">{item.description}</p>
-                      <p className="text-xs text-gray-500 mt-1">{item.duration}s</p>
+                      <p className="text-xs text-gray-500 mt-1">
+                        {(item as any).exerciseType === "reps" ? `${item.duration} reps` : `${item.duration}s`}
+                      </p>
                     </div>
                     <div className="flex gap-2">
                       <Button variant="ghost" size="icon" onClick={() => handleEdit(item)} data-testid={`button-edit-${item.id}`}>

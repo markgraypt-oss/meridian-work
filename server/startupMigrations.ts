@@ -96,6 +96,9 @@ const SELF_HEAL_DDL: string[] = [
 
   // Badges: collection split (current vs legacy)
   `ALTER TABLE badges ADD COLUMN IF NOT EXISTS collection varchar NOT NULL DEFAULT 'current'`,
+
+  // Micro-resets: exercise type (timed vs reps) so users can pick how long/how many
+  `ALTER TABLE workday_micro_resets ADD COLUMN IF NOT EXISTS exercise_type text NOT NULL DEFAULT 'timed'`,
 ];
 
 export async function runSchemaSelfHealOnce(): Promise<void> {

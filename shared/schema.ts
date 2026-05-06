@@ -2362,7 +2362,8 @@ export const workdayMicroResets = pgTable("workday_micro_resets", {
   name: text("name").notNull(),
   description: text("description").notNull(),
   targetArea: text("target_area").notNull(), // 'neck', 'upper_back', 'lower_back', 'hips', 'wrists'
-  duration: integer("duration").notNull().default(60), // Duration in seconds
+  exerciseType: text("exercise_type").notNull().default("timed"), // 'timed' (seconds) or 'reps' (count)
+  duration: integer("duration").notNull().default(60), // Suggested default value (seconds if timed, count if reps); user can adjust
   steps: text("steps").array(), // Movement steps/instructions
   imageUrl: text("image_url"),
   muxPlaybackId: text("mux_playback_id"),

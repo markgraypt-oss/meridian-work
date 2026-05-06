@@ -8,7 +8,7 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
-import { Zap, Clock, Play } from "lucide-react";
+import { Zap, Clock, Play, Minus, Plus, Hash } from "lucide-react";
 import type { WorkdayMicroReset } from "@shared/schema";
 
 const TARGET_AREAS = [
@@ -22,6 +22,15 @@ const TARGET_AREAS = [
 
 function MicroResetCard({ reset }: { reset: WorkdayMicroReset }) {
   const [isExpanded, setIsExpanded] = useState(false);
+  const isReps = (reset as any).exerciseType === "reps";
+  const unit = isReps ? "reps" : "s";
+  const step = isReps ? 1 : 5;
+  const min = 1;
+  const max = isReps ? 50 : 300;
+  const [value, setValue] = useState<number>(reset.duration || (isReps ? 10 : 60));
+
+  const dec = () => setValue((v) => Math.max(min, v - step));
+  const inc = () => setValue((v) => Math.min(max, v + step));
 
   return (
     <Card 
@@ -41,8 +50,8 @@ function MicroResetCard({ reset }: { reset: WorkdayMicroReset }) {
         <div className="flex items-start justify-between mb-2">
           <h3 className="font-semibold text-foreground">{reset.name}</h3>
           <div className="flex items-center gap-1 text-muted-foreground text-xs">
-            <Clock className="h-3.5 w-3.5" />
-            <span>{reset.duration}s</span>
+            {isReps ? <Hash className="h-3.5 w-3.5" /> : <Clock className="h-3.5 w-3.5" />}
+            <span>Suggested: {reset.duration}{isReps ? " reps" : "s"}</span>
           </div>
         </div>
 
@@ -54,7 +63,43 @@ function MicroResetCard({ reset }: { reset: WorkdayMicroReset }) {
         </Badge>
         
         <p className="text-muted-foreground text-sm mb-3">{reset.description}</p>
-        
+
+        <div className="flex items-center justify-between bg-muted/40 rounded-lg p-2 mb-3">
+          <span className="text-xs text-muted-foreground">
+            {isReps ? "How many reps?" : "How long?"}
+          </span>
+          <div className="flex items-center gap-2">
+            <Button
+              type="button"
+              variant="outline"
+              size="icon"
+              className="h-7 w-7 border-border"
+              onClick={dec}
+              disabled={value <= min}
+              data-testid={`button-decrease-${reset.id}`}
+            >
+              <Minus className="h-3.5 w-3.5" />
+            </Button>
+            <span
+              className="text-sm font-semibold text-foreground min-w-[3.5rem] text-center"
+              data-testid={`value-${reset.id}`}
+            >
+              {value} {unit}
+            </span>
+            <Button
+              type="button"
+              variant="outline"
+              size="icon"
+              className="h-7 w-7 border-border"
+              onClick={inc}
+              disabled={value >= max}
+              data-testid={`button-increase-${reset.id}`}
+            >
+              <Plus className="h-3.5 w-3.5" />
+            </Button>
+          </div>
+        </div>
+
         {reset.steps && reset.steps.length > 0 && (
           <div>
             <Button

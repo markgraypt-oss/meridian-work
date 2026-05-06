@@ -117,8 +117,7 @@ export default function WorkdayRotation() {
       setSettings({
         rotationInterval: profile.rotationInterval || 45,
         notificationsEnabled: profile.notificationsEnabled ?? true,
-        // Backfill: if activePositions hasn't been set yet (existing user), default to all preferred.
-        activePositions: profile.activePositions ?? profile.preferredPositions ?? [],
+        activePositions: profile.preferredPositions ?? [],
       });
     }
   }, [profile]);
@@ -149,7 +148,12 @@ export default function WorkdayRotation() {
   };
 
   const handleSave = () => {
-    saveMutation.mutate(settings);
+    // Persist as preferredPositions only.
+    saveMutation.mutate({
+      rotationInterval: settings.rotationInterval,
+      notificationsEnabled: settings.notificationsEnabled,
+      preferredPositions: settings.activePositions,
+    } as any);
   };
 
   if (authLoading) {

@@ -177,7 +177,7 @@ export default function AdminWorkdayPositions() {
     if (!file) return;
     try {
       setUploadingImage(true);
-      const objectPath = await uploadImageFile(file);
+      const objectPath = await uploadImageFile(file, { visibility: "public" });
       setFormData((prev) => ({ ...prev, imageUrl: objectPath }));
       setImageJustUploaded(true);
       toast({ title: "Image uploaded", description: "Click Save to attach it to the position." });

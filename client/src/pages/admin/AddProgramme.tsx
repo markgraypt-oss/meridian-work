@@ -147,7 +147,7 @@ export default function AddProgrammePage() {
 
     try {
       setUploadingImage(true);
-      const objectPath = await uploadImageFile(file);
+      const objectPath = await uploadImageFile(file, { visibility: "public" });
       form.setValue('imageUrl', objectPath);
 
       toast({

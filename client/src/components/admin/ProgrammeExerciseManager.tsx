@@ -104,7 +104,7 @@ export function ProgrammeExerciseManager({ programId, programmeType, onDirtyStat
     if (!file) return;
     try {
       setUploadingWorkoutImage(true);
-      const objectPath = await uploadImageFile(file);
+      const objectPath = await uploadImageFile(file, { visibility: "public" });
       setNewWorkoutImageUrl(objectPath);
       toast({ title: "Image uploaded", description: "Cover image uploaded successfully" });
     } catch (error) {

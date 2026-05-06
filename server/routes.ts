@@ -971,6 +971,36 @@ export async function registerRoutes(app: Express): Promise<Server> {
     },
   );
 
+  // Mark an uploaded object as publicly readable. Used by admin flows that
+  // upload images intended to be displayed to all users (e.g. workday position
+  // photos). Requires admin to prevent users from making arbitrary objects
+  // public.
+  app.post(
+    "/api/uploads/finalize-acl",
+    isAuthenticated,
+    requireAdmin,
+    async (req, res) => {
+      try {
+        const { objectPath, visibility } = req.body ?? {};
+        if (!objectPath || typeof objectPath !== "string") {
+          return res.status(400).json({ error: "Missing objectPath" });
+        }
+        if (visibility !== "public" && visibility !== "private") {
+          return res.status(400).json({ error: "Invalid visibility" });
+        }
+        const svc = new ObjectStorageService();
+        await svc.trySetObjectEntityAclPolicy(objectPath, {
+          owner: (req as any).user?.claims?.sub ?? "system",
+          visibility,
+        });
+        res.json({ ok: true });
+      } catch (error) {
+        console.error("Error setting object ACL:", error);
+        res.status(500).json({ error: "Failed to set object ACL" });
+      }
+    },
+  );
+
   // Serve attached assets
   app.use(express.static(path.resolve(import.meta.dirname, "..", "attached_assets")));
   

@@ -207,7 +207,7 @@ export default function CreateWorkoutPage() {
     if (!file) return;
     try {
       setUploadingImage(true);
-      const objectPath = await uploadImageFile(file);
+      const objectPath = await uploadImageFile(file, { visibility: "public" });
       setFormData({...formData, imageUrl: objectPath});
       toast({ title: "Image uploaded" });
     } catch (error) {

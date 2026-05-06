@@ -151,7 +151,7 @@ export function RecipeForm({ recipe, onClose }: RecipeFormProps) {
       if (imageFile) {
         setIsUploading(true);
         try {
-          imageUrl = await uploadImageFile(imageFile);
+          imageUrl = await uploadImageFile(imageFile, { visibility: "public" });
         } catch (uploadError) {
           throw new Error(uploadErrorMessage(uploadError));
         } finally {

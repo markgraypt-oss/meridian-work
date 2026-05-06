@@ -136,7 +136,7 @@ export default function AdminWorkdayMicroResets() {
     if (!file) return;
     try {
       setUploadingImage(true);
-      const objectPath = await uploadImageFile(file);
+      const objectPath = await uploadImageFile(file, { visibility: "public" });
       setFormData(prev => ({ ...prev, imageUrl: objectPath }));
       toast({ title: "Image uploaded" });
     } catch (error) {

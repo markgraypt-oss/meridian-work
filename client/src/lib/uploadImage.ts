@@ -1,6 +1,9 @@
 const MAX_IMAGE_BYTES = 10 * 1024 * 1024;
 
-export async function uploadImageFile(file: File): Promise<string> {
+export async function uploadImageFile(
+  file: File,
+  options?: { visibility?: "public" | "private" },
+): Promise<string> {
   if (!file.type || !file.type.startsWith("image/")) {
     throw new Error("Only image files are allowed");
   }
@@ -44,6 +47,19 @@ export async function uploadImageFile(file: File): Promise<string> {
     throw new Error(
       `Storage upload failed (${putRes.status} ${putRes.statusText || "error"})`,
     );
+  }
+
+  if (options?.visibility) {
+    try {
+      await fetch("/api/uploads/finalize-acl", {
+        method: "POST",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ objectPath, visibility: options.visibility }),
+      });
+    } catch {
+      // non-fatal: image is uploaded, ACL just isn't set
+    }
   }
 
   return objectPath;

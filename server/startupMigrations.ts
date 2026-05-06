@@ -75,8 +75,24 @@ const SELF_HEAL_DDL: string[] = [
      created_at timestamp DEFAULT now()
    )`,
 
-  // Notification preferences: in-app training toggle
-  `ALTER TABLE notification_preferences ADD COLUMN IF NOT EXISTS in_app_training boolean DEFAULT true`,
+  // Notification preferences: daily cap + per-category × per-channel toggles
+  `ALTER TABLE notification_preferences
+     ADD COLUMN IF NOT EXISTS daily_cap integer DEFAULT 8,
+     ADD COLUMN IF NOT EXISTS in_app_training boolean DEFAULT true,
+     ADD COLUMN IF NOT EXISTS in_app_recovery boolean DEFAULT true,
+     ADD COLUMN IF NOT EXISTS in_app_nutrition boolean DEFAULT true,
+     ADD COLUMN IF NOT EXISTS in_app_coach boolean DEFAULT true,
+     ADD COLUMN IF NOT EXISTS in_app_admin boolean DEFAULT true,
+     ADD COLUMN IF NOT EXISTS email_training boolean DEFAULT false,
+     ADD COLUMN IF NOT EXISTS email_recovery boolean DEFAULT false,
+     ADD COLUMN IF NOT EXISTS email_nutrition boolean DEFAULT false,
+     ADD COLUMN IF NOT EXISTS email_coach boolean DEFAULT true,
+     ADD COLUMN IF NOT EXISTS email_admin boolean DEFAULT true,
+     ADD COLUMN IF NOT EXISTS push_training boolean DEFAULT true,
+     ADD COLUMN IF NOT EXISTS push_recovery boolean DEFAULT true,
+     ADD COLUMN IF NOT EXISTS push_nutrition boolean DEFAULT false,
+     ADD COLUMN IF NOT EXISTS push_coach boolean DEFAULT true,
+     ADD COLUMN IF NOT EXISTS push_admin boolean DEFAULT false`,
 
   // Badges: collection split (current vs legacy)
   `ALTER TABLE badges ADD COLUMN IF NOT EXISTS collection varchar NOT NULL DEFAULT 'current'`,

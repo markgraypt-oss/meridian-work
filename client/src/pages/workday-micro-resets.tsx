@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState, Component, ReactNode } from "react";
+import { useEffect, useMemo, useRef, useState, Component, ReactNode } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { useAuth } from "@/hooks/useAuth";
 import { useToast } from "@/hooks/use-toast";
@@ -9,7 +9,7 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
-import { Zap, Clock, Hash, Play, X, CheckCircle2 } from "lucide-react";
+import { Zap, Clock, Hash, Play, Pause, RotateCcw, X, CheckCircle2 } from "lucide-react";
 import { getMuxThumbnailUrl } from "@/lib/mux";
 import type { WorkdayMicroReset } from "@shared/schema";
 
@@ -119,6 +119,138 @@ function MicroResetSkeleton() {
   );
 }
 
+function formatTime(seconds: number): string {
+  const m = Math.floor(seconds / 60);
+  const s = Math.max(0, seconds) % 60;
+  return `${m}:${s.toString().padStart(2, "0")}`;
+}
+
+function ResetTimer({ targetSeconds }: { targetSeconds: number }) {
+  const [secondsLeft, setSecondsLeft] = useState<number>(targetSeconds);
+  const [running, setRunning] = useState<boolean>(false);
+  const [completed, setCompleted] = useState<boolean>(false);
+  const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
+  useEffect(() => {
+    if (!running) return;
+    intervalRef.current = setInterval(() => {
+      setSecondsLeft((prev) => {
+        if (prev <= 1) {
+          if (intervalRef.current) clearInterval(intervalRef.current);
+          setRunning(false);
+          setCompleted(true);
+          tryChime();
+          return 0;
+        }
+        return prev - 1;
+      });
+    }, 1000);
+    return () => {
+      if (intervalRef.current) clearInterval(intervalRef.current);
+    };
+  }, [running]);
+
+  const tryChime = () => {
+    try {
+      const Ctx = (window as any).AudioContext || (window as any).webkitAudioContext;
+      if (!Ctx) return;
+      const ctx = new Ctx();
+      const o = ctx.createOscillator();
+      const g = ctx.createGain();
+      o.type = "sine";
+      o.frequency.value = 880;
+      g.gain.value = 0.0001;
+      o.connect(g);
+      g.connect(ctx.destination);
+      const now = ctx.currentTime;
+      g.gain.exponentialRampToValueAtTime(0.2, now + 0.02);
+      g.gain.exponentialRampToValueAtTime(0.0001, now + 0.6);
+      o.start(now);
+      o.stop(now + 0.65);
+    } catch {}
+  };
+
+  const toggle = () => {
+    if (completed) {
+      setSecondsLeft(targetSeconds);
+      setCompleted(false);
+      setRunning(true);
+      return;
+    }
+    setRunning((r) => !r);
+  };
+
+  const reset_ = () => {
+    setRunning(false);
+    setCompleted(false);
+    setSecondsLeft(targetSeconds);
+  };
+
+  return (
+    <div className="bg-card border border-border rounded-xl p-4 mb-5">
+      <div
+        className={`w-full rounded-xl py-6 text-center mb-3 ${
+          completed
+            ? "bg-[#0cc9a9]/15 border border-[#0cc9a9]/40"
+            : "bg-muted/40 border border-border"
+        }`}
+      >
+        <div
+          className="text-5xl font-bold text-foreground tabular-nums"
+          data-testid="value-countdown"
+        >
+          {formatTime(secondsLeft)}
+        </div>
+        <div className="text-xs text-muted-foreground mt-2">
+          {completed ? "Done!" : running ? "Hold steady" : "Ready"}
+        </div>
+      </div>
+
+      <div className="flex gap-2">
+        <Button
+          type="button"
+          className="flex-1 bg-[#0cc9a9] hover:bg-[#0cc9a9]/90 text-black"
+          onClick={toggle}
+          data-testid="button-timer-toggle"
+        >
+          {running ? (
+            <>
+              <Pause className="h-4 w-4 mr-1" />
+              Pause
+            </>
+          ) : completed ? (
+            <>
+              <RotateCcw className="h-4 w-4 mr-1" />
+              Again
+            </>
+          ) : secondsLeft < targetSeconds ? (
+            <>
+              <Play className="h-4 w-4 mr-1 fill-current" />
+              Resume
+            </>
+          ) : (
+            <>
+              <Play className="h-4 w-4 mr-1 fill-current" />
+              Start
+            </>
+          )}
+        </Button>
+        <Button
+          type="button"
+          variant="outline"
+          className="flex-1 border-border"
+          onClick={reset_}
+          disabled={!running && secondsLeft === targetSeconds}
+          data-testid="button-timer-reset"
+        >
+          <RotateCcw className="h-4 w-4 mr-1" />
+          Reset
+        </Button>
+      </div>
+    </div>
+  );
+}
+
 function DoItSheet({ reset, onClose }: { reset: WorkdayMicroReset; onClose: () => void }) {
   const isReps = getExerciseType(reset) === "reps";
 
@@ -190,6 +322,10 @@ function DoItSheet({ reset, onClose }: { reset: WorkdayMicroReset; onClose: () =
           </div>
 
           <p className="text-sm text-muted-foreground mb-5">{reset.description}</p>
+
+          {!isReps && reset.duration > 0 && (
+            <ResetTimer targetSeconds={reset.duration} />
+          )}
 
           {/* Steps - always visible, like Working Positions setup tips */}
           {reset.steps && reset.steps.length > 0 && (

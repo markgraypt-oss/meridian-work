@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState, Component, ReactNode } from "react";
+import { useEffect, useMemo, useState, Component, ReactNode } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { useAuth } from "@/hooks/useAuth";
 import { useToast } from "@/hooks/use-toast";
@@ -9,20 +9,7 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
-import {
-  Zap,
-  Clock,
-  Hash,
-  Play,
-  Pause,
-  RotateCcw,
-  Minus,
-  Plus,
-  X,
-  Check,
-  ChevronDown,
-  ChevronUp,
-} from "lucide-react";
+import { Zap, Clock, Hash, Play, X, CheckCircle2 } from "lucide-react";
 import { getMuxThumbnailUrl } from "@/lib/mux";
 import type { WorkdayMicroReset } from "@shared/schema";
 
@@ -132,30 +119,8 @@ function MicroResetSkeleton() {
   );
 }
 
-function formatTime(seconds: number): string {
-  const m = Math.floor(seconds / 60);
-  const s = seconds % 60;
-  return `${m}:${s.toString().padStart(2, "0")}`;
-}
-
 function DoItSheet({ reset, onClose }: { reset: WorkdayMicroReset; onClose: () => void }) {
   const isReps = getExerciseType(reset) === "reps";
-  const stepSize = isReps ? 1 : 5;
-  const minVal = 1;
-  const maxVal = isReps ? 50 : 600;
-
-  const initialTarget = reset.duration || (isReps ? 10 : 60);
-  const [target, setTarget] = useState<number>(initialTarget);
-
-  // Timer state (timed only)
-  const [secondsLeft, setSecondsLeft] = useState<number>(initialTarget);
-  const [running, setRunning] = useState<boolean>(false);
-  const [completed, setCompleted] = useState<boolean>(false);
-
-  // Reps state
-  const [count, setCount] = useState<number>(0);
-
-  const [stepsOpen, setStepsOpen] = useState<boolean>(false);
 
   // Lock body scroll while open
   useEffect(() => {
@@ -164,98 +129,6 @@ function DoItSheet({ reset, onClose }: { reset: WorkdayMicroReset; onClose: () =
       document.body.style.overflow = "unset";
     };
   }, []);
-
-  // Reset secondsLeft when target changes (only while not running and timed)
-  useEffect(() => {
-    if (!isReps && !running) setSecondsLeft(target);
-  }, [target, running, isReps]);
-
-  // Countdown
-  const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
-  useEffect(() => {
-    if (isReps || !running) return;
-    intervalRef.current = setInterval(() => {
-      setSecondsLeft((prev) => {
-        if (prev <= 1) {
-          if (intervalRef.current) clearInterval(intervalRef.current);
-          setRunning(false);
-          setCompleted(true);
-          tryChime();
-          return 0;
-        }
-        return prev - 1;
-      });
-    }, 1000);
-    return () => {
-      if (intervalRef.current) clearInterval(intervalRef.current);
-    };
-  }, [running, isReps]);
-
-  // Soft chime using WebAudio (no asset needed)
-  const tryChime = () => {
-    try {
-      const Ctx = (window as any).AudioContext || (window as any).webkitAudioContext;
-      if (!Ctx) return;
-      const ctx = new Ctx();
-      const o = ctx.createOscillator();
-      const g = ctx.createGain();
-      o.type = "sine";
-      o.frequency.value = 880;
-      g.gain.value = 0.0001;
-      o.connect(g);
-      g.connect(ctx.destination);
-      const now = ctx.currentTime;
-      g.gain.exponentialRampToValueAtTime(0.2, now + 0.02);
-      g.gain.exponentialRampToValueAtTime(0.0001, now + 0.6);
-      o.start(now);
-      o.stop(now + 0.65);
-    } catch {}
-  };
-
-  const startOrPause = () => {
-    if (completed) {
-      setSecondsLeft(target);
-      setCompleted(false);
-      setRunning(true);
-      return;
-    }
-    setRunning((r) => !r);
-  };
-
-  const reset_ = () => {
-    setRunning(false);
-    setCompleted(false);
-    setSecondsLeft(target);
-  };
-
-  const incCount = () => {
-    setCount((c) => {
-      const next = c + 1;
-      if (next >= target) {
-        setCompleted(true);
-        tryChime();
-      }
-      return next;
-    });
-  };
-
-  const decCount = () => {
-    setCount((c) => Math.max(0, c - 1));
-    if (completed) setCompleted(false);
-  };
-
-  const resetReps = () => {
-    setCount(0);
-    setCompleted(false);
-  };
-
-  const adjustTarget = (delta: number) => {
-    setTarget((t) => Math.max(minVal, Math.min(maxVal, t + delta)));
-    if (isReps) {
-      setCount(0);
-      setCompleted(false);
-    }
-  };
 
   return (
     <div className="fixed inset-0 z-50 bg-background overflow-y-auto" data-testid={`sheet-do-${reset.id}`}>
@@ -310,202 +183,35 @@ function DoItSheet({ reset, onClose }: { reset: WorkdayMicroReset; onClose: () =
             >
               {reset.targetArea.replace(/_/g, " ")}
             </Badge>
-            <span className="text-xs text-muted-foreground">
-              Suggested: {reset.duration}{isReps ? " reps" : "s"}
+            <span className="flex items-center gap-1 text-xs text-muted-foreground">
+              {isReps ? <Hash className="h-3 w-3" /> : <Clock className="h-3 w-3" />}
+              {reset.duration}{isReps ? " reps" : "s"}
             </span>
           </div>
-          <p className="text-sm text-muted-foreground mb-4">{reset.description}</p>
 
-          {/* Target picker */}
-          <div className="bg-card border border-border rounded-xl p-4 mb-4">
-            <div className="flex items-center justify-between mb-3">
-              <span className="text-sm text-muted-foreground">
-                {isReps ? "How many reps?" : "How long?"}
-              </span>
-              <div className="flex items-center gap-2">
-                <Button
-                  type="button"
-                  variant="outline"
-                  size="icon"
-                  className="h-8 w-8 border-border"
-                  onClick={() => adjustTarget(-stepSize)}
-                  disabled={target <= minVal || running}
-                  data-testid="button-target-decrease"
-                >
-                  <Minus className="h-4 w-4" />
-                </Button>
-                <span
-                  className="text-base font-semibold text-foreground min-w-[5rem] text-center"
-                  data-testid="value-target"
-                >
-                  {target} {isReps ? "reps" : "s"}
-                </span>
-                <Button
-                  type="button"
-                  variant="outline"
-                  size="icon"
-                  className="h-8 w-8 border-border"
-                  onClick={() => adjustTarget(stepSize)}
-                  disabled={target >= maxVal || running}
-                  data-testid="button-target-increase"
-                >
-                  <Plus className="h-4 w-4" />
-                </Button>
-              </div>
-            </div>
+          <p className="text-sm text-muted-foreground mb-5">{reset.description}</p>
 
-            {/* Big readout */}
-            {isReps ? (
-              <button
-                type="button"
-                onClick={incCount}
-                className={`w-full rounded-xl py-8 text-center transition-colors ${
-                  completed
-                    ? "bg-[#0cc9a9]/15 border border-[#0cc9a9]/40"
-                    : "bg-muted/40 hover:bg-muted/60 border border-border"
-                }`}
-                data-testid="button-tap-count"
-              >
-                <div className="text-5xl font-bold text-foreground tabular-nums">
-                  {count}
-                  <span className="text-2xl text-muted-foreground"> / {target}</span>
-                </div>
-                <div className="text-xs text-muted-foreground mt-2">
-                  {completed ? "Done!" : "Tap to count"}
-                </div>
-              </button>
-            ) : (
-              <div
-                className={`w-full rounded-xl py-8 text-center ${
-                  completed
-                    ? "bg-[#0cc9a9]/15 border border-[#0cc9a9]/40"
-                    : "bg-muted/40 border border-border"
-                }`}
-              >
-                <div
-                  className="text-5xl font-bold text-foreground tabular-nums"
-                  data-testid="value-countdown"
-                >
-                  {formatTime(secondsLeft)}
-                </div>
-                <div className="text-xs text-muted-foreground mt-2">
-                  {completed ? "Done!" : running ? "Hold steady" : "Ready"}
-                </div>
-              </div>
-            )}
-
-            {/* Controls */}
-            <div className="flex gap-2 mt-4">
-              {isReps ? (
-                <>
-                  <Button
-                    type="button"
-                    variant="outline"
-                    className="flex-1 border-border"
-                    onClick={decCount}
-                    disabled={count <= 0}
-                    data-testid="button-rep-undo"
-                  >
-                    <Minus className="h-4 w-4 mr-1" />
-                    Undo
-                  </Button>
-                  <Button
-                    type="button"
-                    variant="outline"
-                    className="flex-1 border-border"
-                    onClick={resetReps}
-                    disabled={count === 0}
-                    data-testid="button-rep-reset"
-                  >
-                    <RotateCcw className="h-4 w-4 mr-1" />
-                    Reset
-                  </Button>
-                </>
-              ) : (
-                <>
-                  <Button
-                    type="button"
-                    className="flex-1 bg-[#0cc9a9] hover:bg-[#0cc9a9]/90 text-black"
-                    onClick={startOrPause}
-                    data-testid="button-timer-toggle"
-                  >
-                    {running ? (
-                      <>
-                        <Pause className="h-4 w-4 mr-1" />
-                        Pause
-                      </>
-                    ) : completed ? (
-                      <>
-                        <RotateCcw className="h-4 w-4 mr-1" />
-                        Again
-                      </>
-                    ) : secondsLeft < target ? (
-                      <>
-                        <Play className="h-4 w-4 mr-1 fill-current" />
-                        Resume
-                      </>
-                    ) : (
-                      <>
-                        <Play className="h-4 w-4 mr-1 fill-current" />
-                        Start
-                      </>
-                    )}
-                  </Button>
-                  <Button
-                    type="button"
-                    variant="outline"
-                    className="flex-1 border-border"
-                    onClick={reset_}
-                    disabled={!running && secondsLeft === target}
-                    data-testid="button-timer-reset"
-                  >
-                    <RotateCcw className="h-4 w-4 mr-1" />
-                    Reset
-                  </Button>
-                </>
-              )}
-            </div>
-
-            {completed && (
-              <div className="mt-4 flex items-center justify-center gap-1.5 text-[#0cc9a9] text-sm font-medium">
-                <Check className="h-4 w-4" />
-                Nice work
-              </div>
-            )}
-          </div>
-
-          {/* Steps */}
+          {/* Steps - always visible, like Working Positions setup tips */}
           {reset.steps && reset.steps.length > 0 && (
-            <div className="bg-card border border-border rounded-xl">
-              <button
-                type="button"
-                onClick={() => setStepsOpen((o) => !o)}
-                className="w-full flex items-center justify-between p-4 text-left"
-                data-testid="button-toggle-steps"
-              >
-                <span className="text-sm font-medium text-foreground">Steps</span>
-                {stepsOpen ? (
-                  <ChevronUp className="h-4 w-4 text-muted-foreground" />
-                ) : (
-                  <ChevronDown className="h-4 w-4 text-muted-foreground" />
-                )}
-              </button>
-              {stepsOpen && (
-                <ol className="px-4 pb-4 space-y-2 list-decimal list-inside">
-                  {reset.steps.map((step: string, index: number) => (
-                    <li key={index} className="text-sm text-foreground/80 pl-1">
-                      {step}
-                    </li>
-                  ))}
-                </ol>
-              )}
+            <div className="space-y-2 mb-6">
+              <h4 className="text-xs font-medium text-muted-foreground uppercase tracking-wide">
+                Steps
+              </h4>
+              <div className="space-y-1.5">
+                {reset.steps.map((step: string, i: number) => (
+                  <div key={i} className="flex items-start gap-2">
+                    <CheckCircle2 className="h-4 w-4 text-[#0cc9a9] mt-0.5 flex-shrink-0" />
+                    <span className="text-sm text-foreground/80">{step}</span>
+                  </div>
+                ))}
+              </div>
             </div>
           )}
 
           <Button
             type="button"
             variant="outline"
-            className="w-full mt-4 border-border"
+            className="w-full border-border"
             onClick={onClose}
             data-testid="button-finish"
           >

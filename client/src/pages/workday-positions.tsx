@@ -247,7 +247,7 @@ export default function WorkdayPositions() {
           <p className="text-sm text-muted-foreground mb-4">{openPosition.description}</p>
 
           {openPosition.imageUrl && (
-            <div className="mb-4 rounded-xl overflow-hidden bg-black/20 max-w-md mx-auto">
+            <div className="mb-4 rounded-xl overflow-hidden bg-black/20 max-w-[280px] mx-auto">
               <img
                 src={openPosition.imageUrl}
                 alt={openPosition.name}

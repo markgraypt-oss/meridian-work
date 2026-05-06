@@ -228,18 +228,27 @@ export default function WorkdayRotation() {
                 Your Position Rotation
               </h3>
               <p className="text-sm text-muted-foreground mb-4">
-                Select the positions you want to rotate between during your workday
+                Toggle off to remove a position. Add new positions from the Working Positions page.
               </p>
               
               <div className="space-y-3">
-                {positions.map((position) => (
-                  <PositionToggle
-                    key={position.id}
-                    position={position}
-                    isSelected={settings.preferredPositions.includes(String(position.id))}
-                    onToggle={() => togglePosition(position.id)}
-                  />
-                ))}
+                {positions
+                  .filter((position) => settings.preferredPositions.includes(String(position.id)))
+                  .map((position) => (
+                    <PositionToggle
+                      key={position.id}
+                      position={position}
+                      isSelected={true}
+                      onToggle={() => togglePosition(position.id)}
+                    />
+                  ))}
+                {settings.preferredPositions.length === 0 && (
+                  <div className="text-center py-8 px-4 bg-card rounded-xl border border-border">
+                    <p className="text-sm text-muted-foreground">
+                      No positions in your rotation yet. Add some from the Working Positions page.
+                    </p>
+                  </div>
+                )}
               </div>
             </div>
 

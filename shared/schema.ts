@@ -2460,6 +2460,7 @@ export const workdayUserProfiles = pgTable("workday_user_profiles", {
   workdayEnd: text("workday_end"), // 'HH:MM' 24h
   workdayDays: text("workday_days").array(), // subset of ['sun','mon','tue','wed','thu','fri','sat']
   scheduleBlocks: jsonb("schedule_blocks").$type<ScheduleBlock[] | null>().default(sql`null`),
+  scheduleRepeats: integer("schedule_repeats"), // null = loop until workdayEnd; 1-10 = run schedule N times
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow(),
 });
@@ -2510,6 +2511,7 @@ export const insertWorkdayUserProfileSchema = createInsertSchema(workdayUserProf
     .optional()
     .nullable(),
   scheduleBlocks: z.array(scheduleBlockSchema).max(50).optional().nullable(),
+  scheduleRepeats: z.number().int().min(1).max(10).optional().nullable(),
 })
   .omit({ id: true, createdAt: true, updatedAt: true })
   .superRefine((profile, ctx) => {

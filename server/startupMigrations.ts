@@ -106,6 +106,9 @@ const SELF_HEAL_DDL: string[] = [
      ADD COLUMN IF NOT EXISTS workday_end text,
      ADD COLUMN IF NOT EXISTS workday_days text[],
      ADD COLUMN IF NOT EXISTS schedule_blocks jsonb DEFAULT NULL`,
+
+  // Workday schedule repeat cap. null = loop until workdayEnd; 1-10 = N runs.
+  `ALTER TABLE workday_user_profiles ADD COLUMN IF NOT EXISTS schedule_repeats integer`,
 ];
 
 export async function runSchemaSelfHealOnce(): Promise<void> {

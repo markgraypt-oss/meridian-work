@@ -2350,8 +2350,6 @@ export const workdayPositions = pgTable("workday_positions", {
   imageUrl: text("image_url"), // Visual representation
   setupCues: text("setup_cues").array(), // Key setup cues
   positionType: text("position_type").notNull().default('seated'), // 'seated' | 'standing' | 'alternative'
-  minDuration: integer("min_duration").default(30), // DEPRECATED - kept nullable for backwards compatibility
-  maxDuration: integer("max_duration").default(90), // DEPRECATED - kept nullable for backwards compatibility
   orderIndex: integer("order_index").default(0),
   isActive: boolean("is_active").default(true),
   createdAt: timestamp("created_at").defaultNow(),
@@ -2462,7 +2460,7 @@ export type WorkdayDeskScan = typeof workdayDeskScans.$inferSelect;
 export type InsertWorkdayDeskScan = typeof workdayDeskScans.$inferInsert;
 
 // Workday Engine Insert Schemas
-export const insertWorkdayPositionSchema = createInsertSchema(workdayPositions).omit({ id: true, createdAt: true, updatedAt: true, minDuration: true, maxDuration: true });
+export const insertWorkdayPositionSchema = createInsertSchema(workdayPositions).omit({ id: true, createdAt: true, updatedAt: true });
 export const insertWorkdayMicroResetSchema = createInsertSchema(workdayMicroResets).omit({ id: true, createdAt: true, updatedAt: true });
 export const insertWorkdayAchesFixSchema = createInsertSchema(workdayAchesFixes).omit({ id: true, createdAt: true, updatedAt: true });
 export const insertWorkdayDeskSetupSchema = createInsertSchema(workdayDeskSetups).omit({ id: true, createdAt: true, updatedAt: true });

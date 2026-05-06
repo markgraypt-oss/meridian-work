@@ -246,6 +246,7 @@ function ResetTimer({ suggestedSeconds }: { suggestedSeconds: number }) {
   const [secondsLeft, setSecondsLeft] = useState<number>(initial);
   const [running, setRunning] = useState<boolean>(false);
   const [completed, setCompleted] = useState<boolean>(false);
+  const [pickerOpen, setPickerOpen] = useState<boolean>(false);
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   // Keep countdown in sync with target while idle
@@ -311,17 +312,38 @@ function ResetTimer({ suggestedSeconds }: { suggestedSeconds: number }) {
   return (
     <div className="bg-card border border-border rounded-xl p-4 mb-5">
       <div className="mb-4">
-        <div className="text-sm text-muted-foreground mb-2 text-center">
-          Scroll to set time
+        <div className="flex items-center justify-between">
+          <span className="text-sm text-muted-foreground">Time</span>
+          <Button
+            type="button"
+            variant="outline"
+            className="border-border h-9 px-4 font-semibold tabular-nums"
+            onClick={() => setPickerOpen((o) => !o)}
+            disabled={running}
+            data-testid="button-open-time-picker"
+          >
+            {target}s
+          </Button>
         </div>
-        <TimeWheel
-          value={target}
-          onChange={(v) => {
-            setTarget(v);
-            setCompleted(false);
-          }}
-          disabled={running}
-        />
+        {pickerOpen && !running && (
+          <div className="mt-3">
+            <TimeWheel
+              value={target}
+              onChange={(v) => {
+                setTarget(v);
+                setCompleted(false);
+              }}
+            />
+            <Button
+              type="button"
+              className="w-full mt-2 bg-[#0cc9a9] hover:bg-[#0cc9a9]/90 text-black"
+              onClick={() => setPickerOpen(false)}
+              data-testid="button-confirm-time"
+            >
+              Done
+            </Button>
+          </div>
+        )}
       </div>
 
       <div

@@ -18966,13 +18966,20 @@ Respond as the Recovery Coach. Reference their specific assessment data and prov
       startDate.setDate(startDate.getDate() - 30);
 
       const { getRecentWearableMetrics } = await import('./wearables');
+      // Resilient wearable fetch: if the wearables table is missing or any
+      // other DB error occurs, fall back to no-wearable data rather than
+      // failing the whole burnout calculation.
+      const wearableSafe = getRecentWearableMetrics(userId, 30).catch((e: any) => {
+        console.warn('[burnout] wearable fetch failed, continuing without it:', e?.message || e);
+        return { rows: [], bestProviderByDate: new Map<string, string>() };
+      });
       const [checkInData, workoutLogData, bodyMapData, sleepData, stepData, wearable] = await Promise.all([
         storage.getCheckInsInRange(userId, startDate, endDate),
         storage.getUserWorkoutLogs(userId, 100),
         storage.getBodyMapLogs(userId),
         storage.getSleepEntries(userId, 60),
         storage.getStepEntries(userId, 60),
-        getRecentWearableMetrics(userId, 30),
+        wearableSafe,
       ]);
 
       const result = computeBurnoutScore({

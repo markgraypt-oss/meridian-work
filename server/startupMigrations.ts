@@ -13,7 +13,73 @@ let hasRunSchemaSelfHeal = false;
  * Each statement uses IF NOT EXISTS so it's safe to run on every boot.
  */
 const SELF_HEAL_DDL: string[] = [
+  // workday rotation: pause-without-remove
   `ALTER TABLE workday_user_profiles ADD COLUMN IF NOT EXISTS active_positions text[]`,
+
+  // Wearables: required by burnout score computation
+  `CREATE TABLE IF NOT EXISTS wearable_connections (
+     id serial PRIMARY KEY,
+     user_id varchar NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+     provider text NOT NULL,
+     status text NOT NULL DEFAULT 'connected',
+     access_token_enc text,
+     refresh_token_enc text,
+     token_expires_at timestamp,
+     provider_user_id text,
+     scopes text[],
+     connected_at timestamp DEFAULT now(),
+     last_sync_at timestamp,
+     last_sync_status text,
+     last_sync_error text,
+     meta jsonb,
+     created_at timestamp DEFAULT now(),
+     updated_at timestamp DEFAULT now()
+   )`,
+  `CREATE TABLE IF NOT EXISTS wearable_metrics_daily (
+     id serial PRIMARY KEY,
+     user_id varchar NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+     provider text NOT NULL,
+     date text NOT NULL,
+     sleep_minutes integer,
+     sleep_deep_minutes integer,
+     sleep_rem_minutes integer,
+     sleep_light_minutes integer,
+     sleep_awake_minutes integer,
+     sleep_score integer,
+     hrv_ms integer,
+     resting_hr_bpm integer,
+     steps integer,
+     active_minutes integer,
+     calories_burned integer,
+     readiness_score integer,
+     strain_score integer,
+     workout_count integer,
+     raw jsonb,
+     created_at timestamp DEFAULT now(),
+     updated_at timestamp DEFAULT now()
+   )`,
+  `CREATE UNIQUE INDEX IF NOT EXISTS wearable_metrics_user_date_provider_idx
+     ON wearable_metrics_daily (user_id, date, provider)`,
+
+  // Meditations content table (seeded by seedMeditationsOnce)
+  `CREATE TABLE IF NOT EXISTS meditations (
+     id serial PRIMARY KEY,
+     title text NOT NULL,
+     description text,
+     category text NOT NULL,
+     duration_min integer NOT NULL,
+     audio_url text,
+     tags text[],
+     is_active boolean NOT NULL DEFAULT true,
+     order_index integer DEFAULT 0,
+     created_at timestamp DEFAULT now()
+   )`,
+
+  // Notification preferences: in-app training toggle
+  `ALTER TABLE notification_preferences ADD COLUMN IF NOT EXISTS in_app_training boolean DEFAULT true`,
+
+  // Badges: collection split (current vs legacy)
+  `ALTER TABLE badges ADD COLUMN IF NOT EXISTS collection varchar NOT NULL DEFAULT 'current'`,
 ];
 
 export async function runSchemaSelfHealOnce(): Promise<void> {

@@ -121,15 +121,20 @@ app.use((req, res, next) => {
     log(`serving on port ${port}`);
     // Fire-and-forget: convert any base64 profile pictures left in the DB to
     // cloud storage. Idempotent — does nothing on subsequent boots once done.
-    runSchemaSelfHealOnce().catch((e) => {
-      console.error("[startup-migration] schema self-heal failed:", e);
-    });
-    runProfileImageMigrationOnce().catch((e) => {
-      console.error("[startup-migration] profile-images failed:", e);
-    });
-    seedMeditationsOnce().catch((e) => {
-      console.error("[startup-migration] meditations failed:", e);
-    });
+    runSchemaSelfHealOnce()
+      .catch((e) => {
+        console.error("[startup-migration] schema self-heal failed:", e);
+      })
+      .then(() => {
+        // Run table-dependent migrations only after self-heal has had a chance
+        // to create any missing tables.
+        runProfileImageMigrationOnce().catch((e) => {
+          console.error("[startup-migration] profile-images failed:", e);
+        });
+        seedMeditationsOnce().catch((e) => {
+          console.error("[startup-migration] meditations failed:", e);
+        });
+      });
     import("./aiGeneratorMigration").then(({ runAiGeneratorMigrationOnce }) => {
       runAiGeneratorMigrationOnce().catch((e) => {
         console.error("[startup-migration] ai-generator failed:", e);

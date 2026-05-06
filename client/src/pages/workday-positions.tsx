@@ -275,7 +275,14 @@ export default function WorkdayPositions() {
           <div className="mt-6">
             <RotationToggleButton
               inRotation={inRotation}
-              onToggle={() => toggleMutation.mutate(openPosition.id)}
+              onToggle={() => {
+                const wasIn = inRotation;
+                toggleMutation.mutate(openPosition.id, {
+                  onSuccess: () => {
+                    if (!wasIn) setOpenId(null);
+                  },
+                });
+              }}
               pending={toggleMutation.isPending && toggleMutation.variables === openPosition.id}
               size="lg"
               testId={`button-detail-toggle-${openPosition.id}`}

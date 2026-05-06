@@ -9,13 +9,6 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
-import {
-  Sheet,
-  SheetContent,
-  SheetHeader,
-  SheetTitle,
-  SheetDescription,
-} from "@/components/ui/sheet";
 import { CheckCircle2, Armchair, Plus, Check } from "lucide-react";
 import type { WorkdayPosition, WorkdayUserProfile } from "@shared/schema";
 
@@ -239,6 +232,60 @@ export default function WorkdayPositions() {
     );
   }
 
+  if (openPosition) {
+    const inRotation = preferred.includes(String(openPosition.id));
+    return (
+      <div className="min-h-screen bg-background pb-24">
+        <TopHeader title={openPosition.name} onBack={() => setOpenId(null)} />
+        <div className="px-4 pt-14 pb-4 max-w-2xl mx-auto">
+          <div className="flex items-center gap-2 mb-2">
+            <h1 className="text-xl font-bold text-foreground" data-testid="text-detail-name">
+              {openPosition.name}
+            </h1>
+            <TypeBadge type={getType(openPosition)} />
+          </div>
+          <p className="text-sm text-muted-foreground mb-4">{openPosition.description}</p>
+
+          {openPosition.imageUrl && (
+            <div className="mb-4 rounded-xl overflow-hidden bg-black/20 max-w-md mx-auto">
+              <img
+                src={openPosition.imageUrl}
+                alt={openPosition.name}
+                className="w-full h-auto object-contain"
+              />
+            </div>
+          )}
+
+          {openPosition.setupCues && openPosition.setupCues.length > 0 && (
+            <div className="mt-4 space-y-2">
+              <h4 className="text-xs font-medium text-muted-foreground uppercase tracking-wide">
+                Setup Tips
+              </h4>
+              <div className="space-y-1.5">
+                {openPosition.setupCues.map((cue, i) => (
+                  <div key={i} className="flex items-start gap-2">
+                    <CheckCircle2 className="h-4 w-4 text-[#0cc9a9] mt-0.5 flex-shrink-0" />
+                    <span className="text-sm text-foreground/80">{cue}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          <div className="mt-6">
+            <RotationToggleButton
+              inRotation={inRotation}
+              onToggle={() => toggleMutation.mutate(openPosition.id)}
+              pending={toggleMutation.isPending && toggleMutation.variables === openPosition.id}
+              size="lg"
+              testId={`button-detail-toggle-${openPosition.id}`}
+            />
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="min-h-screen bg-background pb-24">
       <TopHeader title="Working Positions" onBack={() => navigate("/recovery/desk-health")} />
@@ -315,63 +362,6 @@ export default function WorkdayPositions() {
         </div>
       </div>
 
-      <Sheet open={openId != null} onOpenChange={(o) => !o && setOpenId(null)}>
-        <SheetContent side="bottom" className="bg-background border-border max-h-[90vh] overflow-y-auto">
-          {openPosition && (
-            <>
-              <SheetHeader className="text-left">
-                <div className="flex items-center gap-2 mb-1">
-                  <SheetTitle className="text-foreground" data-testid="text-detail-name">
-                    {openPosition.name}
-                  </SheetTitle>
-                  <TypeBadge type={getType(openPosition)} />
-                </div>
-                <SheetDescription className="text-muted-foreground">
-                  {openPosition.description}
-                </SheetDescription>
-              </SheetHeader>
-
-              {openPosition.imageUrl && (
-                <div className="mt-4 rounded-xl overflow-hidden bg-black/20">
-                  <img
-                    src={openPosition.imageUrl}
-                    alt={openPosition.name}
-                    className="w-full h-auto object-contain"
-                  />
-                </div>
-              )}
-
-              {openPosition.setupCues && openPosition.setupCues.length > 0 && (
-                <div className="mt-4 space-y-2">
-                  <h4 className="text-xs font-medium text-muted-foreground uppercase tracking-wide">
-                    Setup Tips
-                  </h4>
-                  <div className="space-y-1.5">
-                    {openPosition.setupCues.map((cue, i) => (
-                      <div key={i} className="flex items-start gap-2">
-                        <CheckCircle2 className="h-4 w-4 text-[#0cc9a9] mt-0.5 flex-shrink-0" />
-                        <span className="text-sm text-foreground/80">{cue}</span>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              )}
-
-              <div className="mt-6">
-                <RotationToggleButton
-                  inRotation={preferred.includes(String(openPosition.id))}
-                  onToggle={() => toggleMutation.mutate(openPosition.id)}
-                  pending={
-                    toggleMutation.isPending && toggleMutation.variables === openPosition.id
-                  }
-                  size="lg"
-                  testId={`button-detail-toggle-${openPosition.id}`}
-                />
-              </div>
-            </>
-          )}
-        </SheetContent>
-      </Sheet>
     </div>
   );
 }

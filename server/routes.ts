@@ -16616,17 +16616,14 @@ Keep your response concise, practical, and evidence-based. Do not use em dashes.
   app.post('/api/workday/profile', isAuthenticated, async (req: any, res) => {
     try {
       const userId = req.user.claims.sub;
-      const existing = await storage.getWorkdayUserProfile(userId);
-      
-      if (existing) {
-        const updated = await storage.updateWorkdayUserProfile(userId, req.body);
-        res.json(updated);
-      } else {
-        const validated = insertWorkdayUserProfileSchema.parse({ ...req.body, userId });
-        const profile = await storage.createWorkdayUserProfile(validated);
-        res.status(201).json(profile);
+      const existed = !!(await storage.getWorkdayUserProfile(userId));
+      const validated = insertWorkdayUserProfileSchema.parse({ ...req.body, userId });
+      const profile = await storage.upsertWorkdayUserProfile(userId, validated);
+      res.status(existed ? 200 : 201).json(profile);
+    } catch (error: any) {
+      if (error?.name === "ZodError") {
+        return res.status(400).json({ message: "Invalid profile payload", errors: error.errors });
       }
-    } catch (error) {
       console.error("Error saving workday profile:", error);
       res.status(500).json({ message: "Failed to save profile" });
     }

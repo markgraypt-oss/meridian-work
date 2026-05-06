@@ -2418,6 +2418,35 @@ export const workdayDeskTips = pgTable("workday_desk_tips", {
   updatedAt: timestamp("updated_at").defaultNow(),
 });
 
+// Workday Schedule Block (shared between mobile and web)
+export const scheduleBlockSchema = z.object({
+  id: z.string().uuid(),
+  type: z.enum(["position", "movement_break"]),
+  positionId: z.string().uuid().nullable(),
+  durationMinutes: z.number().int().min(5).max(240),
+  label: z.string().max(80).nullable(),
+}).superRefine((block, ctx) => {
+  if (block.type === "position" && block.positionId === null) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ["positionId"],
+      message: "positionId is required when type is 'position'",
+    });
+  }
+  if (block.type === "movement_break" && block.positionId !== null) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ["positionId"],
+      message: "positionId must be null when type is 'movement_break'",
+    });
+  }
+});
+export type ScheduleBlock = z.infer<typeof scheduleBlockSchema>;
+
+const WORKDAY_DAY_VALUES = ["sun", "mon", "tue", "wed", "thu", "fri", "sat"] as const;
+export const workdayDayEnum = z.enum(WORKDAY_DAY_VALUES);
+export type WorkdayDay = z.infer<typeof workdayDayEnum>;
+
 // User's Workday Engine Profile - stores preferences
 export const workdayUserProfiles = pgTable("workday_user_profiles", {
   id: serial("id").primaryKey(),
@@ -2427,6 +2456,10 @@ export const workdayUserProfiles = pgTable("workday_user_profiles", {
   activePositions: text("active_positions").array(), // Array of position IDs currently active in the rotation (managed on Rotation Planning page); subset of preferredPositions
   rotationInterval: integer("rotation_interval").default(60), // Minutes between position changes
   notificationsEnabled: boolean("notifications_enabled").default(false),
+  workdayStart: text("workday_start"), // 'HH:MM' 24h
+  workdayEnd: text("workday_end"), // 'HH:MM' 24h
+  workdayDays: text("workday_days").array(), // subset of ['sun','mon','tue','wed','thu','fri','sat']
+  scheduleBlocks: jsonb("schedule_blocks").$type<ScheduleBlock[] | null>().default(sql`null`),
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow(),
 });
@@ -2467,7 +2500,27 @@ export const insertWorkdayMicroResetSchema = createInsertSchema(workdayMicroRese
 export const insertWorkdayAchesFixSchema = createInsertSchema(workdayAchesFixes).omit({ id: true, createdAt: true, updatedAt: true });
 export const insertWorkdayDeskSetupSchema = createInsertSchema(workdayDeskSetups).omit({ id: true, createdAt: true, updatedAt: true });
 export const insertWorkdayDeskTipSchema = createInsertSchema(workdayDeskTips).omit({ id: true, createdAt: true, updatedAt: true });
-export const insertWorkdayUserProfileSchema = createInsertSchema(workdayUserProfiles).omit({ id: true, createdAt: true, updatedAt: true });
+const HHMM_REGEX = /^([01]\d|2[0-3]):[0-5]\d$/;
+export const insertWorkdayUserProfileSchema = createInsertSchema(workdayUserProfiles, {
+  workdayStart: z.string().regex(HHMM_REGEX, "workdayStart must be HH:MM (24h)").optional().nullable(),
+  workdayEnd: z.string().regex(HHMM_REGEX, "workdayEnd must be HH:MM (24h)").optional().nullable(),
+  workdayDays: z.array(workdayDayEnum)
+    .max(7)
+    .refine((arr) => new Set(arr).size === arr.length, { message: "workdayDays must not contain duplicates" })
+    .optional()
+    .nullable(),
+  scheduleBlocks: z.array(scheduleBlockSchema).max(50).optional().nullable(),
+})
+  .omit({ id: true, createdAt: true, updatedAt: true })
+  .superRefine((profile, ctx) => {
+    if (profile.workdayStart && profile.workdayEnd && !(profile.workdayStart < profile.workdayEnd)) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["workdayEnd"],
+        message: "workdayEnd must be after workdayStart (no wrap-around)",
+      });
+    }
+  });
 export const insertWorkdayDeskScanSchema = createInsertSchema(workdayDeskScans).omit({ id: true, createdAt: true });
 
 // Per-user action items generated from a desk scan ("Add to my plan")

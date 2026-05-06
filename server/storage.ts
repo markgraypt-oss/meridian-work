@@ -337,6 +337,7 @@ import {
   type InsertWorkdayDeskTip,
   type WorkdayUserProfile,
   type InsertWorkdayUserProfile,
+  type ScheduleBlock,
   type WorkdayDeskScan,
   type InsertWorkdayDeskScan,
   aiCoachingSettings,
@@ -1072,6 +1073,7 @@ export interface IStorage {
   getWorkdayUserProfile(userId: string): Promise<WorkdayUserProfile | undefined>;
   createWorkdayUserProfile(profile: InsertWorkdayUserProfile): Promise<WorkdayUserProfile>;
   updateWorkdayUserProfile(userId: string, profile: Partial<InsertWorkdayUserProfile>): Promise<WorkdayUserProfile>;
+  upsertWorkdayUserProfile(userId: string, payload: Partial<InsertWorkdayUserProfile>): Promise<WorkdayUserProfile>;
 
   // Workday Engine - Desk Scans operations
   getWorkdayDeskScans(userId: string): Promise<WorkdayDeskScan[]>;
@@ -11122,6 +11124,109 @@ export class DatabaseStorage implements IStorage {
       .where(eq(workdayUserProfiles.userId, userId))
       .returning();
     return updated;
+  }
+
+  async upsertWorkdayUserProfile(
+    userId: string,
+    payload: Partial<InsertWorkdayUserProfile>,
+  ): Promise<WorkdayUserProfile> {
+    const existing = await this.getWorkdayUserProfile(userId);
+    const isInsert = !existing;
+    const incoming: Partial<InsertWorkdayUserProfile> = { ...payload };
+
+    // Cascade-strip: if caller supplied preferredPositions, drop schedule blocks
+    // whose positionId is no longer in the preferred set. Operate over the
+    // candidate scheduleBlocks (incoming if present, else existing).
+    if (incoming.preferredPositions !== undefined && incoming.preferredPositions !== null) {
+      const preferredSet = new Set<string>(incoming.preferredPositions as string[]);
+      const candidateBlocks: ScheduleBlock[] | null | undefined =
+        incoming.scheduleBlocks !== undefined
+          ? (incoming.scheduleBlocks as ScheduleBlock[] | null)
+          : (existing?.scheduleBlocks ?? null);
+      if (Array.isArray(candidateBlocks)) {
+        const stripped = candidateBlocks.filter(
+          (b) => b.type !== "position" || (b.positionId !== null && preferredSet.has(b.positionId)),
+        );
+        // Only persist a stripped scheduleBlocks if blocks exist somewhere
+        if (incoming.scheduleBlocks !== undefined || stripped.length !== candidateBlocks.length) {
+          incoming.scheduleBlocks = stripped;
+        }
+      }
+    }
+
+    // Derivation: if scheduleBlocks supplied (non-null), derive legacy fields
+    // from blocks. Caller-supplied rotationInterval / activePositions are
+    // ignored in this branch (logged). preferredPositions is honored as a floor.
+    if (incoming.scheduleBlocks !== undefined && incoming.scheduleBlocks !== null) {
+      const blocks = incoming.scheduleBlocks as ScheduleBlock[];
+
+      if (incoming.rotationInterval !== undefined) {
+        console.warn(
+          "[workday/profile] Ignoring caller-supplied rotationInterval; deriving from scheduleBlocks",
+        );
+      }
+      if (incoming.activePositions !== undefined) {
+        console.warn(
+          "[workday/profile] Ignoring caller-supplied activePositions; deriving from scheduleBlocks",
+        );
+      }
+
+      const positionBlocks = blocks.filter(
+        (b): b is ScheduleBlock & { positionId: string } =>
+          b.type === "position" && b.positionId !== null,
+      );
+
+      // rotationInterval = avg duration of position blocks, rounded to nearest 5,
+      // clamped 15..180. Fall back to prior value, else 60.
+      let rotationInterval: number;
+      if (positionBlocks.length > 0) {
+        const avg =
+          positionBlocks.reduce((s, b) => s + b.durationMinutes, 0) / positionBlocks.length;
+        const rounded = Math.round(avg / 5) * 5;
+        rotationInterval = Math.min(180, Math.max(15, rounded));
+      } else {
+        rotationInterval = existing?.rotationInterval ?? 60;
+      }
+
+      // activePositions = unique positionIds in first-seen order
+      const seen = new Set<string>();
+      const activePositions: string[] = [];
+      for (const b of positionBlocks) {
+        if (!seen.has(b.positionId)) {
+          seen.add(b.positionId);
+          activePositions.push(b.positionId);
+        }
+      }
+
+      // preferredPositions = union of caller-supplied floor (if any) ∪ activePositions.
+      // If caller did not supply preferredPositions, result is just derived activePositions
+      // (we do NOT carry forward stale prior preferred IDs — schedule_blocks is the source
+      // of truth in this branch).
+      const callerPreferred =
+        incoming.preferredPositions !== undefined && incoming.preferredPositions !== null
+          ? (incoming.preferredPositions as string[])
+          : [];
+      const preferredSet = new Set<string>(callerPreferred);
+      for (const pid of activePositions) preferredSet.add(pid);
+
+      incoming.rotationInterval = rotationInterval;
+      incoming.activePositions = activePositions;
+      incoming.preferredPositions = Array.from(preferredSet);
+    }
+
+    if (isInsert) {
+      // Default workdayDays on insert only; explicit [] from client respected on update.
+      if (incoming.workdayDays === undefined) {
+        incoming.workdayDays = ["mon", "tue", "wed", "thu", "fri"];
+      }
+      const [created] = await db
+        .insert(workdayUserProfiles)
+        .values({ ...incoming, userId })
+        .returning();
+      return created;
+    }
+
+    return this.updateWorkdayUserProfile(userId, incoming);
   }
 
   // Workday Engine - Desk Scans operations

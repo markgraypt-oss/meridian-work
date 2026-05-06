@@ -11,6 +11,7 @@ import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest, queryClient } from "@/lib/queryClient";
+import { uploadImageFile, uploadErrorMessage } from "@/lib/uploadImage";
 import { Loader2 } from "lucide-react";
 
 // Helper function to handle optional numeric fields
@@ -142,29 +143,20 @@ export default function ActivityLogForm({ activityType, selectedDate, onSuccess,
     if (!file) return;
 
     setUploading(true);
-    const formData = new FormData();
-    formData.append('image', file);
-
     try {
-      const response = await fetch('/api/upload/image', {
-        method: 'POST',
-        body: formData,
-      });
-
-      if (!response.ok) throw new Error('Upload failed');
-
-      const { imageUrl } = await response.json();
-      setUploadedImageUrl(imageUrl);
-      form.setValue('imageUrl', imageUrl);
+      const objectPath = await uploadImageFile(file);
+      setUploadedImageUrl(objectPath);
+      form.setValue('imageUrl', objectPath);
       toast({ title: "Success", description: "Image uploaded successfully" });
     } catch (error) {
-      toast({ 
-        title: "Error", 
-        description: "Failed to upload image",
-        variant: "destructive" 
+      toast({
+        title: "Upload failed",
+        description: uploadErrorMessage(error),
+        variant: "destructive"
       });
     } finally {
       setUploading(false);
+      e.target.value = "";
     }
   };
 

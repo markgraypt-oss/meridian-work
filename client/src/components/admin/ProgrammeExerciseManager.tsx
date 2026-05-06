@@ -9,6 +9,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, Di
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from '@/components/ui/alert-dialog';
 import { useToast } from '@/hooks/use-toast';
 import { apiRequest } from '@/lib/queryClient';
+import { uploadImageFile, uploadErrorMessage } from '@/lib/uploadImage';
 import { ProgrammeBlockManager } from './ProgrammeBlockManager';
 
 type WorkoutType = 'regular' | 'interval' | 'circuit' | 'video';
@@ -103,21 +104,14 @@ export function ProgrammeExerciseManager({ programId, programmeType, onDirtyStat
     if (!file) return;
     try {
       setUploadingWorkoutImage(true);
-      const formData = new FormData();
-      formData.append('image', file);
-      const response = await fetch('/api/upload/image', {
-        method: 'POST',
-        body: formData,
-        credentials: 'include',
-      });
-      if (!response.ok) throw new Error('Upload failed');
-      const result = await response.json();
-      setNewWorkoutImageUrl(result.imageUrl || result.url);
+      const objectPath = await uploadImageFile(file);
+      setNewWorkoutImageUrl(objectPath);
       toast({ title: "Image uploaded", description: "Cover image uploaded successfully" });
     } catch (error) {
-      toast({ title: "Upload failed", description: "Could not upload image. Please try again.", variant: "destructive" });
+      toast({ title: "Upload failed", description: uploadErrorMessage(error), variant: "destructive" });
     } finally {
       setUploadingWorkoutImage(false);
+      event.target.value = "";
     }
   };
 

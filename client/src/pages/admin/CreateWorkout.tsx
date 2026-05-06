@@ -8,6 +8,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { apiRequest } from "@/lib/queryClient";
+import { uploadImageFile, uploadErrorMessage } from "@/lib/uploadImage";
 import { BlockManager } from "@/components/admin/BlockManager";
 
 interface ExerciseSet {
@@ -206,17 +207,14 @@ export default function CreateWorkoutPage() {
     if (!file) return;
     try {
       setUploadingImage(true);
-      const uploadData = new FormData();
-      uploadData.append('image', file);
-      const response = await fetch('/api/upload/image', { method: 'POST', body: uploadData, credentials: 'include' });
-      if (!response.ok) throw new Error('Upload failed');
-      const result = await response.json();
-      setFormData({...formData, imageUrl: result.imageUrl || result.url});
+      const objectPath = await uploadImageFile(file);
+      setFormData({...formData, imageUrl: objectPath});
       toast({ title: "Image uploaded" });
     } catch (error) {
-      toast({ title: "Upload failed", description: "Could not upload image", variant: "destructive" });
+      toast({ title: "Upload failed", description: uploadErrorMessage(error), variant: "destructive" });
     } finally {
       setUploadingImage(false);
+      event.target.value = "";
     }
   };
 

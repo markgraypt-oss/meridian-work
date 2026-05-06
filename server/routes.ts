@@ -2316,21 +2316,6 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  // Image upload route
-  app.post('/api/upload/image', isAuthenticated, uploadImage.single('image'), async (req, res) => {
-    try {
-      if (!req.file) {
-        return res.status(400).json({ message: "No image file provided" });
-      }
-
-      const imageUrl = `/uploads/images/${req.file.filename}`;
-      res.json({ imageUrl });
-    } catch (error) {
-      console.error("Image upload error:", error);
-      res.status(500).json({ message: "Failed to upload image" });
-    }
-  });
-
   // Get user profile data including profile image
   app.get('/api/user/profile', isAuthenticated, async (req: any, res) => {
     try {

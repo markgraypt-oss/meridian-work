@@ -2,6 +2,7 @@ import { useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useLocation } from "wouter";
 import { apiRequest } from "@/lib/queryClient";
+import { uploadImageFile, uploadErrorMessage } from "@/lib/uploadImage";
 import { useToast } from "@/hooks/use-toast";
 import TopHeader from "@/components/TopHeader";
 import { Button } from "@/components/ui/button";
@@ -135,17 +136,14 @@ export default function AdminWorkdayMicroResets() {
     if (!file) return;
     try {
       setUploadingImage(true);
-      const uploadData = new FormData();
-      uploadData.append('image', file);
-      const response = await fetch('/api/upload/image', { method: 'POST', body: uploadData, credentials: 'include' });
-      if (!response.ok) throw new Error('Upload failed');
-      const result = await response.json();
-      setFormData(prev => ({ ...prev, imageUrl: result.imageUrl || result.url }));
+      const objectPath = await uploadImageFile(file);
+      setFormData(prev => ({ ...prev, imageUrl: objectPath }));
       toast({ title: "Image uploaded" });
     } catch (error) {
-      toast({ title: "Upload failed", description: "Could not upload image", variant: "destructive" });
+      toast({ title: "Upload failed", description: uploadErrorMessage(error), variant: "destructive" });
     } finally {
       setUploadingImage(false);
+      event.target.value = "";
     }
   };
 

@@ -3,6 +3,7 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useLocation } from "wouter";
 import { DragDropContext, Droppable, Draggable, type DropResult } from "@hello-pangea/dnd";
 import { apiRequest } from "@/lib/queryClient";
+import { uploadImageFile, uploadErrorMessage } from "@/lib/uploadImage";
 import { useToast } from "@/hooks/use-toast";
 import TopHeader from "@/components/TopHeader";
 import { Button } from "@/components/ui/button";
@@ -176,22 +177,12 @@ export default function AdminWorkdayPositions() {
     if (!file) return;
     try {
       setUploadingImage(true);
-      const uploadData = new FormData();
-      uploadData.append("image", file);
-      const response = await fetch("/api/upload/image", {
-        method: "POST",
-        body: uploadData,
-        credentials: "include",
-      });
-      if (!response.ok) throw new Error("Upload failed");
-      const result = await response.json();
-      const url = result.imageUrl || result.url;
-      if (!url) throw new Error("No image URL returned");
-      setFormData((prev) => ({ ...prev, imageUrl: url }));
+      const objectPath = await uploadImageFile(file);
+      setFormData((prev) => ({ ...prev, imageUrl: objectPath }));
       setImageJustUploaded(true);
       toast({ title: "Image uploaded", description: "Click Save to attach it to the position." });
     } catch (error) {
-      toast({ title: "Upload failed", description: "Could not upload image", variant: "destructive" });
+      toast({ title: "Upload failed", description: uploadErrorMessage(error), variant: "destructive" });
     } finally {
       setUploadingImage(false);
       event.target.value = "";

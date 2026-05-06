@@ -2,6 +2,7 @@ import { useState, useEffect, useMemo } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { useLocation, useParams } from "wouter";
 import { apiRequest, queryClient } from "@/lib/queryClient";
+import { uploadImageFile, uploadErrorMessage } from "@/lib/uploadImage";
 import { useToast } from "@/hooks/use-toast";
 import TopHeader from "@/components/TopHeader";
 import { Button } from "@/components/ui/button";
@@ -809,23 +810,13 @@ export default function CreateUserProgramme() {
                           if (!file) return;
                           setUploadingImage(true);
                           try {
-                            const formData = new FormData();
-                            formData.append("image", file);
-                            const res = await fetch("/api/upload/image", {
-                              method: "POST",
-                              credentials: "include",
-                              body: formData,
-                            });
-                            if (res.ok) {
-                              const data = await res.json();
-                              setMeta({ ...meta, imageUrl: data.imageUrl });
-                            } else {
-                              toast({ title: "Upload failed", variant: "destructive" });
-                            }
-                          } catch {
-                            toast({ title: "Upload failed", variant: "destructive" });
+                            const objectPath = await uploadImageFile(file);
+                            setMeta({ ...meta, imageUrl: objectPath });
+                          } catch (error) {
+                            toast({ title: "Upload failed", description: uploadErrorMessage(error), variant: "destructive" });
                           } finally {
                             setUploadingImage(false);
+                            e.target.value = "";
                           }
                         }}
                       />

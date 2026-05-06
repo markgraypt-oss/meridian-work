@@ -15,6 +15,7 @@ import { useToast } from "@/hooks/use-toast";
 import { useUnsavedChanges } from "@/hooks/use-unsaved-changes";
 import { isUnauthorizedError } from "@/lib/authUtils";
 import TopHeader from "@/components/TopHeader";
+import { uploadImageFile, uploadErrorMessage } from "@/lib/uploadImage";
 
 const programFormSchema = z.object({
   title: z.string().min(1, "Title is required"),
@@ -146,33 +147,22 @@ export default function AddProgrammePage() {
 
     try {
       setUploadingImage(true);
-      const formData = new FormData();
-      formData.append('image', file);
+      const objectPath = await uploadImageFile(file);
+      form.setValue('imageUrl', objectPath);
 
-      const response = await fetch('/api/upload/image', {
-        method: 'POST',
-        body: formData,
-      });
-
-      if (!response.ok) {
-        throw new Error('Upload failed');
-      }
-
-      const { imageUrl } = await response.json();
-      form.setValue('imageUrl', imageUrl);
-      
       toast({
         title: "Success",
         description: "Image uploaded successfully",
       });
     } catch (error) {
       toast({
-        title: "Error",
-        description: "Failed to upload image",
+        title: "Upload failed",
+        description: uploadErrorMessage(error),
         variant: "destructive",
       });
     } finally {
       setUploadingImage(false);
+      event.target.value = "";
     }
   };
 

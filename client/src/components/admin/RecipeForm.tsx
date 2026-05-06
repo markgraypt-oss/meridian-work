@@ -11,6 +11,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Checkbox } from "@/components/ui/checkbox";
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
 import { apiRequest } from "@/lib/queryClient";
+import { uploadImageFile, uploadErrorMessage } from "@/lib/uploadImage";
 import { useToast } from "@/hooks/use-toast";
 import { isUnauthorizedError } from "@/lib/authUtils";
 import { Upload, X } from "lucide-react";
@@ -149,22 +150,13 @@ export function RecipeForm({ recipe, onClose }: RecipeFormProps) {
 
       if (imageFile) {
         setIsUploading(true);
-        const formData = new FormData();
-        formData.append("image", imageFile);
-        
-        const uploadResponse = await fetch("/api/upload/image", {
-          method: "POST",
-          body: formData,
-          credentials: "include",
-        });
-        
-        if (!uploadResponse.ok) {
-          throw new Error("Failed to upload image");
+        try {
+          imageUrl = await uploadImageFile(imageFile);
+        } catch (uploadError) {
+          throw new Error(uploadErrorMessage(uploadError));
+        } finally {
+          setIsUploading(false);
         }
-        
-        const uploadResult = await uploadResponse.json();
-        imageUrl = uploadResult.url;
-        setIsUploading(false);
       } else if (imagePreview === null && recipe?.imageUrl) {
         imageUrl = "";
       }
@@ -210,7 +202,9 @@ export function RecipeForm({ recipe, onClose }: RecipeFormProps) {
       }
       toast({
         title: "Error",
-        description: `Failed to ${recipe ? "update" : "create"} recipe`,
+        description: error instanceof Error && error.message
+          ? error.message
+          : `Failed to ${recipe ? "update" : "create"} recipe`,
         variant: "destructive",
       });
     },

@@ -332,11 +332,11 @@ export default function WorkdayPositions() {
               </SheetHeader>
 
               {openPosition.imageUrl && (
-                <div className="mt-4 rounded-xl overflow-hidden">
+                <div className="mt-4 rounded-xl overflow-hidden bg-black/20">
                   <img
                     src={openPosition.imageUrl}
                     alt={openPosition.name}
-                    className="w-full max-h-72 object-cover"
+                    className="w-full h-auto object-contain"
                   />
                 </div>
               )}

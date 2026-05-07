@@ -89,40 +89,9 @@ function scoreLabel(score: number | null): string {
   return "Low";
 }
 
-function scoreCoachLine(score: number | null, topInput: InputKey | null): string {
-  if (score == null) return "";
-  const topLabel = topInput ? INPUT_META[topInput].label.toLowerCase() : null;
-  if (score >= 85)
-    return topLabel
-      ? `Peak readiness — ${topLabel} is leading. Good day to push.`
-      : "Peak readiness. Good day to push.";
-  if (score >= 70)
-    return topLabel
-      ? `Strong day — ${topLabel} is your strength. Train as planned.`
-      : "Strong day. Train as planned.";
-  if (score >= 55)
-    return "Steady. Keep intensity moderate and stay consistent.";
-  if (score >= 40)
-    return "Recovering. Favour mobility, walking, or light work today.";
-  return "Low readiness. Prioritise sleep, food, and rest.";
-}
-
 function inputColor(value: number | null): string {
   if (value == null) return "#94a3b8";
   return scoreColor(value * 10);
-}
-
-function topInput(inputs: InputsMap): InputKey | null {
-  let best: InputKey | null = null;
-  let bestVal = -1;
-  for (const k of INPUT_ORDER) {
-    const v = inputs[k];
-    if (v != null && v > bestVal) {
-      best = k;
-      bestVal = v;
-    }
-  }
-  return best;
 }
 
 /** Big circular gauge ring with score inside, Whoop-style. */
@@ -238,105 +207,48 @@ function Sparkline({
   );
 }
 
-/** Color legend strip used under the heatmap. */
-function HeatmapLegend() {
-  return (
-    <div className="flex items-center gap-2 text-[10px] uppercase tracking-wide text-muted-foreground">
-      <span>Low</span>
-      <div
-        className="h-2 flex-1 rounded-full"
-        style={{
-          background:
-            "linear-gradient(to right, #ef4444 0%, #f59e0b 35%, #0cc9a9 65%, #22c55e 100%)",
-        }}
-      />
-      <span>High</span>
-    </div>
-  );
-}
-
-/** Weekly heatmap: rows = weeks, columns = Mon..Sun. Today gets a ring. */
-function WeeklyHeatmap({
+/** Single-row 30-day dot strip. Oldest left → today right, today ringed. */
+function DotStrip({
   history,
   todayKey,
 }: {
   history: Array<{ date: string; score: number | null }>;
   todayKey: string;
 }) {
-  // Build a Mon..Sun grid going back N weeks. Use UTC date string parsing
-  // to avoid TZ drift on the YYYY-MM-DD keys the API returns.
+  // Always render exactly 30 days ending today. Fill missing days with null.
   const byDate = new Map(history.map((d) => [d.date, d]));
   const today = new Date(todayKey + "T12:00:00Z");
-  // Find the Monday of this week (UTC).
-  const dow = (today.getUTCDay() + 6) % 7; // 0 = Mon
-  const thisMonday = new Date(today);
-  thisMonday.setUTCDate(today.getUTCDate() - dow);
-
-  // 5 weeks ≈ 35 cells, covers a 30-day window with some padding.
-  const weeks = 5;
-  const rows: Array<Array<{ key: string; score: number | null; isFuture: boolean; isToday: boolean }>> = [];
-  for (let w = weeks - 1; w >= 0; w--) {
-    const row: typeof rows[number] = [];
-    for (let d = 0; d < 7; d++) {
-      const cell = new Date(thisMonday);
-      cell.setUTCDate(thisMonday.getUTCDate() - w * 7 + d);
-      const key = cell.toISOString().slice(0, 10);
-      const isFuture = cell.getTime() > today.getTime();
-      const rec = byDate.get(key);
-      row.push({
-        key,
-        score: rec?.score ?? null,
-        isFuture,
-        isToday: key === todayKey,
-      });
-    }
-    rows.push(row);
+  const cells: Array<{ key: string; score: number | null; isToday: boolean }> = [];
+  for (let i = 29; i >= 0; i--) {
+    const d = new Date(today);
+    d.setUTCDate(today.getUTCDate() - i);
+    const key = d.toISOString().slice(0, 10);
+    const rec = byDate.get(key);
+    cells.push({ key, score: rec?.score ?? null, isToday: key === todayKey });
   }
-
-  const dayLabels = ["M", "T", "W", "T", "F", "S", "S"];
-
   return (
     <div className="space-y-2">
-      <div className="grid grid-cols-7 gap-1.5">
-        {dayLabels.map((d, i) => (
-          <div
-            key={i}
-            className="text-[10px] font-medium uppercase text-muted-foreground text-center"
-          >
-            {d}
-          </div>
-        ))}
+      <div className="flex items-center gap-[3px]">
+        {cells.map((cell) => {
+          const empty = cell.score == null;
+          return (
+            <div
+              key={cell.key}
+              className={`flex-1 h-2.5 rounded-full ${cell.isToday ? "ring-1 ring-foreground/80 h-3" : ""}`}
+              style={{
+                backgroundColor: empty ? "hsl(var(--muted))" : scoreColor(cell.score),
+                opacity: empty ? 0.35 : Math.max(0.5, cell.score! / 100),
+              }}
+              title={`${cell.key}: ${empty ? "no data" : `${cell.score} / 100`}`}
+              data-testid={`dot-${cell.key}`}
+            />
+          );
+        })}
       </div>
-      {rows.map((row, ri) => (
-        <div key={ri} className="grid grid-cols-7 gap-1.5">
-          {row.map((cell) => {
-            const empty = cell.isFuture || cell.score == null;
-            return (
-              <div
-                key={cell.key}
-                className={`aspect-square rounded-md ${cell.isToday ? "ring-2 ring-foreground/70 ring-offset-2 ring-offset-card" : ""}`}
-                style={{
-                  backgroundColor: empty
-                    ? "hsl(var(--muted))"
-                    : scoreColor(cell.score),
-                  opacity: cell.isFuture
-                    ? 0.15
-                    : cell.score != null
-                    ? Math.max(0.45, cell.score / 100)
-                    : 0.35,
-                }}
-                title={
-                  cell.isFuture
-                    ? cell.key
-                    : `${cell.key}: ${cell.score != null ? `${cell.score} / 100` : "no data"}`
-                }
-                data-testid={`heatmap-cell-${cell.key}`}
-              />
-            );
-          })}
-        </div>
-      ))}
-      <HeatmapLegend />
+      <div className="flex justify-between text-[10px] uppercase tracking-wide text-muted-foreground">
+        <span>30 days ago</span>
+        <span>Today</span>
+      </div>
     </div>
   );
 }
@@ -462,9 +374,6 @@ export default function DailyReadinessCard() {
   const delta =
     showScore && today.score != null && avg7 != null ? today.score - avg7 : null;
 
-  const lead = topInput(today.inputs);
-  const coachLine = showScore ? scoreCoachLine(today.score, lead) : "";
-
   return (
     <Card className="bg-card border-border" data-testid="card-daily-readiness">
       <CardContent className="py-6 space-y-5">
@@ -488,14 +397,6 @@ export default function DailyReadinessCard() {
         {showScore ? (
           <div className="flex flex-col items-center">
             <ScoreRing score={today.score} />
-            {coachLine && (
-              <p
-                className="text-sm text-foreground text-center mt-4 max-w-[280px]"
-                data-testid="text-readiness-coach"
-              >
-                {coachLine}
-              </p>
-            )}
             {delta != null && (
               <div
                 className="flex items-center gap-1.5 mt-3 text-xs"
@@ -592,7 +493,7 @@ export default function DailyReadinessCard() {
 
         {expanded && histAll.length > 0 && (
           <div className="pt-1">
-            <WeeklyHeatmap history={histAll} todayKey={today.date} />
+            <DotStrip history={histAll} todayKey={today.date} />
           </div>
         )}
       </CardContent>

@@ -249,6 +249,17 @@ function DotStrip({
         <span>30 days ago</span>
         <span>Today</span>
       </div>
+      <div className="flex items-center gap-2 text-[10px] uppercase tracking-wide text-muted-foreground pt-1">
+        <span>Low</span>
+        <div
+          className="h-1.5 flex-1 rounded-full"
+          style={{
+            background:
+              "linear-gradient(to right, #ef4444 0%, #f59e0b 35%, #0cc9a9 65%, #22c55e 100%)",
+          }}
+        />
+        <span>High</span>
+      </div>
     </div>
   );
 }

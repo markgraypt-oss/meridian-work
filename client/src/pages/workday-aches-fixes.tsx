@@ -106,31 +106,29 @@ function FixSkeleton() {
 
 function DetailList({
   icon,
-  iconColor,
   title,
   items,
 }: {
   icon: React.ReactNode;
-  iconColor: string;
   title: string;
   items: string[];
 }) {
   return (
-    <div className="mt-4 space-y-2">
-      <div className="flex items-center gap-2">
-        <span className={iconColor}>{icon}</span>
-        <h4 className="text-xs font-medium text-muted-foreground uppercase tracking-wide">
+    <div className="mt-5 space-y-3">
+      <div className="flex items-center gap-2 px-3 py-2 rounded-lg bg-[#0cc9a9]/15 border border-[#0cc9a9]/30">
+        <span className="text-[#0cc9a9]">{icon}</span>
+        <h4 className="text-sm font-semibold text-[#0cc9a9] tracking-wide">
           {title}
         </h4>
       </div>
-      <div className="space-y-1.5">
+      <ul className="space-y-2 pl-1">
         {items.map((item, i) => (
-          <div key={i} className="flex items-start gap-2">
-            <CheckCircle2 className="h-4 w-4 text-[#0cc9a9] mt-0.5 flex-shrink-0" />
-            <span className="text-sm text-foreground/80">{item}</span>
-          </div>
+          <li key={i} className="flex items-start gap-2.5">
+            <span className="mt-2 h-1.5 w-1.5 rounded-full bg-[#0cc9a9]/70 flex-shrink-0" />
+            <span className="text-sm text-foreground/85 leading-relaxed">{item}</span>
+          </li>
         ))}
-      </div>
+      </ul>
     </div>
   );
 }
@@ -206,7 +204,7 @@ export default function WorkdayAchesFixes() {
           {openFix.contributors && openFix.contributors.length > 0 && (
             <DetailList
               icon={<AlertTriangle className="h-4 w-4" />}
-              iconColor="text-rose-400"
+
               title="Contributing Factors"
               items={openFix.contributors}
             />
@@ -215,7 +213,7 @@ export default function WorkdayAchesFixes() {
           {openFix.setupFactors && openFix.setupFactors.length > 0 && (
             <DetailList
               icon={<CheckCircle2 className="h-4 w-4" />}
-              iconColor="text-[#0cc9a9]"
+
               title="Setup Adjustments"
               items={openFix.setupFactors}
             />
@@ -224,7 +222,7 @@ export default function WorkdayAchesFixes() {
           {openFix.positionChanges && openFix.positionChanges.length > 0 && (
             <DetailList
               icon={<Lightbulb className="h-4 w-4" />}
-              iconColor="text-amber-400"
+
               title="Position Changes"
               items={openFix.positionChanges}
             />
@@ -233,7 +231,7 @@ export default function WorkdayAchesFixes() {
           {openFix.movementOptions && openFix.movementOptions.length > 0 && (
             <DetailList
               icon={<Activity className="h-4 w-4" />}
-              iconColor="text-purple-400"
+
               title="Movement Options"
               items={openFix.movementOptions}
             />

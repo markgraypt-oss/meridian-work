@@ -772,6 +772,12 @@ export default function Dashboard() {
           </div>
         )}
 
+        {/* Daily Readiness — placed above Goals so the morning readout
+            is the first thing the user sees on the home screen */}
+        <div className="mb-8">
+          <DailyReadinessCard />
+        </div>
+
         {/* Goals Section */}
         <div className="mb-8">
           <h3 className="mb-4">
@@ -1090,8 +1096,6 @@ export default function Dashboard() {
 
 
             <EngagementCard />
-
-            <DailyReadinessCard />
 
             <WeeklyCheckinCard />
 

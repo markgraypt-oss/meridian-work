@@ -318,7 +318,6 @@ import {
   workdayPositions,
   workdayMicroResets,
   workdayAchesFixes,
-  workdayDeskSetups,
   workdayDeskTips,
   workdayUserProfiles,
   workdayDeskScans,
@@ -331,8 +330,6 @@ import {
   type InsertWorkdayMicroReset,
   type WorkdayAchesFix,
   type InsertWorkdayAchesFix,
-  type WorkdayDeskSetup,
-  type InsertWorkdayDeskSetup,
   type WorkdayDeskTip,
   type InsertWorkdayDeskTip,
   type WorkdayUserProfile,
@@ -1053,13 +1050,6 @@ export interface IStorage {
   createWorkdayAchesFix(fix: InsertWorkdayAchesFix): Promise<WorkdayAchesFix>;
   updateWorkdayAchesFix(id: number, fix: Partial<InsertWorkdayAchesFix>): Promise<WorkdayAchesFix>;
   deleteWorkdayAchesFix(id: number): Promise<void>;
-
-  // Workday Engine - Desk Setups operations
-  getWorkdayDeskSetups(deskType?: string, positionType?: string): Promise<WorkdayDeskSetup[]>;
-  getWorkdayDeskSetupById(id: number): Promise<WorkdayDeskSetup | undefined>;
-  createWorkdayDeskSetup(setup: InsertWorkdayDeskSetup): Promise<WorkdayDeskSetup>;
-  updateWorkdayDeskSetup(id: number, setup: Partial<InsertWorkdayDeskSetup>): Promise<WorkdayDeskSetup>;
-  deleteWorkdayDeskSetup(id: number): Promise<void>;
 
   // Workday Engine - Desk Tips operations
   getWorkdayDeskTips(): Promise<WorkdayDeskTip[]>;
@@ -11034,40 +11024,6 @@ export class DatabaseStorage implements IStorage {
 
   async deleteWorkdayAchesFix(id: number): Promise<void> {
     await db.delete(workdayAchesFixes).where(eq(workdayAchesFixes.id, id));
-  }
-
-  // Workday Engine - Desk Setups operations
-  async getWorkdayDeskSetups(deskType?: string, positionType?: string): Promise<WorkdayDeskSetup[]> {
-    const conditions = [eq(workdayDeskSetups.isActive, true)];
-    if (deskType) conditions.push(eq(workdayDeskSetups.deskType, deskType));
-    if (positionType) conditions.push(eq(workdayDeskSetups.positionType, positionType));
-    
-    return await db.select().from(workdayDeskSetups)
-      .where(and(...conditions))
-      .orderBy(asc(workdayDeskSetups.orderIndex));
-  }
-
-  async getWorkdayDeskSetupById(id: number): Promise<WorkdayDeskSetup | undefined> {
-    const [setup] = await db.select().from(workdayDeskSetups).where(eq(workdayDeskSetups.id, id));
-    return setup;
-  }
-
-  async createWorkdayDeskSetup(setup: InsertWorkdayDeskSetup): Promise<WorkdayDeskSetup> {
-    const [created] = await db.insert(workdayDeskSetups).values(setup).returning();
-    return created;
-  }
-
-  async updateWorkdayDeskSetup(id: number, setup: Partial<InsertWorkdayDeskSetup>): Promise<WorkdayDeskSetup> {
-    const [updated] = await db
-      .update(workdayDeskSetups)
-      .set({ ...setup, updatedAt: new Date() })
-      .where(eq(workdayDeskSetups.id, id))
-      .returning();
-    return updated;
-  }
-
-  async deleteWorkdayDeskSetup(id: number): Promise<void> {
-    await db.delete(workdayDeskSetups).where(eq(workdayDeskSetups.id, id));
   }
 
   // Workday Engine - Desk Tips operations

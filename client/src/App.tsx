@@ -43,7 +43,6 @@ import RecoveryDeskHealth from "@/pages/recovery-desk-health";
 import WorkdayPositions from "@/pages/workday-positions";
 import WorkdayMicroResets from "@/pages/workday-micro-resets";
 import WorkdayAchesFixes from "@/pages/workday-aches-fixes";
-import WorkdaySetup from "@/pages/workday-setup";
 import WorkdayRotation from "@/pages/workday-rotation";
 import WorkdayDeskScan from "@/pages/workday-desk-scan";
 import Learn from "@/pages/learn";
@@ -82,7 +81,6 @@ import EditProgramme from "@/pages/admin/EditProgramme";
 import AdminWorkdayPositions from "@/pages/admin/AdminWorkdayPositions";
 import AdminWorkdayMicroResets from "@/pages/admin/AdminWorkdayMicroResets";
 import AdminWorkdayAchesFixes from "@/pages/admin/AdminWorkdayAchesFixes";
-import AdminWorkdayDeskSetups from "@/pages/admin/AdminWorkdayDeskSetups";
 import AdminAiCoaching from "@/pages/admin/AdminAiCoaching";
 import AdminAiActivity from "@/pages/admin/AdminAiActivity";
 import AdminDeskReferences from "@/pages/admin/AdminDeskReferences";
@@ -298,7 +296,6 @@ function Router() {
               <Route path="/recovery/burnout-signs" component={BurnoutSigns} />
               <Route path="/recovery/burnout-talking" component={BurnoutTalking} />
               <Route path="/recovery/desk-health" component={RecoveryDeskHealth} />
-              <Route path="/recovery/desk-health/setup" component={WorkdaySetup} />
               <Route path="/recovery/desk-health/positions" component={WorkdayPositions} />
               <Route path="/recovery/desk-health/rotation" component={WorkdayRotation} />
               <Route path="/recovery/desk-health/micro-resets" component={WorkdayMicroResets} />
@@ -357,7 +354,6 @@ function Router() {
               <Route path="/admin/workday/positions" component={AdminWorkdayPositions} />
               <Route path="/admin/workday/micro-resets" component={AdminWorkdayMicroResets} />
               <Route path="/admin/workday/aches-fixes" component={AdminWorkdayAchesFixes} />
-              <Route path="/admin/workday/desk-setups" component={AdminWorkdayDeskSetups} />
               <Route path="/admin/ai-coaching" component={AdminAiCoaching} />
               <Route path="/admin/ai-activity" component={AdminAiActivity} />
               <Route path="/admin/workday/desk-references" component={AdminDeskReferences} />

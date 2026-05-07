@@ -2259,23 +2259,6 @@ export default function AdminPanel() {
 
               <Card 
                 className="cursor-pointer hover:shadow-lg transition-shadow border-2 hover:border-primary"
-                onClick={() => navigate('/admin/workday/desk-setups')}
-                data-testid="card-admin-workday-desk-setups"
-              >
-                <CardHeader>
-                  <CardTitle className="text-lg flex items-center gap-2">
-                    <Users className="h-5 w-5 text-primary" />
-                    Desk Setups
-                  </CardTitle>
-                  <CardDescription>Manage desk setup gallery and ergonomic tips</CardDescription>
-                </CardHeader>
-                <CardContent>
-                  <Button variant="outline" size="sm">Manage Desk Setups</Button>
-                </CardContent>
-              </Card>
-
-              <Card 
-                className="cursor-pointer hover:shadow-lg transition-shadow border-2 hover:border-primary"
                 onClick={() => navigate('/admin/workday/desk-references')}
                 data-testid="card-admin-workday-desk-references"
               >

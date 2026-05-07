@@ -2390,21 +2390,6 @@ export const workdayAchesFixes = pgTable("workday_aches_fixes", {
   updatedAt: timestamp("updated_at").defaultNow(),
 });
 
-// Desk Setup Gallery - visual reference images
-export const workdayDeskSetups = pgTable("workday_desk_setups", {
-  id: serial("id").primaryKey(),
-  title: text("title").notNull(), // e.g., 'Seated Desk Setup'
-  deskType: text("desk_type").notNull(), // 'fixed', 'sit_stand', 'laptop_only', 'external_monitor', 'dual_monitor'
-  positionType: text("position_type").notNull(), // 'seated', 'standing', 'alternative'
-  description: text("description"),
-  imageUrl: text("image_url").notNull(),
-  keyAdjustments: text("key_adjustments").array(), // Key adjustment tips
-  orderIndex: integer("order_index").default(0),
-  isActive: boolean("is_active").default(true),
-  createdAt: timestamp("created_at").defaultNow(),
-  updatedAt: timestamp("updated_at").defaultNow(),
-});
-
 // Desk Setup Tips - editable feedback messages for analysis
 export const workdayDeskTips = pgTable("workday_desk_tips", {
   id: serial("id").primaryKey(),
@@ -2486,8 +2471,6 @@ export type WorkdayMicroReset = typeof workdayMicroResets.$inferSelect;
 export type InsertWorkdayMicroReset = typeof workdayMicroResets.$inferInsert;
 export type WorkdayAchesFix = typeof workdayAchesFixes.$inferSelect;
 export type InsertWorkdayAchesFix = typeof workdayAchesFixes.$inferInsert;
-export type WorkdayDeskSetup = typeof workdayDeskSetups.$inferSelect;
-export type InsertWorkdayDeskSetup = typeof workdayDeskSetups.$inferInsert;
 export type WorkdayDeskTip = typeof workdayDeskTips.$inferSelect;
 export type InsertWorkdayDeskTip = typeof workdayDeskTips.$inferInsert;
 export type WorkdayUserProfile = typeof workdayUserProfiles.$inferSelect;
@@ -2499,7 +2482,6 @@ export type InsertWorkdayDeskScan = typeof workdayDeskScans.$inferInsert;
 export const insertWorkdayPositionSchema = createInsertSchema(workdayPositions).omit({ id: true, createdAt: true, updatedAt: true });
 export const insertWorkdayMicroResetSchema = createInsertSchema(workdayMicroResets).omit({ id: true, createdAt: true, updatedAt: true });
 export const insertWorkdayAchesFixSchema = createInsertSchema(workdayAchesFixes).omit({ id: true, createdAt: true, updatedAt: true });
-export const insertWorkdayDeskSetupSchema = createInsertSchema(workdayDeskSetups).omit({ id: true, createdAt: true, updatedAt: true });
 export const insertWorkdayDeskTipSchema = createInsertSchema(workdayDeskTips).omit({ id: true, createdAt: true, updatedAt: true });
 const HHMM_REGEX = /^([01]\d|2[0-3]):[0-5]\d$/;
 export const insertWorkdayUserProfileSchema = createInsertSchema(workdayUserProfiles, {

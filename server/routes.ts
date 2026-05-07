@@ -269,7 +269,6 @@ import {
   insertWorkdayPositionSchema,
   insertWorkdayMicroResetSchema,
   insertWorkdayAchesFixSchema,
-  insertWorkdayDeskSetupSchema,
   insertWorkdayDeskTipSchema,
   insertWorkdayUserProfileSchema,
   insertWorkdayDeskScanSchema,
@@ -16393,61 +16392,6 @@ Keep your response concise, practical, and evidence-based. Do not use em dashes.
     }
   });
 
-  // Workday Desk Setups - Admin CRUD
-  app.get('/api/admin/workday/desk-setups', isAuthenticated, requireAdmin, async (req: any, res) => {
-    try {
-      const deskType = req.query.deskType as string | undefined;
-      const positionType = req.query.positionType as string | undefined;
-      const setups = await storage.getWorkdayDeskSetups(deskType, positionType);
-      res.json(setups);
-    } catch (error) {
-      console.error("Error fetching desk setups:", error);
-      res.status(500).json({ message: "Failed to fetch desk setups" });
-    }
-  });
-
-  app.get('/api/admin/workday/desk-setups/:id', isAuthenticated, requireAdmin, async (req: any, res) => {
-    try {
-      const setup = await storage.getWorkdayDeskSetupById(parseInt(req.params.id));
-      if (!setup) return res.status(404).json({ message: "Desk setup not found" });
-      res.json(setup);
-    } catch (error) {
-      console.error("Error fetching desk setup:", error);
-      res.status(500).json({ message: "Failed to fetch desk setup" });
-    }
-  });
-
-  app.post('/api/admin/workday/desk-setups', isAuthenticated, requireAdmin, async (req: any, res) => {
-    try {
-      const validated = insertWorkdayDeskSetupSchema.parse(req.body);
-      const setup = await storage.createWorkdayDeskSetup(validated);
-      res.status(201).json(setup);
-    } catch (error) {
-      console.error("Error creating desk setup:", error);
-      res.status(500).json({ message: "Failed to create desk setup" });
-    }
-  });
-
-  app.patch('/api/admin/workday/desk-setups/:id', isAuthenticated, requireAdmin, async (req: any, res) => {
-    try {
-      const setup = await storage.updateWorkdayDeskSetup(parseInt(req.params.id), req.body);
-      res.json(setup);
-    } catch (error) {
-      console.error("Error updating desk setup:", error);
-      res.status(500).json({ message: "Failed to update desk setup" });
-    }
-  });
-
-  app.delete('/api/admin/workday/desk-setups/:id', isAuthenticated, requireAdmin, async (req: any, res) => {
-    try {
-      await storage.deleteWorkdayDeskSetup(parseInt(req.params.id));
-      res.status(204).send();
-    } catch (error) {
-      console.error("Error deleting desk setup:", error);
-      res.status(500).json({ message: "Failed to delete desk setup" });
-    }
-  });
-
   // Workday Desk Tips - Admin CRUD
   app.get('/api/admin/workday/desk-tips', isAuthenticated, requireAdmin, async (req: any, res) => {
     try {
@@ -16571,18 +16515,6 @@ Keep your response concise, practical, and evidence-based. Do not use em dashes.
     } catch (error) {
       console.error("Error fetching aches & fix:", error);
       res.status(500).json({ message: "Failed to fetch aches & fix" });
-    }
-  });
-
-  app.get('/api/workday/desk-setups', isAuthenticated, async (req: any, res) => {
-    try {
-      const deskType = req.query.deskType as string | undefined;
-      const positionType = req.query.positionType as string | undefined;
-      const setups = await storage.getWorkdayDeskSetups(deskType, positionType);
-      res.json(setups);
-    } catch (error) {
-      console.error("Error fetching desk setups:", error);
-      res.status(500).json({ message: "Failed to fetch desk setups" });
     }
   });
 

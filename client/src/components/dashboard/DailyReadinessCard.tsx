@@ -105,14 +105,14 @@ function ScoreRing({ score, size = 168 }: { score: number | null; size?: number 
   return (
     <div className="relative" style={{ width: size, height: size }}>
       <svg width={size} height={size} className="-rotate-90">
+        {/* Full grey background ring — always shows the missing portion */}
         <circle
           cx={size / 2}
           cy={size / 2}
           r={r}
           fill="none"
-          stroke="hsl(var(--muted))"
+          stroke="#3a3f47"
           strokeWidth={stroke}
-          opacity={0.35}
         />
         {score != null && (
           <circle
@@ -136,22 +136,25 @@ function ScoreRing({ score, size = 168 }: { score: number | null; size?: number 
           <p className="text-4xl font-bold text-muted-foreground mt-1">—</p>
         ) : (
           <p
-            className="text-5xl font-bold leading-none mt-1 tabular-nums"
-            style={{ color }}
+            className="text-5xl font-bold leading-none mt-1 tabular-nums text-foreground"
             data-testid="text-readiness-score"
           >
             {score}
-            <span className="text-xl ml-0.5" style={{ color }}>
-              %
-            </span>
+            <span className="text-xl ml-0.5 text-muted-foreground">%</span>
           </p>
         )}
-        <p
-          className="text-[11px] font-semibold uppercase tracking-[0.18em] mt-2"
-          style={{ color: scoreColor(score) }}
-        >
-          {scoreLabel(score)}
-        </p>
+        {score != null && (
+          <span
+            className="mt-2 text-[10px] font-bold uppercase tracking-[0.16em] px-2.5 py-0.5 rounded-full"
+            style={{
+              color,
+              backgroundColor: `${color}26`, // ~15% alpha tint of the score color
+            }}
+            data-testid="badge-readiness-state"
+          >
+            {scoreLabel(score)}
+          </span>
+        )}
       </div>
     </div>
   );

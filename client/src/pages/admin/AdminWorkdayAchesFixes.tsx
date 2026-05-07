@@ -51,6 +51,64 @@ const issueTypes = [
   { value: "hip", label: "Hip" },
 ];
 
+function ArrayInput({
+  label,
+  items,
+  value,
+  setValue,
+  onAdd,
+  onRemove,
+  placeholder,
+}: {
+  label: string;
+  items: string[];
+  value: string;
+  setValue: (v: string) => void;
+  onAdd: () => void;
+  onRemove: (index: number) => void;
+  placeholder: string;
+}) {
+  return (
+    <div className="space-y-2">
+      <Label>{label}</Label>
+      <div className="flex gap-2">
+        <Input
+          value={value}
+          onChange={(e) => setValue(e.target.value)}
+          placeholder={placeholder}
+          className="bg-background border-border"
+          onKeyDown={(e) => {
+            if (e.key === "Enter") {
+              e.preventDefault();
+              onAdd();
+            }
+          }}
+        />
+        <Button type="button" onClick={onAdd} variant="secondary">
+          Add
+        </Button>
+      </div>
+      <div className="flex flex-wrap gap-2 mt-2">
+        {items.map((item, index) => (
+          <span
+            key={index}
+            className="flex items-center gap-1 bg-muted px-2 py-1 rounded text-sm"
+          >
+            {item}
+            <button
+              type="button"
+              onClick={() => onRemove(index)}
+              className="text-gray-400 hover:text-white"
+            >
+              <X className="h-3 w-3" />
+            </button>
+          </span>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 export default function AdminWorkdayAchesFixes() {
   const [, navigate] = useLocation();
   const { toast } = useToast();
@@ -168,46 +226,6 @@ export default function AdminWorkdayAchesFixes() {
     });
   };
 
-  const ArrayInput = ({
-    label,
-    field,
-    value,
-    setValue,
-    placeholder,
-  }: {
-    label: string;
-    field: keyof AchesFixFormData;
-    value: string;
-    setValue: (v: string) => void;
-    placeholder: string;
-  }) => (
-    <div className="space-y-2">
-      <Label>{label}</Label>
-      <div className="flex gap-2">
-        <Input
-          value={value}
-          onChange={(e) => setValue(e.target.value)}
-          placeholder={placeholder}
-          className="bg-background border-border"
-          onKeyPress={(e) => e.key === "Enter" && (e.preventDefault(), addToArray(field, value, setValue))}
-        />
-        <Button type="button" onClick={() => addToArray(field, value, setValue)} variant="secondary">
-          Add
-        </Button>
-      </div>
-      <div className="flex flex-wrap gap-2 mt-2">
-        {(formData[field] as string[]).map((item, index) => (
-          <span key={index} className="flex items-center gap-1 bg-muted px-2 py-1 rounded text-sm">
-            {item}
-            <button type="button" onClick={() => removeFromArray(field, index)} className="text-gray-400 hover:text-white">
-              <X className="h-3 w-3" />
-            </button>
-          </span>
-        ))}
-      </div>
-    </div>
-  );
-
   return (
     <div className="min-h-screen bg-background">
       <TopHeader title="Desk Aches & Fixes" onBack={() => navigate("/admin?tab=desk-health")} />
@@ -283,33 +301,41 @@ export default function AdminWorkdayAchesFixes() {
 
                 <ArrayInput
                   label="Contributors"
-                  field="contributors"
+                  items={formData.contributors}
                   value={newContributor}
                   setValue={setNewContributor}
+                  onAdd={() => addToArray("contributors", newContributor, setNewContributor)}
+                  onRemove={(i) => removeFromArray("contributors", i)}
                   placeholder="Likely desk-related contributor"
                 />
 
                 <ArrayInput
                   label="Setup Factors"
-                  field="setupFactors"
+                  items={formData.setupFactors}
                   value={newSetupFactor}
                   setValue={setNewSetupFactor}
+                  onAdd={() => addToArray("setupFactors", newSetupFactor, setNewSetupFactor)}
+                  onRemove={(i) => removeFromArray("setupFactors", i)}
                   placeholder="Setup factor that may help"
                 />
 
                 <ArrayInput
                   label="Position Changes"
-                  field="positionChanges"
+                  items={formData.positionChanges}
                   value={newPositionChange}
                   setValue={setNewPositionChange}
+                  onAdd={() => addToArray("positionChanges", newPositionChange, setNewPositionChange)}
+                  onRemove={(i) => removeFromArray("positionChanges", i)}
                   placeholder="Position change that may help"
                 />
 
                 <ArrayInput
                   label="Movement Options"
-                  field="movementOptions"
+                  items={formData.movementOptions}
                   value={newMovementOption}
                   setValue={setNewMovementOption}
+                  onAdd={() => addToArray("movementOptions", newMovementOption, setNewMovementOption)}
+                  onRemove={(i) => removeFromArray("movementOptions", i)}
                   placeholder="Movement-based option"
                 />
 

@@ -125,6 +125,15 @@ const SELF_HEAL_DDL: string[] = [
      created_at timestamp DEFAULT now()
    )`,
   `CREATE INDEX IF NOT EXISTS idx_ai_prompts_kind_order ON ai_prompts (kind, sort_order)`,
+
+  // Coach briefings: read/dismiss timestamps + context snapshot + source.
+  // The original table predates these columns, so production rows + queries
+  // fail with "column read_at does not exist" until backfilled.
+  `ALTER TABLE coach_briefings
+     ADD COLUMN IF NOT EXISTS read_at timestamp,
+     ADD COLUMN IF NOT EXISTS dismissed_at timestamp,
+     ADD COLUMN IF NOT EXISTS context_snapshot jsonb,
+     ADD COLUMN IF NOT EXISTS source text NOT NULL DEFAULT 'ai'`,
 ];
 
 export async function runSchemaSelfHealOnce(): Promise<void> {

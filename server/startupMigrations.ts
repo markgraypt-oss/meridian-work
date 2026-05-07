@@ -134,6 +134,28 @@ const SELF_HEAL_DDL: string[] = [
      ADD COLUMN IF NOT EXISTS dismissed_at timestamp,
      ADD COLUMN IF NOT EXISTS context_snapshot jsonb,
      ADD COLUMN IF NOT EXISTS source text NOT NULL DEFAULT 'ai'`,
+
+  // Daily Readiness: table predates the feature flag being on in prod,
+  // so the table may not exist yet. Both /today and /history fail with
+  // "relation daily_readiness_history does not exist" until created.
+  `CREATE TABLE IF NOT EXISTS daily_readiness_history (
+     id serial PRIMARY KEY,
+     user_id varchar NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+     date varchar NOT NULL,
+     sleep_input real,
+     pain_input real,
+     energy_input real,
+     nutrition_input real,
+     movement_input real,
+     recovery_input real,
+     input_count integer NOT NULL DEFAULT 0,
+     score integer,
+     algorithm_version varchar NOT NULL DEFAULT 'v1',
+     created_at timestamp DEFAULT now(),
+     updated_at timestamp DEFAULT now()
+   )`,
+  `CREATE UNIQUE INDEX IF NOT EXISTS idx_daily_readiness_user_date ON daily_readiness_history (user_id, date)`,
+  `CREATE INDEX IF NOT EXISTS idx_daily_readiness_user ON daily_readiness_history (user_id)`,
 ];
 
 export async function runSchemaSelfHealOnce(): Promise<void> {

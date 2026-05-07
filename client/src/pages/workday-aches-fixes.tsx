@@ -116,26 +116,28 @@ function DetailList({
   bullet?: "dot" | "tick";
 }) {
   return (
-    <div className="mt-5 space-y-3">
-      <div className="flex items-center gap-2 px-3 py-2 rounded-lg bg-[#0cc9a9]/15 border border-[#0cc9a9]/30">
+    <Card className="bg-card border-border overflow-hidden">
+      <div className="flex items-center gap-2 px-4 py-2.5 bg-[#0cc9a9]/15 border-b border-[#0cc9a9]/30">
         <span className="text-[#0cc9a9]">{icon}</span>
         <h4 className="text-sm font-semibold text-[#0cc9a9] tracking-wide">
           {title}
         </h4>
       </div>
-      <ul className="space-y-2 pl-1">
-        {items.map((item, i) => (
-          <li key={i} className="flex items-start gap-2.5">
-            {bullet === "tick" ? (
-              <CheckCircle2 className="h-4 w-4 text-green-400 mt-0.5 flex-shrink-0" />
-            ) : (
-              <span className="mt-2 h-1.5 w-1.5 rounded-full bg-[#0cc9a9]/70 flex-shrink-0" />
-            )}
-            <span className="text-sm text-foreground/85 leading-relaxed">{item}</span>
-          </li>
-        ))}
-      </ul>
-    </div>
+      <CardContent className="p-4">
+        <ul className="space-y-2">
+          {items.map((item, i) => (
+            <li key={i} className="flex items-start gap-2.5">
+              {bullet === "tick" ? (
+                <CheckCircle2 className="h-4 w-4 text-green-400 mt-0.5 flex-shrink-0" />
+              ) : (
+                <span className="mt-2 h-1.5 w-1.5 rounded-full bg-[#0cc9a9]/70 flex-shrink-0" />
+              )}
+              <span className="text-sm text-foreground/85 leading-relaxed">{item}</span>
+            </li>
+          ))}
+        </ul>
+      </CardContent>
+    </Card>
   );
 }
 
@@ -183,34 +185,37 @@ export default function WorkdayAchesFixes() {
     return (
       <div className="min-h-screen bg-background pb-24">
         <TopHeader title={openFix.title} onBack={() => setOpenId(null)} />
-        <div className="px-4 pt-14 pb-4 max-w-2xl mx-auto">
-          <div className="flex items-center gap-2 mb-2">
-            <h1
-              className="text-xl font-bold text-foreground"
-              data-testid="text-detail-title"
-            >
-              {openFix.title}
-            </h1>
-            <AreaBadge value={openFix.issueType} />
-          </div>
-          <p className="text-sm text-muted-foreground mb-4">
-            {openFix.description}
-          </p>
+        <div className="px-4 pt-14 pb-4 max-w-2xl mx-auto space-y-4">
+          <Card className="bg-card border-border">
+            <CardContent className="p-4">
+              <div className="flex items-center gap-2 mb-2">
+                <h1
+                  className="text-xl font-bold text-foreground"
+                  data-testid="text-detail-title"
+                >
+                  {openFix.title}
+                </h1>
+                <AreaBadge value={openFix.issueType} />
+              </div>
+              <p className="text-sm text-muted-foreground">
+                {openFix.description}
+              </p>
 
-          {openFix.imageUrl && (
-            <div className="mb-4 rounded-xl overflow-hidden bg-black/20 max-w-[280px] mx-auto">
-              <img
-                src={openFix.imageUrl}
-                alt={openFix.title}
-                className="w-full h-auto object-contain"
-              />
-            </div>
-          )}
+              {openFix.imageUrl && (
+                <div className="mt-4 rounded-xl overflow-hidden bg-black/20 max-w-[280px] mx-auto">
+                  <img
+                    src={openFix.imageUrl}
+                    alt={openFix.title}
+                    className="w-full h-auto object-contain"
+                  />
+                </div>
+              )}
+            </CardContent>
+          </Card>
 
           {openFix.contributors && openFix.contributors.length > 0 && (
             <DetailList
               icon={<AlertTriangle className="h-4 w-4" />}
-
               title="Contributing Factors"
               items={openFix.contributors}
             />
@@ -219,7 +224,6 @@ export default function WorkdayAchesFixes() {
           {openFix.setupFactors && openFix.setupFactors.length > 0 && (
             <DetailList
               icon={<CheckCircle2 className="h-4 w-4" />}
-
               title="Setup Adjustments"
               items={openFix.setupFactors}
             />
@@ -228,7 +232,6 @@ export default function WorkdayAchesFixes() {
           {openFix.positionChanges && openFix.positionChanges.length > 0 && (
             <DetailList
               icon={<Lightbulb className="h-4 w-4" />}
-
               title="Position Changes"
               items={openFix.positionChanges}
               bullet="tick"
@@ -238,7 +241,6 @@ export default function WorkdayAchesFixes() {
           {openFix.movementOptions && openFix.movementOptions.length > 0 && (
             <DetailList
               icon={<Activity className="h-4 w-4" />}
-
               title="Movement Options"
               items={openFix.movementOptions}
             />

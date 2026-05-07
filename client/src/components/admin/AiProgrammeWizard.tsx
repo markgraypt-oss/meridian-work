@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useMutation, useQuery } from "@tanstack/react-query";
 import { useLocation } from "wouter";
 import { apiRequest, queryClient } from "@/lib/queryClient";
@@ -16,10 +16,30 @@ import type { ExerciseLibraryItem } from "@shared/schema";
 import AiExercisePicker from "./AiExercisePicker";
 import AiSafetyFlags from "@/components/ai/AiSafetyFlags";
 
+export interface AiProgrammePrefill {
+  goal?: string;
+  equipment?: string;
+  weeks?: number;
+  daysPerWeek?: number;
+  sessionDuration?: number;
+  difficulty?: string;
+  audience?: string;
+  notes?: string;
+  contraindications?: string;
+  promptBody?: string;
+}
+
 interface Props {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   defaultProgrammeType?: "main" | "stretching" | "corrective";
+  /**
+   * When true, render the user-facing variant: hides admin-only fields
+   * (target user select), saves to /save-user (creates a user-owned programme),
+   * and navigates to /training/programme/:id on success.
+   */
+  userMode?: boolean;
+  prefill?: AiProgrammePrefill | null;
 }
 
 interface GenSet { reps?: string | number; duration?: string | number; rest?: string }
@@ -63,20 +83,37 @@ interface PreviewResponse {
 
 interface AdminUser { id: string; email: string | null; firstName: string | null; lastName: string | null }
 
-export default function AiProgrammeWizard({ open, onOpenChange, defaultProgrammeType = "main" }: Props) {
+export default function AiProgrammeWizard({ open, onOpenChange, defaultProgrammeType = "main", userMode = false, prefill }: Props) {
   const { toast } = useToast();
   const [, navigate] = useLocation();
 
-  const [goal, setGoal] = useState("general_strength");
-  const [equipment, setEquipment] = useState("full_gym");
-  const [weeks, setWeeks] = useState(4);
-  const [daysPerWeek, setDaysPerWeek] = useState(3);
-  const [sessionDuration, setSessionDuration] = useState(45);
-  const [difficulty, setDifficulty] = useState("beginner");
-  const [audience, setAudience] = useState("");
-  const [notes, setNotes] = useState("");
-  const [contraindicationsText, setContraindicationsText] = useState("");
+  const [goal, setGoal] = useState(prefill?.goal || "general_strength");
+  const [equipment, setEquipment] = useState(prefill?.equipment || "full_gym");
+  const [weeks, setWeeks] = useState(prefill?.weeks ?? 4);
+  const [daysPerWeek, setDaysPerWeek] = useState(prefill?.daysPerWeek ?? 3);
+  const [sessionDuration, setSessionDuration] = useState(prefill?.sessionDuration ?? 45);
+  const [difficulty, setDifficulty] = useState(prefill?.difficulty || "beginner");
+  const [audience, setAudience] = useState(prefill?.audience || "");
+  const [notes, setNotes] = useState(prefill?.notes || prefill?.promptBody || "");
+  const [contraindicationsText, setContraindicationsText] = useState(prefill?.contraindications || "");
   const [targetUserId, setTargetUserId] = useState<string>("__none__");
+
+  // Sync form fields when prefill changes (prompt-library re-pick) and dialog
+  // is currently closed — avoids clobbering edits the user is mid-typing.
+  useEffect(() => {
+    if (!prefill || open) return;
+    if (prefill.goal) setGoal(prefill.goal);
+    if (prefill.equipment) setEquipment(prefill.equipment);
+    if (typeof prefill.weeks === "number") setWeeks(prefill.weeks);
+    if (typeof prefill.daysPerWeek === "number") setDaysPerWeek(prefill.daysPerWeek);
+    if (typeof prefill.sessionDuration === "number") setSessionDuration(prefill.sessionDuration);
+    if (prefill.difficulty) setDifficulty(prefill.difficulty);
+    if (prefill.audience !== undefined) setAudience(prefill.audience);
+    if (prefill.notes !== undefined || prefill.promptBody !== undefined) {
+      setNotes(prefill.notes ?? prefill.promptBody ?? "");
+    }
+    if (prefill.contraindications !== undefined) setContraindicationsText(prefill.contraindications);
+  }, [prefill, open]);
 
   const [preview, setPreview] = useState<PreviewResponse | null>(null);
   const [activeWeek, setActiveWeek] = useState(0);
@@ -91,7 +128,7 @@ export default function AiProgrammeWizard({ open, onOpenChange, defaultProgramme
 
   const { data: adminUsers } = useQuery<AdminUser[]>({
     queryKey: ["/api/admin/users"],
-    enabled: open,
+    enabled: open && !userMode,
   });
 
   const generate = useMutation({
@@ -117,7 +154,8 @@ export default function AiProgrammeWizard({ open, onOpenChange, defaultProgramme
   const save = useMutation({
     mutationFn: async () => {
       if (!preview) throw new Error("No preview to save");
-      const res = await apiRequest("POST", "/api/ai/programmes/save", {
+      const endpoint = userMode ? "/api/ai/programmes/save-user" : "/api/ai/programmes/save";
+      const res = await apiRequest("POST", endpoint, {
         inputs: preview.inputs,
         data: preview.data,
         logId: preview.logId,
@@ -127,9 +165,10 @@ export default function AiProgrammeWizard({ open, onOpenChange, defaultProgramme
     onSuccess: (program: any) => {
       toast({ title: "Programme created", description: `${program.title} saved.` });
       queryClient.invalidateQueries({ queryKey: ["/api/programs"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/user-programmes"] });
       onOpenChange(false);
       setPreview(null);
-      navigate(`/admin/programmes/${program.id}`);
+      navigate(userMode ? `/training/programme/${program.id}` : `/admin/programmes/${program.id}`);
     },
     onError: (err: any) => {
       toast({ title: "Save failed", description: err?.message || "Please try again.", variant: "destructive" });
@@ -291,20 +330,22 @@ export default function AiProgrammeWizard({ open, onOpenChange, defaultProgramme
                   data-testid="input-ai-duration" />
               </div>
             </div>
-            <div className="space-y-2">
-              <Label htmlFor="ai-target-user">Target user (optional)</Label>
-              <Select value={targetUserId} onValueChange={setTargetUserId}>
-                <SelectTrigger id="ai-target-user" data-testid="select-ai-target-user"><SelectValue /></SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="__none__">No specific user</SelectItem>
-                  {(adminUsers || []).slice(0, 200).map(u => (
-                    <SelectItem key={u.id} value={u.id}>
-                      {[u.firstName, u.lastName].filter(Boolean).join(" ") || u.email || u.id}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
+            {!userMode && (
+              <div className="space-y-2">
+                <Label htmlFor="ai-target-user">Target user (optional)</Label>
+                <Select value={targetUserId} onValueChange={setTargetUserId}>
+                  <SelectTrigger id="ai-target-user" data-testid="select-ai-target-user"><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="__none__">No specific user</SelectItem>
+                    {(adminUsers || []).slice(0, 200).map(u => (
+                      <SelectItem key={u.id} value={u.id}>
+                        {[u.firstName, u.lastName].filter(Boolean).join(" ") || u.email || u.id}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+            )}
             <div className="space-y-2">
               <Label htmlFor="ai-audience">Audience (optional)</Label>
               <Input id="ai-audience" value={audience} onChange={(e) => setAudience(e.target.value)}

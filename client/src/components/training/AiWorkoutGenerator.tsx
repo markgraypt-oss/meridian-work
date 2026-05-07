@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useMutation, useQuery } from "@tanstack/react-query";
 import { useLocation } from "wouter";
 import { apiRequest, queryClient } from "@/lib/queryClient";
@@ -46,20 +46,62 @@ interface PreviewResponse {
   validationOutcome?: "valid" | "repaired" | "invalid" | "no_schema" | "error" | "timeout";
 }
 
-interface Props { triggerLabel?: string }
+export interface AiWorkoutPrefill {
+  equipment?: string;
+  duration?: number;
+  difficulty?: string;
+  focus?: string;
+  notes?: string;
+  contraindications?: string;
+  promptBody?: string;
+}
 
-export default function AiWorkoutGenerator({ triggerLabel = "Generate today's workout" }: Props) {
+interface Props {
+  triggerLabel?: string;
+  hideTrigger?: boolean;
+  open?: boolean;
+  onOpenChange?: (open: boolean) => void;
+  prefill?: AiWorkoutPrefill | null;
+}
+
+export default function AiWorkoutGenerator({
+  triggerLabel = "Generate today's workout",
+  hideTrigger = false,
+  open: openProp,
+  onOpenChange,
+  prefill,
+}: Props) {
   const { toast } = useToast();
   const [, navigate] = useLocation();
-  const [open, setOpen] = useState(false);
+  const [openInternal, setOpenInternal] = useState(false);
+  const isControlled = openProp !== undefined;
+  const open = isControlled ? !!openProp : openInternal;
+  const setOpen = (v: boolean) => {
+    if (!isControlled) setOpenInternal(v);
+    onOpenChange?.(v);
+  };
 
-  const [equipment, setEquipment] = useState("bodyweight");
-  const [duration, setDuration] = useState(30);
-  const [difficulty, setDifficulty] = useState("beginner");
-  const [focus, setFocus] = useState("");
-  const [notes, setNotes] = useState("");
-  const [contraindicationsText, setContraindicationsText] = useState("");
+  const [equipment, setEquipment] = useState(prefill?.equipment || "bodyweight");
+  const [duration, setDuration] = useState(prefill?.duration ?? 30);
+  const [difficulty, setDifficulty] = useState(prefill?.difficulty || "beginner");
+  const [focus, setFocus] = useState(prefill?.focus || "");
+  const [notes, setNotes] = useState(prefill?.notes || prefill?.promptBody || "");
+  const [contraindicationsText, setContraindicationsText] = useState(prefill?.contraindications || "");
   const [scheduleForToday, setScheduleForToday] = useState(true);
+
+  // When the parent feeds in a fresh prefill (e.g. user picked another prompt
+  // from the library) and the dialog is closed, refresh the form fields.
+  useEffect(() => {
+    if (!prefill || open) return;
+    if (prefill.equipment) setEquipment(prefill.equipment);
+    if (typeof prefill.duration === "number") setDuration(prefill.duration);
+    if (prefill.difficulty) setDifficulty(prefill.difficulty);
+    if (prefill.focus !== undefined) setFocus(prefill.focus);
+    if (prefill.notes !== undefined || prefill.promptBody !== undefined) {
+      setNotes(prefill.notes ?? prefill.promptBody ?? "");
+    }
+    if (prefill.contraindications !== undefined) setContraindicationsText(prefill.contraindications);
+  }, [prefill, open]);
 
   const [preview, setPreview] = useState<PreviewResponse | null>(null);
   const [pickerCtx, setPickerCtx] = useState<{ blockIdx: number; exIdx: number } | null>(null);
@@ -142,15 +184,17 @@ export default function AiWorkoutGenerator({ triggerLabel = "Generate today's wo
 
   return (
     <>
-      <Button
-        variant="outline"
-        onClick={() => setOpen(true)}
-        data-testid="button-generate-todays-workout"
-        className="w-full sm:w-auto"
-      >
-        <Sparkles className="h-4 w-4 mr-2" />
-        {triggerLabel}
-      </Button>
+      {!hideTrigger && (
+        <Button
+          variant="outline"
+          onClick={() => setOpen(true)}
+          data-testid="button-generate-todays-workout"
+          className="w-full sm:w-auto"
+        >
+          <Sparkles className="h-4 w-4 mr-2" />
+          {triggerLabel}
+        </Button>
+      )}
 
       <Dialog open={open} onOpenChange={(v) => { if (!isBusy) { setOpen(v); if (!v) setPreview(null); } }}>
         <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto" data-testid="dialog-ai-workout-generator">

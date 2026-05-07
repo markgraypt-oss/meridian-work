@@ -10,6 +10,8 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import type { Programme } from "@shared/schema";
+import AiBuilderEntry from "@/components/ai/AiBuilderEntry";
+import AiProgrammeWizard from "@/components/admin/AiProgrammeWizard";
 
 type SectionConfig = {
   key: string;
@@ -191,6 +193,22 @@ export function ProgrammesTab() {
   return (
     <>
       <div className="space-y-6">
+        {/* AI Programme Builder — branded entry, opens wizard in user mode */}
+        <AiBuilderEntry
+          kind="programme"
+          title="AI Programme Builder"
+          subtitle="Generate a multi-week programme tailored to your goals and equipment."
+          renderBuilder={({ open, onOpenChange, prompt, sessionKey }) => (
+            <AiProgrammeWizard
+              key={sessionKey}
+              open={open}
+              onOpenChange={onOpenChange}
+              userMode
+              prefill={prompt ? { ...(prompt.prefill || {}), promptBody: prompt.promptBody } : null}
+            />
+          )}
+        />
+
         {/* My Created Programmes */}
         <div className="space-y-3">
           <div className="flex items-center justify-between">

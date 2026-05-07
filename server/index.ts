@@ -3,7 +3,7 @@ import express, { type Request, Response, NextFunction } from "express";
 import { registerRoutes } from "./routes";
 import { setupVite, serveStatic, log } from "./vite";
 import { video } from "./mux";
-import { runProfileImageMigrationOnce, seedMeditationsOnce, runSchemaSelfHealOnce } from "./startupMigrations";
+import { runProfileImageMigrationOnce, seedMeditationsOnce, runSchemaSelfHealOnce, seedAiPromptsOnce } from "./startupMigrations";
 
 const app = express();
 
@@ -133,6 +133,9 @@ app.use((req, res, next) => {
         });
         seedMeditationsOnce().catch((e) => {
           console.error("[startup-migration] meditations failed:", e);
+        });
+        seedAiPromptsOnce().catch((e) => {
+          console.error("[startup-migration] ai-prompts failed:", e);
         });
       });
     import("./aiGeneratorMigration").then(({ runAiGeneratorMigrationOnce }) => {

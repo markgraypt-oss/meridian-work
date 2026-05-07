@@ -109,6 +109,22 @@ const SELF_HEAL_DDL: string[] = [
 
   // Workday schedule repeat cap. null = loop until workdayEnd; 1-10 = N runs.
   `ALTER TABLE workday_user_profiles ADD COLUMN IF NOT EXISTS schedule_repeats integer`,
+
+  // AI Prompt Library (seeded by seedAiPromptsOnce). Drives the curated
+  // executive-wellness presets in the AI Workout & Programme Builders.
+  `CREATE TABLE IF NOT EXISTS ai_prompts (
+     id serial PRIMARY KEY,
+     kind varchar NOT NULL,
+     title varchar NOT NULL,
+     description text NOT NULL,
+     icon_name varchar DEFAULT 'Sparkles',
+     prompt_body text NOT NULL,
+     prefill jsonb,
+     sort_order integer NOT NULL DEFAULT 0,
+     is_active boolean NOT NULL DEFAULT true,
+     created_at timestamp DEFAULT now()
+   )`,
+  `CREATE INDEX IF NOT EXISTS idx_ai_prompts_kind_order ON ai_prompts (kind, sort_order)`,
 ];
 
 export async function runSchemaSelfHealOnce(): Promise<void> {
@@ -132,6 +148,105 @@ const SEED_MEDITATIONS = [
   { title: "Focus Boost", durationMin: 7, category: "Focus", description: "Sharpen concentration before deep work", tags: ["focus", "work", "clarity"] },
   { title: "Compassion Practice", durationMin: 12, category: "Emotional", description: "Cultivate kindness toward yourself and others", tags: ["emotional", "compassion", "mood"] },
 ];
+
+// AI Prompt Library seed: ~14 workout + ~7 programme presets curated for
+// busy executives. Run once when ai_prompts is empty so admins can edit/add.
+let hasRunAiPromptSeed = false;
+const SEED_AI_PROMPTS = [
+  // ---------------- WORKOUT (single-session) ----------------
+  { kind: "workout", title: "20-min hotel-room reset", description: "Bodyweight strength + mobility for between meetings.", iconName: "Hotel",
+    promptBody: "Build a 20-minute bodyweight workout I can do in a hotel room. Mix push, pull and lower-body movements with mobility transitions. Keep impact low so I won't disturb the room below.",
+    prefill: { duration: 20, equipment: "bodyweight", difficulty: "intermediate", focus: "full body", notes: "low impact, no jumping" } },
+  { kind: "workout", title: "Pre-flight mobility flush", description: "15 min mobility before a long-haul flight.", iconName: "Plane",
+    promptBody: "Design a 15-minute mobility session focused on hips, thoracic spine and ankles to prep me for an 8+ hour flight.",
+    prefill: { duration: 15, equipment: "bodyweight", difficulty: "beginner", focus: "mobility", notes: "hips, T-spine, ankles" } },
+  { kind: "workout", title: "Post-flight recovery", description: "Restore circulation and posture after long travel.", iconName: "Plane",
+    promptBody: "Build a 25-minute restorative session to reverse hours of sitting after a long flight. Emphasise hip openers, decompression and gentle activation.",
+    prefill: { duration: 25, equipment: "bodyweight", difficulty: "beginner", focus: "recovery", notes: "post-travel, gentle" } },
+  { kind: "workout", title: "Lunchtime energy boost", description: "30-min full-body lift to refire focus.", iconName: "Zap",
+    promptBody: "Generate a 30-minute full-body strength workout that leaves me energised, not wrecked, for the rest of the workday.",
+    prefill: { duration: 30, equipment: "full_gym", difficulty: "intermediate", focus: "full body", notes: "leave energy in the tank" } },
+  { kind: "workout", title: "Stress-melt mobility", description: "Slow, breath-led movement to drop the day.", iconName: "Wind",
+    promptBody: "Create a 20-minute slow mobility flow with breath cues to downshift after a stressful day.",
+    prefill: { duration: 20, equipment: "bodyweight", difficulty: "beginner", focus: "mobility", notes: "calming, breath-led" } },
+  { kind: "workout", title: "Posture rescue", description: "Counter the desk hunch in 20 minutes.", iconName: "User",
+    promptBody: "Build a 20-minute corrective routine targeting upper-back, scapular control and hip flexor length to undo a long day at the desk.",
+    prefill: { duration: 20, equipment: "bodyweight", difficulty: "beginner", focus: "posture", notes: "upper back, scaps, hip flexors" } },
+  { kind: "workout", title: "Strong & quick (45 min)", description: "Compact strength session, full gym.", iconName: "Dumbbell",
+    promptBody: "Generate a 45-minute strength workout using compound lifts. Keep rest tight and pair accessories so I can finish on time.",
+    prefill: { duration: 45, equipment: "full_gym", difficulty: "intermediate", focus: "strength", notes: "compound focus, supersets ok" } },
+  { kind: "workout", title: "HIIT before breakfast", description: "Short, sharp metabolic hit.", iconName: "Flame",
+    promptBody: "Build a 20-minute HIIT session, mostly bodyweight, that I can do fasted before breakfast without trashing recovery.",
+    prefill: { duration: 20, equipment: "bodyweight", difficulty: "intermediate", focus: "conditioning", notes: "fasted-friendly" } },
+  { kind: "workout", title: "Lower-back-friendly core", description: "Build trunk strength without aggravating the back.", iconName: "Shield",
+    promptBody: "Design a 25-minute core workout that strengthens the trunk without spinal flexion. Avoid sit-ups and crunches.",
+    prefill: { duration: 25, equipment: "bodyweight", difficulty: "intermediate", focus: "core", notes: "no spinal flexion, lower-back friendly" } },
+  { kind: "workout", title: "Knee-friendly lower body", description: "Build legs without loading the knees hard.", iconName: "Footprints",
+    promptBody: "Create a 35-minute lower-body workout that avoids deep knee flexion under load. Prefer hinge patterns and isometrics.",
+    prefill: { duration: 35, equipment: "home_gym", difficulty: "intermediate", focus: "lower body", notes: "knee-friendly, prefer hinge" } },
+  { kind: "workout", title: "Shoulder-safe upper body", description: "Push/pull with shoulder-friendly variations.", iconName: "Shield",
+    promptBody: "Build a 35-minute upper-body workout using shoulder-friendly variations (neutral grip, scapular control). Avoid overhead pressing.",
+    prefill: { duration: 35, equipment: "home_gym", difficulty: "intermediate", focus: "upper body", notes: "no overhead press, neutral grip" } },
+  { kind: "workout", title: "Travel band workout", description: "Resistance band only, hotel-friendly.", iconName: "Briefcase",
+    promptBody: "Generate a 30-minute full-body workout using only a single resistance band. Cover push, pull, hinge and squat patterns.",
+    prefill: { duration: 30, equipment: "bodyweight", difficulty: "intermediate", focus: "full body", notes: "resistance band only" } },
+  { kind: "workout", title: "Active recovery walk-and-flow", description: "Easy day, low intensity.", iconName: "Heart",
+    promptBody: "Build a 30-minute easy-day session combining mobility, light loaded carries and breathwork for active recovery.",
+    prefill: { duration: 30, equipment: "bodyweight", difficulty: "beginner", focus: "recovery", notes: "low intensity" } },
+  { kind: "workout", title: "Boardroom-day quick fix", description: "12-min desk-side movement snack.", iconName: "Briefcase",
+    promptBody: "Build a 12-minute movement snack I can do in office attire next to my desk. Focus on circulation and posture.",
+    prefill: { duration: 12, equipment: "bodyweight", difficulty: "beginner", focus: "mobility", notes: "office attire, no equipment" } },
+
+  // ---------------- PROGRAMME (multi-week) ----------------
+  { kind: "programme", title: "4-week executive strength", description: "3x/week, full gym, balanced strength build.", iconName: "Dumbbell",
+    promptBody: "Build a 4-week strength programme for a busy executive who can train 3 days per week in a full gym. Compound lifts, balanced upper/lower split, progressive overload.",
+    prefill: { goal: "general_strength", equipment: "full_gym", weeks: 4, daysPerWeek: 3, sessionDuration: 45, difficulty: "intermediate", audience: "busy professionals" } },
+  { kind: "programme", title: "6-week home-gym hypertrophy", description: "4x/week dumbbells & bench muscle build.", iconName: "Home",
+    promptBody: "Design a 6-week hypertrophy programme using only dumbbells and a bench. 4 sessions per week, 45 minutes each, body-part split.",
+    prefill: { goal: "hypertrophy", equipment: "home_gym", weeks: 6, daysPerWeek: 4, sessionDuration: 45, difficulty: "intermediate", audience: "home-gym lifters" } },
+  { kind: "programme", title: "4-week travel-proof bodyweight", description: "Bodyweight, 4x/week, anywhere.", iconName: "Plane",
+    promptBody: "Create a 4-week bodyweight programme for someone who travels constantly. 4 short sessions per week, no equipment, scalable difficulty.",
+    prefill: { goal: "general_strength", equipment: "bodyweight", weeks: 4, daysPerWeek: 4, sessionDuration: 30, difficulty: "intermediate", audience: "frequent travellers" } },
+  { kind: "programme", title: "6-week desk-worker mobility reset", description: "Daily 20-min mobility build.", iconName: "User",
+    promptBody: "Build a 6-week mobility programme for a desk worker. 5 short sessions per week emphasising hips, thoracic spine, shoulders and hip flexors.",
+    prefill: { goal: "mobility_stretching", equipment: "bodyweight", weeks: 6, daysPerWeek: 5, sessionDuration: 20, difficulty: "beginner", audience: "desk workers" } },
+  { kind: "programme", title: "8-week return-to-lifting", description: "Gentle re-entry after a layoff.", iconName: "RefreshCw",
+    promptBody: "Design an 8-week return-to-lifting programme for someone coming back after 3 months off. Start light, progress conservatively, 3 days per week.",
+    prefill: { goal: "general_strength", equipment: "full_gym", weeks: 8, daysPerWeek: 3, sessionDuration: 40, difficulty: "beginner", audience: "returning lifters" } },
+  { kind: "programme", title: "4-week conditioning kickstart", description: "Build aerobic base + work capacity.", iconName: "Flame",
+    promptBody: "Build a 4-week conditioning programme combining steady-state and intervals. 4 sessions per week, mixed equipment, intermediate level.",
+    prefill: { goal: "conditioning", equipment: "home_gym", weeks: 4, daysPerWeek: 4, sessionDuration: 35, difficulty: "intermediate", audience: "executives building work capacity" } },
+  { kind: "programme", title: "6-week corrective for lower back", description: "Rebuild trunk + hip control.", iconName: "Shield",
+    promptBody: "Design a 6-week corrective programme for someone with chronic low-back tightness. Avoid spinal flexion, emphasise glutes, deep core, hip mobility. 4 short sessions per week.",
+    prefill: { goal: "corrective", equipment: "bodyweight", weeks: 6, daysPerWeek: 4, sessionDuration: 25, difficulty: "beginner", audience: "lower-back-sensitive users" } },
+];
+
+export async function seedAiPromptsOnce(): Promise<void> {
+  if (hasRunAiPromptSeed) return;
+  hasRunAiPromptSeed = true;
+  try {
+    const existing = await storage.listAiPrompts(undefined, true);
+    if (existing.length > 0) return;
+    let workoutOrder = 0;
+    let programmeOrder = 0;
+    for (const p of SEED_AI_PROMPTS) {
+      const sortOrder = p.kind === "workout" ? workoutOrder++ : programmeOrder++;
+      await storage.createAiPrompt({
+        kind: p.kind,
+        title: p.title,
+        description: p.description,
+        iconName: p.iconName,
+        promptBody: p.promptBody,
+        prefill: p.prefill,
+        sortOrder,
+        isActive: true,
+      });
+    }
+    console.log(`[startup-migration] seeded ${SEED_AI_PROMPTS.length} AI prompts`);
+  } catch (err: any) {
+    console.error("[startup-migration] AI prompt seed failed:", err?.message || err);
+  }
+}
 
 export async function seedMeditationsOnce(): Promise<void> {
   if (hasRunMeditationSeed) return;

@@ -3291,5 +3291,30 @@ export const insertDailyReadinessHistorySchema = createInsertSchema(dailyReadine
   updatedAt: true,
 });
 
+// AI Prompt Library — admin-curated, executive-wellness presets exposed inside
+// the AI Workout Builder and AI Programme Builder surfaces. `prefill` is a
+// JSON object mirroring the wizard form fields (goal, equipment, weeks, etc.)
+// so picking a prompt jumps the user straight to a populated draft.
+export const aiPrompts = pgTable("ai_prompts", {
+  id: serial("id").primaryKey(),
+  kind: varchar("kind").notNull(), // 'workout' | 'programme'
+  title: varchar("title").notNull(),
+  description: text("description").notNull(),
+  iconName: varchar("icon_name").default("Sparkles"),
+  promptBody: text("prompt_body").notNull(),
+  prefill: jsonb("prefill"),
+  sortOrder: integer("sort_order").notNull().default(0),
+  isActive: boolean("is_active").notNull().default(true),
+  createdAt: timestamp("created_at").defaultNow(),
+}, (t) => [
+  index("idx_ai_prompts_kind_order").on(t.kind, t.sortOrder),
+]);
+export type AiPrompt = typeof aiPrompts.$inferSelect;
+export type InsertAiPrompt = typeof aiPrompts.$inferInsert;
+export const insertAiPromptSchema = createInsertSchema(aiPrompts).omit({
+  id: true,
+  createdAt: true,
+});
+
 // Chat models for AI conversations
 export * from "./models/chat";

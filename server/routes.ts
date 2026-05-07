@@ -219,7 +219,7 @@ const uploadDoc = multer({
 
 import { computeBurnoutScore } from './burnoutEngine';
 import { trackCalibrationEvent, trackRecoveryModeActivation, generateCalibrationReport } from './burnoutCalibration';
-import { burnoutScores, insertCompanySchema, insertCompanyBenefitSchema, checkIns, bodyMapLogs, departments, companyInvites, usageAlerts } from "@shared/schema";
+import { burnoutScores, insertCompanySchema, insertCompanyBenefitSchema, checkIns, bodyMapLogs, departments, companyInvites, usageAlerts, insertAiPromptSchema } from "@shared/schema";
 
 import {
   insertExerciseLibraryItemSchema,
@@ -7689,19 +7689,20 @@ Return format: {"category": "strength|cardio|hiit|mobility|recovery", "difficult
   });
 
   // ==========================================================================
-  // AI Programme & Workout Generator (Task #6)
-  // - POST /api/ai/programmes/generate  (admin)  → preview JSON, no DB write
-  // - POST /api/ai/programmes/save      (admin)  → persists programme + audit
-  // - POST /api/ai/workouts/generate    (any user) → preview workout JSON
-  // - POST /api/ai/workouts/save        (any user) → persists personal workout
+  // AI Programme & Workout Generator (Task #6, user-mode added in Task #63)
+  // - POST /api/ai/programmes/generate           (any user)  → preview JSON, no DB write
+  //                                                            (targetUserId honored only for admins)
+  // - POST /api/ai/programmes/regenerate-section (any user)  → in-memory regen, no DB write
+  // - POST /api/ai/programmes/save               (admin)     → persists programme as a template + audit
+  // - POST /api/ai/programmes/save-user          (any user)  → persists programme as user-created
+  // - POST /api/ai/workouts/generate             (any user)  → preview workout JSON
+  // - POST /api/ai/workouts/save                 (any user)  → persists personal workout
   // ==========================================================================
   app.post('/api/ai/programmes/generate', isAuthenticated, async (req: any, res) => {
     try {
       const userId = req.user.claims.sub;
       const requester = await storage.getUser(userId);
-      if (!requester?.isAdmin) {
-        return res.status(403).json({ message: "Admin only" });
-      }
+      const isAdmin = !!requester?.isAdmin;
       const { generateProgrammeWithAI } = await import('./ai/programmeGenerator');
       const contraindications: string[] = Array.isArray(req.body.contraindications)
         ? req.body.contraindications.map((s: any) => String(s)).filter(Boolean)
@@ -7709,6 +7710,10 @@ Return format: {"category": "strength|cardio|hiit|mobility|recovery", "difficult
       const avoidExerciseIds: number[] = Array.isArray(req.body.avoidExerciseIds)
         ? req.body.avoidExerciseIds.map((n: any) => parseInt(n, 10)).filter((n: number) => Number.isFinite(n))
         : [];
+      // Non-admins can only generate for themselves; ignore any targetUserId.
+      const targetUserId = isAdmin && req.body.targetUserId
+        ? String(req.body.targetUserId)
+        : null;
       const inputs = {
         goal: String(req.body.goal || 'general_strength'),
         equipment: String(req.body.equipment || 'full_gym'),
@@ -7719,7 +7724,7 @@ Return format: {"category": "strength|cardio|hiit|mobility|recovery", "difficult
         audience: req.body.audience ? String(req.body.audience) : undefined,
         notes: req.body.notes ? String(req.body.notes) : undefined,
         programmeType: req.body.programmeType ? String(req.body.programmeType) : 'main',
-        targetUserId: req.body.targetUserId ? String(req.body.targetUserId) : null,
+        targetUserId,
         contraindications,
         avoidExerciseIds,
       };
@@ -7737,10 +7742,9 @@ Return format: {"category": "strength|cardio|hiit|mobility|recovery", "difficult
   app.post('/api/ai/programmes/regenerate-section', isAuthenticated, async (req: any, res) => {
     try {
       const userId = req.user.claims.sub;
-      const requester = await storage.getUser(userId);
-      if (!requester?.isAdmin) {
-        return res.status(403).json({ message: "Admin only" });
-      }
+      // Open to any authenticated user: regenerates a section of an in-memory
+      // preview, no DB writes happen here. Persistence is gated separately
+      // (admin via /save, end-user via /save-user).
       const { regenerateProgrammeSection, generatedProgrammeSchema } = await import('./ai/programmeGenerator');
       const existingProgramme = generatedProgrammeSchema.parse(req.body.existingProgramme);
       const inputs = req.body.inputs || {};
@@ -7906,6 +7910,112 @@ Return format: {"category": "strength|cardio|hiit|mobility|recovery", "difficult
     } catch (error: any) {
       console.error("[ai/workouts/generate] error:", error);
       res.status(500).json({ message: "Failed to generate workout", error: error?.message });
+    }
+  });
+
+  // User-mode programme save: persists the AI-generated programme as a
+  // user-created programme (sourceType='user_created'), so it shows up under
+  // "My Created Programmes" in the Programmes tab.
+  app.post('/api/ai/programmes/save-user', isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = req.user.claims.sub;
+      const { generatedProgrammeSchema, saveGeneratedProgramme } = await import('./ai/programmeGenerator');
+      const data = generatedProgrammeSchema.parse(req.body.data);
+      const inputs = req.body.inputs || {};
+      const program = await saveGeneratedProgramme({
+        inputs,
+        data,
+        userId,
+        isAdmin: false,
+        aiCallLogId: req.body.logId ? Number(req.body.logId) : undefined,
+        imageUrl: req.body.imageUrl || null,
+      });
+      res.status(201).json(program);
+    } catch (error: any) {
+      if (error?.name === 'ZodError') {
+        return res.status(400).json({ message: "Invalid generated programme payload", errors: error.errors });
+      }
+      console.error("[ai/programmes/save-user] error:", error);
+      res.status(500).json({ message: "Failed to save generated programme", error: error?.message });
+    }
+  });
+
+  // ==========================================================================
+  // AI Prompt Library — admin-curated executive-wellness presets.
+  // GET is open to any authenticated user; mutations require admin.
+  // ==========================================================================
+  app.get('/api/ai/prompts', isAuthenticated, async (req: any, res) => {
+    try {
+      const kind = req.query.kind ? String(req.query.kind) : undefined;
+      const requester = await storage.getUser(req.user.claims.sub);
+      const includeInactive = !!requester?.isAdmin && req.query.includeInactive === 'true';
+      const prompts = await storage.listAiPrompts(kind, includeInactive);
+      res.json(prompts);
+    } catch (error: any) {
+      console.error("[ai/prompts:list] error:", error);
+      res.status(500).json({ message: "Failed to list prompts" });
+    }
+  });
+
+  app.post('/api/ai/prompts', isAuthenticated, async (req: any, res) => {
+    try {
+      const requester = await storage.getUser(req.user.claims.sub);
+      if (!requester?.isAdmin) return res.status(403).json({ message: "Admin only" });
+      const data = insertAiPromptSchema.parse(req.body);
+      const created = await storage.createAiPrompt(data);
+      res.status(201).json(created);
+    } catch (error: any) {
+      if (error?.name === 'ZodError') {
+        return res.status(400).json({ message: "Invalid prompt", errors: error.errors });
+      }
+      console.error("[ai/prompts:create] error:", error);
+      res.status(500).json({ message: "Failed to create prompt" });
+    }
+  });
+
+  app.patch('/api/ai/prompts/:id', isAuthenticated, async (req: any, res) => {
+    try {
+      const requester = await storage.getUser(req.user.claims.sub);
+      if (!requester?.isAdmin) return res.status(403).json({ message: "Admin only" });
+      const id = parseInt(req.params.id, 10);
+      const data = insertAiPromptSchema.partial().parse(req.body);
+      const updated = await storage.updateAiPrompt(id, data);
+      res.json(updated);
+    } catch (error: any) {
+      if (error?.name === 'ZodError') {
+        return res.status(400).json({ message: "Invalid prompt", errors: error.errors });
+      }
+      console.error("[ai/prompts:update] error:", error);
+      res.status(500).json({ message: "Failed to update prompt" });
+    }
+  });
+
+  app.delete('/api/ai/prompts/:id', isAuthenticated, async (req: any, res) => {
+    try {
+      const requester = await storage.getUser(req.user.claims.sub);
+      if (!requester?.isAdmin) return res.status(403).json({ message: "Admin only" });
+      const id = parseInt(req.params.id, 10);
+      await storage.deleteAiPrompt(id);
+      res.json({ success: true });
+    } catch (error: any) {
+      console.error("[ai/prompts:delete] error:", error);
+      res.status(500).json({ message: "Failed to delete prompt" });
+    }
+  });
+
+  app.post('/api/ai/prompts/reorder', isAuthenticated, async (req: any, res) => {
+    try {
+      const requester = await storage.getUser(req.user.claims.sub);
+      if (!requester?.isAdmin) return res.status(403).json({ message: "Admin only" });
+      const ids: number[] = Array.isArray(req.body.orderedIds)
+        ? req.body.orderedIds.map((n: any) => parseInt(n, 10)).filter((n: number) => Number.isFinite(n))
+        : [];
+      if (ids.length === 0) return res.status(400).json({ message: "orderedIds required" });
+      await storage.reorderAiPrompts(ids);
+      res.json({ success: true });
+    } catch (error: any) {
+      console.error("[ai/prompts:reorder] error:", error);
+      res.status(500).json({ message: "Failed to reorder prompts" });
     }
   });
 

@@ -35,7 +35,6 @@ import { Label } from "@/components/ui/label";
 import { format } from "date-fns";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
-import AiWorkoutGenerator from "./AiWorkoutGenerator";
 
 export function MyTrainingTab() {
   const [, navigate] = useLocation();
@@ -156,7 +155,6 @@ export function MyTrainingTab() {
     <div className="space-y-6">
       <div className="flex items-center justify-between gap-2">
         <h2 className="text-lg font-semibold text-foreground">Today</h2>
-        <AiWorkoutGenerator />
       </div>
       <div>
         {!currentProgramme ? (

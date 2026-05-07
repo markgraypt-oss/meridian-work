@@ -1,6 +1,8 @@
 import { useLocation } from "wouter";
 import { useQuery } from "@tanstack/react-query";
 import { ChevronRight, User, Plus } from "lucide-react";
+import AiBuilderEntry from "@/components/ai/AiBuilderEntry";
+import AiWorkoutGenerator from "./AiWorkoutGenerator";
 
 type Workout = {
   id: number;
@@ -120,6 +122,22 @@ export function WorkoutsTab() {
 
   return (
     <div className="space-y-6">
+      {/* AI Workout Builder — branded entry, opens generator with optional prefill */}
+      <AiBuilderEntry
+        kind="workout"
+        title="AI Workout Builder"
+        subtitle="Generate a single session tuned to your day, energy and equipment."
+        renderBuilder={({ open, onOpenChange, prompt, sessionKey }) => (
+          <AiWorkoutGenerator
+            key={sessionKey}
+            hideTrigger
+            open={open}
+            onOpenChange={onOpenChange}
+            prefill={prompt ? { ...(prompt.prefill || {}), promptBody: prompt.promptBody } : null}
+          />
+        )}
+      />
+
       {/* Create Workout Section */}
       <div className="space-y-3">
         <div className="flex items-center justify-between">

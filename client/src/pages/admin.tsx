@@ -22,6 +22,7 @@ import { ExerciseManager } from "@/components/admin/ExerciseManager";
 import AiProgrammeWizard from "@/components/admin/AiProgrammeWizard";
 import { MAIN_MUSCLE_OPTIONS, EQUIPMENT_OPTIONS, MOVEMENT_PATTERN_OPTIONS, MOVEMENT_TYPE_OPTIONS, MECHANICS_OPTIONS, LEVEL_OPTIONS } from "@/components/admin/exerciseFilterConstants";
 import AdminMindfulnessTab from "@/pages/admin/AdminMindfulnessTools";
+import AdminAiPromptLibrary from "@/components/admin/AdminAiPromptLibrary";
 
 // Type for program data
 type Program = {
@@ -1176,6 +1177,19 @@ export default function AdminPanel() {
                 <div className="text-2xl font-bold">Settings</div>
                 <p className="text-xs text-muted-foreground">
                   Configure body map areas
+                </p>
+              </CardContent>
+            </Card>
+
+            <Card onClick={() => setActiveTab("ai-prompts")} className="cursor-pointer hover:shadow-lg transition-shadow" data-testid="card-ai-prompts">
+              <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                <CardTitle className="text-sm font-medium">AI Prompt Library</CardTitle>
+                <Sparkles className="h-4 w-4 text-muted-foreground" />
+              </CardHeader>
+              <CardContent>
+                <div className="text-2xl font-bold">Presets</div>
+                <p className="text-xs text-muted-foreground">
+                  Workout & programme prompts
                 </p>
               </CardContent>
             </Card>
@@ -2871,6 +2885,10 @@ export default function AdminPanel() {
               </div>
             )}
           </div>
+        </TabsContent>
+
+        <TabsContent value="ai-prompts" className="space-y-6">
+          <AdminAiPromptLibrary />
         </TabsContent>
       </Tabs>
         </div>

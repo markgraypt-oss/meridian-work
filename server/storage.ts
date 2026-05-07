@@ -393,6 +393,9 @@ import {
   mindfulnessTools,
   type MindfulnessTool,
   type InsertMindfulnessTool,
+  aiPrompts,
+  type AiPrompt,
+  type InsertAiPrompt,
 } from "@shared/schema";
 import { db } from "./db";
 import { eq, ne, desc, and, ilike, or, gte, lte, inArray, lt, asc, sql, isNull, isNotNull, aliasedTable, type SQL } from "drizzle-orm";
@@ -1210,6 +1213,14 @@ export interface IStorage {
   clearRecommendations(userId: string): Promise<void>;
   getActiveDismissals(userId: string): Promise<RecommendationDismissal[]>;
   createDismissal(dismissal: InsertRecommendationDismissal): Promise<RecommendationDismissal>;
+
+  // AI Prompt Library
+  listAiPrompts(kind?: string, includeInactive?: boolean): Promise<AiPrompt[]>;
+  getAiPrompt(id: number): Promise<AiPrompt | undefined>;
+  createAiPrompt(data: InsertAiPrompt): Promise<AiPrompt>;
+  updateAiPrompt(id: number, data: Partial<InsertAiPrompt>): Promise<AiPrompt>;
+  deleteAiPrompt(id: number): Promise<void>;
+  reorderAiPrompts(orderedIds: number[]): Promise<void>;
 }
 
 export class DatabaseStorage implements IStorage {
@@ -12159,6 +12170,43 @@ export class DatabaseStorage implements IStorage {
 
   async deleteMindfulnessTool(id: number): Promise<void> {
     await db.delete(mindfulnessTools).where(eq(mindfulnessTools.id, id));
+  }
+
+  // ============================================
+  // AI Prompt Library
+  // ============================================
+  async listAiPrompts(kind?: string, includeInactive = false): Promise<AiPrompt[]> {
+    const conds: SQL[] = [];
+    if (kind) conds.push(eq(aiPrompts.kind, kind));
+    if (!includeInactive) conds.push(eq(aiPrompts.isActive, true));
+    const where = conds.length === 0 ? undefined : (conds.length === 1 ? conds[0] : and(...conds));
+    const q = where ? db.select().from(aiPrompts).where(where) : db.select().from(aiPrompts);
+    return await q.orderBy(asc(aiPrompts.kind), asc(aiPrompts.sortOrder), asc(aiPrompts.id));
+  }
+
+  async getAiPrompt(id: number): Promise<AiPrompt | undefined> {
+    const [row] = await db.select().from(aiPrompts).where(eq(aiPrompts.id, id));
+    return row;
+  }
+
+  async createAiPrompt(data: InsertAiPrompt): Promise<AiPrompt> {
+    const [created] = await db.insert(aiPrompts).values(data).returning();
+    return created;
+  }
+
+  async updateAiPrompt(id: number, data: Partial<InsertAiPrompt>): Promise<AiPrompt> {
+    const [updated] = await db.update(aiPrompts).set(data).where(eq(aiPrompts.id, id)).returning();
+    return updated;
+  }
+
+  async deleteAiPrompt(id: number): Promise<void> {
+    await db.delete(aiPrompts).where(eq(aiPrompts.id, id));
+  }
+
+  async reorderAiPrompts(orderedIds: number[]): Promise<void> {
+    for (let i = 0; i < orderedIds.length; i++) {
+      await db.update(aiPrompts).set({ sortOrder: i }).where(eq(aiPrompts.id, orderedIds[i]));
+    }
   }
 }
 

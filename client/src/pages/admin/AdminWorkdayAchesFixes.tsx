@@ -42,9 +42,11 @@ const defaultFormData: AchesFixFormData = {
 };
 
 const issueTypes = [
-  { value: "lower_back", label: "Lower Back" },
   { value: "neck", label: "Neck" },
   { value: "shoulder", label: "Shoulder" },
+  { value: "upper_back", label: "Upper Back" },
+  { value: "lower_back", label: "Lower Back" },
+  { value: "elbow", label: "Elbow" },
   { value: "wrist", label: "Wrist" },
   { value: "hip", label: "Hip" },
 ];

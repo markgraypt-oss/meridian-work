@@ -108,10 +108,12 @@ function DetailList({
   icon,
   title,
   items,
+  bullet = "dot",
 }: {
   icon: React.ReactNode;
   title: string;
   items: string[];
+  bullet?: "dot" | "tick";
 }) {
   return (
     <div className="mt-5 space-y-3">
@@ -124,7 +126,11 @@ function DetailList({
       <ul className="space-y-2 pl-1">
         {items.map((item, i) => (
           <li key={i} className="flex items-start gap-2.5">
-            <span className="mt-2 h-1.5 w-1.5 rounded-full bg-[#0cc9a9]/70 flex-shrink-0" />
+            {bullet === "tick" ? (
+              <CheckCircle2 className="h-4 w-4 text-green-400 mt-0.5 flex-shrink-0" />
+            ) : (
+              <span className="mt-2 h-1.5 w-1.5 rounded-full bg-[#0cc9a9]/70 flex-shrink-0" />
+            )}
             <span className="text-sm text-foreground/85 leading-relaxed">{item}</span>
           </li>
         ))}
@@ -225,6 +231,7 @@ export default function WorkdayAchesFixes() {
 
               title="Position Changes"
               items={openFix.positionChanges}
+              bullet="tick"
             />
           )}
 

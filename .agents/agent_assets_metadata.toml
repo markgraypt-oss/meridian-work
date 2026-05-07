@@ -65,3 +65,9 @@ id = "XYouHGB3HdagBtzuQ2uq0"
 uri = "file://attached_assets/desk-references/ideal-standing.png"
 type = "image"
 title = "Ideal standing desk reference"
+
+[[outputs]]
+id = "vxs3H-88w14mgny9wHIIB"
+uri = "file://.local/AI_MOBILE_SPEC.md"
+type = "text"
+title = "AI Mobile Build Spec"

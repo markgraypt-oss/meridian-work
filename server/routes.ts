@@ -4674,7 +4674,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.patch('/api/workout-logs/custom/:id', isAuthenticated, async (req, res) => {
     try {
       const id = parseInt(req.params.id);
-      const { date, exercises, intervalRounds } = req.body;
+      const { date, exercises, intervalRounds, durationHint } = req.body;
 
       // Update the workout log date and intervalRounds if provided
       const updateData: any = {};
@@ -4684,6 +4684,47 @@ export async function registerRoutes(app: Express): Promise<Server> {
       if (intervalRounds !== undefined) {
         updateData.intervalRounds = intervalRounds;
       }
+
+      // Recalculate duration when the exercise list changes so an edited
+      // workout doesn't keep its stale duration. Mirrors POST /custom logic.
+      if (exercises && Array.isArray(exercises)) {
+        // Propagate the last block member's rest to every member of the same
+        // block group so a superset/triset's rest is consistent across rows.
+        const groupRest = new Map<string, string>();
+        for (const ex of exercises as any[]) {
+          if (!ex?.blockGroupId || ex?.kind === 'rest') continue;
+          if (ex?.blockType && ex.blockType !== 'single' && ex?.restPeriod) {
+            groupRest.set(ex.blockGroupId, ex.restPeriod);
+          }
+        }
+        for (const ex of exercises as any[]) {
+          if (ex?.blockGroupId && groupRest.has(ex.blockGroupId)) {
+            ex.restPeriod = groupRest.get(ex.blockGroupId)!;
+          }
+        }
+
+        let estimatedDuration = 0;
+        for (const ex of exercises as any[]) {
+          if (ex?.kind === 'rest') {
+            estimatedDuration += parseDurationToSecondsServer(ex.restDuration || ex.restPeriod) || 30;
+            continue;
+          }
+          const setsRaw = parseInt(String(ex?.setsCount ?? ''), 10);
+          const sets = Number.isFinite(setsRaw) && setsRaw > 0 ? setsRaw : 3;
+          const restSeconds = parseDurationToSecondsServer(ex?.restPeriod) || 60;
+          const isTimeBased = ex?.durationType === 'timer';
+          const perSetSeconds = isTimeBased
+            ? (parseDurationToSecondsServer(ex?.targetDuration) || 30)
+            : 45;
+          estimatedDuration += sets * perSetSeconds + Math.max(0, sets - 1) * restSeconds;
+        }
+        const heuristicMinutes = Math.max(5, Math.round(estimatedDuration / 60));
+        const hintRaw = parseInt(String(durationHint ?? ''), 10);
+        updateData.duration = Number.isFinite(hintRaw) && hintRaw >= 5
+          ? Math.min(180, hintRaw)
+          : heuristicMinutes;
+      }
+
       if (Object.keys(updateData).length > 0) {
         await storage.updateWorkoutLog(id, updateData);
       }

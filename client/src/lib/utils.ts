@@ -46,12 +46,13 @@ export function parseDurationToSeconds(duration?: string | number): number {
   const lowerDuration = duration.toLowerCase();
   let totalSeconds = 0;
   
-  const minMatch = lowerDuration.match(/(\d+)\s*min/);
+  // Match "min"/"mins" first, then bare "m" (so "min" doesn't get caught by /m/).
+  const minMatch = lowerDuration.match(/(\d+)\s*mins?\b/) || lowerDuration.match(/(\d+)\s*m\b/);
   if (minMatch) {
     totalSeconds += parseInt(minMatch[1]) * 60;
   }
   
-  const secMatch = lowerDuration.match(/(\d+)\s*sec/);
+  const secMatch = lowerDuration.match(/(\d+)\s*secs?\b/) || lowerDuration.match(/(\d+)\s*s\b/);
   if (secMatch) {
     totalSeconds += parseInt(secMatch[1]);
   }

@@ -7,12 +7,9 @@ import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription,
 } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
-import { Loader2, Sparkles, RefreshCw, Plus, Trash2, ChevronDown, ChevronUp } from "lucide-react";
+import { Loader2, Sparkles, ChevronDown, ChevronUp } from "lucide-react";
 import type { ExerciseLibraryItem } from "@shared/schema";
-import AiExercisePicker from "@/components/admin/AiExercisePicker";
-import AiSafetyFlags from "@/components/ai/AiSafetyFlags";
 
 interface GenSet { reps?: string | number; duration?: string | number; rest?: string }
 interface GenExercise {
@@ -37,7 +34,7 @@ interface GenWorkout {
   blocks: GenBlock[];
 }
 interface PreviewResponse {
-  inputs: Record<string, unknown> & { burnoutScore?: number; bodyMap?: Array<{ bodyPart: string; severity: number }> };
+  inputs: Record<string, unknown>;
   data: GenWorkout;
   logId?: number;
   safetyFlags?: string[];
@@ -103,6 +100,80 @@ const PLACEHOLDERS = [
   "e.g. low impact mobility, 20 min, my left shoulder is sore",
 ];
 
+// ---------------------------------------------------------------------------
+// Convert the AI-generated workout into the flat `ExerciseData[]` shape that
+// the WOD builder reads from sessionStorage. Mirrors how build-wod.tsx
+// rehydrates blocks from the workout-edit API (single → setsCount = sets.length;
+// multi-exercise blocks share a generated blockGroupId).
+// ---------------------------------------------------------------------------
+type DurationType = "timer" | "text";
+type ExerciseType = "strength" | "timed_strength" | "general" | "endurance" | "cardio" | "timed";
+
+interface SeedExercise {
+  id: string;
+  kind: "exercise" | "rest";
+  exerciseLibraryId: number | null;
+  exerciseName: string;
+  imageUrl: string | null;
+  muxPlaybackId: string | null;
+  blockType: "single" | "superset" | "triset" | "circuit";
+  blockGroupId?: string;
+  section: "warmup" | "main";
+  position: number;
+  restPeriod: string;
+  setsCount: number;
+  targetReps: string;
+  targetDuration: string;
+  durationType: DurationType;
+  exerciseType: ExerciseType;
+}
+
+const TIME_BASED_TYPES = new Set(["timed", "timed_strength", "general", "cardio"]);
+
+function genWorkoutToSeedExercises(
+  workout: GenWorkout,
+  library: ExerciseLibraryItem[],
+): SeedExercise[] {
+  const libById = new Map(library.map((e) => [e.id, e]));
+  const out: SeedExercise[] = [];
+  let counter = 0;
+  for (const block of workout.blocks || []) {
+    const isMulti = block.blockType && block.blockType !== "single";
+    const groupId = isMulti
+      ? `ai-${Date.now()}-${Math.random().toString(36).slice(2)}`
+      : undefined;
+    for (const ex of block.exercises || []) {
+      const lib = libById.get(ex.exerciseLibraryId);
+      const exerciseType = ((lib?.exerciseType as ExerciseType) || "strength") as ExerciseType;
+      const isTimeBased = TIME_BASED_TYPES.has(exerciseType);
+      const sets = ex.sets || [];
+      const firstSet = sets[0] || {};
+      counter += 1;
+      out.push({
+        id: `ai-${Date.now()}-${counter}-${Math.random().toString(36).slice(2)}`,
+        kind: "exercise",
+        exerciseLibraryId: ex.exerciseLibraryId,
+        exerciseName: lib?.name || `Exercise #${ex.exerciseLibraryId}`,
+        imageUrl: lib?.imageUrl ?? null,
+        muxPlaybackId: lib?.muxPlaybackId ?? null,
+        blockType: block.blockType || "single",
+        blockGroupId: groupId,
+        section: block.section === "warmup" ? "warmup" : "main",
+        position: out.filter((e) => e.section === (block.section === "warmup" ? "warmup" : "main")).length,
+        restPeriod: block.rest || "60s",
+        setsCount: Math.max(1, sets.length),
+        targetReps: firstSet.reps != null ? String(firstSet.reps) : "",
+        targetDuration: isTimeBased
+          ? (firstSet.duration != null ? String(firstSet.duration) : "30 sec")
+          : (firstSet.duration != null ? String(firstSet.duration) : ""),
+        durationType: isTimeBased ? "timer" : "text",
+        exerciseType,
+      });
+    }
+  }
+  return out;
+}
+
 export default function AiWorkoutGenerator({
   triggerLabel = "Generate today's workout",
   hideTrigger = false,
@@ -137,7 +208,6 @@ export default function AiWorkoutGenerator({
 
   const [prompt, setPrompt] = useState(composeInitialPrompt(prefill));
   const [showOptions, setShowOptions] = useState(false);
-  const [scheduleForToday, setScheduleForToday] = useState(true);
   const [placeholder] = useState(() => PLACEHOLDERS[Math.floor(Math.random() * PLACEHOLDERS.length)]);
   const promptRef = useRef<HTMLTextAreaElement>(null);
 
@@ -156,13 +226,11 @@ export default function AiWorkoutGenerator({
       const lower = trimmed.toLowerCase();
       const phraseLower = phrase.toLowerCase();
       if (lower.includes(phraseLower)) {
-        // Remove the phrase (and any surrounding ", " separator).
         const re = new RegExp(`(?:,\\s*)?${phrase.replace(/[.*+?^${}()|[\\]\\\\]/g, "\\$&")}`, "i");
         return trimmed.replace(re, "").replace(/^,\s*/, "").trim();
       }
       return trimmed.length === 0 ? phrase : `${trimmed}, ${phrase}`;
     });
-    // Refocus textarea so user can keep typing.
     setTimeout(() => promptRef.current?.focus(), 0);
   }
 
@@ -170,20 +238,28 @@ export default function AiWorkoutGenerator({
     return prompt.toLowerCase().includes(phrase.toLowerCase());
   }
 
-  const [preview, setPreview] = useState<PreviewResponse | null>(null);
-  const [pickerCtx, setPickerCtx] = useState<{ blockIdx: number; exIdx: number } | null>(null);
-
-  const { data: exerciseLibrary } = useQuery<ExerciseLibraryItem[]>({
+  // The exercise library is needed to enrich the AI output (names/thumbnails,
+  // exerciseType for sets/reps vs time-based handling) before handing it to
+  // the WOD builder. Loaded as soon as the dialog opens.
+  const { data: exerciseLibrary = [] } = useQuery<ExerciseLibraryItem[]>({
     queryKey: ["/api/exercises"],
     enabled: open,
   });
-  const exerciseById = new Map((exerciseLibrary || []).map(e => [e.id, e]));
 
   const generate = useMutation({
     mutationFn: async () => {
-      // Pass the prompt as `notes` so the existing backend keeps working.
-      // Duration is left at the backend default (30) so the AI infers it
-      // from the prompt itself (e.g. "20 min" / "45 minute session").
+      // Make sure the exercise library has loaded before we generate, so the
+      // seed we hand to the WOD builder has real names/types instead of
+      // "Exercise #<id>" placeholders.
+      if (exerciseLibrary.length === 0) {
+        const cached = await queryClient.fetchQuery<ExerciseLibraryItem[]>({
+          queryKey: ["/api/exercises"],
+        });
+        if (cached) {
+          // fetchQuery returns the latest data; nothing else to do — useQuery
+          // will pick it up on the next render too.
+        }
+      }
       const res = await apiRequest("POST", "/api/ai/workouts/generate", {
         notes: prompt.trim(),
         difficulty: "intermediate",
@@ -191,63 +267,61 @@ export default function AiWorkoutGenerator({
       });
       return (await res.json()) as PreviewResponse;
     },
-    onSuccess: (data) => setPreview(data),
+    onSuccess: (data) => {
+      // Always pull the freshest library snapshot from the cache to avoid a
+      // stale closure (e.g. library finished loading between mutate() and
+      // onSuccess).
+      const lib =
+        queryClient.getQueryData<ExerciseLibraryItem[]>(["/api/exercises"]) ||
+        exerciseLibrary;
+      // Convert the generated workout into the WOD builder's seed format and
+      // hand off via sessionStorage. The builder rehydrates from `wodExercises`
+      // on mount, exactly like its existing "load saved workout" round-trip.
+      const seed = genWorkoutToSeedExercises(data.data, lib);
+      if (seed.length === 0) {
+        toast({
+          title: "No exercises generated",
+          description: "The AI didn't produce any exercises. Try a different prompt.",
+          variant: "destructive",
+        });
+        return;
+      }
+      try {
+        sessionStorage.setItem("wodExercises", JSON.stringify(seed));
+        sessionStorage.removeItem("selectedExerciseId");
+        sessionStorage.removeItem("wodInsertSection");
+      } catch {
+        // sessionStorage unavailable (private browsing, quota, etc.). Tell the
+        // user instead of silently opening an empty builder.
+        toast({
+          title: "Couldn't open in builder",
+          description:
+            "Your browser blocked saving the workout to this tab. Try again, or disable private/incognito mode.",
+          variant: "destructive",
+        });
+        return;
+      }
+      // Pick a return path the user can naturally cancel back to. WorkoutsTab
+      // lives at /training; fall back to current path if we're elsewhere.
+      const fromPath = (typeof window !== "undefined" && window.location.pathname) || "/training";
+      // Pick a workout type that matches the AI's structure so the builder
+      // opens straight into the editor (otherwise it shows the Regular /
+      // Circuit / Interval picker first). Map AI block types: circuit →
+      // circuit; everything else → regular (the builder handles supersets/
+      // trisets fine inside Regular mode).
+      const mainBlocks = (data.data.blocks || []).filter((b) => b.section === "main");
+      const wodType = mainBlocks.some((b) => b.blockType === "circuit") ? "circuit" : "regular";
+      setOpen(false);
+      navigate(
+        `/build-wod?type=${wodType}&category=workout&from=${encodeURIComponent(fromPath)}`,
+      );
+    },
     onError: (err: any) => {
       toast({ title: "Generation failed", description: err?.message || "Please try again.", variant: "destructive" });
     },
   });
 
-  const save = useMutation({
-    mutationFn: async () => {
-      if (!preview) throw new Error("No preview to save");
-      const res = await apiRequest("POST", "/api/ai/workouts/save", {
-        inputs: preview.inputs,
-        data: preview.data,
-        logId: preview.logId,
-        scheduleForToday,
-      });
-      return await res.json();
-    },
-    onSuccess: (workout: any) => {
-      toast({ title: "Workout saved", description: `${workout.title} is ready to perform.` });
-      queryClient.invalidateQueries({ queryKey: ["/api/workouts"] });
-      queryClient.invalidateQueries({ queryKey: ["/api/today-workouts"] });
-      queryClient.invalidateQueries({ queryKey: ["/api/scheduled-workouts"] });
-      setOpen(false);
-      setPreview(null);
-      navigate(`/training/workout/${workout.id}`);
-    },
-    onError: (err: any) => {
-      toast({ title: "Save failed", description: err?.message || "Please try again.", variant: "destructive" });
-    },
-  });
-
-  const isBusy = generate.isPending || save.isPending;
-
-  function updatePreview(mut: (w: GenWorkout) => GenWorkout) {
-    if (!preview) return;
-    setPreview({ ...preview, data: mut(JSON.parse(JSON.stringify(preview.data))) });
-  }
-  function patchExercise(bIdx: number, eIdx: number, patch: Partial<GenExercise>) {
-    updatePreview(w => { Object.assign(w.blocks[bIdx].exercises[eIdx], patch); return w; });
-  }
-  function patchSet(bIdx: number, eIdx: number, sIdx: number, patch: Partial<GenSet>) {
-    updatePreview(w => { Object.assign(w.blocks[bIdx].exercises[eIdx].sets[sIdx], patch); return w; });
-  }
-  function addSet(bIdx: number, eIdx: number) {
-    updatePreview(w => {
-      const ex = w.blocks[bIdx].exercises[eIdx];
-      ex.sets.push({ ...ex.sets[ex.sets.length - 1] });
-      return w;
-    });
-  }
-  function removeSet(bIdx: number, eIdx: number, sIdx: number) {
-    updatePreview(w => {
-      const ex = w.blocks[bIdx].exercises[eIdx];
-      if (ex.sets.length > 1) ex.sets.splice(sIdx, 1);
-      return w;
-    });
-  }
+  const isBusy = generate.isPending;
 
   const renderChipRow = (chips: typeof EQUIPMENT_CHIPS) => (
     <div className="flex flex-wrap gap-1.5">
@@ -283,7 +357,7 @@ export default function AiWorkoutGenerator({
         </Button>
       )}
 
-      <Dialog open={open} onOpenChange={(v) => { if (!isBusy) { setOpen(v); if (!v) setPreview(null); } }}>
+      <Dialog open={open} onOpenChange={(v) => { if (!isBusy) setOpen(v); }}>
         <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto" data-testid="dialog-ai-workout-generator">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
@@ -291,156 +365,65 @@ export default function AiWorkoutGenerator({
               Generate today's workout
             </DialogTitle>
             <DialogDescription>
-              Describe what you want. We'll pick exercises from your library and adjust for how you're feeling today.
+              Describe what you want. We'll pick exercises from your library and open the result in the workout builder so you can fine-tune it.
             </DialogDescription>
           </DialogHeader>
 
-          {!preview ? (
-            <div className="space-y-4 py-2">
-              <Textarea
-                ref={promptRef}
-                value={prompt}
-                onChange={(e) => setPrompt(e.target.value)}
-                placeholder={placeholder}
-                rows={5}
-                className="text-sm resize-none"
-                data-testid="textarea-workout-prompt"
-              />
+          <div className="space-y-4 py-2">
+            <Textarea
+              ref={promptRef}
+              value={prompt}
+              onChange={(e) => setPrompt(e.target.value)}
+              placeholder={placeholder}
+              rows={5}
+              className="text-sm resize-none"
+              data-testid="textarea-workout-prompt"
+            />
 
-              <button
-                type="button"
-                onClick={() => setShowOptions(v => !v)}
-                className="flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground transition-colors"
-                data-testid="button-toggle-quick-options"
-              >
-                {showOptions ? <ChevronUp className="h-3 w-3" /> : <ChevronDown className="h-3 w-3" />}
-                Quick options
-              </button>
+            <button
+              type="button"
+              onClick={() => setShowOptions(v => !v)}
+              className="flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground transition-colors"
+              data-testid="button-toggle-quick-options"
+            >
+              {showOptions ? <ChevronUp className="h-3 w-3" /> : <ChevronDown className="h-3 w-3" />}
+              Quick options
+            </button>
 
-              {showOptions && (
-                <div className="space-y-3 rounded-lg border border-border bg-muted/20 p-3">
-                  <div className="space-y-1.5">
-                    <p className="text-[10px] uppercase tracking-wide text-muted-foreground">Equipment</p>
-                    {renderChipRow(EQUIPMENT_CHIPS)}
-                  </div>
-                  <div className="space-y-1.5">
-                    <p className="text-[10px] uppercase tracking-wide text-muted-foreground">Duration</p>
-                    {renderChipRow(DURATION_CHIPS)}
-                  </div>
-                  <div className="space-y-1.5">
-                    <p className="text-[10px] uppercase tracking-wide text-muted-foreground">Target area</p>
-                    {renderChipRow(TARGET_CHIPS)}
-                  </div>
-                  <div className="space-y-1.5">
-                    <p className="text-[10px] uppercase tracking-wide text-muted-foreground">Intensity</p>
-                    {renderChipRow(INTENSITY_CHIPS)}
-                  </div>
+            {showOptions && (
+              <div className="space-y-3 rounded-lg border border-border bg-muted/20 p-3">
+                <div className="space-y-1.5">
+                  <p className="text-[10px] uppercase tracking-wide text-muted-foreground">Equipment</p>
+                  {renderChipRow(EQUIPMENT_CHIPS)}
                 </div>
-              )}
-
-              <label className="flex items-center gap-2 text-sm">
-                <input type="checkbox" checked={scheduleForToday} onChange={(e) => setScheduleForToday(e.target.checked)}
-                  data-testid="checkbox-schedule-today" />
-                Place into today's slot when saved
-              </label>
-            </div>
-          ) : (
-            <div className="space-y-3 py-2" data-testid="ai-workout-preview">
-              <AiSafetyFlags safetyFlags={preview.safetyFlags} validationOutcome={preview.validationOutcome} />
-              <div className="space-y-2">
-                <Input
-                  value={preview.data.name}
-                  onChange={(e) => updatePreview(w => { w.name = e.target.value; return w; })}
-                  className="text-lg font-semibold"
-                  data-testid="input-edit-workout-name"
-                />
-                <div className="text-xs text-muted-foreground">
-                  {preview.data.duration} min · {preview.data.category} · {preview.data.difficulty}
-                  {typeof preview.inputs.burnoutScore === "number" && <> · burnout {preview.inputs.burnoutScore}/100</>}
+                <div className="space-y-1.5">
+                  <p className="text-[10px] uppercase tracking-wide text-muted-foreground">Duration</p>
+                  {renderChipRow(DURATION_CHIPS)}
+                </div>
+                <div className="space-y-1.5">
+                  <p className="text-[10px] uppercase tracking-wide text-muted-foreground">Target area</p>
+                  {renderChipRow(TARGET_CHIPS)}
+                </div>
+                <div className="space-y-1.5">
+                  <p className="text-[10px] uppercase tracking-wide text-muted-foreground">Intensity</p>
+                  {renderChipRow(INTENSITY_CHIPS)}
                 </div>
               </div>
-
-              <div className="border rounded-md p-3 max-h-[420px] overflow-y-auto space-y-3 text-sm">
-                {preview.data.blocks.map((b, bIdx) => (
-                  <div key={bIdx} className="border-l pl-3 space-y-2">
-                    <div className="text-xs uppercase text-muted-foreground">{b.section} · {b.blockType}</div>
-                    {b.exercises.map((ex, eIdx) => {
-                      const lib = exerciseById.get(ex.exerciseLibraryId);
-                      return (
-                        <div key={eIdx} className="border rounded p-2 space-y-2 bg-muted/30">
-                          <div className="flex items-center justify-between gap-2">
-                            <div className="font-medium">{lib?.name || `Exercise #${ex.exerciseLibraryId}`}</div>
-                            <Button size="sm" variant="ghost" onClick={() => setPickerCtx({ blockIdx: bIdx, exIdx: eIdx })}
-                              data-testid={`button-user-swap-${bIdx}-${eIdx}`}>
-                              <RefreshCw className="h-3 w-3 mr-1" />Swap
-                            </Button>
-                          </div>
-                          <div className="space-y-1">
-                            {ex.sets.map((s, sIdx) => (
-                              <div key={sIdx} className="grid grid-cols-12 gap-1 items-center">
-                                <span className="col-span-1 text-xs text-muted-foreground">#{sIdx + 1}</span>
-                                <Input className="col-span-3 h-8" placeholder="reps"
-                                  value={s.reps?.toString() ?? ""}
-                                  onChange={(e) => patchSet(bIdx, eIdx, sIdx, { reps: e.target.value })}
-                                  data-testid={`input-user-set-reps-${bIdx}-${eIdx}-${sIdx}`} />
-                                <Input className="col-span-3 h-8" placeholder="duration"
-                                  value={s.duration?.toString() ?? ""}
-                                  onChange={(e) => patchSet(bIdx, eIdx, sIdx, { duration: e.target.value })} />
-                                <Input className="col-span-4 h-8" placeholder="rest"
-                                  value={s.rest ?? ""}
-                                  onChange={(e) => patchSet(bIdx, eIdx, sIdx, { rest: e.target.value })} />
-                                <Button size="sm" variant="ghost" className="col-span-1 h-8 w-8 p-0"
-                                  onClick={() => removeSet(bIdx, eIdx, sIdx)}>
-                                  <Trash2 className="h-3 w-3" />
-                                </Button>
-                              </div>
-                            ))}
-                            <Button size="sm" variant="outline" onClick={() => addSet(bIdx, eIdx)}
-                              data-testid={`button-user-add-set-${bIdx}-${eIdx}`}>
-                              <Plus className="h-3 w-3 mr-1" />Add set
-                            </Button>
-                          </div>
-                          <Input placeholder="load (optional)" value={ex.load ?? ""}
-                            onChange={(e) => patchExercise(bIdx, eIdx, { load: e.target.value })} />
-                        </div>
-                      );
-                    })}
-                  </div>
-                ))}
-              </div>
-            </div>
-          )}
+            )}
+          </div>
 
           <DialogFooter className="gap-2">
-            {!preview ? (
-              <>
-                <Button variant="outline" onClick={() => setOpen(false)} disabled={isBusy}>Cancel</Button>
-                <Button
-                  onClick={() => generate.mutate()}
-                  disabled={isBusy || prompt.trim().length === 0}
-                  data-testid="button-user-ai-generate"
-                >
-                  {generate.isPending ? <><Loader2 className="h-4 w-4 mr-2 animate-spin" />Generating…</> : <>Generate</>}
-                </Button>
-              </>
-            ) : (
-              <>
-                <Button variant="outline" onClick={() => setPreview(null)} disabled={isBusy}>Regenerate</Button>
-                <Button onClick={() => save.mutate()} disabled={isBusy} data-testid="button-user-ai-save">
-                  {save.isPending ? <><Loader2 className="h-4 w-4 mr-2 animate-spin" />Saving…</> : <>Save Workout</>}
-                </Button>
-              </>
-            )}
+            <Button variant="outline" onClick={() => setOpen(false)} disabled={isBusy}>Cancel</Button>
+            <Button
+              onClick={() => generate.mutate()}
+              disabled={isBusy || prompt.trim().length === 0}
+              data-testid="button-user-ai-generate"
+            >
+              {generate.isPending
+                ? <><Loader2 className="h-4 w-4 mr-2 animate-spin" />Generating…</>
+                : <>Generate</>}
+            </Button>
           </DialogFooter>
-
-          <AiExercisePicker
-            open={pickerCtx !== null}
-            onOpenChange={(v) => { if (!v) setPickerCtx(null); }}
-            onPick={(item) => {
-              if (!pickerCtx) return;
-              patchExercise(pickerCtx.blockIdx, pickerCtx.exIdx, { exerciseLibraryId: item.id });
-            }}
-          />
         </DialogContent>
       </Dialog>
     </>

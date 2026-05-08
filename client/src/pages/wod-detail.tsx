@@ -538,7 +538,14 @@ export default function WodDetail() {
                     ? `${wodTypeLabel} of ${wodSetCount} ${wodSetCount === 1 ? 'Set' : 'Sets'}`
                     : wodTypeLabel;
                   
-                  const needsTopSpacing = index > 0 && (!isInBlock || prevBlockType !== currentBlockType);
+                  // Add top spacing whenever the previous exercise belongs to a
+                  // different block group, so back-to-back supersets/trisets
+                  // don't visually merge into a single chain of cards.
+                  const needsTopSpacing = index > 0 && (
+                    !isInBlock ||
+                    prevBlockType !== currentBlockType ||
+                    (prevNonRestExercise && !isSameBlockGroup(prevNonRestExercise, exercise))
+                  );
                   
                   // For circuit WOD: all exercises in one circuit
                   // For interval WOD: each block group is independent
@@ -598,7 +605,7 @@ export default function WodDetail() {
                     (!prevNonRestExercise || !isSameBlockGroup(prevNonRestExercise, exercise));
                   
                   // Add spacing between different block groups (skip rest blocks)
-                  const needsBlockGroupSpacing = isIntervalWorkout && index > 0 && 
+                  const needsBlockGroupSpacing = index > 0 && 
                     prevNonRestExercise && !isSameBlockGroup(prevNonRestExercise, exercise) && !isRestBlock;
                   
                   // Get block header text for interval workouts - always "Circuit of X rounds"

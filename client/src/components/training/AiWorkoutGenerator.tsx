@@ -307,10 +307,13 @@ export default function AiWorkoutGenerator({
       // Pick a return path the user can naturally cancel back to. WorkoutsTab
       // lives at /training; fall back to current path if we're elsewhere.
       const fromPath = (typeof window !== "undefined" && window.location.pathname) || "/training";
-      // Always open in Regular mode. Supersets/trisets work inside Regular,
-      // and we don't want the workout flagged as a Circuit session unless the
-      // user explicitly builds one themselves.
-      const wodType = "regular";
+      // Default to Regular. Switch to Circuit or Interval ONLY when the user
+      // asked for it in their prompt. Supersets/trisets still work inside
+      // Regular mode, so we don't flip just because the AI grouped a block.
+      const promptLower = prompt.toLowerCase();
+      const asksForInterval = /\b(interval|intervals|tabata|emom|amrap)\b/.test(promptLower);
+      const asksForCircuit = /\b(circuit|circuits|hiit)\b/.test(promptLower);
+      const wodType = asksForInterval ? "interval" : asksForCircuit ? "circuit" : "regular";
       setOpen(false);
       navigate(
         `/build-wod?type=${wodType}&category=workout&from=${encodeURIComponent(fromPath)}`,

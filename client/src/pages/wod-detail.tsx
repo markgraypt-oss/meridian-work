@@ -581,10 +581,13 @@ export default function WodDetail() {
                     label = getExerciseLabel(nonRestIndex, false, false, currentGroupNumber, indexInCurrentGroup);
                   }
                   
-                  // For rest visibility: circuit shows only on last, interval shows on last of each block
+                  // Rest only happens after a block, never between members of a
+                  // superset/triset/circuit. Hide the rest pill on every member
+                  // except the last one of any grouped block, regardless of
+                  // workout type.
                   const showRest = isCircuitMode 
                     ? isLastExercise 
-                    : (isIntervalWorkout && isInBlock ? isLastInBlockGroup : true);
+                    : (isInBlock ? isLastInBlockGroup : true);
                   
                   // Determine if this is the first exercise of a new block group (for interval workouts)
                   // Use prevNonRestExercise to skip rest blocks when determining block boundaries

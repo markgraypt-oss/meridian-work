@@ -516,9 +516,12 @@ export default function WodDetail() {
                   
                   const isInBlock = currentBlockType !== 'single';
                   // Use next NON-REST exercise to determine if this is last in block group
-                  const isLastInBlockGroup = isIntervalWorkout 
-                    ? (isInBlock && (!nextNonRestExercise || !isSameBlockGroup(exercise, nextNonRestExercise)))
-                    : (isInBlock && (isLastExercise || nextBlockType !== currentBlockType));
+                  // A block ends when the next non-rest exercise is in a
+                  // different block group (or there is none). Comparing only
+                  // blockType merges back-to-back supersets into one chain.
+                  const isLastInBlockGroup = isInBlock && (
+                    !nextNonRestExercise || !isSameBlockGroup(exercise, nextNonRestExercise)
+                  );
                   const showConnector = isInBlock && !isLastInBlockGroup && !isRestBlock;
                   // For interval and circuit workouts, always use "CIRCUIT" label
                   // For regular workouts, use the specific block type (SUPERSET, TRISET, etc)

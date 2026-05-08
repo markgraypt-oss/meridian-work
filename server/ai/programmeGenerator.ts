@@ -293,6 +293,7 @@ function buildWorkoutPrompt(inputs: WorkoutInputs, catalogueText: string, retryH
     "Pick exercises ONLY from the catalogue below by their numeric `exerciseLibraryId`. Never invent IDs.",
     "Avoid medical claims. Do not diagnose, prescribe, or describe injuries.",
     `Do NOT generate any warm-up blocks. Every block's "section" must be "main". The user will add their own warm-up.`,
+    `Default to traditional sets. Use blockType "single" for standalone lifts, "superset" for two paired exercises, "triset" for three. ONLY use blockType "circuit" when the user explicitly asks for a circuit, HIIT, conditioning, or "as a circuit" style session. A plain request like "full body workout" must NOT be returned as circuits.`,
     coachingContext ? coachingContext : "",
     hints,
     retryHint || "",

@@ -5,7 +5,6 @@ import { useToast } from "@/hooks/use-toast";
 import { useLocation } from "wouter";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { meditationCategories, getCategoryIcon, type MeditationItem } from "@/lib/meditation-data";
-import { RecommendationRail } from "@/components/RecommendationRail";
 import TopHeader from "@/components/TopHeader";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
@@ -389,7 +388,6 @@ export default function RecoveryMindfulness() {
 
       <div className="px-4 pt-20 pb-6">
         <div className="max-w-4xl mx-auto space-y-8">
-          <RecommendationRail variant="section" filterType="meditation" title="Recommended for you" />
           <GuidedMeditations />
           <GratitudeJournal />
           <Soundscapes />

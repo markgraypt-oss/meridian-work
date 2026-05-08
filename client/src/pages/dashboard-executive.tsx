@@ -12,7 +12,6 @@ import WeekCalendarStrip from "@/components/WeekCalendarStrip";
 import DailyCheckInDialog from "@/components/daily-check-in/DailyCheckInDialog";
 import ViewCheckInCard from "@/components/daily-check-in/ViewCheckInCard";
 import DashboardLearnCard from "@/components/DashboardLearnCard";
-import { RecommendationRail } from "@/components/RecommendationRail";
 import DashboardHydrationCard from "@/components/DashboardHydrationCard";
 import WearableTodayCard from "@/components/dashboard/WearableTodayCard";
 import WeeklyCheckinCard from "@/components/dashboard/WeeklyCheckinCard";
@@ -903,9 +902,6 @@ export default function Dashboard() {
             </Card>
           )}
         </div>
-
-        {/* For you right now - personalised recommendations */}
-        <RecommendationRail variant="rail" title="For you right now" />
 
         {/* Activities Header - placed after habits, before activities */}
         <h2 className="mb-4" data-testid="text-home-title">

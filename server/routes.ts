@@ -5369,10 +5369,9 @@ Return format: {"category": "strength|cardio|hiit|mobility|recovery", "difficult
         userId,
         category: "coach",
         title: "Check-in saved",
-        body: "Thanks for checking in. Your coach will use this to tailor today's recommendations.",
+        body: "Thanks for checking in. Your coach will use this to tailor today's guidance.",
         data: { url: "/check-in" },
       }).catch(err => console.error("[check-in] notify failed:", err));
-      import("./recommendations").then(m => m.invalidateRecommendations(userId)).catch(() => {});
       res.json(checkIn);
     } catch (error) {
       console.error("Error creating check-in:", error);
@@ -5529,7 +5528,6 @@ Return format: {"category": "strength|cardio|hiit|mobility|recovery", "difficult
         userId,
       });
       const log = await storage.createBodyMapLog(logData);
-      import("./recommendations").then(m => m.invalidateRecommendations(userId)).catch(() => {});
 
       // Engagement: movement track + body_map points
       recordEngagementActivity(userId, "body_map", { bodyMapLogId: log.id }).catch(err =>
@@ -8191,7 +8189,6 @@ Return format: {"category": "strength|cardio|hiit|mobility|recovery", "difficult
       const forceReplace = req.body.forceReplace || false;
       
       const enrollment = await storage.enrollUserInProgram(userId, programId, undefined, 'main', forceReplace);
-      import("./recommendations").then(m => m.invalidateRecommendations(userId)).catch(() => {});
 
       // Log enrolled event for feedback loop
       try {
@@ -13384,10 +13381,9 @@ Keep your response concise, practical, and evidence-based. Do not use em dashes.
         userId,
         category: "coach",
         title: "Check-in saved",
-        body: "Thanks for checking in. Your coach will use this to tailor today's recommendations.",
+        body: "Thanks for checking in. Your coach will use this to tailor today's guidance.",
         data: { url: "/check-in" },
       }).catch(err => console.error("[check-in] notify failed:", err));
-      import("./recommendations").then(m => m.invalidateRecommendations(userId)).catch(() => {});
 
       // Auto-complete the "Complete Your Check-In" habit (templateId 31) if the user has it
       try {
@@ -19777,48 +19773,6 @@ RULES:
     } catch (err) {
       console.error("GET /api/meditations failed", err);
       res.status(500).json({ message: "Failed to load meditations" });
-    }
-  });
-
-  app.get("/api/recommendations", isAuthenticated, async (req: any, res) => {
-    try {
-      const userId = req.user.claims.sub;
-      const { getCurrentRecommendations } = await import("./recommendations");
-      const data = await getCurrentRecommendations(userId);
-      res.json(data);
-    } catch (err) {
-      console.error("GET /api/recommendations failed", err);
-      res.status(500).json({ message: "Failed to load recommendations" });
-    }
-  });
-
-  app.post("/api/recommendations/refresh", isAuthenticated, async (req: any, res) => {
-    try {
-      const userId = req.user.claims.sub;
-      const { regenerateRecommendations, getCurrentRecommendations } = await import("./recommendations");
-      await regenerateRecommendations(userId);
-      const data = await getCurrentRecommendations(userId);
-      res.json(data);
-    } catch (err) {
-      console.error("POST /api/recommendations/refresh failed", err);
-      res.status(500).json({ message: "Failed to refresh recommendations" });
-    }
-  });
-
-  app.post("/api/recommendations/dismiss", isAuthenticated, async (req: any, res) => {
-    try {
-      const userId = req.user.claims.sub;
-      const { contentType, contentId } = req.body || {};
-      if (!["meditation", "recipe", "video"].includes(contentType) || !Number.isInteger(contentId)) {
-        return res.status(400).json({ message: "contentType and contentId required" });
-      }
-      const { dismissRecommendation, getCurrentRecommendations } = await import("./recommendations");
-      await dismissRecommendation(userId, contentType, contentId);
-      const data = await getCurrentRecommendations(userId);
-      res.json(data);
-    } catch (err) {
-      console.error("POST /api/recommendations/dismiss failed", err);
-      res.status(500).json({ message: "Failed to dismiss recommendation" });
     }
   });
 

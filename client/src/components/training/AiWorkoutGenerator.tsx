@@ -307,13 +307,10 @@ export default function AiWorkoutGenerator({
       // Pick a return path the user can naturally cancel back to. WorkoutsTab
       // lives at /training; fall back to current path if we're elsewhere.
       const fromPath = (typeof window !== "undefined" && window.location.pathname) || "/training";
-      // Pick a workout type that matches the AI's structure so the builder
-      // opens straight into the editor (otherwise it shows the Regular /
-      // Circuit / Interval picker first). Map AI block types: circuit →
-      // circuit; everything else → regular (the builder handles supersets/
-      // trisets fine inside Regular mode).
-      const mainBlocks = (data.data.blocks || []).filter((b) => b.section === "main");
-      const wodType = mainBlocks.some((b) => b.blockType === "circuit") ? "circuit" : "regular";
+      // Always open in Regular mode. Supersets/trisets work inside Regular,
+      // and we don't want the workout flagged as a Circuit session unless the
+      // user explicitly builds one themselves.
+      const wodType = "regular";
       setOpen(false);
       navigate(
         `/build-wod?type=${wodType}&category=workout&from=${encodeURIComponent(fromPath)}`,

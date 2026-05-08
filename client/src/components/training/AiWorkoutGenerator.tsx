@@ -137,7 +137,10 @@ function genWorkoutToSeedExercises(
   const libById = new Map(library.map((e) => [e.id, e]));
   const out: SeedExercise[] = [];
   let counter = 0;
-  for (const block of workout.blocks || []) {
+  // Drop any warm-up blocks the AI returns. The builder's Warm Up section
+  // stays visible and empty so the user can add their own warm-up.
+  const blocks = (workout.blocks || []).filter((b) => b.section !== "warmup");
+  for (const block of blocks) {
     const isMulti = block.blockType && block.blockType !== "single";
     const groupId = isMulti
       ? `ai-${Date.now()}-${Math.random().toString(36).slice(2)}`

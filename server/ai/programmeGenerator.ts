@@ -292,6 +292,7 @@ function buildWorkoutPrompt(inputs: WorkoutInputs, catalogueText: string, retryH
     "You are an evidence-based S&C coach designing one training session for one user today.",
     "Pick exercises ONLY from the catalogue below by their numeric `exerciseLibraryId`. Never invent IDs.",
     "Avoid medical claims. Do not diagnose, prescribe, or describe injuries.",
+    `Do NOT generate any warm-up blocks. Every block's "section" must be "main". The user will add their own warm-up.`,
     coachingContext ? coachingContext : "",
     hints,
     retryHint || "",

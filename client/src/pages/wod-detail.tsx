@@ -89,7 +89,12 @@ export default function WodDetail() {
       // Circuit mode: all in one group - 1A, 1B, 1C, 1D, etc.
       return `1${String.fromCharCode(65 + index)}`;
     }
-    // Regular main body uses number + letter: 1A, 2A, 3A, etc.
+    // Regular main body: when group info is supplied, use it so members of a
+    // superset/triset share the number and increment by letter (1A/1B, 2A/2B/2C).
+    // Falls back to plain numbering for ungrouped singles.
+    if (groupNumber !== undefined && indexInGroup !== undefined) {
+      return `${groupNumber}${String.fromCharCode(65 + indexInGroup)}`;
+    }
     return `${index + 1}A`;
   };
   
@@ -492,8 +497,10 @@ export default function WodDetail() {
                     ex.kind !== 'rest' && ex.exerciseName !== 'Rest'
                   );
                   
-                  // For interval workouts: track block groups (skip for rest blocks)
-                  if (isIntervalWorkout && !isRestBlock) {
+                  // Track block groups for ALL non-circuit workouts (interval AND
+                  // regular) so superset/triset members share a number and step
+                  // through letters (1A/1B, 2A/2B/2C, etc.). Skip for rest blocks.
+                  if (!isCircuitWorkout && !isRestBlock) {
                     const isNewGroup = !prevNonRestExercise || !isSameBlockGroup(prevNonRestExercise, exercise);
                     if (isNewGroup && currentBlockType !== 'single') {
                       currentGroupNumber++;
@@ -569,7 +576,9 @@ export default function WodDetail() {
                   } else if (isIntervalWorkout) {
                     label = getExerciseLabel(nonRestIndex, false, true, currentGroupNumber, indexInCurrentGroup);
                   } else {
-                    label = getExerciseLabel(nonRestIndex, false, false);
+                    // Regular workouts: pass the group counters so superset/triset
+                    // members render as 1A/1B, 2A/2B/2C, etc.
+                    label = getExerciseLabel(nonRestIndex, false, false, currentGroupNumber, indexInCurrentGroup);
                   }
                   
                   // For rest visibility: circuit shows only on last, interval shows on last of each block

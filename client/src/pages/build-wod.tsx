@@ -503,11 +503,31 @@ export default function BuildWodPage() {
         ? sessionStorage.getItem('wodDurationHint')
         : null;
       const durationHint = hintRaw ? parseInt(hintRaw, 10) : undefined;
+      // Supersets/trisets/circuits show the rest pill only on the last member
+      // (it represents the gap AFTER the block). When the user edits that pill
+      // we only mutate that one exercise's restPeriod, so the other members
+      // keep whatever was seeded ("60s" by default). Mobile reads each
+      // exercise's own restPeriod, so without this step the saved superset
+      // shows the default rest instead of the value the user set. Copy the
+      // last member's rest onto every member of the same block group.
+      const groupRest = new Map<string, string>();
+      for (const ex of exercises) {
+        if (!ex.blockGroupId || ex.kind === 'rest') continue;
+        if (ex.blockType && ex.blockType !== 'single' && ex.restPeriod) {
+          groupRest.set(ex.blockGroupId, ex.restPeriod);
+        }
+      }
+      const exercisesForSave = exercises.map(ex => {
+        if (ex.blockGroupId && groupRest.has(ex.blockGroupId)) {
+          return { ...ex, restPeriod: groupRest.get(ex.blockGroupId)! };
+        }
+        return ex;
+      });
       const workoutData = {
         date: localDateStr(selectedDate),
         workoutType,
         category: categoryParam,
-        exercises,
+        exercises: exercisesForSave,
         intervalRounds: workoutType === 'interval' ? intervalRounds : 
                         workoutType === 'circuit' ? (exercises.find(e => e.section === 'main')?.sets || 3) : null,
         durationHint: Number.isFinite(durationHint) ? durationHint : undefined,

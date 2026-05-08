@@ -11,6 +11,7 @@ import type { ValueType, NameType, Payload } from "recharts/types/component/Defa
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import TopHeader from "@/components/TopHeader";
+import WellnessInsightsSection from "@/components/wellness/WellnessInsightsSection";
 import { format } from "date-fns";
 import type { WeeklyCheckin } from "@shared/schema";
 
@@ -467,6 +468,8 @@ export default function WeeklyCheckinPage() {
         {!isLoading && allCheckIns.length >= 2 && (
           <TrendsChart checkIns={allCheckIns} onPointClick={(id) => navigate(`/weekly-checkin/${id}`)} />
         )}
+
+        {!matchedDetail && <WellnessInsightsSection />}
 
         {!isLoading && !checkIn && (
           <Card>

@@ -45,6 +45,17 @@ function renderFadingWords(text: string): React.ReactNode {
   });
 }
 
+const WEEKLY_INSIGHT_PROMPTS = [
+  "How have I been this week?",
+  "What's affecting how I feel?",
+  "What should I focus on this week?",
+];
+
+function isWeeklyInsightsWindow(now: Date = new Date()): boolean {
+  const day = now.getDay();
+  return day === 1 || day === 2 || day === 3;
+}
+
 interface CoachChatProps {
   isOpen: boolean;
   onOpenChange: (open: boolean) => void;
@@ -807,6 +818,28 @@ export default function CoachChat({ isOpen, onOpenChange }: CoachChatProps) {
             </div>
           )}
         </div>
+        )}
+
+        {!showHistory && !hasUserMessages && !chatMutation.isPending && !isTyping && isWeeklyInsightsWindow() && (
+          <div className="border-t border-border/30 overflow-x-auto scrollbar-hide">
+            <div className="flex items-center gap-2 px-4 py-2 whitespace-nowrap" style={{ WebkitOverflowScrolling: 'touch' }}>
+              <span className="shrink-0 text-[11px] font-semibold tracking-wide text-[#0cc9a9] uppercase">This week</span>
+              {WEEKLY_INSIGHT_PROMPTS.map((p, i) => (
+                <button
+                  key={`wi-${i}`}
+                  onClick={() => sendMessage(p)}
+                  className="shrink-0 px-3.5 py-1.5 rounded-full text-[13px] text-foreground/80 transition-all duration-150 active:scale-[0.97]"
+                  style={{
+                    background: 'rgba(12, 201, 169, 0.10)',
+                    border: '1px solid rgba(12, 201, 169, 0.35)',
+                  }}
+                  data-testid={`chip-weekly-insight-${i}`}
+                >
+                  {p}
+                </button>
+              ))}
+            </div>
+          </div>
         )}
 
         {!showHistory && suggestions.length > 0 && !hasUserMessages && !chatMutation.isPending && !isTyping && (

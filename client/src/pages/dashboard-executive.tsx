@@ -16,7 +16,6 @@ import { RecommendationRail } from "@/components/RecommendationRail";
 import DashboardHydrationCard from "@/components/DashboardHydrationCard";
 import WearableTodayCard from "@/components/dashboard/WearableTodayCard";
 import WeeklyCheckinCard from "@/components/dashboard/WeeklyCheckinCard";
-import WellnessInsightsCard from "@/components/dashboard/WellnessInsightsCard";
 import EngagementCard from "@/components/dashboard/EngagementCard";
 import DailyReadinessCard from "@/components/dashboard/DailyReadinessCard";
 import PathSelectionDialog from "@/components/PathSelectionDialog";
@@ -1099,8 +1098,6 @@ export default function Dashboard() {
             <EngagementCard />
 
             <WeeklyCheckinCard />
-
-            <WellnessInsightsCard />
 
             <WearableTodayCard />
 

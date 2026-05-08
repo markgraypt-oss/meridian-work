@@ -291,7 +291,7 @@ export default function AiWorkoutGenerator({
               Generate today's workout
             </DialogTitle>
             <DialogDescription>
-              Describe what you want and we'll build it from your exercise library, tuned to your current readiness and any active discomfort.
+              Describe what you want. We'll pick exercises from your library and adjust for how you're feeling today.
             </DialogDescription>
           </DialogHeader>
 

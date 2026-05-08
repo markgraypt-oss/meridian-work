@@ -4481,13 +4481,30 @@ export async function registerRoutes(app: Express): Promise<Server> {
         corrective: 'Corrective Exercise',
       };
 
-      // Calculate estimated duration based on exercises
+      // Calculate estimated duration based on exercises. Counts rest blocks,
+      // time-based exercises (uses their target duration), and rep-based
+      // exercises (~45s per set). Falls back to a 5 min floor so a partly
+      // populated workout never displays as "1 minute".
       let estimatedDuration = 0;
-      exercises.forEach((ex: any) => {
-        const sets = ex.setsCount || 3;
-        const restSeconds = parseDurationToSecondsServer(ex.restPeriod) || 60;
-        estimatedDuration += sets * 45 + sets * restSeconds; // ~45s per set + rest
+      (exercises || []).forEach((ex: any) => {
+        if (ex?.kind === 'rest') {
+          estimatedDuration += parseDurationToSecondsServer(ex.restDuration || ex.restPeriod) || 30;
+          return;
+        }
+        const setsRaw = parseInt(String(ex?.setsCount ?? ''), 10);
+        const sets = Number.isFinite(setsRaw) && setsRaw > 0 ? setsRaw : 3;
+        const restSeconds = parseDurationToSecondsServer(ex?.restPeriod) || 60;
+        const isTimeBased = ex?.durationType === 'timer';
+        const perSetSeconds = isTimeBased
+          ? (parseDurationToSecondsServer(ex?.targetDuration) || 30)
+          : 45;
+        // sets work + rests between sets (sets - 1 rests).
+        estimatedDuration += sets * perSetSeconds + Math.max(0, sets - 1) * restSeconds;
       });
+      const estimatedMinutes = Math.max(
+        5,
+        Math.round(estimatedDuration / 60)
+      );
 
       // Create the workout log with status 'pending' (not started yet)
       const workoutLog = await storage.createWorkoutLog({
@@ -4497,7 +4514,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         workoutStyle: workoutType || 'regular',
         status: 'pending',
         startedAt: new Date(date),
-        duration: Math.round(estimatedDuration / 60), // Store in minutes
+        duration: estimatedMinutes, // Store in minutes
         intervalRounds: (workoutType === 'interval' || workoutType === 'circuit') ? (intervalRounds || 3) : null,
       });
 

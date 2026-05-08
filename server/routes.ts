@@ -4472,7 +4472,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.post('/api/workout-logs/custom', isAuthenticated, async (req, res) => {
     try {
       const userId = req.user.claims.sub;
-      const { date, workoutType, category, exercises, intervalRounds } = req.body;
+      const { date, workoutType, category, exercises, intervalRounds, durationHint } = req.body;
 
       const categoryLabels: Record<string, string> = {
         workout: 'Workout of the Day',
@@ -4501,10 +4501,14 @@ export async function registerRoutes(app: Express): Promise<Server> {
         // sets work + rests between sets (sets - 1 rests).
         estimatedDuration += sets * perSetSeconds + Math.max(0, sets - 1) * restSeconds;
       });
-      const estimatedMinutes = Math.max(
-        5,
-        Math.round(estimatedDuration / 60)
-      );
+      const heuristicMinutes = Math.max(5, Math.round(estimatedDuration / 60));
+      // If the caller (AI workout generator) tells us the intended duration,
+      // honour it so the user sees the time they asked for rather than a
+      // per-set estimate that doesn't account for warm-ups, transitions, etc.
+      const hintRaw = parseInt(String(durationHint ?? ''), 10);
+      const estimatedMinutes = Number.isFinite(hintRaw) && hintRaw >= 5
+        ? Math.min(180, hintRaw)
+        : heuristicMinutes;
 
       // Create the workout log with status 'pending' (not started yet)
       const workoutLog = await storage.createWorkoutLog({

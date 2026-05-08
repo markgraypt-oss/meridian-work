@@ -497,6 +497,12 @@ export default function BuildWodPage() {
 
   const saveMutation = useMutation({
     mutationFn: async () => {
+      // Pick up the AI generator's duration hint so the saved log honours
+      // what the user asked for ("30 min workout") instead of a heuristic.
+      const hintRaw = typeof window !== 'undefined'
+        ? sessionStorage.getItem('wodDurationHint')
+        : null;
+      const durationHint = hintRaw ? parseInt(hintRaw, 10) : undefined;
       const workoutData = {
         date: localDateStr(selectedDate),
         workoutType,
@@ -504,12 +510,14 @@ export default function BuildWodPage() {
         exercises,
         intervalRounds: workoutType === 'interval' ? intervalRounds : 
                         workoutType === 'circuit' ? (exercises.find(e => e.section === 'main')?.sets || 3) : null,
+        durationHint: Number.isFinite(durationHint) ? durationHint : undefined,
       };
       const response = await apiRequest("POST", "/api/workout-logs/custom", workoutData);
       return response.json();
     },
     onSuccess: (data) => {
       sessionStorage.removeItem('wodExercises');
+      sessionStorage.removeItem('wodDurationHint');
       toast({ title: "Workout saved!" });
       navigate(`/wod/${data.id}`);
     },

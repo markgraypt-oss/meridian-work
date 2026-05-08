@@ -263,12 +263,24 @@ export default function AiWorkoutGenerator({
           // will pick it up on the next render too.
         }
       }
+      // Pull a duration out of the prompt ("20 min", "45 minute workout",
+      // "1 hour"). Falls back to 30 minutes when nothing usable is found.
+      const promptText = prompt.trim();
+      const minMatch = promptText.match(/(\d+)\s*(?:min|minute|mins|minutes)\b/i);
+      const hourMatch = promptText.match(/(\d+(?:\.\d+)?)\s*(?:h|hr|hrs|hour|hours)\b/i);
+      let parsedDuration = 30;
+      if (minMatch) parsedDuration = parseInt(minMatch[1], 10);
+      else if (hourMatch) parsedDuration = Math.round(parseFloat(hourMatch[1]) * 60);
+      const requestedDuration = Math.max(5, Math.min(180, parsedDuration));
       const res = await apiRequest("POST", "/api/ai/workouts/generate", {
-        notes: prompt.trim(),
+        notes: promptText,
         difficulty: "intermediate",
-        duration: 30,
+        duration: requestedDuration,
       });
-      return (await res.json()) as PreviewResponse;
+      const json = (await res.json()) as PreviewResponse;
+      // Stash so onSuccess can pass it on to the WOD save flow as a floor.
+      (json as any).__requestedDuration = requestedDuration;
+      return json;
     },
     onSuccess: (data) => {
       // Always pull the freshest library snapshot from the cache to avoid a
@@ -293,6 +305,17 @@ export default function AiWorkoutGenerator({
         sessionStorage.setItem("wodExercises", JSON.stringify(seed));
         sessionStorage.removeItem("selectedExerciseId");
         sessionStorage.removeItem("wodInsertSection");
+        // Hand the AI's stated duration (and the user's requested duration)
+        // to the builder so the saved workout-log honours it instead of
+        // relying purely on the per-set heuristic.
+        const aiDuration = Number(data?.data?.duration) || 0;
+        const requested = Number((data as any)?.__requestedDuration) || 0;
+        const hint = Math.max(aiDuration, requested);
+        if (hint > 0) {
+          sessionStorage.setItem("wodDurationHint", String(hint));
+        } else {
+          sessionStorage.removeItem("wodDurationHint");
+        }
       } catch {
         // sessionStorage unavailable (private browsing, quota, etc.). Tell the
         // user instead of silently opening an empty builder.

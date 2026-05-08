@@ -282,6 +282,14 @@ export const FEATURE_DATA_SOURCES: Record<string, { domains: DataDomain[]; descr
     domains: ['body_map', 'programs', 'workouts', 'workout_logs', 'exercises', 'sleep', 'stress', 'resting_hr'],
     description: 'Active body map issues (severity 4+), enrolled programs with upcoming workouts, exercise library for substitutions, recent workout logs, sleep quality, stress levels, and resting heart rate for readiness assessment',
   },
+  workout_generator: {
+    domains: ['exercise_library', 'body_map', 'stress', 'workout_logs'],
+    description: 'Full exercise library (filtered by equipment + contraindications), active body map flags, latest burnout score for readiness tuning, and recent workout history for variety',
+  },
+  programme_generator: {
+    domains: ['exercise_library', 'body_map', 'stress', 'workout_logs', 'goals'],
+    description: 'Full exercise library (filtered by equipment + contraindications), target user body map flags, burnout score, recent workout history, and stated goals for multi-week structure',
+  },
   check_in_insights: {
     domains: ['check_ins', 'sleep', 'steps', 'resting_hr', 'stress', 'body_map', 'workout_logs', 'hydration', 'bodyweight'],
     description: 'Full check-in history with mood/energy/stress/sleep/clarity scores, sleep tracking, step counts, resting heart rate trends, stress/burnout scores, body map pain reports, workout frequency, hydration logs, and bodyweight changes',
@@ -876,6 +884,8 @@ export async function getCrossCoachContext(userId: string, currentFeature: strin
       hasContent = true;
       const featureLabels: Record<string, string> = {
         workout_adaptation: 'Workout Coach',
+        workout_generator: 'Workout Generator',
+        programme_generator: 'Programme Builder',
         check_in_insights: 'Wellness Insights',
         recovery_coach: 'Recovery Coach',
         coach_chat: 'Main Coach Chat',

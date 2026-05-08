@@ -241,13 +241,14 @@ function buildContextHints(opts: {
   return lines.length ? lines.join("\n") : "";
 }
 
-function buildProgrammePrompt(inputs: ProgrammeInputs, catalogueText: string, weeksToGenerate: number, retryHint?: string): string {
+function buildProgrammePrompt(inputs: ProgrammeInputs, catalogueText: string, weeksToGenerate: number, retryHint?: string, coachingContext?: string): string {
   const hints = buildContextHints(inputs);
   return [
     `You are an evidence-based strength & conditioning coach designing a complete ${weeksToGenerate}-week training programme.`,
     `Generate ALL ${weeksToGenerate} weeks (numbered 1..${weeksToGenerate}). Apply progressive overload across weeks (intensity / volume / complexity).`,
     "Pick exercises ONLY from the catalogue below by their numeric `exerciseLibraryId`. Never invent IDs.",
     "Avoid medical claims. Do not diagnose, prescribe, or describe injuries.",
+    coachingContext ? coachingContext : "",
     (inputs as any).profileNote ? String((inputs as any).profileNote) : "",
     hints,
     retryHint || "",
@@ -285,12 +286,13 @@ function buildProgrammePrompt(inputs: ProgrammeInputs, catalogueText: string, we
   ].filter(Boolean).join("\n");
 }
 
-function buildWorkoutPrompt(inputs: WorkoutInputs, catalogueText: string, retryHint?: string): string {
+function buildWorkoutPrompt(inputs: WorkoutInputs, catalogueText: string, retryHint?: string, coachingContext?: string): string {
   const hints = buildContextHints(inputs);
   return [
     "You are an evidence-based S&C coach designing one training session for one user today.",
     "Pick exercises ONLY from the catalogue below by their numeric `exerciseLibraryId`. Never invent IDs.",
     "Avoid medical claims. Do not diagnose, prescribe, or describe injuries.",
+    coachingContext ? coachingContext : "",
     hints,
     retryHint || "",
     "",
@@ -433,10 +435,19 @@ export async function generateProgrammeWithAI(inputs: ProgrammeInputs, userId: s
   const weeksToGenerate = Math.max(1, Math.min(8, effectiveInputs.weeks));
   const tokenBudget = Math.min(8000, 1500 + weeksToGenerate * effectiveInputs.daysPerWeek * 250);
 
+  // Pull admin-tunable coaching expertise (philosophy, structure rules,
+  // boundaries) for the Programme Builder so admins can shape the AI's
+  // output without code changes.
+  let coachingContext = "";
+  try {
+    const { getCoachingContext } = await import("../aiProvider");
+    coachingContext = await getCoachingContext("programme_generator");
+  } catch {}
+
   // First attempt
   let result = await aiCall<GeneratedProgramme>({
     feature: "programme_generator",
-    prompt: buildProgrammePrompt(effectiveInputs, catalogueText, weeksToGenerate),
+    prompt: buildProgrammePrompt(effectiveInputs, catalogueText, weeksToGenerate, undefined, coachingContext),
     userId,
     schema: programmeSchema,
     maxTokens: tokenBudget,
@@ -453,7 +464,7 @@ export async function generateProgrammeWithAI(inputs: ProgrammeInputs, userId: s
       const retryHint = `Your previous response used exerciseLibraryId values that are NOT in the catalogue: ${bad.join(", ")}. Replace them with valid catalogue IDs only.`;
       result = await aiCall<GeneratedProgramme>({
         feature: "programme_generator",
-        prompt: buildProgrammePrompt(effectiveInputs, catalogueText, weeksToGenerate, retryHint),
+        prompt: buildProgrammePrompt(effectiveInputs, catalogueText, weeksToGenerate, retryHint, coachingContext),
         userId,
         schema: programmeSchema,
         maxTokens: tokenBudget,
@@ -516,9 +527,17 @@ export async function generateWorkoutWithAI(inputs: WorkoutInputs, userId: strin
 
   const workoutSchema = generatedWorkoutSchema as unknown as z.ZodType<GeneratedWorkout>;
 
+  // Pull admin-tunable coaching expertise (philosophy, prompt interpretation,
+  // selection rules, boundaries) for the one-off Workout Generator.
+  let coachingContext = "";
+  try {
+    const { getCoachingContext } = await import("../aiProvider");
+    coachingContext = await getCoachingContext("workout_generator");
+  } catch {}
+
   let result = await aiCall<GeneratedWorkout>({
     feature: "workout_generator",
-    prompt: buildWorkoutPrompt(inputs, catalogueText),
+    prompt: buildWorkoutPrompt(inputs, catalogueText, undefined, coachingContext),
     userId,
     schema: workoutSchema,
     maxTokens: 2500,
@@ -533,7 +552,7 @@ export async function generateWorkoutWithAI(inputs: WorkoutInputs, userId: strin
       const retryHint = `Your previous response used exerciseLibraryId values not in the catalogue: ${bad.join(", ")}. Use only valid catalogue IDs.`;
       result = await aiCall<GeneratedWorkout>({
         feature: "workout_generator",
-        prompt: buildWorkoutPrompt(inputs, catalogueText, retryHint),
+        prompt: buildWorkoutPrompt(inputs, catalogueText, retryHint, coachingContext),
         userId,
         schema: workoutSchema,
         maxTokens: 2500,

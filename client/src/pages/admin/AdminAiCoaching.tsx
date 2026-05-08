@@ -16,6 +16,7 @@ import {
   Sparkles, Save, Monitor, Brain, Cpu,
   UserCheck, Dumbbell, Apple, Activity, Heart,
   ThumbsUp, ThumbsDown, MessageSquare, ShieldAlert, Ban, PenLine,
+  Wand2, CalendarRange,
 } from "lucide-react";
 
 interface AiCoachingSetting {
@@ -179,6 +180,78 @@ const FEATURES: FeatureConfig[] = [
         description: 'What the AI should never recommend.',
         placeholder: 'Never suggest restrictive diets or extreme calorie deficits. Don\'t shame eating choices. Never recommend supplements as a replacement for real food.',
         rows: 3,
+      },
+    ],
+  },
+  {
+    id: 'workout_generator',
+    label: 'Workout Generator',
+    icon: Wand2,
+    description: 'How the AI builds a one-off workout when the user asks for one from the prompt-first generator',
+    fields: [
+      {
+        key: 'customGuidelines',
+        label: 'Programming Philosophy',
+        description: 'How should the AI think about putting a single training session together? Set out your session-design principles.',
+        placeholder: 'Always start with a 2-4 minute warm-up that primes the movement patterns about to be loaded. Pair antagonists where possible. Keep total sets per muscle group under 10 for a single session. Bias compound movements over isolation. End with a brief cool-down or down-regulation block. Match intensity to the user\'s stated readiness — if their burnout score is high, default to lower volume.',
+        rows: 6,
+      },
+      {
+        key: 'featureContext',
+        label: 'Prompt Interpretation Rules',
+        description: 'How should the AI read the free-text prompt the user typed? What inferences are fair to make?',
+        placeholder: 'If the user says "quick" or "short" without a number, default to 20 minutes. "Heavy" or "strength" implies low reps (3-6) and longer rest. "Conditioning" or "burner" implies circuits, supersets, shorter rest. If they mention a body area, treat it as the primary focus and use accessory work to support it. If they mention soreness or pain, treat it as a constraint, not a target.',
+        rows: 5,
+      },
+      {
+        key: 'coachingRules',
+        label: 'Exercise Selection Rules',
+        description: 'Specific rules the AI must follow when picking exercises from the library.',
+        placeholder: 'Never include more than two unilateral exercises in a single session. Always include at least one compound lift unless the user requested mobility or recovery. If the user has dumbbells only, do not select machine-based exercises. Cap warm-up to 15 percent of total session duration.',
+        rows: 4,
+      },
+      {
+        key: 'thingsToNeverDo',
+        label: 'Generator Boundaries',
+        description: 'What the AI must never do when generating a workout.',
+        placeholder: 'Never generate a session with zero warm-up. Never load an area the user has flagged as painful. Never recommend more than 6 exercises in a sub-30-minute workout. Never include exercises requiring equipment the user said they do not have.',
+        rows: 4,
+      },
+    ],
+  },
+  {
+    id: 'programme_generator',
+    label: 'Programme Builder',
+    icon: CalendarRange,
+    description: 'How the AI builds multi-week training programmes from the admin programme builder',
+    fields: [
+      {
+        key: 'customGuidelines',
+        label: 'Programming Philosophy',
+        description: 'Your overall philosophy for designing multi-week programmes. How should weeks build on each other?',
+        placeholder: 'Use linear progression for beginners (add reps or load each week). Use undulating periodisation for intermediates (vary intensity day-to-day). Plan a deload every 4th week with reduced volume. Each week should have a clear training focus that complements the others. Movement quality before load — never sacrifice form for progression.',
+        rows: 6,
+      },
+      {
+        key: 'featureContext',
+        label: 'Goal-to-Structure Mapping',
+        description: 'How should the AI translate the user\'s goal into the structure of the programme?',
+        placeholder: 'Hypertrophy: 3-5 sets x 8-12 reps, 60-90s rest, full-body or upper/lower split. Max strength: 3-5 sets x 3-6 reps, 2-3 min rest, prioritise main lifts. Conditioning: circuits and intervals, shorter rest, varied modalities. Mobility: daily short sessions, never high-load. Functional strength: combine strength and conditioning days within the week.',
+        rows: 5,
+      },
+      {
+        key: 'coachingRules',
+        label: 'Progression & Recovery Rules',
+        description: 'Specific rules the AI must follow for progression, deloads, and recovery placement.',
+        placeholder: 'Never schedule heavy lower-body sessions on consecutive days. Always include at least one mobility or low-intensity day per week if training 4+ days. Progress load week-over-week only if reps were completed in full. Cap weekly training load increases at roughly 10 percent.',
+        rows: 4,
+      },
+      {
+        key: 'thingsToNeverDo',
+        label: 'Programme Builder Boundaries',
+        description: 'What the AI must never do when building a programme.',
+        placeholder: 'Never generate more than 6 training days in a 7-day week. Never schedule the same muscle group with high volume two days in a row. Never include equipment the programme inputs say is unavailable. Never write programmes longer than 8 weeks in a single generation.',
+        rows: 4,
       },
     ],
   },

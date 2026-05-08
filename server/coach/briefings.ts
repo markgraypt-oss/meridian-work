@@ -53,6 +53,10 @@ export function todayKeyForUser(date: Date = new Date()): string {
   return `${y}-${m}-${d}`;
 }
 
+// Retained for reference / potential future use but no longer called. We
+// deliberately do NOT serve generic fallback copy to users — if the AI fails
+// the briefing is skipped and the scheduler retries on the next 30m tick.
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
 function fallbackBriefing(type: BriefingType, userName: string): BriefingContent {
   if (type === "morning") {
     return {
@@ -91,7 +95,9 @@ export async function getOrGenerateBriefing(
 ) {
   const dateKey = todayKeyForUser(date);
   const existing = await storage.getCoachBriefingForDay(userId, dateKey, type);
-  if (existing) return existing;
+  // Treat legacy fallback rows as "not yet generated" so a real AI briefing
+  // can replace them on the next attempt.
+  if (existing && (existing as any).source !== "fallback") return existing;
 
   const lockKey = `${userId}:${dateKey}:${type}`;
   if (inflight.has(lockKey)) return inflight.get(lockKey)!;
@@ -173,22 +179,25 @@ async function buildContextSnapshot(userId: string): Promise<BriefingContextSnap
 }
 
 async function generateAndStoreBriefing(userId: string, type: BriefingType, dateKey: string) {
-  // Re-check after acquiring the lock to avoid a race.
+  // Re-check after acquiring the lock to avoid a race. Skip legacy fallback
+  // rows so they get replaced on a successful generation.
   const existing = await storage.getCoachBriefingForDay(userId, dateKey, type);
-  if (existing) return existing;
+  if (existing && (existing as any).source !== "fallback") return existing;
 
   const user = await storage.getUser(userId);
   const userName = user?.firstName?.trim() || "there";
 
-  let content: BriefingContent;
-  let source: "ai" | "fallback" = "ai";
+  let content: BriefingContent | null = null;
+  const source: "ai" = "ai";
   const contextSnapshot = await buildContextSnapshot(userId);
 
   try {
     const config = await getFeatureConfig("recovery_coach");
     if (!config) {
-      content = fallbackBriefing(type, userName);
-      source = "fallback";
+      console.error(
+        `[coach-briefing] no recovery_coach feature config for user ${userId} (${type}). Skipping; scheduler will retry.`,
+      );
+      return null;
     } else {
       const dataContext = await getUserDataContext(userId, "coach_briefing");
       const memoryText = await getTopMemoriesText(userId, 8);
@@ -237,15 +246,21 @@ Return only the JSON object now.`;
       if (result.data) {
         content = result.data as BriefingContent;
       } else {
-        content = fallbackBriefing(type, userName);
-        source = "fallback";
+        console.error(
+          `[coach-briefing] AI returned no valid data for user ${userId} (${type}). validation=${result.validationOutcome || "unknown"}. text preview: ${typeof result.text === "string" ? result.text.slice(0, 200) : "(none)"}`,
+        );
+        return null;
       }
     }
-  } catch (e) {
-    console.error("[coach-briefing] generation failed, using fallback:", e);
-    content = fallbackBriefing(type, userName);
-    source = "fallback";
+  } catch (e: any) {
+    console.error(
+      `[coach-briefing] generation failed for user ${userId} (${type}): ${e?.message || e}`,
+      e?.stack,
+    );
+    return null;
   }
+
+  if (!content) return null;
 
   // Defence-in-depth: clamp medical-sounding language even if the model
   // ignored the system prompt rules.

@@ -47,7 +47,11 @@ export const getQueryFn: <T>(options: {
     }
 
     await throwIfResNotOk(res);
-    return await res.json();
+    // 204 No Content / empty body → return null instead of throwing on res.json()
+    if (res.status === 204) return null as unknown as any;
+    const text = await res.text();
+    if (!text) return null as unknown as any;
+    return JSON.parse(text);
   };
 
 export const queryClient = new QueryClient({

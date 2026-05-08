@@ -18037,13 +18037,19 @@ Respond as the coach. Be personalised, reference their actual data and specific 
       const userId = req.user.claims.sub;
       const requested = typeof req.query.type === 'string' ? req.query.type : null;
       const hour = new Date().getHours();
-      // Auto-pick: morning before 5pm local server time, evening after.
+      // Auto-pick: morning before 8pm local server time, evening after.
       const type = (requested === 'morning' || requested === 'evening')
         ? requested as 'morning' | 'evening'
-        : (hour < 17 ? 'morning' : 'evening');
+        : (hour < 20 ? 'morning' : 'evening');
 
       const { getOrGenerateBriefing } = await import('./coach/briefings');
       const briefing = await getOrGenerateBriefing(userId, type);
+      // briefing may be null if the AI generation failed. Return 204 so the
+      // client renders nothing rather than a generic fallback. Also hide any
+      // legacy fallback rows so we never show generic copy to the user.
+      if (!briefing || (briefing as any).source === 'fallback') {
+        return res.status(204).end();
+      }
       res.json(briefing);
     } catch (error) {
       console.error("Error fetching today's briefing:", error);
@@ -18058,6 +18064,8 @@ Respond as the coach. Be personalised, reference their actual data and specific 
       if (!id) return res.status(400).json({ message: "Invalid id" });
       const row = await storage.getCoachBriefingById(id, userId);
       if (!row) return res.status(404).json({ message: "Not found" });
+      // Hide legacy generic fallback rows from the user.
+      if ((row as any).source === 'fallback') return res.status(404).json({ message: "Not found" });
       res.json(row);
     } catch (error) {
       console.error("Error loading briefing by id:", error);
@@ -18098,7 +18106,10 @@ Respond as the coach. Be personalised, reference their actual data and specific 
       const userId = req.user.claims.sub;
       const limit = Math.min(Math.max(parseInt(String(req.query.limit ?? '30'), 10) || 30, 1), 100);
       const rows = await storage.listCoachBriefings(userId, limit);
-      res.json(rows);
+      // Filter out legacy generic fallback rows so users only ever see real
+      // AI-generated briefings.
+      const filtered = rows.filter((r: any) => r.source !== 'fallback');
+      res.json(filtered);
     } catch (error) {
       console.error("Error listing briefings:", error);
       res.status(500).json({ message: "Failed to list briefings" });

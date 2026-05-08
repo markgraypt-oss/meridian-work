@@ -11585,14 +11585,20 @@ export class DatabaseStorage implements IStorage {
   }
 
   async createCoachBriefing(briefing: InsertCoachBriefing): Promise<CoachBriefing> {
-    // Idempotent at the DB level: if another writer (different process or
-    // request) already inserted a briefing for the same (user, date, type),
-    // do nothing and return the existing row instead of throwing on the
-    // unique constraint.
+    // Idempotent at the DB level. If a real AI briefing already exists for
+    // (user, date, type), keep it. If the existing row is a generic
+    // "fallback" placeholder, replace its content with the new (real) one
+    // so the user always sees the AI-generated briefing.
     const [inserted] = await db.insert(coachBriefings)
       .values(briefing)
-      .onConflictDoNothing({
+      .onConflictDoUpdate({
         target: [coachBriefings.userId, coachBriefings.briefingDate, coachBriefings.type],
+        set: {
+          content: briefing.content as any,
+          contextSnapshot: briefing.contextSnapshot as any,
+          source: briefing.source as any,
+        },
+        setWhere: eq(coachBriefings.source, "fallback"),
       })
       .returning();
     if (inserted) return inserted;

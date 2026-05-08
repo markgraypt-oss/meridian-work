@@ -59,6 +59,29 @@ const aiTtsRateLimit = rateLimit({
 });
 
 // Parse a positive integer route param. Returns null on NaN / negative / zero.
+/** Map a programme-style goal value onto the legacy non-null `workouts.category` column. */
+function goalToLegacyCategory(goal: string): string {
+  switch (goal) {
+    case 'strength':
+    case 'max_strength':
+    case 'hypertrophy':
+    case 'power':
+    case 'functional_strength':
+      return 'strength';
+    case 'conditioning':
+      return 'cardio';
+    case 'hiit':
+      return 'hiit';
+    case 'mobility':
+    case 'yoga':
+      return 'mobility';
+    case 'corrective':
+      return 'recovery';
+    default:
+      return 'strength';
+  }
+}
+
 function parseIdParam(s: string | undefined): number | null {
   if (!s) return null;
   const n = Number.parseInt(s, 10);
@@ -3137,13 +3160,19 @@ export async function registerRoutes(app: Express): Promise<Server> {
         }
       }
       
+      const goal: string | undefined = req.body.goal || undefined;
+      const legacyCategory = goal ? goalToLegacyCategory(goal) : (req.body.category || 'strength');
       const workoutData = {
         title: req.body.title,
         description: req.body.description || "",
-        category: req.body.category,
+        category: legacyCategory,
+        goal: goal || null,
         difficulty: req.body.difficulty,
         duration,
         equipment: req.body.equipment || [],
+        equipmentLevel: req.body.equipmentLevel || null,
+        categories: Array.isArray(req.body.categories) ? req.body.categories : [],
+        targetAreas: Array.isArray(req.body.targetAreas) ? req.body.targetAreas : [],
         exercises: blocks, // Store blocks in exercises JSONB for backwards compatibility
         imageUrl: req.body.imageUrl || null,
         videoUrl: req.body.videoUrl || null,
@@ -3241,13 +3270,19 @@ export async function registerRoutes(app: Express): Promise<Server> {
         }
       }
       
+      const goal: string | undefined = req.body.goal || undefined;
+      const legacyCategory = goal ? goalToLegacyCategory(goal) : (req.body.category || existingWorkout?.category);
       const workoutData: Record<string, any> = {
         title: req.body.title,
         description: req.body.description || null,
-        category: req.body.category,
+        category: legacyCategory,
+        goal: goal !== undefined ? (goal || null) : existingWorkout?.goal,
         difficulty: req.body.difficulty,
         duration,
         equipment: req.body.equipment || [],
+        equipmentLevel: req.body.equipmentLevel !== undefined ? (req.body.equipmentLevel || null) : existingWorkout?.equipmentLevel,
+        categories: Array.isArray(req.body.categories) ? req.body.categories : (existingWorkout?.categories || []),
+        targetAreas: Array.isArray(req.body.targetAreas) ? req.body.targetAreas : (existingWorkout?.targetAreas || []),
         exercises: blocks,
         imageUrl: req.body.imageUrl !== undefined ? (req.body.imageUrl || null) : (existingWorkout?.imageUrl || null),
         workoutType: req.body.workoutType || existingWorkout?.workoutType || 'regular',

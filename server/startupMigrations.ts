@@ -156,6 +156,17 @@ const SELF_HEAL_DDL: string[] = [
    )`,
   `CREATE UNIQUE INDEX IF NOT EXISTS idx_daily_readiness_user_date ON daily_readiness_history (user_id, date)`,
   `CREATE INDEX IF NOT EXISTS idx_daily_readiness_user ON daily_readiness_history (user_id)`,
+
+  // Workouts: new fields to align with programme builder vocabulary.
+  // - goal mirrors the programmes goal vocabulary (strength, hypertrophy, etc.)
+  // - equipment_level: single chosen equipment level
+  // - categories: chip multi-select (gym/home/travel/female_specific)
+  // - target_areas: chip multi-select (full_body/upper_body/lower_body/push/pull/legs/glutes/core)
+  `ALTER TABLE workouts
+     ADD COLUMN IF NOT EXISTS goal text,
+     ADD COLUMN IF NOT EXISTS equipment_level text,
+     ADD COLUMN IF NOT EXISTS categories text[],
+     ADD COLUMN IF NOT EXISTS target_areas text[]`,
 ];
 
 export async function runSchemaSelfHealOnce(): Promise<void> {

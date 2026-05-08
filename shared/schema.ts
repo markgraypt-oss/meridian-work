@@ -292,10 +292,14 @@ export const workouts = pgTable("workouts", {
   id: serial("id").primaryKey(),
   title: text("title").notNull(),
   description: text("description"),
-  category: text("category").notNull(), // 'strength', 'cardio', 'hiit', 'mobility', 'recovery'
+  category: text("category").notNull(), // legacy: 'strength', 'cardio', 'hiit', 'mobility', 'recovery' — kept for back-compat, mirrored from `goal`
+  goal: text("goal"), // 'strength', 'max_strength', 'hypertrophy', 'power', 'functional_strength', 'conditioning', 'hiit', 'mobility', 'corrective', 'yoga' (matches programmes)
   duration: integer("duration").notNull(), // minutes
   difficulty: text("difficulty").notNull(), // 'beginner', 'intermediate', 'advanced'
-  equipment: text("equipment").array(), // array of equipment needed
+  equipment: text("equipment").array(), // array of equipment needed (legacy: per-exercise list)
+  equipmentLevel: text("equipment_level"), // single equipment level: 'no_equipment', 'bodyweight', 'bands_only', 'kettlebell_only', 'dumbbell_only', 'db_bench_only', 'full_gym'
+  categories: text("categories").array(), // ['gym', 'home', 'travel', 'female_specific']
+  targetAreas: text("target_areas").array(), // ['full_body','upper_body','lower_body','push','pull','legs','glutes','core']
   imageUrl: text("image_url"),
   muxPlaybackId: text("mux_playback_id"), // main workout video for video workout type
   videoUrl: text("video_url"), // Legacy local upload path; new workouts use muxPlaybackId. Kept for back-compat with admin uploader.

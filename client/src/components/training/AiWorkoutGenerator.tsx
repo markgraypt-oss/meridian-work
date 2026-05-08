@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useMutation, useQuery } from "@tanstack/react-query";
 import { useLocation } from "wouter";
 import { apiRequest, queryClient } from "@/lib/queryClient";
@@ -8,10 +8,8 @@ import {
 } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Loader2, Sparkles, RefreshCw, Plus, Trash2 } from "lucide-react";
+import { Loader2, Sparkles, RefreshCw, Plus, Trash2, ChevronDown, ChevronUp } from "lucide-react";
 import type { ExerciseLibraryItem } from "@shared/schema";
 import AiExercisePicker from "@/components/admin/AiExercisePicker";
 import AiSafetyFlags from "@/components/ai/AiSafetyFlags";
@@ -64,6 +62,47 @@ interface Props {
   prefill?: AiWorkoutPrefill | null;
 }
 
+// ---------------------------------------------------------------------------
+// Quick-option chip groups. Tapping a chip appends a natural-language phrase
+// to the prompt (or toggles it off if it's already there). The prompt textbox
+// remains the single source of truth that gets sent to the AI.
+// ---------------------------------------------------------------------------
+const EQUIPMENT_CHIPS: Array<{ label: string; phrase: string }> = [
+  { label: "Bodyweight", phrase: "bodyweight only" },
+  { label: "Dumbbells", phrase: "with dumbbells" },
+  { label: "Kettlebell", phrase: "with a kettlebell" },
+  { label: "Bands", phrase: "with resistance bands" },
+  { label: "Full gym", phrase: "full gym access" },
+];
+const DURATION_CHIPS: Array<{ label: string; phrase: string }> = [
+  { label: "15 min", phrase: "15 minutes" },
+  { label: "30 min", phrase: "30 minutes" },
+  { label: "45 min", phrase: "45 minutes" },
+  { label: "60 min", phrase: "60 minutes" },
+];
+const TARGET_CHIPS: Array<{ label: string; phrase: string }> = [
+  { label: "Full body", phrase: "full body" },
+  { label: "Upper body", phrase: "upper body focus" },
+  { label: "Lower body", phrase: "lower body focus" },
+  { label: "Push", phrase: "push focus" },
+  { label: "Pull", phrase: "pull focus" },
+  { label: "Legs", phrase: "legs focus" },
+  { label: "Glutes", phrase: "glutes focus" },
+  { label: "Core", phrase: "core focus" },
+];
+const INTENSITY_CHIPS: Array<{ label: string; phrase: string }> = [
+  { label: "Easy", phrase: "easy intensity" },
+  { label: "Moderate", phrase: "moderate intensity" },
+  { label: "Hard", phrase: "hard intensity" },
+];
+
+const PLACEHOLDERS = [
+  "e.g. 30 minute glutes session, dumbbells only, no jumping",
+  "e.g. quick 20 min full-body circuit, moderate intensity",
+  "e.g. heavy upper body day, full gym, 45 min",
+  "e.g. low impact mobility, 20 min, my left shoulder is sore",
+];
+
 export default function AiWorkoutGenerator({
   triggerLabel = "Generate today's workout",
   hideTrigger = false,
@@ -81,27 +120,55 @@ export default function AiWorkoutGenerator({
     onOpenChange?.(v);
   };
 
-  const [equipment, setEquipment] = useState(prefill?.equipment || "bodyweight");
-  const [duration, setDuration] = useState(prefill?.duration ?? 30);
-  const [difficulty, setDifficulty] = useState(prefill?.difficulty || "beginner");
-  const [focus, setFocus] = useState(prefill?.focus || "");
-  const [notes, setNotes] = useState(prefill?.notes || prefill?.promptBody || "");
-  const [contraindicationsText, setContraindicationsText] = useState(prefill?.contraindications || "");
+  // Single prompt is the source of truth. Prefills (from prompt library or
+  // elsewhere) get composed into the prompt up-front.
+  const composeInitialPrompt = (p?: AiWorkoutPrefill | null): string => {
+    if (!p) return "";
+    if (p.promptBody) return p.promptBody;
+    if (p.notes) return p.notes;
+    const parts: string[] = [];
+    if (p.duration) parts.push(`${p.duration} minutes`);
+    if (p.equipment) parts.push(p.equipment.replace(/_/g, " "));
+    if (p.focus) parts.push(`${p.focus} focus`);
+    if (p.difficulty) parts.push(`${p.difficulty} intensity`);
+    if (p.contraindications) parts.push(`avoid ${p.contraindications}`);
+    return parts.join(", ");
+  };
+
+  const [prompt, setPrompt] = useState(composeInitialPrompt(prefill));
+  const [showOptions, setShowOptions] = useState(false);
   const [scheduleForToday, setScheduleForToday] = useState(true);
+  const [placeholder] = useState(() => PLACEHOLDERS[Math.floor(Math.random() * PLACEHOLDERS.length)]);
+  const promptRef = useRef<HTMLTextAreaElement>(null);
 
   // When the parent feeds in a fresh prefill (e.g. user picked another prompt
-  // from the library) and the dialog is closed, refresh the form fields.
+  // from the library) and the dialog is closed, refresh the prompt body.
   useEffect(() => {
     if (!prefill || open) return;
-    if (prefill.equipment) setEquipment(prefill.equipment);
-    if (typeof prefill.duration === "number") setDuration(prefill.duration);
-    if (prefill.difficulty) setDifficulty(prefill.difficulty);
-    if (prefill.focus !== undefined) setFocus(prefill.focus);
-    if (prefill.notes !== undefined || prefill.promptBody !== undefined) {
-      setNotes(prefill.notes ?? prefill.promptBody ?? "");
-    }
-    if (prefill.contraindications !== undefined) setContraindicationsText(prefill.contraindications);
+    setPrompt(composeInitialPrompt(prefill));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [prefill, open]);
+
+  /** Toggle a chip phrase in the prompt: append if missing, remove if present. */
+  function toggleChip(phrase: string) {
+    setPrompt(prev => {
+      const trimmed = prev.trim();
+      const lower = trimmed.toLowerCase();
+      const phraseLower = phrase.toLowerCase();
+      if (lower.includes(phraseLower)) {
+        // Remove the phrase (and any surrounding ", " separator).
+        const re = new RegExp(`(?:,\\s*)?${phrase.replace(/[.*+?^${}()|[\\]\\\\]/g, "\\$&")}`, "i");
+        return trimmed.replace(re, "").replace(/^,\s*/, "").trim();
+      }
+      return trimmed.length === 0 ? phrase : `${trimmed}, ${phrase}`;
+    });
+    // Refocus textarea so user can keep typing.
+    setTimeout(() => promptRef.current?.focus(), 0);
+  }
+
+  function isChipActive(phrase: string): boolean {
+    return prompt.toLowerCase().includes(phrase.toLowerCase());
+  }
 
   const [preview, setPreview] = useState<PreviewResponse | null>(null);
   const [pickerCtx, setPickerCtx] = useState<{ blockIdx: number; exIdx: number } | null>(null);
@@ -114,13 +181,13 @@ export default function AiWorkoutGenerator({
 
   const generate = useMutation({
     mutationFn: async () => {
-      const contraindications = contraindicationsText
-        .split(",").map(s => s.trim()).filter(Boolean);
+      // Pass the prompt as `notes` so the existing backend keeps working.
+      // Duration is left at the backend default (30) so the AI infers it
+      // from the prompt itself (e.g. "20 min" / "45 minute session").
       const res = await apiRequest("POST", "/api/ai/workouts/generate", {
-        equipment, duration, difficulty,
-        focus: focus || undefined,
-        notes: notes || undefined,
-        contraindications,
+        notes: prompt.trim(),
+        difficulty: "intermediate",
+        duration: 30,
       });
       return (await res.json()) as PreviewResponse;
     },
@@ -182,6 +249,26 @@ export default function AiWorkoutGenerator({
     });
   }
 
+  const renderChipRow = (chips: typeof EQUIPMENT_CHIPS) => (
+    <div className="flex flex-wrap gap-1.5">
+      {chips.map(c => (
+        <button
+          key={c.label}
+          type="button"
+          onClick={() => toggleChip(c.phrase)}
+          className={`text-xs px-2.5 py-1 rounded-full border transition-colors ${
+            isChipActive(c.phrase)
+              ? "bg-primary/15 border-primary text-primary"
+              : "bg-background border-border text-muted-foreground hover:border-primary/50 hover:text-foreground"
+          }`}
+          data-testid={`chip-${c.label.toLowerCase().replace(/\s/g, "-")}`}
+        >
+          {c.label}
+        </button>
+      ))}
+    </div>
+  );
+
   return (
     <>
       {!hideTrigger && (
@@ -204,60 +291,53 @@ export default function AiWorkoutGenerator({
               Generate today's workout
             </DialogTitle>
             <DialogDescription>
-              Tell us what you have today; we'll build a session from your exercise library and tune it to your current burnout / discomfort signals.
+              Describe what you want and we'll build it from your exercise library, tuned to your current readiness and any active discomfort.
             </DialogDescription>
           </DialogHeader>
 
           {!preview ? (
             <div className="space-y-4 py-2">
-              <div className="grid grid-cols-2 gap-4">
-                <div className="space-y-2">
-                  <Label htmlFor="user-equipment">Equipment</Label>
-                  <Select value={equipment} onValueChange={setEquipment}>
-                    <SelectTrigger id="user-equipment" data-testid="select-user-equipment"><SelectValue /></SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="full_gym">Full gym</SelectItem>
-                      <SelectItem value="home_gym">Home gym</SelectItem>
-                      <SelectItem value="bodyweight">Bodyweight</SelectItem>
-                    </SelectContent>
-                  </Select>
+              <Textarea
+                ref={promptRef}
+                value={prompt}
+                onChange={(e) => setPrompt(e.target.value)}
+                placeholder={placeholder}
+                rows={5}
+                className="text-sm resize-none"
+                data-testid="textarea-workout-prompt"
+              />
+
+              <button
+                type="button"
+                onClick={() => setShowOptions(v => !v)}
+                className="flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground transition-colors"
+                data-testid="button-toggle-quick-options"
+              >
+                {showOptions ? <ChevronUp className="h-3 w-3" /> : <ChevronDown className="h-3 w-3" />}
+                Quick options
+              </button>
+
+              {showOptions && (
+                <div className="space-y-3 rounded-lg border border-border bg-muted/20 p-3">
+                  <div className="space-y-1.5">
+                    <p className="text-[10px] uppercase tracking-wide text-muted-foreground">Equipment</p>
+                    {renderChipRow(EQUIPMENT_CHIPS)}
+                  </div>
+                  <div className="space-y-1.5">
+                    <p className="text-[10px] uppercase tracking-wide text-muted-foreground">Duration</p>
+                    {renderChipRow(DURATION_CHIPS)}
+                  </div>
+                  <div className="space-y-1.5">
+                    <p className="text-[10px] uppercase tracking-wide text-muted-foreground">Target area</p>
+                    {renderChipRow(TARGET_CHIPS)}
+                  </div>
+                  <div className="space-y-1.5">
+                    <p className="text-[10px] uppercase tracking-wide text-muted-foreground">Intensity</p>
+                    {renderChipRow(INTENSITY_CHIPS)}
+                  </div>
                 </div>
-                <div className="space-y-2">
-                  <Label htmlFor="user-difficulty">Difficulty</Label>
-                  <Select value={difficulty} onValueChange={setDifficulty}>
-                    <SelectTrigger id="user-difficulty" data-testid="select-user-difficulty"><SelectValue /></SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="beginner">Beginner</SelectItem>
-                      <SelectItem value="intermediate">Intermediate</SelectItem>
-                      <SelectItem value="advanced">Advanced</SelectItem>
-                    </SelectContent>
-                  </Select>
-                </div>
-                <div className="space-y-2">
-                  <Label htmlFor="user-duration">Duration (min)</Label>
-                  <Input id="user-duration" type="number" min={5} max={180} value={duration}
-                    onChange={(e) => setDuration(parseInt(e.target.value, 10) || 5)}
-                    data-testid="input-user-duration" />
-                </div>
-                <div className="space-y-2">
-                  <Label htmlFor="user-focus">Focus (optional)</Label>
-                  <Input id="user-focus" value={focus} onChange={(e) => setFocus(e.target.value)}
-                    placeholder="e.g. upper body"
-                    data-testid="input-user-focus" />
-                </div>
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="user-contra">Avoid (comma separated)</Label>
-                <Input id="user-contra" value={contraindicationsText} onChange={(e) => setContraindicationsText(e.target.value)}
-                  placeholder="e.g. shoulders, jumping"
-                  data-testid="input-user-contraindications" />
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="user-notes">Notes (optional)</Label>
-                <Textarea id="user-notes" value={notes} onChange={(e) => setNotes(e.target.value)}
-                  placeholder="e.g. low impact only, tight on time"
-                  data-testid="textarea-user-notes" />
-              </div>
+              )}
+
               <label className="flex items-center gap-2 text-sm">
                 <input type="checkbox" checked={scheduleForToday} onChange={(e) => setScheduleForToday(e.target.checked)}
                   data-testid="checkbox-schedule-today" />
@@ -335,7 +415,11 @@ export default function AiWorkoutGenerator({
             {!preview ? (
               <>
                 <Button variant="outline" onClick={() => setOpen(false)} disabled={isBusy}>Cancel</Button>
-                <Button onClick={() => generate.mutate()} disabled={isBusy} data-testid="button-user-ai-generate">
+                <Button
+                  onClick={() => generate.mutate()}
+                  disabled={isBusy || prompt.trim().length === 0}
+                  data-testid="button-user-ai-generate"
+                >
                   {generate.isPending ? <><Loader2 className="h-4 w-4 mr-2 animate-spin" />Generating…</> : <>Generate</>}
                 </Button>
               </>

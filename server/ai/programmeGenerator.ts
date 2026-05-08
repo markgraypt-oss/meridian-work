@@ -963,13 +963,28 @@ export async function saveGeneratedWorkout(args: {
     throw new Error(`Refusing to save: unknown exerciseLibraryId(s) ${bad.join(", ")}`);
   }
 
+  // Reverse-map the AI's constrained category onto the richer goal vocabulary
+  // so AI-generated workouts populate the new programme-aligned fields.
+  const categoryToGoal: Record<string, string> = {
+    strength: "strength",
+    cardio: "conditioning",
+    hiit: "hiit",
+    mobility: "mobility",
+    recovery: "corrective",
+  };
+  const derivedGoal = categoryToGoal[data.category] || "strength";
+
   const [workout] = await db.insert(workouts).values({
     title: data.name,
     description: data.description || "",
     category: data.category,
+    goal: derivedGoal,
     duration: data.duration,
     difficulty: data.difficulty,
     equipment: inputs.equipment ? [inputs.equipment] : [],
+    equipmentLevel: inputs.equipment || null,
+    categories: [],
+    targetAreas: [],
     routineType: "workout",
     workoutType: "regular",
     userId,

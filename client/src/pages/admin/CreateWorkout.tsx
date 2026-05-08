@@ -46,7 +46,10 @@ export default function CreateWorkoutPage() {
     title: "",
     description: "",
     workoutType: "regular" as 'regular' | 'interval' | 'circuit' | 'video',
-    category: "strength",
+    goal: "strength",
+    equipmentLevel: "full_gym",
+    categories: [] as string[],
+    targetAreas: [] as string[],
     difficulty: "beginner",
     duration: 30,
     equipment: [] as string[],
@@ -399,23 +402,112 @@ export default function CreateWorkoutPage() {
                       </div>
                     )}
                   </div>
-                  <div>
-                    <label className="text-sm font-medium text-foreground">Category</label>
-                    <select value={formData.category} onChange={(e) => setFormData({...formData, category: e.target.value})} className="w-full mt-1 px-3 py-2 bg-background border border-border rounded">
-                      <option value="strength">Strength</option>
-                      <option value="cardio">Cardio</option>
-                      <option value="hiit">HIIT</option>
-                      <option value="mobility">Mobility</option>
-                      <option value="recovery">Recovery</option>
-                    </select>
+                  <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                    <div>
+                      <label className="text-sm font-medium text-foreground">Goal</label>
+                      <select value={formData.goal} onChange={(e) => setFormData({...formData, goal: e.target.value})} className="w-full mt-1 px-3 py-2 bg-background border border-border rounded" data-testid="select-workout-goal">
+                        <option value="strength">Strength</option>
+                        <option value="max_strength">Max Strength</option>
+                        <option value="hypertrophy">Hypertrophy</option>
+                        <option value="power">Power</option>
+                        <option value="functional_strength">Functional Strength</option>
+                        <option value="conditioning">Conditioning</option>
+                        <option value="hiit">HIIT</option>
+                        <option value="mobility">Mobility</option>
+                        <option value="corrective">Corrective</option>
+                        <option value="yoga">Yoga</option>
+                      </select>
+                    </div>
+                    <div>
+                      <label className="text-sm font-medium text-foreground">Equipment</label>
+                      <select value={formData.equipmentLevel} onChange={(e) => setFormData({...formData, equipmentLevel: e.target.value})} className="w-full mt-1 px-3 py-2 bg-background border border-border rounded" data-testid="select-workout-equipment-level">
+                        <option value="no_equipment">No Equipment (At Home)</option>
+                        <option value="bodyweight">Bodyweight</option>
+                        <option value="bands_only">Bands Only</option>
+                        <option value="kettlebell_only">Kettlebell Only</option>
+                        <option value="dumbbell_only">Dumbbell Only</option>
+                        <option value="db_bench_only">DB/Bench Only</option>
+                        <option value="full_gym">Full Gym</option>
+                      </select>
+                    </div>
+                    <div>
+                      <label className="text-sm font-medium text-foreground">Difficulty</label>
+                      <select value={formData.difficulty} onChange={(e) => setFormData({...formData, difficulty: e.target.value})} className="w-full mt-1 px-3 py-2 bg-background border border-border rounded">
+                        <option value="beginner">Beginner</option>
+                        <option value="intermediate">Intermediate</option>
+                        <option value="advanced">Advanced</option>
+                      </select>
+                    </div>
                   </div>
+
                   <div>
-                    <label className="text-sm font-medium text-foreground">Difficulty</label>
-                    <select value={formData.difficulty} onChange={(e) => setFormData({...formData, difficulty: e.target.value})} className="w-full mt-1 px-3 py-2 bg-background border border-border rounded">
-                      <option value="beginner">Beginner</option>
-                      <option value="intermediate">Intermediate</option>
-                      <option value="advanced">Advanced</option>
-                    </select>
+                    <label className="text-sm font-medium text-foreground">Categories</label>
+                    <p className="text-xs text-muted-foreground">Primary navigation — controls which category tabs this workout appears under</p>
+                    <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mt-2">
+                      {[
+                        { value: "gym", label: "Gym" },
+                        { value: "home", label: "Home" },
+                        { value: "travel", label: "Great for Travel" },
+                        { value: "female_specific", label: "Female Specific" },
+                      ].map((cat) => {
+                        const checked = formData.categories.includes(cat.value);
+                        return (
+                          <label key={cat.value} className="flex items-center gap-2 cursor-pointer text-sm">
+                            <input
+                              type="checkbox"
+                              checked={checked}
+                              onChange={() => {
+                                setFormData({
+                                  ...formData,
+                                  categories: checked
+                                    ? formData.categories.filter(c => c !== cat.value)
+                                    : [...formData.categories, cat.value],
+                                });
+                              }}
+                              data-testid={`checkbox-category-${cat.value}`}
+                            />
+                            {cat.label}
+                          </label>
+                        );
+                      })}
+                    </div>
+                  </div>
+
+                  <div>
+                    <label className="text-sm font-medium text-foreground">Target Areas</label>
+                    <p className="text-xs text-muted-foreground">Body regions this workout focuses on</p>
+                    <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mt-2">
+                      {[
+                        { value: "full_body", label: "Full Body" },
+                        { value: "upper_body", label: "Upper Body" },
+                        { value: "lower_body", label: "Lower Body" },
+                        { value: "push", label: "Push" },
+                        { value: "pull", label: "Pull" },
+                        { value: "legs", label: "Legs" },
+                        { value: "glutes", label: "Glutes" },
+                        { value: "core", label: "Core" },
+                      ].map((t) => {
+                        const checked = formData.targetAreas.includes(t.value);
+                        return (
+                          <label key={t.value} className="flex items-center gap-2 cursor-pointer text-sm">
+                            <input
+                              type="checkbox"
+                              checked={checked}
+                              onChange={() => {
+                                setFormData({
+                                  ...formData,
+                                  targetAreas: checked
+                                    ? formData.targetAreas.filter(c => c !== t.value)
+                                    : [...formData.targetAreas, t.value],
+                                });
+                              }}
+                              data-testid={`checkbox-target-${t.value}`}
+                            />
+                            {t.label}
+                          </label>
+                        );
+                      })}
+                    </div>
                   </div>
                   {formData.workoutType !== 'video' && (
                     <div>

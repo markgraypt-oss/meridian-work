@@ -5,13 +5,11 @@ import { useLocation } from "wouter";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
 import { isUnauthorizedError } from "@/lib/authUtils";
 import { apiRequest, queryClient } from "@/lib/queryClient";
-import { Target, Dumbbell, ChevronRight, Plus, Play } from "lucide-react";
+import { Target, Dumbbell, ChevronRight, Plus, Play, Sparkles } from "lucide-react";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import type { Programme } from "@shared/schema";
-import AiBuilderEntry from "@/components/ai/AiBuilderEntry";
-import AiProgrammeWizard from "@/components/admin/AiProgrammeWizard";
 
 type SectionConfig = {
   key: string;
@@ -193,21 +191,23 @@ export function ProgrammesTab() {
   return (
     <>
       <div className="space-y-6">
-        {/* AI Programme Builder — branded entry, opens wizard in user mode */}
-        <AiBuilderEntry
-          kind="programme"
-          title="AI Programme Builder"
-          subtitle="Generate a multi-week programme tailored to your goals and equipment."
-          renderBuilder={({ open, onOpenChange, prompt, sessionKey }) => (
-            <AiProgrammeWizard
-              key={sessionKey}
-              open={open}
-              onOpenChange={onOpenChange}
-              userMode
-              prefill={prompt ? { ...(prompt.prefill || {}), promptBody: prompt.promptBody } : null}
-            />
-          )}
-        />
+        {/* AI Programme Builder — Coming Soon placeholder */}
+        <Card className="border-dashed border-[#0cc9a9]/40 bg-gradient-to-br from-[#0cc9a9]/5 to-transparent">
+          <CardContent className="p-5 flex items-start gap-4">
+            <div className="h-10 w-10 rounded-full bg-[#0cc9a9]/15 flex items-center justify-center flex-shrink-0">
+              <Sparkles className="h-5 w-5 text-[#0cc9a9]" />
+            </div>
+            <div className="flex-1 min-w-0">
+              <div className="flex items-center gap-2 mb-1">
+                <h3 className="text-base font-bold text-foreground">AI Programme Builder</h3>
+                <Badge variant="secondary" className="text-[10px] uppercase tracking-wide">Coming soon</Badge>
+              </div>
+              <p className="text-sm text-muted-foreground">
+                Generate a multi-week programme tailored to your goals and equipment. We're polishing this and will roll it out shortly after launch.
+              </p>
+            </div>
+          </CardContent>
+        </Card>
 
         {/* My Created Programmes */}
         <div className="space-y-3">

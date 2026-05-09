@@ -258,13 +258,21 @@ export default function Onboarding() {
   const [saving, setSaving] = useState(false);
   const [recommendations, setRecommendations] = useState<any>(null);
   const [loadingRecs, setLoadingRecs] = useState(false);
+  const [isRedo, setIsRedo] = useState(false);
+  const [hydrated, setHydrated] = useState(false);
 
   useEffect(() => {
-    if (!isLoading && user) {
-      if (user.onboardingStep && user.onboardingStep > 0 && !user.onboardingCompleted) {
+    if (!isLoading && user && !hydrated) {
+      const alreadyCompleted = !!user.onboardingCompleted;
+      setIsRedo(alreadyCompleted);
+
+      if (user.onboardingStep && user.onboardingStep > 0 && !alreadyCompleted) {
         setCurrentStep(user.onboardingStep);
+      } else if (alreadyCompleted) {
+        setCurrentStep(1);
       }
-      if (user.onboardingData && !user.onboardingCompleted) {
+
+      if (user.onboardingData) {
         setData((prev) => {
           const saved = user.onboardingData as Partial<OnboardingData>;
           return {
@@ -281,8 +289,9 @@ export default function Onboarding() {
           };
         });
       }
+      setHydrated(true);
     }
-  }, [user, isLoading]);
+  }, [user, isLoading, hydrated]);
 
   useEffect(() => {
     window.scrollTo({ top: 0, behavior: "instant" });
@@ -290,6 +299,7 @@ export default function Onboarding() {
 
   const saveProgress = useCallback(
     async (step: number, stepData: object) => {
+      if (isRedo) return;
       setSaving(true);
       try {
         await apiRequest("PATCH", "/api/onboarding/progress", {
@@ -302,7 +312,7 @@ export default function Onboarding() {
         setSaving(false);
       }
     },
-    [],
+    [isRedo],
   );
 
   const fetchRecommendations = useCallback(async () => {

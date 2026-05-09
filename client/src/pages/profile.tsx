@@ -326,15 +326,7 @@ export default function Profile() {
               </Link>
             ) : (
               <button
-                onClick={async () => {
-                  try {
-                    await apiRequest("POST", "/api/onboarding/restart");
-                    await queryClient.invalidateQueries({ queryKey: ["/api/auth/user"] });
-                    navigate("/onboarding");
-                  } catch (e) {
-                    console.error("Failed to restart onboarding", e);
-                  }
-                }}
+                onClick={() => navigate("/onboarding")}
                 className="w-full px-6 py-4 flex items-center justify-between hover:bg-muted transition-colors"
               >
                 <div className="flex items-center gap-3">

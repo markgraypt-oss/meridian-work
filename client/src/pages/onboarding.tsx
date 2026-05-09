@@ -405,6 +405,19 @@ export default function Onboarding() {
 
 
   const saveAndExit = async () => {
+    if (isRedo) {
+      setSaving(true);
+      try {
+        await apiRequest("POST", "/api/onboarding/complete", { data });
+        await queryClient.invalidateQueries({ queryKey: ["/api/auth/user"] });
+      } catch (e) {
+        console.error("Failed to save redo onboarding:", e);
+      } finally {
+        setSaving(false);
+      }
+      navigate("/");
+      return;
+    }
     await saveProgress(currentStep, data);
     navigate("/");
   };

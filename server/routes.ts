@@ -1123,6 +1123,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(404).json({ message: "User not found" });
       }
 
+      const isRedo = !!user.onboardingCompleted;
+
       const existingData = (user.onboardingData as Record<string, any>) || {};
       const mergedData = { ...existingData, ...data };
 
@@ -1157,7 +1159,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       await storage.updateUser(userId, profileUpdates);
 
       const selectedProgramme = mergedData.recommendations?.selectedProgramme || mergedData.selectedProgramme;
-      if (selectedProgramme?.id) {
+      if (!isRedo && selectedProgramme?.id) {
         try {
           const enrollment = await storage.enrollUserInProgram(userId, selectedProgramme.id, new Date(), 'main');
           // Log enrolled event for feedback loop
@@ -1186,7 +1188,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
 
       const selectedPath = mergedData.recommendations?.selectedLearningPath || mergedData.selectedLearningPath;
-      if (selectedPath?.id) {
+      if (!isRedo && selectedPath?.id) {
         try {
           await storage.createUserPathAssignment(userId, selectedPath.id);
         } catch (err) {
@@ -1195,7 +1197,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
 
       const selectedHabit = mergedData.recommendations?.selectedHabit || mergedData.selectedHabit;
-      if (selectedHabit?.id) {
+      if (!isRedo && selectedHabit?.id) {
         try {
           await storage.createHabit({
             userId,
@@ -1213,7 +1215,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         }
       }
 
-      if (mergedData.profile?.weight) {
+      if (!isRedo && mergedData.profile?.weight) {
         try {
           const weightVal = parseFloat(mergedData.profile.weight);
           if (!isNaN(weightVal) && weightVal > 0) {
@@ -1239,7 +1241,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
 
       const weightGoalData = mergedData.recommendations?.weightGoalData;
-      if (weightGoalData?.targetWeight && weightGoalData?.currentWeight) {
+      if (!isRedo && weightGoalData?.targetWeight && weightGoalData?.currentWeight) {
         try {
           const targetW = parseFloat(weightGoalData.targetWeight);
           const currentW = parseFloat(weightGoalData.currentWeight);
@@ -1265,7 +1267,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
 
       const painAreas = mergedData.coaching?.painAreas;
-      if (Array.isArray(painAreas) && painAreas.length > 0) {
+      if (!isRedo && Array.isArray(painAreas) && painAreas.length > 0) {
         const areaToBodyPart: Record<string, string> = {
           head_neck: "Neck",
           shoulders: "Shoulder",

@@ -71,3 +71,9 @@ id = "vxs3H-88w14mgny9wHIIB"
 uri = "file://.local/AI_MOBILE_SPEC.md"
 type = "text"
 title = "AI Mobile Build Spec"
+
+[[outputs]]
+id = "0q-TqOIvLNcDg6SoGM2WN"
+uri = "file://.local/nutrition-ai-breakdown.md"
+type = "text"
+title = "Nutrition AI — Detailed Breakdown for Coder"

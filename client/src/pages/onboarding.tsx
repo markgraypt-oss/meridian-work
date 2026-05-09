@@ -2380,23 +2380,36 @@ function ProgrammePreviewModal({ programId, open, onClose }: { programId: number
     });
   })();
 
-  const groupLetters = "ABCDEFGHIJKLMNOPQRSTUVWXYZ";
+  // Labels follow the same convention as WorkoutCompletionView so users see
+  // the same scheme everywhere:
+  //   Warm up:        A, B, C, ...
+  //   Main singles:   1, 2, 3, ...
+  //   Main grouped:   1A, 1B (then 2A, 2B for the next group)
+  // Numbering restarts between warm up and main; group counters live in the
+  // main section only.
+  const letters = "ABCDEFGHIJKLMNOPQRSTUVWXYZ";
   const labelMap = new Map<number, string[]>();
-  let runningCounter = 0;
-  let groupCounter = 0;
+  let warmupExerciseIdx = 0;
+  let mainBlockNumber = 0;
   sortedBlocks.forEach((block: any, bi: number) => {
     const exs = (block.exercises || []).filter((e: any) => !e.isRest);
-    const isGroup = block.blockType === "superset" || block.blockType === "triset" || block.blockType === "circuit";
-    if (isGroup && exs.length > 1) {
-      const letter = groupLetters[groupCounter % groupLetters.length];
-      groupCounter++;
-      labelMap.set(bi, exs.map((_: any, i: number) => `${letter}${i + 1}`));
-      runningCounter += exs.length;
-    } else {
+    if (exs.length === 0) {
+      labelMap.set(bi, []);
+      return;
+    }
+    if (block.section === "warmup") {
       labelMap.set(bi, exs.map(() => {
-        runningCounter++;
-        return String(runningCounter);
+        const label = letters[warmupExerciseIdx % letters.length];
+        warmupExerciseIdx++;
+        return label;
       }));
+    } else {
+      mainBlockNumber++;
+      if (exs.length > 1) {
+        labelMap.set(bi, exs.map((_: any, i: number) => `${mainBlockNumber}${letters[i % letters.length]}`));
+      } else {
+        labelMap.set(bi, [String(mainBlockNumber)]);
+      }
     }
   });
 
@@ -2446,18 +2459,54 @@ function ProgrammePreviewModal({ programId, open, onClose }: { programId: number
               </div>
             ) : (
               <div>
-                <div className="px-5 pt-4 pb-2 flex items-center justify-between">
-                  <h4 className="text-sm font-semibold text-foreground">Week 1 Workouts</h4>
-                  <span className="text-xs text-muted-foreground">{currentWorkoutIdx + 1} of {workouts.length}</span>
+                <div className="px-5 pt-4 pb-2">
+                  <h4 className="text-sm font-semibold text-foreground">Sessions</h4>
+                  <p className="text-xs text-muted-foreground mt-0.5">
+                    Each session repeats with progressive overload across the {preview.weeks || ""} weeks.
+                  </p>
                 </div>
+
+                {workouts.length > 1 && (
+                  <div className="px-5 pb-3 flex items-center gap-2">
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => setCurrentWorkoutIdx(Math.max(0, currentWorkoutIdx - 1))}
+                      disabled={currentWorkoutIdx === 0}
+                      className="h-9 w-9 p-0 shrink-0"
+                      aria-label="Previous session"
+                    >
+                      <ChevronLeft className="w-4 h-4" />
+                    </Button>
+                    <div className="flex-1 text-center">
+                      <p className="text-sm font-semibold text-foreground leading-tight">
+                        {currentWorkout?.name || `Session ${currentWorkoutIdx + 1}`}
+                      </p>
+                      <p className="text-[11px] text-muted-foreground">
+                        Session {currentWorkoutIdx + 1} of {workouts.length}
+                      </p>
+                    </div>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => setCurrentWorkoutIdx(Math.min(workouts.length - 1, currentWorkoutIdx + 1))}
+                      disabled={currentWorkoutIdx === workouts.length - 1}
+                      className="h-9 w-9 p-0 shrink-0"
+                      aria-label="Next session"
+                    >
+                      <ChevronRight className="w-4 h-4" />
+                    </Button>
+                  </div>
+                )}
 
                 <div className="flex justify-center gap-1.5 pb-3">
                   {workouts.map((_: any, i: number) => (
                     <button
                       key={i}
                       onClick={() => setCurrentWorkoutIdx(i)}
+                      aria-label={`Go to session ${i + 1}`}
                       className={`h-1.5 rounded-full transition-all ${
-                        i === currentWorkoutIdx ? "w-6 bg-[#0cc9a9]" : "w-1.5 bg-muted-foreground/30"
+                        i === currentWorkoutIdx ? "w-6 bg-[#0cc9a9]" : "w-1.5 bg-muted-foreground/30 hover:bg-muted-foreground/60"
                       }`}
                     />
                   ))}
@@ -2471,20 +2520,18 @@ function ProgrammePreviewModal({ programId, open, onClose }: { programId: number
                 >
                   {currentWorkout && (
                     <div className="bg-card border border-border rounded-xl overflow-hidden">
-                      <div className="p-4 border-b border-border">
-                        <div className="flex items-center justify-between">
-                          <h5 className="font-semibold text-foreground">{currentWorkout.name}</h5>
-                          <span className="text-xs text-muted-foreground">Workout {currentWorkoutIdx + 1}</span>
-                        </div>
-                        {currentWorkout.description && (
-                          <p className="text-muted-foreground text-xs mt-1">{currentWorkout.description}</p>
-                        )}
-                        <div className="flex gap-2 mt-2">
+                      {(currentWorkout.description || currentWorkout.category) && (
+                        <div className="p-4 border-b border-border">
+                          {currentWorkout.description && (
+                            <p className="text-muted-foreground text-xs">{currentWorkout.description}</p>
+                          )}
                           {currentWorkout.category && (
-                            <span className="text-xs bg-muted text-muted-foreground px-1.5 py-0.5 rounded capitalize">{currentWorkout.category}</span>
+                            <div className="flex gap-2 mt-2">
+                              <span className="text-xs bg-muted text-muted-foreground px-1.5 py-0.5 rounded capitalize">{currentWorkout.category}</span>
+                            </div>
                           )}
                         </div>
-                      </div>
+                      )}
 
                       <div className="divide-y divide-border">
                         {sortedBlocks.map((block: any, bi: number) => {
@@ -2553,26 +2600,6 @@ function ProgrammePreviewModal({ programId, open, onClose }: { programId: number
                     </div>
                   )}
 
-                  {workouts.length > 1 && (
-                    <div className="flex items-center justify-between mt-3">
-                      <button
-                        onClick={() => setCurrentWorkoutIdx(Math.max(0, currentWorkoutIdx - 1))}
-                        disabled={currentWorkoutIdx === 0}
-                        className="flex items-center gap-1 text-xs text-muted-foreground disabled:opacity-30 hover:text-foreground transition-colors"
-                      >
-                        <ChevronLeft className="w-4 h-4" />
-                        Previous
-                      </button>
-                      <button
-                        onClick={() => setCurrentWorkoutIdx(Math.min(workouts.length - 1, currentWorkoutIdx + 1))}
-                        disabled={currentWorkoutIdx === workouts.length - 1}
-                        className="flex items-center gap-1 text-xs text-muted-foreground disabled:opacity-30 hover:text-foreground transition-colors"
-                      >
-                        Next
-                        <ChevronRight className="w-4 h-4" />
-                      </button>
-                    </div>
-                  )}
                 </div>
               </div>
             )}

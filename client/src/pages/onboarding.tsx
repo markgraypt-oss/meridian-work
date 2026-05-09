@@ -2339,14 +2339,69 @@ function ProgrammePreviewModal({ programId, open, onClose }: { programId: number
     return map[env] || env;
   };
 
-  const formatSets = (sets: any) => {
-    if (!sets || !Array.isArray(sets)) return "";
-    return sets.map((s: any, i: number) => {
-      const reps = s.reps || s.duration || "";
-      const rest = s.rest || "";
-      return `${reps}${rest ? ` / ${rest} rest` : ""}`;
-    }).join(", ");
+  const formatSetsSummary = (ex: any): string => {
+    const sets = ex?.sets;
+    if (!Array.isArray(sets) || sets.length === 0) {
+      return ex?.sets ? String(ex.sets) : "";
+    }
+    const count = sets.length;
+    const isTimer = ex?.durationType === "timer";
+    const values = sets.map((s: any) => {
+      if (isTimer || (!s?.reps && s?.duration)) {
+        const dur = s?.duration ?? s?.reps ?? "";
+        return dur ? `${dur}${/\d$/.test(String(dur)) ? " sec" : ""}` : "";
+      }
+      return s?.reps != null ? String(s.reps) : "";
+    }).filter(Boolean);
+    const allSame = values.length > 0 && values.every((v) => v === values[0]);
+    if (allSame) return `${count} × ${values[0]}`;
+    return values.length ? `${count} sets: ${values.join(", ")}` : `${count} sets`;
   };
+
+  const setsRest = (ex: any): string => {
+    const sets = ex?.sets;
+    if (!Array.isArray(sets) || sets.length === 0) return "";
+    const rests = sets
+      .map((s: any) => (s?.rest ? String(s.rest) : ""))
+      .filter((r: string) => r && r !== "No Rest");
+    if (rests.length === 0) return "";
+    const allSame = rests.every((r: string) => r === rests[0]);
+    if (allSame) return rests[0];
+    return rests.join("/");
+  };
+
+  const sortedBlocks = (() => {
+    const blocks = (workouts[currentWorkoutIdx]?.blocks || []) as any[];
+    return [...blocks].sort((a, b) => {
+      const aw = a.section === "warmup" ? 0 : 1;
+      const bw = b.section === "warmup" ? 0 : 1;
+      if (aw !== bw) return aw - bw;
+      return (a.position ?? 0) - (b.position ?? 0);
+    });
+  })();
+
+  const groupLetters = "ABCDEFGHIJKLMNOPQRSTUVWXYZ";
+  const labelMap = new Map<number, string[]>();
+  let runningCounter = 0;
+  let groupCounter = 0;
+  sortedBlocks.forEach((block: any, bi: number) => {
+    const exs = (block.exercises || []).filter((e: any) => !e.isRest);
+    const isGroup = block.blockType === "superset" || block.blockType === "triset" || block.blockType === "circuit";
+    if (isGroup && exs.length > 1) {
+      const letter = groupLetters[groupCounter % groupLetters.length];
+      groupCounter++;
+      labelMap.set(bi, exs.map((_: any, i: number) => `${letter}${i + 1}`));
+      runningCounter += exs.length;
+    } else {
+      labelMap.set(bi, exs.map(() => {
+        runningCounter++;
+        return String(runningCounter);
+      }));
+    }
+  });
+
+  const firstMainIdx = sortedBlocks.findIndex((b: any) => b.section !== "warmup");
+  const firstWarmupIdx = sortedBlocks.findIndex((b: any) => b.section === "warmup");
 
   const currentWorkout = workouts[currentWorkoutIdx];
 
@@ -2432,48 +2487,63 @@ function ProgrammePreviewModal({ programId, open, onClose }: { programId: number
                       </div>
 
                       <div className="divide-y divide-border">
-                        {(currentWorkout.blocks || []).map((block: any, bi: number) => {
+                        {sortedBlocks.map((block: any, bi: number) => {
                           const isWarmup = block.section === "warmup";
                           const blockLabel = block.blockType === "superset" ? "Superset" : block.blockType === "triset" ? "Triset" : block.blockType === "circuit" ? "Circuit" : null;
+                          const labels = labelMap.get(bi) || [];
+                          const visibleExercises = (block.exercises || []).filter((e: any) => !e.isRest);
 
                           return (
                             <div key={bi}>
-                              {isWarmup && bi === 0 && (
+                              {bi === firstWarmupIdx && firstWarmupIdx !== -1 && (
                                 <div className="px-4 pt-3 pb-1">
                                   <span className="text-xs font-semibold text-[#0cc9a9] uppercase tracking-wide">Warm Up</span>
                                 </div>
                               )}
-                              {!isWarmup && (currentWorkout.blocks || []).findIndex((b: any) => b.section !== "warmup") === bi && (
+                              {bi === firstMainIdx && firstMainIdx !== -1 && (
                                 <div className="px-4 pt-3 pb-1">
                                   <span className="text-xs font-semibold text-[#0cc9a9] uppercase tracking-wide">Main</span>
                                 </div>
                               )}
-                              {blockLabel && (
+                              {blockLabel && visibleExercises.length > 1 && (
                                 <div className="px-4 pt-2">
                                   <span className="text-[10px] bg-[#0cc9a9]/10 text-[#0cc9a9] px-2 py-0.5 rounded-full font-medium">{blockLabel}</span>
                                 </div>
                               )}
-                              {(block.exercises || []).map((ex: any, ei: number) => (
-                                <div key={ei} className="flex items-center gap-3 px-4 py-2.5">
-                                  {ex.imageUrl ? (
-                                    <img src={ex.imageUrl} alt={ex.name} className="w-9 h-9 rounded-lg object-cover shrink-0" />
-                                  ) : (
-                                    <div className="w-9 h-9 rounded-lg bg-muted flex items-center justify-center shrink-0">
-                                      <Dumbbell className="w-4 h-4 text-muted-foreground" />
+                              {visibleExercises.map((ex: any, ei: number) => {
+                                const summary = formatSetsSummary(ex);
+                                const perSetRest = setsRest(ex);
+                                const blockRest = block.rest && block.rest !== "No Rest" ? String(block.rest) : "";
+                                const restStr = perSetRest || blockRest;
+                                const meta: string[] = [];
+                                if (summary) meta.push(summary);
+                                if (restStr) meta.push(`${restStr} rest`);
+                                if (ex.load) meta.push(ex.load);
+                                if (ex.tempo) meta.push(`tempo ${ex.tempo}`);
+                                return (
+                                  <div key={ei} className="flex items-start gap-3 px-4 py-2.5">
+                                    <span className="shrink-0 inline-flex items-center justify-center min-w-[28px] h-7 px-1.5 rounded-md bg-muted text-[11px] font-semibold text-foreground">
+                                      {labels[ei] || ""}
+                                    </span>
+                                    {ex.imageUrl ? (
+                                      <img src={ex.imageUrl} alt={ex.name} className="w-9 h-9 rounded-lg object-cover shrink-0" />
+                                    ) : (
+                                      <div className="w-9 h-9 rounded-lg bg-muted flex items-center justify-center shrink-0">
+                                        <Dumbbell className="w-4 h-4 text-muted-foreground" />
+                                      </div>
+                                    )}
+                                    <div className="flex-1 min-w-0">
+                                      <p className="text-sm font-medium text-foreground truncate">{ex.name}</p>
+                                      {meta.length > 0 && (
+                                        <p className="text-xs text-muted-foreground">{meta.join(" · ")}</p>
+                                      )}
                                     </div>
-                                  )}
-                                  <div className="flex-1 min-w-0">
-                                    <p className="text-sm font-medium text-foreground truncate">{ex.name}</p>
-                                    <p className="text-xs text-muted-foreground">
-                                      {Array.isArray(ex.sets) ? `${ex.sets.length} sets` : ex.sets || ""}
-                                      {ex.tempo ? ` | ${ex.tempo}` : ""}
-                                    </p>
                                   </div>
-                                </div>
-                              ))}
-                              {block.rest && (
+                                );
+                              })}
+                              {block.rest && block.rest !== "No Rest" && visibleExercises.length > 1 && (
                                 <div className="px-4 pb-2">
-                                  <span className="text-[10px] text-muted-foreground">Rest: {block.rest}</span>
+                                  <span className="text-[10px] text-muted-foreground">Rest between sets: {block.rest}</span>
                                 </div>
                               )}
                             </div>

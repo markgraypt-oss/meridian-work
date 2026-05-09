@@ -2950,8 +2950,14 @@ export async function registerRoutes(app: Express): Promise<Server> {
         for (const workout of dayWorkouts) {
           const blocks = await storage.getProgrammeWorkoutBlocks(workout.id);
 
+          const sortedBlocks = [...blocks].sort((a: any, b: any) => {
+            const aWarm = a.section === "warmup" ? 0 : 1;
+            const bWarm = b.section === "warmup" ? 0 : 1;
+            if (aWarm !== bWarm) return aWarm - bWarm;
+            return (a.position ?? 0) - (b.position ?? 0);
+          });
           const enrichedBlocks = [];
-          for (const block of blocks) {
+          for (const block of sortedBlocks) {
             const exercises = block.exercises || [];
             const enrichedExercises = [];
             for (const ex of exercises) {

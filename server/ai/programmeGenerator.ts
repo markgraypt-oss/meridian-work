@@ -283,6 +283,7 @@ function buildProgrammePrompt(inputs: ProgrammeInputs, catalogueText: string, we
   ]}]
 }`,
     `Each week must contain exactly ${inputs.daysPerWeek} day entries (no rest days). Keep each workout near ${inputs.sessionDuration} minutes total. Across weeks, vary load/reps to drive progression.`,
+    `Within each workout, list ALL warm-up blocks (section: "warmup") FIRST, before any main blocks (section: "main"). Do not interleave warm-up and main blocks.`,
   ].filter(Boolean).join("\n");
 }
 

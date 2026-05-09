@@ -1324,7 +1324,16 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const allPaths = await storage.getLearningPaths();
       const allHabitTemplates = await storage.getHabitTemplates();
 
-      const activePrograms = allPrograms.filter((p: any) => p.isActive !== false);
+      // Onboarding's "Choose your programme" step is for picking a main training
+      // programme. Supplementary/recovery/stretching/corrective programmes are
+      // surfaced contextually elsewhere (e.g. from body map flags) and must not
+      // leak into this slot — their descriptions assume context the user hasn't
+      // provided yet.
+      const activePrograms = allPrograms.filter((p: any) => {
+        if (p.isActive === false) return false;
+        const type = (p.programmeType || p.programme_type || 'main').toLowerCase();
+        return type === 'main';
+      });
       const activePaths = allPaths.filter((p: any) => p.isActive !== false);
       const activeHabits = allHabitTemplates.filter((h: any) => h.isActive !== false);
 

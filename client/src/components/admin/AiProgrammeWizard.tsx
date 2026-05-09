@@ -31,6 +31,40 @@ export interface AiProgrammePrefill {
 
 // Quick-option chips: tapping a chip toggles its phrase in the prompt
 // textarea. The prompt remains the single source of truth that gets sent.
+const EQUIPMENT_CHIPS: Array<{ label: string; phrase: string }> = [
+  { label: "Full gym", phrase: "full gym access" },
+  { label: "Home gym", phrase: "home gym setup" },
+  { label: "Bodyweight", phrase: "bodyweight only" },
+  { label: "Dumbbells", phrase: "with dumbbells" },
+  { label: "Kettlebell", phrase: "with a kettlebell" },
+  { label: "Bands", phrase: "with resistance bands" },
+];
+const GOAL_CHIPS: Array<{ label: string; phrase: string }> = [
+  { label: "General strength", phrase: "general strength" },
+  { label: "Hypertrophy", phrase: "hypertrophy" },
+  { label: "Max strength", phrase: "max strength" },
+  { label: "Power", phrase: "power" },
+  { label: "Conditioning", phrase: "conditioning" },
+  { label: "Endurance", phrase: "muscular endurance" },
+  { label: "Mobility", phrase: "mobility and stretching" },
+];
+const DIFFICULTY_CHIPS: Array<{ label: string; phrase: string }> = [
+  { label: "Beginner", phrase: "beginner level" },
+  { label: "Intermediate", phrase: "intermediate level" },
+  { label: "Advanced", phrase: "advanced level" },
+];
+const LENGTH_CHIPS: Array<{ label: string; phrase: string }> = [
+  { label: "2 weeks", phrase: "2 weeks" },
+  { label: "4 weeks", phrase: "4 weeks" },
+  { label: "6 weeks", phrase: "6 weeks" },
+  { label: "8 weeks", phrase: "8 weeks" },
+];
+const FREQUENCY_CHIPS: Array<{ label: string; phrase: string }> = [
+  { label: "2 days/week", phrase: "2 days a week" },
+  { label: "3 days/week", phrase: "3 days a week" },
+  { label: "4 days/week", phrase: "4 days a week" },
+  { label: "5 days/week", phrase: "5 days a week" },
+];
 const FOCUS_CHIPS: Array<{ label: string; phrase: string }> = [
   { label: "Full body", phrase: "full body focus" },
   { label: "Upper body", phrase: "upper body focus" },
@@ -55,11 +89,63 @@ const AVOID_CHIPS: Array<{ label: string; phrase: string }> = [
 ];
 
 const PLACEHOLDERS = [
-  "e.g. emphasise glutes, mostly compound lifts, no jumping",
-  "e.g. push/pull/legs split, hard sessions, 60 min each",
-  "e.g. circuits 3x a week, easy on the lower back",
-  "e.g. build strength + a bit of conditioning, full gym",
+  "e.g. 4 week glutes programme, 3 days a week, full gym, 60 min sessions",
+  "e.g. push/pull/legs split, 6 weeks, hard sessions, 60 min each",
+  "e.g. 3 day circuit programme, easy on the lower back, dumbbells only",
+  "e.g. build strength and a bit of conditioning, intermediate, 4 weeks",
 ];
+
+// Parse programme dimensions from the user's prompt. Each parser returns
+// undefined when nothing relevant was mentioned, so the caller can fall back
+// to defaults (4 weeks, 3 days/week, 45 min, general_strength, full_gym,
+// intermediate).
+function parseWeeks(text: string): number | undefined {
+  const m = text.match(/(\d+)\s*weeks?\b/i);
+  if (!m) return undefined;
+  return Math.max(1, Math.min(8, parseInt(m[1], 10)));
+}
+function parseDaysPerWeek(text: string): number | undefined {
+  const m = text.match(/(\d+)\s*(?:x|times|days?)\s*(?:a|per|\/)?\s*week\b/i);
+  if (!m) return undefined;
+  return Math.max(1, Math.min(7, parseInt(m[1], 10)));
+}
+function parseDuration(text: string): number | undefined {
+  const minMatch = text.match(/(\d+)\s*(?:min|minute|mins|minutes)\b/i);
+  const hourMatch = text.match(/(\d+(?:\.\d+)?)\s*(?:h|hr|hrs|hour|hours)\b/i);
+  let v: number | undefined;
+  if (minMatch) v = parseInt(minMatch[1], 10);
+  else if (hourMatch) v = Math.round(parseFloat(hourMatch[1]) * 60);
+  if (v === undefined) return undefined;
+  return Math.max(10, Math.min(180, v));
+}
+function parseGoal(text: string): string | undefined {
+  const t = text.toLowerCase();
+  if (/\bhypertrophy\b|\bmuscle (gain|growth|building)\b/.test(t)) return "hypertrophy";
+  if (/\bmax(imal)? strength\b|\bpowerlifting\b/.test(t)) return "max_strength";
+  if (/\bpower\b|\bexplosive\b/.test(t)) return "power";
+  if (/\bhiit\b/.test(t)) return "hiit";
+  if (/\bconditioning\b|\bcardio\b/.test(t)) return "conditioning";
+  if (/\bendurance\b/.test(t)) return "muscular_endurance";
+  if (/\bmobility\b|\bstretch/.test(t)) return "mobility_stretching";
+  if (/\bcorrective\b|\brehab\b/.test(t)) return "corrective";
+  if (/\brecovery\b/.test(t)) return "active_recovery";
+  if (/\bstrength\b/.test(t)) return "general_strength";
+  return undefined;
+}
+function parseEquipment(text: string): string | undefined {
+  const t = text.toLowerCase();
+  if (/\bbodyweight\b|\bno equipment\b/.test(t)) return "bodyweight";
+  if (/\bhome gym\b|\bat home\b/.test(t)) return "home_gym";
+  if (/\bfull gym\b|\bcommercial gym\b|\bgym access\b/.test(t)) return "full_gym";
+  return undefined;
+}
+function parseDifficulty(text: string): string | undefined {
+  const t = text.toLowerCase();
+  if (/\badvanced\b|\bexperienced\b/.test(t)) return "advanced";
+  if (/\bbeginner\b|\bnew to\b|\bnovice\b/.test(t)) return "beginner";
+  if (/\bintermediate\b/.test(t)) return "intermediate";
+  return undefined;
+}
 
 interface Props {
   open: boolean;
@@ -119,39 +205,35 @@ export default function AiProgrammeWizard({ open, onOpenChange, defaultProgramme
   const { toast } = useToast();
   const [, navigate] = useLocation();
 
-  // Compose any prefill prose into the single prompt textarea.
+  // Compose any prefill into the single prompt textarea. We fold structured
+  // prefill fields (goal, equipment, etc.) into natural-language phrases so
+  // the prompt is the one source of truth shown to the user.
   const composeInitialPrompt = (p?: AiProgrammePrefill | null): string => {
     if (!p) return "";
     if (p.promptBody) return p.promptBody;
     const parts: string[] = [];
     if (p.notes) parts.push(p.notes);
+    if (p.weeks) parts.push(`${p.weeks} weeks`);
+    if (p.daysPerWeek) parts.push(`${p.daysPerWeek} days a week`);
+    if (p.sessionDuration) parts.push(`${p.sessionDuration} minute sessions`);
+    if (p.goal && p.goal !== "general_strength") parts.push(p.goal.replace(/_/g, " "));
+    if (p.equipment && p.equipment !== "full_gym") parts.push(p.equipment.replace(/_/g, " "));
+    if (p.difficulty && p.difficulty !== "intermediate") parts.push(`${p.difficulty} level`);
     if (p.audience) parts.push(`audience: ${p.audience}`);
     if (p.contraindications) parts.push(`avoid ${p.contraindications}`);
     return parts.join(", ");
   };
 
-  const [goal, setGoal] = useState(prefill?.goal || "general_strength");
-  const [equipment, setEquipment] = useState(prefill?.equipment || "full_gym");
-  const [weeks, setWeeks] = useState(prefill?.weeks ?? 4);
-  const [daysPerWeek, setDaysPerWeek] = useState(prefill?.daysPerWeek ?? 3);
-  const [sessionDuration, setSessionDuration] = useState(prefill?.sessionDuration ?? 45);
-  const [difficulty, setDifficulty] = useState(prefill?.difficulty || "beginner");
   const [prompt, setPrompt] = useState(composeInitialPrompt(prefill));
   const [showOptions, setShowOptions] = useState(false);
   const [placeholder] = useState(() => PLACEHOLDERS[Math.floor(Math.random() * PLACEHOLDERS.length)]);
   const promptRef = useRef<HTMLTextAreaElement>(null);
   const [targetUserId, setTargetUserId] = useState<string>("__none__");
 
-  // Sync form fields when prefill changes (prompt-library re-pick) and dialog
-  // is currently closed — avoids clobbering edits the user is mid-typing.
+  // Refresh the prompt when a fresh prefill arrives and the dialog is closed,
+  // mirroring the workout-builder pattern.
   useEffect(() => {
     if (!prefill || open) return;
-    if (prefill.goal) setGoal(prefill.goal);
-    if (prefill.equipment) setEquipment(prefill.equipment);
-    if (typeof prefill.weeks === "number") setWeeks(prefill.weeks);
-    if (typeof prefill.daysPerWeek === "number") setDaysPerWeek(prefill.daysPerWeek);
-    if (typeof prefill.sessionDuration === "number") setSessionDuration(prefill.sessionDuration);
-    if (prefill.difficulty) setDifficulty(prefill.difficulty);
     setPrompt(composeInitialPrompt(prefill));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [prefill, open]);
@@ -210,22 +292,27 @@ export default function AiProgrammeWizard({ open, onOpenChange, defaultProgramme
 
   const generate = useMutation({
     mutationFn: async () => {
-      // Pull a duration out of the prompt ("60 min sessions", "45 minute
-      // workouts", "1 hour"). If the user mentioned one, it overrides the
-      // structured Session duration field. Otherwise we use the field, which
-      // defaults to 45 min — within the 45 to 60 minute target band.
+      // The prompt is the source of truth. Pull every dimension out of it,
+      // falling back to sensible defaults when the user didn't say:
+      //   weeks: 4, days/week: 3, session: 45 min (in the 45-60 min target
+      //   band), goal: general_strength, equipment: full_gym, difficulty:
+      //   intermediate. Workout style defaults to regular unless the prompt
+      //   asks for circuit / interval / HIIT.
       const promptText = prompt.trim();
-      const minMatch = promptText.match(/(\d+)\s*(?:min|minute|mins|minutes)\b/i);
-      const hourMatch = promptText.match(/(\d+(?:\.\d+)?)\s*(?:h|hr|hrs|hour|hours)\b/i);
-      let resolvedDuration = sessionDuration;
-      if (minMatch) resolvedDuration = parseInt(minMatch[1], 10);
-      else if (hourMatch) resolvedDuration = Math.round(parseFloat(hourMatch[1]) * 60);
-      resolvedDuration = Math.max(10, Math.min(180, resolvedDuration));
+      const resolvedWeeks = parseWeeks(promptText) ?? 4;
+      const resolvedDays = parseDaysPerWeek(promptText) ?? 3;
+      const resolvedDuration = parseDuration(promptText) ?? 45;
+      const resolvedGoal = parseGoal(promptText) ?? "general_strength";
+      const resolvedEquipment = parseEquipment(promptText) ?? "full_gym";
+      const resolvedDifficulty = parseDifficulty(promptText) ?? "intermediate";
 
       const res = await apiRequest("POST", "/api/ai/programmes/generate", {
-        goal, equipment, weeks, daysPerWeek,
+        goal: resolvedGoal,
+        equipment: resolvedEquipment,
+        weeks: resolvedWeeks,
+        daysPerWeek: resolvedDays,
         sessionDuration: resolvedDuration,
-        difficulty,
+        difficulty: resolvedDifficulty,
         notes: promptText || undefined,
         programmeType: defaultProgrammeType,
         targetUserId: targetUserId !== "__none__" ? targetUserId : undefined,
@@ -356,70 +443,66 @@ export default function AiProgrammeWizard({ open, onOpenChange, defaultProgramme
 
         {!preview ? (
           <div className="space-y-4 py-2">
-            <div className="grid grid-cols-2 gap-4">
-              <div className="space-y-2">
-                <Label htmlFor="ai-goal">Goal</Label>
-                <Select value={goal} onValueChange={setGoal}>
-                  <SelectTrigger id="ai-goal" data-testid="select-ai-goal"><SelectValue /></SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="general_strength">General strength</SelectItem>
-                    <SelectItem value="hypertrophy">Hypertrophy</SelectItem>
-                    <SelectItem value="max_strength">Max strength</SelectItem>
-                    <SelectItem value="power">Power</SelectItem>
-                    <SelectItem value="conditioning">Conditioning</SelectItem>
-                    <SelectItem value="hiit">HIIT</SelectItem>
-                    <SelectItem value="muscular_endurance">Muscular endurance</SelectItem>
-                    <SelectItem value="active_recovery">Active recovery</SelectItem>
-                    <SelectItem value="mobility_stretching">Mobility / stretching</SelectItem>
-                    <SelectItem value="corrective">Corrective</SelectItem>
-                  </SelectContent>
-                </Select>
+            <Textarea
+              ref={promptRef}
+              value={prompt}
+              onChange={(e) => setPrompt(e.target.value)}
+              placeholder={placeholder}
+              rows={5}
+              className="text-sm resize-none"
+              data-testid="textarea-ai-prompt"
+            />
+
+            <button
+              type="button"
+              onClick={() => setShowOptions(v => !v)}
+              className="flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground transition-colors"
+              data-testid="button-toggle-quick-options"
+            >
+              {showOptions ? <ChevronUp className="h-3 w-3" /> : <ChevronDown className="h-3 w-3" />}
+              Quick options
+            </button>
+
+            {showOptions && (
+              <div className="space-y-3 rounded-lg border border-border bg-muted/20 p-3">
+                <div className="space-y-1.5">
+                  <p className="text-[10px] uppercase tracking-wide text-muted-foreground">Length</p>
+                  {renderChipRow(LENGTH_CHIPS)}
+                </div>
+                <div className="space-y-1.5">
+                  <p className="text-[10px] uppercase tracking-wide text-muted-foreground">Frequency</p>
+                  {renderChipRow(FREQUENCY_CHIPS)}
+                </div>
+                <div className="space-y-1.5">
+                  <p className="text-[10px] uppercase tracking-wide text-muted-foreground">Goal</p>
+                  {renderChipRow(GOAL_CHIPS)}
+                </div>
+                <div className="space-y-1.5">
+                  <p className="text-[10px] uppercase tracking-wide text-muted-foreground">Equipment</p>
+                  {renderChipRow(EQUIPMENT_CHIPS)}
+                </div>
+                <div className="space-y-1.5">
+                  <p className="text-[10px] uppercase tracking-wide text-muted-foreground">Difficulty</p>
+                  {renderChipRow(DIFFICULTY_CHIPS)}
+                </div>
+                <div className="space-y-1.5">
+                  <p className="text-[10px] uppercase tracking-wide text-muted-foreground">Focus area</p>
+                  {renderChipRow(FOCUS_CHIPS)}
+                </div>
+                <div className="space-y-1.5">
+                  <p className="text-[10px] uppercase tracking-wide text-muted-foreground">Workout style</p>
+                  {renderChipRow(STYLE_CHIPS)}
+                </div>
+                <div className="space-y-1.5">
+                  <p className="text-[10px] uppercase tracking-wide text-muted-foreground">Avoid</p>
+                  {renderChipRow(AVOID_CHIPS)}
+                </div>
               </div>
-              <div className="space-y-2">
-                <Label htmlFor="ai-equipment">Equipment</Label>
-                <Select value={equipment} onValueChange={setEquipment}>
-                  <SelectTrigger id="ai-equipment" data-testid="select-ai-equipment"><SelectValue /></SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="full_gym">Full gym</SelectItem>
-                    <SelectItem value="home_gym">Home gym</SelectItem>
-                    <SelectItem value="bodyweight">Bodyweight</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="ai-difficulty">Difficulty</Label>
-                <Select value={difficulty} onValueChange={setDifficulty}>
-                  <SelectTrigger id="ai-difficulty" data-testid="select-ai-difficulty"><SelectValue /></SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="beginner">Beginner</SelectItem>
-                    <SelectItem value="intermediate">Intermediate</SelectItem>
-                    <SelectItem value="advanced">Advanced</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="ai-weeks">Weeks</Label>
-                <Input id="ai-weeks" type="number" min={1} max={8} value={weeks}
-                  onChange={(e) => setWeeks(Math.max(1, Math.min(8, parseInt(e.target.value, 10) || 1)))}
-                  data-testid="input-ai-weeks" />
-                <p className="text-[11px] text-muted-foreground mt-1">Max 8 weeks per generation. Clone & extend after to go longer.</p>
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="ai-days">Training days / week</Label>
-                <Input id="ai-days" type="number" min={1} max={7} value={daysPerWeek}
-                  onChange={(e) => setDaysPerWeek(parseInt(e.target.value, 10) || 1)}
-                  data-testid="input-ai-days" />
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="ai-duration">Session duration (min)</Label>
-                <Input id="ai-duration" type="number" min={10} max={180} value={sessionDuration}
-                  onChange={(e) => setSessionDuration(parseInt(e.target.value, 10) || 10)}
-                  data-testid="input-ai-duration" />
-              </div>
-            </div>
+            )}
+
             {!userMode && (
-              <div className="space-y-2">
-                <Label htmlFor="ai-target-user">Target user (optional)</Label>
+              <div className="space-y-2 pt-2 border-t border-border">
+                <Label htmlFor="ai-target-user" className="text-xs text-muted-foreground">Target user (optional)</Label>
                 <Select value={targetUserId} onValueChange={setTargetUserId}>
                   <SelectTrigger id="ai-target-user" data-testid="select-ai-target-user"><SelectValue /></SelectTrigger>
                   <SelectContent>
@@ -433,44 +516,10 @@ export default function AiProgrammeWizard({ open, onOpenChange, defaultProgramme
                 </Select>
               </div>
             )}
-            <div className="space-y-2">
-              <Label htmlFor="ai-prompt">Anything else? (optional)</Label>
-              <Textarea
-                id="ai-prompt"
-                ref={promptRef}
-                value={prompt}
-                onChange={(e) => setPrompt(e.target.value)}
-                placeholder={placeholder}
-                rows={4}
-                className="text-sm resize-none"
-                data-testid="textarea-ai-prompt"
-              />
-              <button
-                type="button"
-                onClick={() => setShowOptions(v => !v)}
-                className="flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground transition-colors"
-                data-testid="button-toggle-quick-options"
-              >
-                {showOptions ? <ChevronUp className="h-3 w-3" /> : <ChevronDown className="h-3 w-3" />}
-                Quick options
-              </button>
-              {showOptions && (
-                <div className="space-y-3 rounded-lg border border-border bg-muted/20 p-3">
-                  <div className="space-y-1.5">
-                    <p className="text-[10px] uppercase tracking-wide text-muted-foreground">Focus area</p>
-                    {renderChipRow(FOCUS_CHIPS)}
-                  </div>
-                  <div className="space-y-1.5">
-                    <p className="text-[10px] uppercase tracking-wide text-muted-foreground">Workout style</p>
-                    {renderChipRow(STYLE_CHIPS)}
-                  </div>
-                  <div className="space-y-1.5">
-                    <p className="text-[10px] uppercase tracking-wide text-muted-foreground">Avoid</p>
-                    {renderChipRow(AVOID_CHIPS)}
-                  </div>
-                </div>
-              )}
-            </div>
+
+            <p className="text-[11px] text-muted-foreground">
+              Up to 8 weeks per generation. Defaults: 4 weeks, 3 days/week, 45 to 60 min sessions, regular workouts.
+            </p>
           </div>
         ) : (
           <div className="space-y-4 py-2" data-testid="ai-preview">

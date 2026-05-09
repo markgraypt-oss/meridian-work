@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useMutation, useQuery } from "@tanstack/react-query";
 import { useLocation } from "wouter";
 import { apiRequest, queryClient } from "@/lib/queryClient";
@@ -11,7 +11,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Loader2, Sparkles, RefreshCw, Plus, Trash2 } from "lucide-react";
+import { Loader2, Sparkles, RefreshCw, Plus, Trash2, ChevronDown, ChevronUp } from "lucide-react";
 import type { ExerciseLibraryItem } from "@shared/schema";
 import AiExercisePicker from "./AiExercisePicker";
 import AiSafetyFlags from "@/components/ai/AiSafetyFlags";
@@ -28,6 +28,38 @@ export interface AiProgrammePrefill {
   contraindications?: string;
   promptBody?: string;
 }
+
+// Quick-option chips: tapping a chip toggles its phrase in the prompt
+// textarea. The prompt remains the single source of truth that gets sent.
+const FOCUS_CHIPS: Array<{ label: string; phrase: string }> = [
+  { label: "Full body", phrase: "full body focus" },
+  { label: "Upper body", phrase: "upper body focus" },
+  { label: "Lower body", phrase: "lower body focus" },
+  { label: "Push", phrase: "push focus" },
+  { label: "Pull", phrase: "pull focus" },
+  { label: "Legs", phrase: "legs focus" },
+  { label: "Glutes", phrase: "glutes focus" },
+  { label: "Core", phrase: "core focus" },
+];
+const STYLE_CHIPS: Array<{ label: string; phrase: string }> = [
+  { label: "Regular", phrase: "regular workouts" },
+  { label: "Circuit", phrase: "circuit style" },
+  { label: "Interval", phrase: "interval style" },
+  { label: "HIIT", phrase: "HIIT style" },
+];
+const AVOID_CHIPS: Array<{ label: string; phrase: string }> = [
+  { label: "No jumping", phrase: "no jumping" },
+  { label: "No overhead", phrase: "no overhead pressing" },
+  { label: "Easy on lower back", phrase: "easy on lower back" },
+  { label: "Easy on knees", phrase: "easy on knees" },
+];
+
+const PLACEHOLDERS = [
+  "e.g. emphasise glutes, mostly compound lifts, no jumping",
+  "e.g. push/pull/legs split, hard sessions, 60 min each",
+  "e.g. circuits 3x a week, easy on the lower back",
+  "e.g. build strength + a bit of conditioning, full gym",
+];
 
 interface Props {
   open: boolean;
@@ -87,15 +119,27 @@ export default function AiProgrammeWizard({ open, onOpenChange, defaultProgramme
   const { toast } = useToast();
   const [, navigate] = useLocation();
 
+  // Compose any prefill prose into the single prompt textarea.
+  const composeInitialPrompt = (p?: AiProgrammePrefill | null): string => {
+    if (!p) return "";
+    if (p.promptBody) return p.promptBody;
+    const parts: string[] = [];
+    if (p.notes) parts.push(p.notes);
+    if (p.audience) parts.push(`audience: ${p.audience}`);
+    if (p.contraindications) parts.push(`avoid ${p.contraindications}`);
+    return parts.join(", ");
+  };
+
   const [goal, setGoal] = useState(prefill?.goal || "general_strength");
   const [equipment, setEquipment] = useState(prefill?.equipment || "full_gym");
   const [weeks, setWeeks] = useState(prefill?.weeks ?? 4);
   const [daysPerWeek, setDaysPerWeek] = useState(prefill?.daysPerWeek ?? 3);
   const [sessionDuration, setSessionDuration] = useState(prefill?.sessionDuration ?? 45);
   const [difficulty, setDifficulty] = useState(prefill?.difficulty || "beginner");
-  const [audience, setAudience] = useState(prefill?.audience || "");
-  const [notes, setNotes] = useState(prefill?.notes || prefill?.promptBody || "");
-  const [contraindicationsText, setContraindicationsText] = useState(prefill?.contraindications || "");
+  const [prompt, setPrompt] = useState(composeInitialPrompt(prefill));
+  const [showOptions, setShowOptions] = useState(false);
+  const [placeholder] = useState(() => PLACEHOLDERS[Math.floor(Math.random() * PLACEHOLDERS.length)]);
+  const promptRef = useRef<HTMLTextAreaElement>(null);
   const [targetUserId, setTargetUserId] = useState<string>("__none__");
 
   // Sync form fields when prefill changes (prompt-library re-pick) and dialog
@@ -108,12 +152,45 @@ export default function AiProgrammeWizard({ open, onOpenChange, defaultProgramme
     if (typeof prefill.daysPerWeek === "number") setDaysPerWeek(prefill.daysPerWeek);
     if (typeof prefill.sessionDuration === "number") setSessionDuration(prefill.sessionDuration);
     if (prefill.difficulty) setDifficulty(prefill.difficulty);
-    if (prefill.audience !== undefined) setAudience(prefill.audience);
-    if (prefill.notes !== undefined || prefill.promptBody !== undefined) {
-      setNotes(prefill.notes ?? prefill.promptBody ?? "");
-    }
-    if (prefill.contraindications !== undefined) setContraindicationsText(prefill.contraindications);
+    setPrompt(composeInitialPrompt(prefill));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [prefill, open]);
+
+  function toggleChip(phrase: string) {
+    setPrompt(prev => {
+      const trimmed = prev.trim();
+      const lower = trimmed.toLowerCase();
+      const phraseLower = phrase.toLowerCase();
+      if (lower.includes(phraseLower)) {
+        const re = new RegExp(`(?:,\\s*)?${phrase.replace(/[.*+?^${}()|[\\]\\\\]/g, "\\$&")}`, "i");
+        return trimmed.replace(re, "").replace(/^,\s*/, "").trim();
+      }
+      return trimmed.length === 0 ? phrase : `${trimmed}, ${phrase}`;
+    });
+    setTimeout(() => promptRef.current?.focus(), 0);
+  }
+  function isChipActive(phrase: string): boolean {
+    return prompt.toLowerCase().includes(phrase.toLowerCase());
+  }
+  const renderChipRow = (chips: typeof FOCUS_CHIPS) => (
+    <div className="flex flex-wrap gap-1.5">
+      {chips.map(c => (
+        <button
+          key={c.label}
+          type="button"
+          onClick={() => toggleChip(c.phrase)}
+          className={`text-xs px-2.5 py-1 rounded-full border transition-colors ${
+            isChipActive(c.phrase)
+              ? "bg-primary/15 border-primary text-primary"
+              : "bg-background border-border text-muted-foreground hover:border-primary/50 hover:text-foreground"
+          }`}
+          data-testid={`chip-programme-${c.label.toLowerCase().replace(/\s/g, "-")}`}
+        >
+          {c.label}
+        </button>
+      ))}
+    </div>
+  );
 
   const [preview, setPreview] = useState<PreviewResponse | null>(null);
   const [activeWeek, setActiveWeek] = useState(0);
@@ -133,14 +210,24 @@ export default function AiProgrammeWizard({ open, onOpenChange, defaultProgramme
 
   const generate = useMutation({
     mutationFn: async () => {
-      const contraindications = contraindicationsText
-        .split(",").map(s => s.trim()).filter(Boolean);
+      // Pull a duration out of the prompt ("60 min sessions", "45 minute
+      // workouts", "1 hour"). If the user mentioned one, it overrides the
+      // structured Session duration field. Otherwise we use the field, which
+      // defaults to 45 min — within the 45 to 60 minute target band.
+      const promptText = prompt.trim();
+      const minMatch = promptText.match(/(\d+)\s*(?:min|minute|mins|minutes)\b/i);
+      const hourMatch = promptText.match(/(\d+(?:\.\d+)?)\s*(?:h|hr|hrs|hour|hours)\b/i);
+      let resolvedDuration = sessionDuration;
+      if (minMatch) resolvedDuration = parseInt(minMatch[1], 10);
+      else if (hourMatch) resolvedDuration = Math.round(parseFloat(hourMatch[1]) * 60);
+      resolvedDuration = Math.max(10, Math.min(180, resolvedDuration));
+
       const res = await apiRequest("POST", "/api/ai/programmes/generate", {
-        goal, equipment, weeks, daysPerWeek, sessionDuration, difficulty,
-        audience: audience || undefined,
-        notes: notes || undefined,
+        goal, equipment, weeks, daysPerWeek,
+        sessionDuration: resolvedDuration,
+        difficulty,
+        notes: promptText || undefined,
         programmeType: defaultProgrammeType,
-        contraindications,
         targetUserId: targetUserId !== "__none__" ? targetUserId : undefined,
       });
       return (await res.json()) as PreviewResponse;
@@ -347,22 +434,42 @@ export default function AiProgrammeWizard({ open, onOpenChange, defaultProgramme
               </div>
             )}
             <div className="space-y-2">
-              <Label htmlFor="ai-audience">Audience (optional)</Label>
-              <Input id="ai-audience" value={audience} onChange={(e) => setAudience(e.target.value)}
-                placeholder="e.g. busy professionals new to lifting"
-                data-testid="input-ai-audience" />
-            </div>
-            <div className="space-y-2">
-              <Label htmlFor="ai-contra">Contraindications (comma separated)</Label>
-              <Input id="ai-contra" value={contraindicationsText} onChange={(e) => setContraindicationsText(e.target.value)}
-                placeholder="e.g. lower back, knees"
-                data-testid="input-ai-contraindications" />
-            </div>
-            <div className="space-y-2">
-              <Label htmlFor="ai-notes">Coach notes (optional)</Label>
-              <Textarea id="ai-notes" value={notes} onChange={(e) => setNotes(e.target.value)}
-                placeholder="e.g. emphasise posterior chain, no jumping"
-                data-testid="textarea-ai-notes" />
+              <Label htmlFor="ai-prompt">Anything else? (optional)</Label>
+              <Textarea
+                id="ai-prompt"
+                ref={promptRef}
+                value={prompt}
+                onChange={(e) => setPrompt(e.target.value)}
+                placeholder={placeholder}
+                rows={4}
+                className="text-sm resize-none"
+                data-testid="textarea-ai-prompt"
+              />
+              <button
+                type="button"
+                onClick={() => setShowOptions(v => !v)}
+                className="flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground transition-colors"
+                data-testid="button-toggle-quick-options"
+              >
+                {showOptions ? <ChevronUp className="h-3 w-3" /> : <ChevronDown className="h-3 w-3" />}
+                Quick options
+              </button>
+              {showOptions && (
+                <div className="space-y-3 rounded-lg border border-border bg-muted/20 p-3">
+                  <div className="space-y-1.5">
+                    <p className="text-[10px] uppercase tracking-wide text-muted-foreground">Focus area</p>
+                    {renderChipRow(FOCUS_CHIPS)}
+                  </div>
+                  <div className="space-y-1.5">
+                    <p className="text-[10px] uppercase tracking-wide text-muted-foreground">Workout style</p>
+                    {renderChipRow(STYLE_CHIPS)}
+                  </div>
+                  <div className="space-y-1.5">
+                    <p className="text-[10px] uppercase tracking-wide text-muted-foreground">Avoid</p>
+                    {renderChipRow(AVOID_CHIPS)}
+                  </div>
+                </div>
+              )}
             </div>
           </div>
         ) : (

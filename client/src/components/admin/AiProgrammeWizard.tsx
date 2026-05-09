@@ -292,12 +292,6 @@ export default function AiProgrammeWizard({ open, onOpenChange, defaultProgramme
 
   const generate = useMutation({
     mutationFn: async () => {
-      // The prompt is the source of truth. Pull every dimension out of it,
-      // falling back to sensible defaults when the user didn't say:
-      //   weeks: 4, days/week: 3, session: 45 min (in the 45-60 min target
-      //   band), goal: general_strength, equipment: full_gym, difficulty:
-      //   intermediate. Workout style defaults to regular unless the prompt
-      //   asks for circuit / interval / HIIT.
       const promptText = prompt.trim();
       const resolvedWeeks = parseWeeks(promptText) ?? 4;
       const resolvedDays = parseDaysPerWeek(promptText) ?? 3;
@@ -306,7 +300,7 @@ export default function AiProgrammeWizard({ open, onOpenChange, defaultProgramme
       const resolvedEquipment = parseEquipment(promptText) ?? "full_gym";
       const resolvedDifficulty = parseDifficulty(promptText) ?? "intermediate";
 
-      const res = await apiRequest("POST", "/api/ai/programmes/generate", {
+      const payload = {
         goal: resolvedGoal,
         equipment: resolvedEquipment,
         weeks: resolvedWeeks,
@@ -316,8 +310,39 @@ export default function AiProgrammeWizard({ open, onOpenChange, defaultProgramme
         notes: promptText || undefined,
         programmeType: defaultProgrammeType,
         targetUserId: targetUserId !== "__none__" ? targetUserId : undefined,
-      });
-      return (await res.json()) as PreviewResponse;
+      };
+
+      console.log("[AiProgrammeWizard] sending /api/ai/programmes/generate", payload);
+      const t0 = Date.now();
+      const ctrl = new AbortController();
+      const timer = setTimeout(() => ctrl.abort(), 180_000);
+      try {
+        const res = await fetch("/api/ai/programmes/generate", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(payload),
+          credentials: "include",
+          signal: ctrl.signal,
+        });
+        const elapsed = Math.round((Date.now() - t0) / 1000);
+        console.log(`[AiProgrammeWizard] response status=${res.status} after ${elapsed}s`);
+        const text = await res.text();
+        if (!res.ok) {
+          let msg = text;
+          try { msg = JSON.parse(text).message || text; } catch {}
+          throw new Error(msg || `${res.status}`);
+        }
+        return JSON.parse(text) as PreviewResponse;
+      } catch (e: any) {
+        const elapsed = Math.round((Date.now() - t0) / 1000);
+        if (e?.name === "AbortError") {
+          throw new Error(`Generation timed out after ${elapsed}s. The AI service is being slow. Please try again.`);
+        }
+        console.error(`[AiProgrammeWizard] failed after ${elapsed}s:`, e);
+        throw e;
+      } finally {
+        clearTimeout(timer);
+      }
     },
     onSuccess: (data) => setPreview(data),
     onError: (err: any) => {

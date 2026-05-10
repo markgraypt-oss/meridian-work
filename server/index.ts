@@ -45,27 +45,6 @@ app.use((req, res, next) => {
   );
 });
 
-const IMAGE_FIELD_RE = /(image|photo|thumbnail|avatar|picture|logo|cover)/i;
-const isBadImageUrl = (v: any) =>
-  typeof v === 'string' && (v.startsWith('/uploads/') || v.trim() === '');
-function scrubBrokenImageUrls(node: any): any {
-  if (Array.isArray(node)) {
-    for (let i = 0; i < node.length; i++) node[i] = scrubBrokenImageUrls(node[i]);
-    return node;
-  }
-  if (node && typeof node === 'object') {
-    for (const k of Object.keys(node)) {
-      const val = node[k];
-      if (IMAGE_FIELD_RE.test(k) && k.toLowerCase().endsWith('url') && isBadImageUrl(val)) {
-        node[k] = null;
-      } else if (val && typeof val === 'object') {
-        scrubBrokenImageUrls(val);
-      }
-    }
-  }
-  return node;
-}
-
 app.use((req, res, next) => {
   const start = Date.now();
   const path = req.path;
@@ -73,9 +52,6 @@ app.use((req, res, next) => {
 
   const originalResJson = res.json;
   res.json = function (bodyJson, ...args) {
-    if (path.startsWith('/api')) {
-      try { bodyJson = scrubBrokenImageUrls(bodyJson); } catch {}
-    }
     capturedJsonResponse = bodyJson;
     return originalResJson.apply(res, [bodyJson, ...args]);
   };

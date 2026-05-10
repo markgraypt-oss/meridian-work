@@ -146,6 +146,7 @@ export const exerciseLibrary = pgTable("exercise_library", {
   level: text("level"), // Difficulty level (single value)
   exerciseType: text("exercise_type").default("strength"), // 'general', 'endurance', 'strength', 'cardio', 'timed', 'timed_strength'
   laterality: text("laterality").default("bilateral"), // 'unilateral' or 'bilateral' - for exercises that need left/right tracking
+  videoUrl: text("video_url"), // DEPRECATED: legacy column kept for prod compatibility, do not write
   createdAt: timestamp("created_at").defaultNow(),
 });
 
@@ -707,6 +708,7 @@ export const programModificationSuggestions = pgTable("program_modification_sugg
   recoveryPlanId: integer("recovery_plan_id").notNull().references(() => recoveryPlanSuggestions.id, { onDelete: "cascade" }),
   userId: varchar("user_id").notNull().references(() => users.id),
   enrollmentId: integer("enrollment_id").notNull().references(() => userProgramEnrollments.id, { onDelete: "cascade" }),
+  programExerciseId: integer("program_exercise_id"), // DEPRECATED: legacy FK to old program_exercises, kept for prod compatibility
   blockExerciseId: integer("block_exercise_id").references(() => programmeBlockExercises.id, { onDelete: "set null" }), // New: references block exercises
   modificationType: text("modification_type").notNull(), // 'replace', 'reduce_intensity', 'skip', 'modify_reps', 'modify_sets'
   originalExerciseName: text("original_exercise_name").notNull(),
@@ -1071,7 +1073,11 @@ export const bodyMapOutcomes = pgTable("body_map_outcomes", {
   
   // Reassessment preference (store only)
   restoreOnReassessment: boolean("restore_on_reassessment").notNull().default(true),
-  
+
+  // DEPRECATED: kept for prod compatibility, do not use
+  movementQuestion: text("movement_question"),
+  movementOptions: jsonb("movement_options"),
+
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow(),
 });
@@ -1308,6 +1314,7 @@ export const learningPaths = pgTable("learning_paths", {
   difficulty: text("difficulty"), // 'beginner', 'intermediate', 'advanced'
   isRecommended: boolean("is_recommended").default(false), // Featured/recommended paths
   orderIndex: integer("order_index").default(0), // order within topic for display
+  topics: text("topics").array(), // DEPRECATED: legacy column kept for prod compatibility
   createdAt: timestamp("created_at").defaultNow(),
 });
 
@@ -1952,6 +1959,8 @@ export const bodyMeasurements = pgTable("body_measurements", {
   chest: real("chest"),
   waist: real("waist"), // in cm
   hips: real("hips"),
+  leftArm: real("left_arm"), // DEPRECATED: legacy column kept for prod compatibility
+  rightArm: real("right_arm"), // DEPRECATED: legacy column kept for prod compatibility
   leftBicep: real("left_bicep"), // bilateral measurements
   rightBicep: real("right_bicep"),
   leftForearm: real("left_forearm"),
@@ -2156,6 +2165,7 @@ export const breathTechniques = pgTable("breath_techniques", {
   iconName: text("icon_name"), // lucide icon name
   gradientColors: text("gradient_colors").array(), // [inhale start, inhale end, exhale start, exhale end]
   muxPlaybackId: text("mux_playback_id"),
+  videoUrl: text("video_url"), // DEPRECATED: legacy column kept for prod compatibility
   isActive: boolean("is_active").notNull().default(true),
   sortOrder: integer("sort_order").notNull().default(0),
   createdAt: timestamp("created_at").defaultNow(),
@@ -2355,6 +2365,8 @@ export const workdayPositions = pgTable("workday_positions", {
   imageUrl: text("image_url"), // Visual representation
   setupCues: text("setup_cues").array(), // Key setup cues
   positionType: text("position_type").notNull().default('seated'), // 'seated' | 'standing' | 'alternative'
+  minDuration: integer("min_duration").default(30), // DEPRECATED: legacy column kept for prod compatibility
+  maxDuration: integer("max_duration").default(90), // DEPRECATED: legacy column kept for prod compatibility
   orderIndex: integer("order_index").default(0),
   isActive: boolean("is_active").default(true),
   createdAt: timestamp("created_at").defaultNow(),
@@ -2372,6 +2384,7 @@ export const workdayMicroResets = pgTable("workday_micro_resets", {
   steps: text("steps").array(), // Movement steps/instructions
   imageUrl: text("image_url"),
   muxPlaybackId: text("mux_playback_id"),
+  videoUrl: text("video_url"), // DEPRECATED: legacy column kept for prod compatibility
   orderIndex: integer("order_index").default(0),
   isActive: boolean("is_active").default(true),
   createdAt: timestamp("created_at").defaultNow(),
@@ -3319,6 +3332,54 @@ export type InsertAiPrompt = typeof aiPrompts.$inferInsert;
 export const insertAiPromptSchema = createInsertSchema(aiPrompts).omit({
   id: true,
   createdAt: true,
+});
+
+// ============================================
+// DEPRECATED LEGACY TABLES
+// Kept in schema solely so the publish-time diff against production does not
+// generate destructive DROP TABLE statements. Scheduled for removal in a
+// follow-up cleanup publish once the additive publish lands.
+// ============================================
+
+export const appointments = pgTable("appointments", {
+  id: serial("id").primaryKey(),
+  userId: varchar("user_id").notNull(),
+  date: timestamp("date").notNull(),
+  title: text("title").notNull(),
+  description: text("description"),
+  appointmentType: text("appointment_type"),
+  location: text("location"),
+  completed: boolean("completed").default(false),
+  createdAt: timestamp("created_at").defaultNow(),
+});
+
+export const workdayDeskSetups = pgTable("workday_desk_setups", {
+  id: serial("id").primaryKey(),
+  title: text("title").notNull(),
+  deskType: text("desk_type").notNull(),
+  positionType: text("position_type").notNull(),
+  description: text("description"),
+  imageUrl: text("image_url").notNull(),
+  keyAdjustments: text("key_adjustments").array(),
+  orderIndex: integer("order_index").default(0),
+  isActive: boolean("is_active").default(true),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+});
+
+export const legacyProgramExercises = pgTable("program_exercises", {
+  id: serial("id").primaryKey(),
+  programId: integer("program_id").notNull(),
+  exerciseLibraryId: integer("exercise_library_id").notNull(),
+  week: integer("week").notNull(),
+  day: integer("day").notNull(),
+  orderIndex: integer("order_index").notNull(),
+  sets: text("sets").notNull(),
+  reps: text("reps").notNull(),
+  rest: text("rest").notNull(),
+  tempo: text("tempo"),
+  notes: text("notes"),
+  createdAt: timestamp("created_at").defaultNow(),
 });
 
 // Chat models for AI conversations

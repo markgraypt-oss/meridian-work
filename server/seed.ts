@@ -1,5 +1,5 @@
 import { db } from "./db";
-import { programs, videos, recipes, exerciseLibrary, programExercises, users, companies, checkIns, bodyMapLogs, burnoutScores } from "@shared/schema";
+import { programs, videos, recipes, exerciseLibrary, legacyProgramExercises, users, companies, checkIns, bodyMapLogs, burnoutScores } from "@shared/schema";
 import { v4 as uuidv4 } from "uuid";
 
 async function seedDatabase() {
@@ -791,7 +791,7 @@ async function seedDatabase() {
       }
     ];
 
-    await db.insert(programExercises).values(programExercisesData);
+    await db.insert(legacyProgramExercises).values(programExercisesData);
     console.log("Program exercises linked successfully");
 
     // Seed test company and users for reporting

@@ -283,6 +283,7 @@ export const recipes = pgTable("recipes", {
   allergens: text("allergens").array(),
   dietaryPreferences: text("dietary_preferences").array(),
   keyIngredients: text("key_ingredients").array(),
+  difficulty: text("difficulty"), // 'easy', 'medium', 'hard' - shown in admin recipe list
   aiGenerated: boolean("ai_generated").notNull().default(false),
   createdAt: timestamp("created_at").defaultNow(),
 });

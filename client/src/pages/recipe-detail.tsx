@@ -62,7 +62,7 @@ export default function RecipeDetail() {
 
       {recipe.allergens && recipe.allergens.length > 0 && (
         <div className="px-5 pt-2">
-          <div className="flex items-center gap-2.5 px-4 py-3 rounded-xl bg-[#0cc9a9] border border-[#0cc9a9]">
+          <div className="flex items-center gap-2.5 px-4 py-3 rounded-xl bg-[#0cc9a9]/10 border border-[#0cc9a9]/30">
             <AlertTriangle className="h-4 w-4 text-[#0cc9a9] flex-shrink-0" />
             <span className="text-sm font-semibold text-[#0cc9a9]" data-testid="text-allergens">
               Contains {recipe.allergens.join(", ")}

@@ -18555,6 +18555,249 @@ Generate the opening message now. Remember: 1-3 sentences, specific, mandatory t
 
       const timeOfDay = hour < 10 ? 'morning' : hour < 14 ? 'midday' : hour < 18 ? 'afternoon' : 'evening';
 
+      // ===== Smart recipe recommendations: pull from real recipe library =====
+      if (mode === 'recipe_suggestions') {
+        const goal = await storage.getNutritionGoal(userId);
+        const targets = {
+          calories: goal?.calorieTarget ?? 2000,
+          protein: goal?.proteinTarget ?? 150,
+          carbs: goal?.carbsTarget ?? 200,
+          fat: goal?.fatTarget ?? 65,
+        };
+
+        // Sum today's intake — include BOTH new meal-log foods AND legacy foodLogs (matches /api/nutrition/today)
+        const totals = { calories: 0, protein: 0, carbs: 0, fat: 0 };
+        const todaysLogs = await storage.getMealLogsForDate(userId, today);
+        for (const ml of todaysLogs) {
+          const detail = await storage.getMealLogWithFoods(ml.id);
+          if (!detail) continue;
+          for (const f of detail.foods) {
+            totals.calories += f.calories || 0;
+            totals.protein += Number(f.protein) || 0;
+            totals.carbs += Number(f.carbs) || 0;
+            totals.fat += Number(f.fat) || 0;
+          }
+        }
+        const legacyLogs = await storage.getFoodLogsForDate(userId, today);
+        for (const fl of legacyLogs) {
+          totals.calories += fl.calories || 0;
+          totals.protein += Number(fl.protein) || 0;
+          totals.carbs += Number(fl.carbs) || 0;
+          totals.fat += Number(fl.fat) || 0;
+        }
+        const remaining = {
+          calories: Math.max(0, Math.round(targets.calories - totals.calories)),
+          protein: Math.max(0, Math.round(targets.protein - totals.protein)),
+          carbs: Math.max(0, Math.round(targets.carbs - totals.carbs)),
+          fat: Math.max(0, Math.round(targets.fat - totals.fat)),
+        };
+
+        // Pull dietary preference + exclusions from active meal plan if present
+        const plan = await storage.getUserMealPlan(userId);
+        const dietaryPreference = plan?.dietaryPreference || 'no_preference';
+        const excludedIngredients = (plan?.excludedIngredients || []).map(s => s.toLowerCase());
+
+        // Decide which meal category fits the time of day
+        // Recipe categories in this library: 'breakfast', 'main', 'side', 'dessert'
+        const categoryByTime = hour < 10 ? 'breakfast' : hour < 21 ? 'main' : 'side';
+        // Calorie ceiling for "next meal" — never blow past remaining + 150kcal cushion
+        const ceiling = remaining.calories > 0 ? remaining.calories + 150 : Math.round(targets.calories * 0.4);
+
+        // Fetch candidates: try the time-appropriate category first, then widen
+        let candidates: any[] = await storage.getRecipesForMealPlan({
+          caloriesPerDay: targets.calories,
+          macroSplit: 'balanced',
+          mealsPerDay: plan?.mealsPerDay || 4,
+          dietaryPreference,
+          excludedIngredients,
+          mealType: categoryByTime,
+          maxPrepTime: plan?.maxPrepTime ?? null,
+        });
+        // If too few in that category, widen across all categories
+        if (candidates.length < 6) {
+          const wider = await storage.getRecipesForMealPlan({
+            caloriesPerDay: targets.calories,
+            macroSplit: 'balanced',
+            mealsPerDay: plan?.mealsPerDay || 4,
+            dietaryPreference,
+            excludedIngredients,
+            maxPrepTime: plan?.maxPrepTime ?? null,
+          });
+          // De-dupe
+          const seen = new Set(candidates.map(c => c.id));
+          for (const r of wider) if (!seen.has(r.id)) candidates.push(r);
+        }
+        // Hard cap on calories so suggestions don't bust their day
+        candidates = candidates.filter(r => (r.calories ?? 0) <= ceiling);
+
+        // No real recipes fit — return honest message + gap-filling advice (no AI fallback)
+        if (candidates.length === 0) {
+          const gapAdvice: string[] = [];
+          // Build pantry of suggestions filtered by dietary preference + exclusions
+          const isVegan = dietaryPreference === 'vegan';
+          const isVegetarian = dietaryPreference === 'vegetarian' || isVegan;
+          const isPescatarian = dietaryPreference === 'pescatarian';
+          const exc = new Set(excludedIngredients);
+          const ok = (tags: string[]) => !tags.some(t => exc.has(t.toLowerCase()));
+
+          const proteinOpts: string[] = [];
+          if (!isVegetarian && !isPescatarian) {
+            if (ok(['chicken'])) proteinOpts.push("a chicken breast (40g)");
+          }
+          if (!isVegan && ok(['dairy'])) proteinOpts.push("200g Greek yoghurt (20g)");
+          if (!isVegan && ok(['eggs'])) proteinOpts.push("3 boiled eggs (18g)");
+          if (!isVegan && ok(['dairy'])) proteinOpts.push("200g cottage cheese (25g)");
+          if (ok(['soya', 'soy'])) proteinOpts.push("200g firm tofu (30g)");
+          if (ok(['legumes'])) proteinOpts.push("a tin of chickpeas (15g)");
+          if (!isVegan && ok(['dairy'])) proteinOpts.push("a scoop of whey (25g)");
+          if ((isPescatarian || (!isVegetarian && !isVegan)) && ok(['fish'])) proteinOpts.push("a tin of tuna with cucumber");
+
+          const carbOpts: string[] = ["rice", "sweet potato", "fruit"];
+          if (ok(['gluten'])) { carbOpts.push("oats"); carbOpts.push("wholemeal bread"); }
+
+          const fatOpts: string[] = ["half an avocado", "olive oil"];
+          if (ok(['tree nuts'])) fatOpts.push("a handful of nuts");
+          if (ok(['tree nuts', 'peanuts'])) fatOpts.push("a tablespoon of nut butter");
+
+          if (remaining.calories <= 100) {
+            const lowCal = proteinOpts.length > 0
+              ? `If you're genuinely hungry, choose something protein-rich and low-calorie like ${proteinOpts.slice(0, 3).join(', ')}.`
+              : "If you're genuinely hungry, choose something light and protein-rich.";
+            gapAdvice.push(`You're already at or over your calorie target for today, so eating more would push you past it. ${lowCal}`);
+          } else {
+            if (remaining.protein > 30 && proteinOpts.length > 0) {
+              gapAdvice.push(`You still need ${remaining.protein}g of protein. Quick high-protein additions: ${proteinOpts.slice(0, 4).join(', ')}.`);
+            } else if (remaining.protein > 30) {
+              gapAdvice.push(`You still need ${remaining.protein}g of protein, but your dietary filters rule out most of my usual suggestions. Try doubling a protein source you already eat.`);
+            }
+            if (remaining.carbs > 50) gapAdvice.push(`Carbs to fill: ${remaining.carbs}g. Try a portion of ${carbOpts.slice(0, 4).join(', ')}.`);
+            if (remaining.fat > 20) gapAdvice.push(`Fat target gap: ${remaining.fat}g. ${fatOpts.slice(0, 3).join(', ')} will close it.`);
+            if (gapAdvice.length === 0) gapAdvice.push("Your remaining macros look balanced. Any meal close to your usual portion should fit.");
+          }
+          let noFitMessage = "I couldn't find a recipe in your library that fits cleanly.";
+          if (excludedIngredients.length > 0 || dietaryPreference !== 'no_preference') {
+            noFitMessage += ` Your current filters (${dietaryPreference !== 'no_preference' ? dietaryPreference : ''}${dietaryPreference !== 'no_preference' && excludedIngredients.length > 0 ? ', ' : ''}${excludedIngredients.length > 0 ? 'avoiding ' + excludedIngredients.join(', ') : ''}) plus your remaining calorie budget (${remaining.calories} kcal) leave nothing matching.`;
+          } else {
+            noFitMessage += ` Your remaining calorie budget (${remaining.calories} kcal) is too tight for anything in the library.`;
+          }
+          return res.json({
+            mode,
+            data: {
+              suggestions: [],
+              noFitMessage,
+              gapAdvice,
+              remainingMacros: remaining,
+              targets,
+            },
+          });
+        }
+
+        // Score candidates: lower score is better. Penalises calorie miss + macro deficit gaps.
+        // Target macros for "next meal" — roughly half of what's left, capped to ceiling.
+        const targetMealCals = remaining.calories > 0 ? Math.min(remaining.calories, Math.round(ceiling * 0.7)) : Math.round(targets.calories * 0.3);
+        const targetMealProtein = remaining.protein > 0 ? Math.min(remaining.protein, Math.round(remaining.protein * 0.7)) : 0;
+        const targetMealCarbs = remaining.carbs > 0 ? Math.min(remaining.carbs, Math.round(remaining.carbs * 0.7)) : 0;
+        const targetMealFat = remaining.fat > 0 ? Math.min(remaining.fat, Math.round(remaining.fat * 0.7)) : 0;
+        const scored = candidates.map(r => {
+          const calorieFit = Math.abs((r.calories ?? 0) - targetMealCals);
+          // Macro deficit penalty: only penalise UNDER-supply when there's a real gap; over-supply is fine
+          const proteinPenalty = targetMealProtein > 0 ? Math.max(0, targetMealProtein - (r.protein ?? 0)) * 4 : 0;
+          const carbPenalty = targetMealCarbs > 15 ? Math.max(0, targetMealCarbs - (r.carbs ?? 0)) * 1.5 : 0;
+          const fatPenalty = targetMealFat > 10 ? Math.max(0, targetMealFat - (r.fat ?? 0)) * 2 : 0;
+          return { recipe: r, score: calorieFit + proteinPenalty + carbPenalty + fatPenalty };
+        }).sort((a, b) => a.score - b.score);
+        const top = scored.slice(0, Math.min(10, scored.length)).map(s => s.recipe);
+
+        // Hand the LLM the candidate set with IDs and ask it to pick 3 + write reasons
+        const candidateBlock = top.map(r => `- ID:${r.id} | "${r.title}" | ${r.calories}kcal | P${Math.round(r.protein)}g C${Math.round(r.carbs)}g F${Math.round(r.fat)}g | category:${r.category}${r.allergens?.length ? ` | contains: ${r.allergens.join(', ')}` : ''}`).join('\n');
+
+        const recipePrompt = `${userName} has these macros LEFT today (target minus what they've already eaten):
+- Calories: ${remaining.calories}
+- Protein: ${remaining.protein}g
+- Carbs: ${remaining.carbs}g
+- Fat: ${remaining.fat}g
+
+Time of day: ${timeOfDay}.
+${dietaryPreference !== 'no_preference' ? `Dietary preference: ${dietaryPreference}.` : ''}
+${excludedIngredients.length > 0 ? `Avoiding: ${excludedIngredients.join(', ')}.` : ''}
+
+Pick the 3 BEST recipes from this candidate list (these are real recipes in their library — only pick from here, never invent):
+${candidateBlock}
+
+For each pick, write one short sentence (1-2 sentences max) explaining specifically why it fits THIS user's remaining macros and time of day. Be concrete: reference their actual numbers (e.g. "covers your remaining 38g protein gap", "fits cleanly under your 600kcal cushion").
+
+Respond in this exact JSON format — IDs must come from the candidate list above:
+{"picks": [{"id": <recipe_id>, "reason": "Why this fits"}, {"id": <recipe_id>, "reason": "..."}, {"id": <recipe_id>, "reason": "..."}]}`;
+
+        const sysPrompt = `You are the AI Nutrition Coach for The Paradigm Project. You ONLY recommend recipes from the candidate list provided — never invent recipes. Output raw JSON, no markdown.${coachingContext}${userDataContext}`;
+
+        const aiResp = await aiCall({
+          feature: 'nutrition',
+          userId,
+          prompt: `${sysPrompt}\n\n${recipePrompt}`,
+          maxTokens: 600,
+          provider: config.provider,
+          model: config.model,
+        });
+
+        let rawPicks: any[] = [];
+        try {
+          const cleaned = aiResp.text.replace(/```json\n?/g, '').replace(/```\n?/g, '').trim();
+          const parsedAi = JSON.parse(cleaned);
+          if (Array.isArray(parsedAi.picks)) rawPicks = parsedAi.picks;
+        } catch {
+          rawPicks = [];
+        }
+
+        // Coerce IDs to numbers, dedupe, drop unknown IDs
+        const byId = new Map(top.map(r => [r.id, r]));
+        const seenIds = new Set<number>();
+        const cleanPicks: { id: number; reason: string }[] = [];
+        for (const p of rawPicks) {
+          if (!p) continue;
+          const id = typeof p.id === 'number' ? p.id : parseInt(String(p.id), 10);
+          if (!Number.isFinite(id) || !byId.has(id) || seenIds.has(id)) continue;
+          seenIds.add(id);
+          const reason = typeof p.reason === 'string' && p.reason.trim().length > 0 ? p.reason.trim() : '';
+          cleanPicks.push({ id, reason });
+          if (cleanPicks.length >= 3) break;
+        }
+
+        // Backfill from top until we have 3 (or as many as exist)
+        for (const r of top) {
+          if (cleanPicks.length >= 3) break;
+          if (seenIds.has(r.id)) continue;
+          seenIds.add(r.id);
+          cleanPicks.push({ id: r.id, reason: '' });
+        }
+
+        const suggestions = cleanPicks.map(p => {
+          const r = byId.get(p.id)!;
+          return {
+            id: r.id,
+            title: r.title,
+            description: r.description,
+            imageUrl: r.imageUrl,
+            calories: r.calories,
+            protein: Math.round(r.protein),
+            carbs: Math.round(r.carbs),
+            fat: Math.round(r.fat),
+            totalTime: r.totalTime,
+            allergens: r.allergens || [],
+            reason: p.reason || `Fits your remaining ${remaining.calories} kcal and adds ${Math.round(r.protein)}g protein.`,
+          };
+        });
+
+        return res.json({
+          mode,
+          data: {
+            suggestions,
+            remainingMacros: remaining,
+            targets,
+          },
+        });
+      }
+
       let modePrompt = '';
 
       if (mode === 'next_meal') {
@@ -18597,18 +18840,6 @@ Rules:
 
 Respond in this JSON format:
 {"patterns": [{"insight": "Pattern description", "impact": "How it affects them", "action": "What to do about it"}], "weeklyAverage": {"calories": 2100, "protein": 120}}`;
-      } else if (mode === 'recipe_suggestions') {
-        modePrompt = `Based on the user's nutrition goals, eating history, and what they tend to enjoy, suggest 3 meal ideas they should try.
-
-Rules:
-- Prioritize meals that fill their most common macro gaps
-- Consider their dietary preferences and excluded ingredients
-- Each suggestion should be practical and specific
-- Include approximate macros for each
-- Keep descriptions appetizing but brief
-
-Respond in this JSON format:
-{"suggestions": [{"name": "Meal name", "description": "Brief appetizing description", "calories": 500, "protein": 40, "carbs": 45, "fat": 15, "reason": "Why this suits them"}]}`;
       } else if (mode === 'chat') {
         if (!message || typeof message !== 'string' || message.trim().length === 0) {
           return res.status(400).json({ message: "A message is required for chat mode" });

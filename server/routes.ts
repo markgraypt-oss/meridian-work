@@ -1027,8 +1027,15 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.use(express.static(path.resolve(import.meta.dirname, "..", "attached_assets")));
   
   // Serve uploaded files (try uploads/ first, then public/uploads/ as fallback for deployed images)
-  app.use("/uploads", express.static(path.resolve(process.cwd(), "uploads")));
-  app.use("/uploads", express.static(path.resolve(process.cwd(), "public", "uploads")));
+  const uploadCacheHeaders = {
+    maxAge: '365d',
+    immutable: true,
+    setHeaders: (res: any) => {
+      res.setHeader('Cache-Control', 'public, max-age=31536000, immutable');
+    },
+  };
+  app.use("/uploads", express.static(path.resolve(process.cwd(), "uploads"), uploadCacheHeaders));
+  app.use("/uploads", express.static(path.resolve(process.cwd(), "public", "uploads"), uploadCacheHeaders));
 
   // Serve objects from Replit Object Storage. Public profile pictures are stored
   // here so the same https://...replit.app/objects/<id> URL works for web and mobile.

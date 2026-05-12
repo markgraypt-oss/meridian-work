@@ -1014,7 +1014,7 @@ export default function Nutrition() {
 
             <div className="space-y-3">
               {[
-                { mode: 'next_meal', icon: Zap, label: 'What should I eat now?', description: 'One decisive pick for right now, weighted on the time of day', color: 'text-green-400' },
+                { mode: 'next_meal', icon: Zap, label: 'What should I eat now?', description: 'One meal that fits this time of day and what you have left', color: 'text-green-400' },
                 { mode: 'end_of_day', icon: BarChart3, label: 'Daily review', description: 'Grades your day with wins, improvements, and tips for tomorrow', color: 'text-blue-400' },
                 { mode: 'weekly_patterns', icon: TrendingUp, label: 'Weekly patterns', description: 'Spots trends in your eating habits over the past 7 days', color: 'text-purple-400' },
                 { mode: 'recipe_suggestions', icon: BookOpen, label: 'Smart recipes', description: 'Top 3 recipes from your library that fit the macros you have left', color: 'text-orange-400' },

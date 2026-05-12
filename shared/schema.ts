@@ -1462,7 +1462,7 @@ export const userFavourites = pgTable("user_favorites", {
   userId: varchar("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
   contentType: text("content_type").notNull(), // 'learning_path' or 'content_item'
   learningPathId: integer("learning_path_id").references(() => learningPaths.id, { onDelete: "cascade" }),
-  contentItemId: integer("content_item_id").references(() => pathContentItems.id, { onDelete: "cascade" }),
+  contentItemId: integer("content_item_id").references(() => learnContentLibrary.id, { onDelete: "cascade" }),
   createdAt: timestamp("created_at").defaultNow(),
 });
 

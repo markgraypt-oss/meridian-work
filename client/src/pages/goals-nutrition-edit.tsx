@@ -96,8 +96,20 @@ export default function GoalsNutritionEdit() {
   // (e.g. user switches Calorie Adjustment). No-op for Custom preset so the
   // user keeps their hand-set values.
   const snapSlidersTo = (cals: number, preset: keyof typeof MACRO_PRESETS) => {
-    if (preset === "custom" || !cals) return;
-    const ratios = MACRO_PRESETS[preset];
+    if (!cals) return;
+    let ratios: { protein: number; carbs: number; fat: number };
+    if (preset === "custom") {
+      // Preserve current macro ratios and rescale to the new calorie target
+      const currentCals = proteinGrams * 4 + carbsGrams * 4 + fatGrams * 9;
+      if (!currentCals) return;
+      ratios = {
+        protein: (proteinGrams * 4) / currentCals * 100,
+        carbs: (carbsGrams * 4) / currentCals * 100,
+        fat: (fatGrams * 9) / currentCals * 100,
+      };
+    } else {
+      ratios = MACRO_PRESETS[preset];
+    }
     setProteinGrams(clamp(snap(Math.round((cals * ratios.protein / 100) / 4), SLIDER_LIMITS.protein.step), SLIDER_LIMITS.protein.min, SLIDER_LIMITS.protein.max));
     setCarbsGrams(clamp(snap(Math.round((cals * ratios.carbs / 100) / 4), SLIDER_LIMITS.carbs.step), SLIDER_LIMITS.carbs.min, SLIDER_LIMITS.carbs.max));
     setFatGrams(clamp(snap(Math.round((cals * ratios.fat / 100) / 9), SLIDER_LIMITS.fat.step), SLIDER_LIMITS.fat.min, SLIDER_LIMITS.fat.max));

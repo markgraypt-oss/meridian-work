@@ -2612,6 +2612,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
     hydrationReminders: z.boolean().optional(),
     supplementReminders: z.boolean().optional(),
     supplementTime: z.string().regex(timeRegex, "Invalid time format").optional(),
+    supplementMorningEnabled: z.boolean().optional(),
+    supplementMorningTime: z.string().regex(timeRegex, "Invalid time format").optional(),
+    supplementAfternoonEnabled: z.boolean().optional(),
+    supplementAfternoonTime: z.string().regex(timeRegex, "Invalid time format").optional(),
+    supplementEveningEnabled: z.boolean().optional(),
+    supplementEveningTime: z.string().regex(timeRegex, "Invalid time format").optional(),
     bodyMapReassessment: z.boolean().optional(),
     bodyMapFrequencyDays: z.number().refine(val => [7, 14, 21, 30].includes(val), "Invalid frequency").optional(),
     positionRotation: z.boolean().optional(),
@@ -2652,6 +2658,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
       if (data.hydrationReminders !== undefined) updates.hydrationReminders = data.hydrationReminders;
       if (data.supplementReminders !== undefined) updates.supplementReminders = data.supplementReminders;
       if (data.supplementTime !== undefined) updates.supplementTime = data.supplementTime;
+      if (data.supplementMorningEnabled !== undefined) updates.supplementMorningEnabled = data.supplementMorningEnabled;
+      if (data.supplementMorningTime !== undefined) updates.supplementMorningTime = data.supplementMorningTime;
+      if (data.supplementAfternoonEnabled !== undefined) updates.supplementAfternoonEnabled = data.supplementAfternoonEnabled;
+      if (data.supplementAfternoonTime !== undefined) updates.supplementAfternoonTime = data.supplementAfternoonTime;
+      if (data.supplementEveningEnabled !== undefined) updates.supplementEveningEnabled = data.supplementEveningEnabled;
+      if (data.supplementEveningTime !== undefined) updates.supplementEveningTime = data.supplementEveningTime;
       if (data.bodyMapReassessment !== undefined) updates.bodyMapReassessment = data.bodyMapReassessment;
       if (data.bodyMapFrequencyDays !== undefined) updates.bodyMapFrequencyDays = data.bodyMapFrequencyDays;
       if (data.positionRotation !== undefined) updates.positionRotation = data.positionRotation;

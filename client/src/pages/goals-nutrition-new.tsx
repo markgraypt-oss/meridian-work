@@ -16,6 +16,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Calculator, Check, AlertCircle } from "lucide-react";
+import { Slider } from "@/components/ui/slider";
 import TopHeader from "@/components/TopHeader";
 import { queryClient, apiRequest } from "@/lib/queryClient";
 
@@ -23,9 +24,19 @@ const MACRO_PRESETS = {
   balanced: { protein: 30, carbs: 40, fat: 30, label: "Balanced", description: "30% protein, 40% carbs, 30% fat" },
   high_protein: { protein: 40, carbs: 30, fat: 30, label: "High Protein", description: "40% protein, 30% carbs, 30% fat" },
   low_carb: { protein: 35, carbs: 20, fat: 45, label: "Low Carb", description: "35% protein, 20% carbs, 45% fat" },
+  keto: { protein: 25, carbs: 5, fat: 70, label: "Keto", description: "25% protein, 5% carbs, 70% fat" },
   low_fat: { protein: 35, carbs: 50, fat: 15, label: "Low Fat", description: "35% protein, 50% carbs, 15% fat" },
-  custom: { protein: 33, carbs: 34, fat: 33, label: "Custom", description: "Set your own macro split" },
+  custom: { protein: 33, carbs: 34, fat: 33, label: "Custom", description: "Set each macro by dragging the sliders" },
 };
+
+const SLIDER_LIMITS = {
+  protein: { min: 30, max: 400, step: 5 },
+  carbs: { min: 0, max: 700, step: 5 },
+  fat: { min: 10, max: 250, step: 5 },
+};
+
+const clamp = (n: number, min: number, max: number) => Math.min(max, Math.max(min, n));
+const snap = (n: number, step: number) => Math.round(n / step) * step;
 
 const CALORIE_GOALS = [
   { id: "mild_deficit", label: "Mild Deficit", description: "Gradual fat loss", adjustment: -250, badge: "-250 cal" },
@@ -54,9 +65,15 @@ export default function GoalsNutritionNew() {
   const [finalCalories, setFinalCalories] = useState<number | null>(null);
   
   const [macroPreset, setMacroPreset] = useState<keyof typeof MACRO_PRESETS>("balanced");
-  const [proteinPercent, setProteinPercent] = useState(30);
-  const [carbPercent, setCarbPercent] = useState(40);
-  const [fatPercent, setFatPercent] = useState(30);
+  const [proteinGrams, setProteinGrams] = useState(150);
+  const [carbsGrams, setCarbsGrams] = useState(200);
+  const [fatGrams, setFatGrams] = useState(65);
+
+  const computedCalories = proteinGrams * 4 + carbsGrams * 4 + fatGrams * 9;
+  const proteinPercent = computedCalories ? Math.round((proteinGrams * 4) / computedCalories * 100) : 0;
+  const carbPercent = computedCalories ? Math.round((carbsGrams * 4) / computedCalories * 100) : 0;
+  const fatPercent = computedCalories ? Math.round((fatGrams * 9) / computedCalories * 100) : 0;
+  const calorieDelta = finalCalories ? computedCalories - finalCalories : 0;
 
   // Fetch goals to check for existing nutrition goal and pre-fill weight
   const { data: goals = [], isLoading: goalsLoading } = useQuery<Goal[]>({
@@ -202,16 +219,19 @@ export default function GoalsNutritionNew() {
       const goalData = {
         type: "nutrition",
         title: "Daily Nutrition Target",
-        description: `${finalCalories} calories with ${MACRO_PRESETS[macroPreset].label} macro split`,
-        targetValue: finalCalories,
+        description: `${computedCalories} calories with ${MACRO_PRESETS[macroPreset].label} macro split`,
+        targetValue: computedCalories,
         currentValue: 0,
         unit: "kcal",
-        nutritionCalories: finalCalories,
+        nutritionCalories: computedCalories,
         calorieGoalType: selectedCalorieGoal || "custom",
         macroPreset: macroPreset,
-        proteinPercent: proteinPercent,
-        carbPercent: carbPercent,
-        fatPercent: fatPercent,
+        proteinPercent,
+        carbPercent,
+        fatPercent,
+        proteinGrams,
+        carbsGrams,
+        fatGrams,
         startDate: todayLocalStr(),
       };
       
@@ -219,6 +239,7 @@ export default function GoalsNutritionNew() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/goals"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/nutrition/today"] });
       toast({ title: "Success", description: "Nutrition goal created!" });
       setLocation("/goals");
     },
@@ -230,11 +251,24 @@ export default function GoalsNutritionNew() {
   const handleMacroPresetSelect = (preset: keyof typeof MACRO_PRESETS) => {
     setMacroPreset(preset);
     if (preset !== "custom") {
-      setProteinPercent(MACRO_PRESETS[preset].protein);
-      setCarbPercent(MACRO_PRESETS[preset].carbs);
-      setFatPercent(MACRO_PRESETS[preset].fat);
+      const cals = finalCalories || computedCalories || 2000;
+      const ratios = MACRO_PRESETS[preset];
+      setProteinGrams(clamp(snap(Math.round((cals * ratios.protein / 100) / 4), SLIDER_LIMITS.protein.step), SLIDER_LIMITS.protein.min, SLIDER_LIMITS.protein.max));
+      setCarbsGrams(clamp(snap(Math.round((cals * ratios.carbs / 100) / 4), SLIDER_LIMITS.carbs.step), SLIDER_LIMITS.carbs.min, SLIDER_LIMITS.carbs.max));
+      setFatGrams(clamp(snap(Math.round((cals * ratios.fat / 100) / 9), SLIDER_LIMITS.fat.step), SLIDER_LIMITS.fat.min, SLIDER_LIMITS.fat.max));
     }
   };
+
+  // When entering step 3 with a calorie target, snap sliders to the current preset
+  useEffect(() => {
+    if (step !== 3 || !finalCalories) return;
+    const ratios = MACRO_PRESETS[macroPreset];
+    if (macroPreset === "custom") return;
+    setProteinGrams(clamp(snap(Math.round((finalCalories * ratios.protein / 100) / 4), SLIDER_LIMITS.protein.step), SLIDER_LIMITS.protein.min, SLIDER_LIMITS.protein.max));
+    setCarbsGrams(clamp(snap(Math.round((finalCalories * ratios.carbs / 100) / 4), SLIDER_LIMITS.carbs.step), SLIDER_LIMITS.carbs.min, SLIDER_LIMITS.carbs.max));
+    setFatGrams(clamp(snap(Math.round((finalCalories * ratios.fat / 100) / 9), SLIDER_LIMITS.fat.step), SLIDER_LIMITS.fat.min, SLIDER_LIMITS.fat.max));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [step]);
 
   const handleBack = () => {
     if (step === 1) {
@@ -508,14 +542,14 @@ export default function GoalsNutritionNew() {
             </div>
 
             <div className="space-y-2">
-              <Label className="text-sm font-medium">Macro Split</Label>
-              <div className="space-y-2">
+              <Label className="text-sm font-medium">Macro Preset</Label>
+              <div className="grid grid-cols-2 gap-2">
                 {(Object.keys(MACRO_PRESETS) as Array<keyof typeof MACRO_PRESETS>).map((preset) => (
                   <button
                     key={preset}
                     type="button"
                     onClick={() => handleMacroPresetSelect(preset)}
-                    className={`w-full p-4 border rounded-lg text-left transition-all ${
+                    className={`p-3 border rounded-lg text-left transition-all ${
                       macroPreset === preset
                         ? "border-[#0cc9a9] bg-[#0cc9a9]/10 ring-1 ring-[#0cc9a9]"
                         : "border-border hover:border-muted-foreground"
@@ -524,78 +558,80 @@ export default function GoalsNutritionNew() {
                   >
                     <div className="flex justify-between items-center">
                       <span className="font-medium text-sm">{MACRO_PRESETS[preset].label}</span>
-                      <span className="text-xs text-muted-foreground">{MACRO_PRESETS[preset].description}</span>
+                      {macroPreset === preset && <Check className="h-4 w-4 text-[#0cc9a9]" />}
                     </div>
+                    <div className="text-xs text-muted-foreground mt-1">{MACRO_PRESETS[preset].description}</div>
                   </button>
                 ))}
               </div>
+              <p className="text-xs text-muted-foreground">
+                Tap a preset to snap the sliders, then drag any slider to fine-tune.
+              </p>
             </div>
 
-            {macroPreset === "custom" && (
-              <div className="p-4 border rounded-lg bg-muted/30 space-y-3">
-                <div className="text-sm text-muted-foreground">Must total 100%</div>
-                <div className="grid grid-cols-3 gap-3">
-                  <div className="space-y-1">
-                    <Label className="text-xs">Protein %</Label>
-                    <Input
-                      type="number"
-                      value={proteinPercent}
-                      onChange={(e) => setProteinPercent(parseInt(e.target.value) || 0)}
-                      data-testid="input-protein-percent"
-                    />
-                  </div>
-                  <div className="space-y-1">
-                    <Label className="text-xs">Carbs %</Label>
-                    <Input
-                      type="number"
-                      value={carbPercent}
-                      onChange={(e) => setCarbPercent(parseInt(e.target.value) || 0)}
-                      data-testid="input-carb-percent"
-                    />
-                  </div>
-                  <div className="space-y-1">
-                    <Label className="text-xs">Fat %</Label>
-                    <Input
-                      type="number"
-                      value={fatPercent}
-                      onChange={(e) => setFatPercent(parseInt(e.target.value) || 0)}
-                      data-testid="input-fat-percent"
-                    />
-                  </div>
-                </div>
-                {proteinPercent + carbPercent + fatPercent !== 100 && (
-                  <div className="text-xs text-red-500">
-                    Total: {proteinPercent + carbPercent + fatPercent}% (must be 100%)
-                  </div>
-                )}
-              </div>
-            )}
+            <div className="p-4 border rounded-lg bg-muted/20 space-y-5">
+              <NewMacroSlider
+                label="Protein"
+                color="text-green-500"
+                grams={proteinGrams}
+                cals={proteinGrams * 4}
+                limits={SLIDER_LIMITS.protein}
+                onChange={(v) => { setProteinGrams(v); setMacroPreset("custom"); }}
+                testId="slider-protein"
+              />
+              <NewMacroSlider
+                label="Carbs"
+                color="text-blue-500"
+                grams={carbsGrams}
+                cals={carbsGrams * 4}
+                limits={SLIDER_LIMITS.carbs}
+                onChange={(v) => { setCarbsGrams(v); setMacroPreset("custom"); }}
+                testId="slider-carbs"
+              />
+              <NewMacroSlider
+                label="Fat"
+                color="text-orange-500"
+                grams={fatGrams}
+                cals={fatGrams * 9}
+                limits={SLIDER_LIMITS.fat}
+                onChange={(v) => { setFatGrams(v); setMacroPreset("custom"); }}
+                testId="slider-fat"
+              />
+            </div>
 
-            {finalCalories && (
-              <div className="p-4 border rounded-lg bg-[#0cc9a9]/5 space-y-3">
-                <div className="text-sm font-medium">Daily Targets</div>
-                <div className="grid grid-cols-3 gap-2 text-center">
-                  <div>
-                    <div className="text-xl font-bold text-green-500">
-                      {Math.round((finalCalories * proteinPercent / 100) / 4)}g
-                    </div>
-                    <div className="text-xs text-muted-foreground">Protein ({proteinPercent}%)</div>
-                  </div>
-                  <div>
-                    <div className="text-xl font-bold text-blue-500">
-                      {Math.round((finalCalories * carbPercent / 100) / 4)}g
-                    </div>
-                    <div className="text-xs text-muted-foreground">Carbs ({carbPercent}%)</div>
-                  </div>
-                  <div>
-                    <div className="text-xl font-bold text-orange-500">
-                      {Math.round((finalCalories * fatPercent / 100) / 9)}g
-                    </div>
-                    <div className="text-xs text-muted-foreground">Fat ({fatPercent}%)</div>
-                  </div>
+            <div className="p-4 border rounded-lg bg-[#0cc9a9]/5 space-y-3">
+              <div className="text-sm font-medium">Daily Totals</div>
+              {computedCalories > 0 && (
+                <div className="h-3 w-full rounded-full overflow-hidden flex">
+                  <div className="h-full bg-green-500" style={{ width: `${proteinPercent}%` }} />
+                  <div className="h-full bg-blue-500" style={{ width: `${carbPercent}%` }} />
+                  <div className="h-full bg-orange-500" style={{ width: `${fatPercent}%` }} />
+                </div>
+              )}
+              <div className="grid grid-cols-4 gap-2 text-center">
+                <div>
+                  <div className="text-xl font-bold" data-testid="text-total-calories">{computedCalories}</div>
+                  <div className="text-xs text-muted-foreground">Calories</div>
+                </div>
+                <div>
+                  <div className="text-base font-semibold text-green-500">{proteinGrams}g</div>
+                  <div className="text-xs text-muted-foreground">Protein {proteinPercent}%</div>
+                </div>
+                <div>
+                  <div className="text-base font-semibold text-blue-500">{carbsGrams}g</div>
+                  <div className="text-xs text-muted-foreground">Carbs {carbPercent}%</div>
+                </div>
+                <div>
+                  <div className="text-base font-semibold text-orange-500">{fatGrams}g</div>
+                  <div className="text-xs text-muted-foreground">Fat {fatPercent}%</div>
                 </div>
               </div>
-            )}
+              {finalCalories && Math.abs(calorieDelta) >= 25 && (
+                <div className={`text-xs text-center ${calorieDelta > 0 ? "text-orange-400" : "text-blue-400"}`}>
+                  {calorieDelta > 0 ? `+${calorieDelta}` : calorieDelta} cal vs your {finalCalories} cal target
+                </div>
+              )}
+            </div>
 
             {tdeeWeight && (
               <div className="p-4 border rounded-lg bg-green-500/10 border-green-500/30">
@@ -609,7 +645,7 @@ export default function GoalsNutritionNew() {
 
             <Button
               onClick={() => mutation.mutate()}
-              disabled={mutation.isPending || (macroPreset === "custom" && proteinPercent + carbPercent + fatPercent !== 100)}
+              disabled={mutation.isPending || computedCalories < 800 || computedCalories > 6000}
               className="w-full bg-[#0cc9a9] hover:bg-[#0cc9a9]/90 text-black font-semibold"
               data-testid="button-create-goal"
             >
@@ -617,6 +653,48 @@ export default function GoalsNutritionNew() {
             </Button>
           </div>
         )}
+      </div>
+    </div>
+  );
+}
+
+function NewMacroSlider({
+  label,
+  color,
+  grams,
+  cals,
+  limits,
+  onChange,
+  testId,
+}: {
+  label: string;
+  color: string;
+  grams: number;
+  cals: number;
+  limits: { min: number; max: number; step: number };
+  onChange: (v: number) => void;
+  testId: string;
+}) {
+  return (
+    <div className="space-y-2">
+      <div className="flex items-baseline justify-between">
+        <Label className="text-sm font-medium">{label}</Label>
+        <div className="text-sm">
+          <span className={`font-semibold ${color}`}>{grams}g</span>
+          <span className="text-muted-foreground ml-2 text-xs">{cals} cal</span>
+        </div>
+      </div>
+      <Slider
+        value={[grams]}
+        min={limits.min}
+        max={limits.max}
+        step={limits.step}
+        onValueChange={(v) => onChange(v[0])}
+        data-testid={testId}
+      />
+      <div className="flex justify-between text-[10px] text-muted-foreground">
+        <span>{limits.min}g</span>
+        <span>{limits.max}g</span>
       </div>
     </div>
   );

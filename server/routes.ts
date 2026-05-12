@@ -12258,11 +12258,26 @@ Rules:
       const today = dateParam ? new Date(dateParam) : new Date();
       today.setHours(0, 0, 0, 0);
       
-      const [goal, oldLogs, mealLogs] = await Promise.all([
+      const [legacyGoal, activeNutritionGoals, oldLogs, mealLogs] = await Promise.all([
         storage.getNutritionGoal(userId),
+        storage.getActiveNutritionGoals(userId),
         storage.getFoodLogsForDate(userId, today),
         storage.getMealLogsForDate(userId, today),
       ]);
+
+      // Prefer the active Nutrition Goal from the Goals section. Falls back to
+      // the legacy nutrition_goals row, then to safe defaults.
+      const activeGoal = activeNutritionGoals[0];
+      const derive = (cals: number | null | undefined, pct: number | null | undefined, kcalPerGram: number) =>
+        cals && pct ? Math.round((cals * pct / 100) / kcalPerGram) : null;
+      const goal = activeGoal
+        ? {
+            calorieTarget: activeGoal.nutritionCalories || legacyGoal?.calorieTarget || 2000,
+            proteinTarget: activeGoal.proteinGrams ?? derive(activeGoal.nutritionCalories, activeGoal.proteinPercent, 4) ?? legacyGoal?.proteinTarget ?? 150,
+            carbsTarget: activeGoal.carbsGrams ?? derive(activeGoal.nutritionCalories, activeGoal.carbPercent, 4) ?? legacyGoal?.carbsTarget ?? 200,
+            fatTarget: activeGoal.fatGrams ?? derive(activeGoal.nutritionCalories, activeGoal.fatPercent, 9) ?? legacyGoal?.fatTarget ?? 65,
+          }
+        : legacyGoal;
 
       // Get food entries from the new meal-based system
       const mealFoodEntries: any[] = [];

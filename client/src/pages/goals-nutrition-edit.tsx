@@ -6,6 +6,7 @@ import { useToast } from "@/hooks/use-toast";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Slider } from "@/components/ui/slider";
 import { Check, AlertTriangle } from "lucide-react";
 import TopHeader from "@/components/TopHeader";
 import { queryClient, apiRequest } from "@/lib/queryClient";
@@ -33,23 +34,33 @@ const MACRO_PRESETS = {
   balanced: { protein: 30, carbs: 40, fat: 30, label: "Balanced", description: "30% protein, 40% carbs, 30% fat" },
   high_protein: { protein: 40, carbs: 30, fat: 30, label: "High Protein", description: "40% protein, 30% carbs, 30% fat" },
   low_carb: { protein: 35, carbs: 20, fat: 45, label: "Low Carb", description: "35% protein, 20% carbs, 45% fat" },
+  keto: { protein: 25, carbs: 5, fat: 70, label: "Keto", description: "25% protein, 5% carbs, 70% fat" },
   low_fat: { protein: 35, carbs: 50, fat: 15, label: "Low Fat", description: "35% protein, 50% carbs, 15% fat" },
-  custom: { protein: 33, carbs: 34, fat: 33, label: "Custom", description: "Set your own macro split" },
+  custom: { protein: 33, carbs: 34, fat: 33, label: "Custom", description: "Set each macro by dragging the sliders" },
 };
+
+const SLIDER_LIMITS = {
+  protein: { min: 30, max: 400, step: 5 },
+  carbs: { min: 0, max: 700, step: 5 },
+  fat: { min: 10, max: 250, step: 5 },
+};
+
+const clamp = (n: number, min: number, max: number) => Math.min(max, Math.max(min, n));
+const snap = (n: number, step: number) => Math.round(n / step) * step;
 
 export default function GoalsNutritionEdit() {
   const [, setLocation] = useLocation();
   const params = useParams<{ id: string }>();
   const goalId = params.id ? parseInt(params.id) : null;
   const { toast } = useToast();
-  
+
   const [selectedCalorieGoal, setSelectedCalorieGoal] = useState<string>("custom");
   const [baseCalories, setBaseCalories] = useState<number>(0);
   const [calories, setCalories] = useState("");
   const [macroPreset, setMacroPreset] = useState<keyof typeof MACRO_PRESETS>("balanced");
-  const [proteinPercent, setProteinPercent] = useState(30);
-  const [carbPercent, setCarbPercent] = useState(40);
-  const [fatPercent, setFatPercent] = useState(30);
+  const [proteinGrams, setProteinGrams] = useState(150);
+  const [carbsGrams, setCarbsGrams] = useState(200);
+  const [fatGrams, setFatGrams] = useState(65);
   const [showConfirmDialog, setShowConfirmDialog] = useState(false);
 
   const { data: goal, isLoading } = useQuery<Goal>({
@@ -63,37 +74,54 @@ export default function GoalsNutritionEdit() {
       setCalories(goalCalories.toString());
       setBaseCalories(goalCalories);
       setMacroPreset((goal.macroPreset as keyof typeof MACRO_PRESETS) || "balanced");
-      setProteinPercent(goal.proteinPercent || 30);
-      setCarbPercent(goal.carbPercent || 40);
-      setFatPercent(goal.fatPercent || 30);
-      // Load saved calorie goal type or default to custom
+
+      // Prefer saved grams; otherwise derive from saved percentages and calories
+      const initProtein = goal.proteinGrams ?? (goalCalories && goal.proteinPercent ? Math.round((goalCalories * goal.proteinPercent / 100) / 4) : 150);
+      const initCarbs = goal.carbsGrams ?? (goalCalories && goal.carbPercent ? Math.round((goalCalories * goal.carbPercent / 100) / 4) : 200);
+      const initFat = goal.fatGrams ?? (goalCalories && goal.fatPercent ? Math.round((goalCalories * goal.fatPercent / 100) / 9) : 65);
+      setProteinGrams(clamp(snap(initProtein, SLIDER_LIMITS.protein.step), SLIDER_LIMITS.protein.min, SLIDER_LIMITS.protein.max));
+      setCarbsGrams(clamp(snap(initCarbs, SLIDER_LIMITS.carbs.step), SLIDER_LIMITS.carbs.min, SLIDER_LIMITS.carbs.max));
+      setFatGrams(clamp(snap(initFat, SLIDER_LIMITS.fat.step), SLIDER_LIMITS.fat.min, SLIDER_LIMITS.fat.max));
+
       const savedCalorieGoalType = (goal as any).calorieGoalType;
       setSelectedCalorieGoal(savedCalorieGoalType || "custom");
     }
   }, [goal]);
 
+  const computedCalories = proteinGrams * 4 + carbsGrams * 4 + fatGrams * 9;
+  const targetCalories = parseInt(calories) || 0;
+  const calorieDelta = targetCalories ? computedCalories - targetCalories : 0;
+
+  const proteinPercent = computedCalories ? Math.round((proteinGrams * 4) / computedCalories * 100) : 0;
+  const carbPercent = computedCalories ? Math.round((carbsGrams * 4) / computedCalories * 100) : 0;
+  const fatPercent = computedCalories ? Math.round((fatGrams * 9) / computedCalories * 100) : 0;
+
   const mutation = useMutation({
     mutationFn: async () => {
-      const cals = parseInt(calories);
-      if (!cals || cals < 1000 || cals > 6000) {
-        throw new Error("Please enter a valid calorie target (1000-6000)");
+      const cals = computedCalories;
+      if (cals < 800 || cals > 6000) {
+        throw new Error("Macros must total between 800 and 6000 calories");
       }
-      
+
       const goalData = {
         nutritionCalories: cals,
         targetValue: cals,
         calorieGoalType: selectedCalorieGoal,
         macroPreset: macroPreset,
-        proteinPercent: proteinPercent,
-        carbPercent: carbPercent,
-        fatPercent: fatPercent,
+        proteinPercent,
+        carbPercent,
+        fatPercent,
+        proteinGrams,
+        carbsGrams,
+        fatGrams,
         description: `${cals} calories with ${MACRO_PRESETS[macroPreset].label} macro split`,
       };
-      
+
       return await apiRequest("PATCH", `/api/goals/${goalId}`, goalData);
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/goals"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/nutrition/today"] });
       toast({ title: "Success", description: "Nutrition goal updated!" });
       setLocation("/goals");
     },
@@ -102,12 +130,12 @@ export default function GoalsNutritionEdit() {
     },
   });
 
-  const handleCalorieGoalSelect = (goalId: string) => {
-    setSelectedCalorieGoal(goalId);
-    if (goalId !== "custom" && baseCalories > 0) {
-      const selectedGoal = CALORIE_GOALS.find(g => g.id === goalId);
-      if (selectedGoal) {
-        setCalories((baseCalories + selectedGoal.adjustment).toString());
+  const handleCalorieGoalSelect = (id: string) => {
+    setSelectedCalorieGoal(id);
+    if (id !== "custom" && baseCalories > 0) {
+      const selected = CALORIE_GOALS.find(g => g.id === id);
+      if (selected) {
+        setCalories((baseCalories + selected.adjustment).toString());
       }
     }
   };
@@ -115,29 +143,15 @@ export default function GoalsNutritionEdit() {
   const handleMacroPresetSelect = (preset: keyof typeof MACRO_PRESETS) => {
     setMacroPreset(preset);
     if (preset !== "custom") {
-      setProteinPercent(MACRO_PRESETS[preset].protein);
-      setCarbPercent(MACRO_PRESETS[preset].carbs);
-      setFatPercent(MACRO_PRESETS[preset].fat);
+      const cals = parseInt(calories) || computedCalories || 2000;
+      const ratios = MACRO_PRESETS[preset];
+      setProteinGrams(clamp(snap(Math.round((cals * ratios.protein / 100) / 4), SLIDER_LIMITS.protein.step), SLIDER_LIMITS.protein.min, SLIDER_LIMITS.protein.max));
+      setCarbsGrams(clamp(snap(Math.round((cals * ratios.carbs / 100) / 4), SLIDER_LIMITS.carbs.step), SLIDER_LIMITS.carbs.min, SLIDER_LIMITS.carbs.max));
+      setFatGrams(clamp(snap(Math.round((cals * ratios.fat / 100) / 9), SLIDER_LIMITS.fat.step), SLIDER_LIMITS.fat.min, SLIDER_LIMITS.fat.max));
     }
   };
 
-  const calculateGrams = () => {
-    const cals = parseInt(calories) || 0;
-    return {
-      protein: Math.round((cals * proteinPercent / 100) / 4),
-      carbs: Math.round((cals * carbPercent / 100) / 4),
-      fat: Math.round((cals * fatPercent / 100) / 9),
-    };
-  };
-
-  const grams = calculateGrams();
-  const macroTotal = proteinPercent + carbPercent + fatPercent;
-  const isMacroValid = macroPreset !== "custom" || macroTotal === 100;
-
-  const handleSaveClick = () => {
-    setShowConfirmDialog(true);
-  };
-
+  const handleSaveClick = () => setShowConfirmDialog(true);
   const handleConfirmSave = () => {
     setShowConfirmDialog(false);
     mutation.mutate();
@@ -153,10 +167,7 @@ export default function GoalsNutritionEdit() {
 
   return (
     <div className="min-h-screen bg-background">
-      <TopHeader 
-        title="Edit Nutrition Goal"
-        onBack={() => setLocation("/goals")}
-      />
+      <TopHeader title="Edit Nutrition Goal" onBack={() => setLocation("/goals")} />
 
       <div className="px-6 py-4 pb-32 space-y-6">
         <div className="space-y-2">
@@ -171,39 +182,42 @@ export default function GoalsNutritionEdit() {
             placeholder="2500"
             data-testid="input-calories"
           />
+          <p className="text-xs text-muted-foreground">
+            Used as a starting point when you tap a preset below.
+          </p>
         </div>
 
         <div className="space-y-3">
           <Label className="text-sm font-medium">Calorie Adjustment</Label>
           <div className="space-y-2">
-            {CALORIE_GOALS.map((goal) => (
+            {CALORIE_GOALS.map((g) => (
               <button
-                key={goal.id}
+                key={g.id}
                 type="button"
-                onClick={() => handleCalorieGoalSelect(goal.id)}
+                onClick={() => handleCalorieGoalSelect(g.id)}
                 className={`w-full p-3 border rounded-lg text-left transition-all ${
-                  selectedCalorieGoal === goal.id
+                  selectedCalorieGoal === g.id
                     ? "border-[#0cc9a9] bg-[#0cc9a9]/10 ring-1 ring-[#0cc9a9]"
                     : "border-border hover:border-muted-foreground"
                 }`}
-                data-testid={`button-calorie-goal-${goal.id}`}
+                data-testid={`button-calorie-goal-${g.id}`}
               >
                 <div className="flex items-center justify-between">
                   <div>
-                    <div className="font-medium text-sm">{goal.label}</div>
-                    <div className="text-xs text-muted-foreground">{goal.description}</div>
+                    <div className="font-medium text-sm">{g.label}</div>
+                    <div className="text-xs text-muted-foreground">{g.description}</div>
                   </div>
                   <div className="flex items-center gap-2">
                     <span className={`text-xs px-2 py-1 rounded ${
-                      goal.adjustment < 0 
-                        ? "bg-red-500/20 text-red-400" 
-                        : goal.adjustment > 0 
+                      g.adjustment < 0
+                        ? "bg-red-500/20 text-red-400"
+                        : g.adjustment > 0
                           ? "bg-green-500/20 text-green-400"
                           : "bg-muted text-muted-foreground"
                     }`}>
-                      {goal.badge}
+                      {g.badge}
                     </span>
-                    {selectedCalorieGoal === goal.id && <Check className="h-4 w-4 text-[#0cc9a9]" />}
+                    {selectedCalorieGoal === g.id && <Check className="h-4 w-4 text-[#0cc9a9]" />}
                   </div>
                 </div>
               </button>
@@ -212,14 +226,14 @@ export default function GoalsNutritionEdit() {
         </div>
 
         <div className="space-y-3">
-          <Label className="text-sm font-medium">Macro Split</Label>
-          <div className="space-y-2">
+          <Label className="text-sm font-medium">Macro Preset</Label>
+          <div className="grid grid-cols-2 gap-2">
             {(Object.keys(MACRO_PRESETS) as (keyof typeof MACRO_PRESETS)[]).map((key) => (
               <button
                 key={key}
                 type="button"
                 onClick={() => handleMacroPresetSelect(key)}
-                className={`w-full p-3 border rounded-lg text-left transition-all ${
+                className={`p-3 border rounded-lg text-left transition-all ${
                   macroPreset === key
                     ? "border-[#0cc9a9] bg-[#0cc9a9]/10 ring-1 ring-[#0cc9a9]"
                     : "border-border hover:border-muted-foreground"
@@ -227,95 +241,89 @@ export default function GoalsNutritionEdit() {
                 data-testid={`button-preset-${key}`}
               >
                 <div className="flex items-center justify-between">
-                  <div>
-                    <div className="font-medium text-sm">{MACRO_PRESETS[key].label}</div>
-                    <div className="text-xs text-muted-foreground">{MACRO_PRESETS[key].description}</div>
-                  </div>
+                  <div className="font-medium text-sm">{MACRO_PRESETS[key].label}</div>
                   {macroPreset === key && <Check className="h-4 w-4 text-[#0cc9a9]" />}
                 </div>
+                <div className="text-xs text-muted-foreground mt-1">{MACRO_PRESETS[key].description}</div>
               </button>
             ))}
           </div>
+          <p className="text-xs text-muted-foreground">
+            Tap a preset to snap the sliders, then drag any slider to fine-tune.
+          </p>
         </div>
 
-        {macroPreset === "custom" && (
-          <div className="p-4 border rounded-lg bg-muted/30 space-y-3">
-            <div className="text-sm text-muted-foreground">Must total 100%</div>
-            <div className="grid grid-cols-3 gap-3">
-              <div className="space-y-1">
-                <Label className="text-xs">Protein %</Label>
-                <Input
-                  type="number"
-                  value={proteinPercent}
-                  onChange={(e) => setProteinPercent(parseInt(e.target.value) || 0)}
-                  data-testid="input-protein-percent"
-                />
-              </div>
-              <div className="space-y-1">
-                <Label className="text-xs">Carbs %</Label>
-                <Input
-                  type="number"
-                  value={carbPercent}
-                  onChange={(e) => setCarbPercent(parseInt(e.target.value) || 0)}
-                  data-testid="input-carb-percent"
-                />
-              </div>
-              <div className="space-y-1">
-                <Label className="text-xs">Fat %</Label>
-                <Input
-                  type="number"
-                  value={fatPercent}
-                  onChange={(e) => setFatPercent(parseInt(e.target.value) || 0)}
-                  data-testid="input-fat-percent"
-                />
-              </div>
-            </div>
-            {macroTotal !== 100 && (
-              <div className="text-xs text-red-500">
-                Total: {macroTotal}% (must be 100%)
-              </div>
-            )}
-          </div>
-        )}
+        <div className="p-4 border rounded-lg bg-muted/20 space-y-5">
+          <MacroSlider
+            label="Protein"
+            color="text-green-500"
+            barColor="bg-green-500"
+            grams={proteinGrams}
+            cals={proteinGrams * 4}
+            limits={SLIDER_LIMITS.protein}
+            onChange={(v) => { setProteinGrams(v); setMacroPreset("custom"); }}
+            testId="slider-protein"
+          />
+          <MacroSlider
+            label="Carbs"
+            color="text-blue-500"
+            barColor="bg-blue-500"
+            grams={carbsGrams}
+            cals={carbsGrams * 4}
+            limits={SLIDER_LIMITS.carbs}
+            onChange={(v) => { setCarbsGrams(v); setMacroPreset("custom"); }}
+            testId="slider-carbs"
+          />
+          <MacroSlider
+            label="Fat"
+            color="text-orange-500"
+            barColor="bg-orange-500"
+            grams={fatGrams}
+            cals={fatGrams * 9}
+            limits={SLIDER_LIMITS.fat}
+            onChange={(v) => { setFatGrams(v); setMacroPreset("custom"); }}
+            testId="slider-fat"
+          />
+        </div>
 
-        {parseInt(calories) > 0 && (
-          <div className="space-y-3">
-            <Label className="text-sm font-medium">Daily Targets</Label>
+        <div className="space-y-3">
+          <Label className="text-sm font-medium">Daily Targets</Label>
+          {computedCalories > 0 && (
             <div className="h-4 w-full rounded-full overflow-hidden flex">
-              <div className="h-full bg-[#0cc9a9]" style={{ width: `${proteinPercent}%` }} />
+              <div className="h-full bg-green-500" style={{ width: `${proteinPercent}%` }} />
               <div className="h-full bg-blue-500" style={{ width: `${carbPercent}%` }} />
               <div className="h-full bg-orange-500" style={{ width: `${fatPercent}%` }} />
             </div>
-            <div className="grid grid-cols-3 gap-2 text-sm">
-              <div className="text-center">
-                <div>
-                  <span className="text-green-500 font-semibold">{proteinPercent}%</span>
-                  <span className="text-muted-foreground ml-1">{grams.protein}g</span>
-                </div>
-                <div className="text-muted-foreground text-xs">Protein</div>
-              </div>
-              <div className="text-center">
-                <div>
-                  <span className="text-blue-500 font-semibold">{carbPercent}%</span>
-                  <span className="text-muted-foreground ml-1">{grams.carbs}g</span>
-                </div>
-                <div className="text-muted-foreground text-xs">Carbs</div>
-              </div>
-              <div className="text-center">
-                <div>
-                  <span className="text-orange-500 font-semibold">{fatPercent}%</span>
-                  <span className="text-muted-foreground ml-1">{grams.fat}g</span>
-                </div>
-                <div className="text-muted-foreground text-xs">Fat</div>
-              </div>
+          )}
+          <div className="grid grid-cols-4 gap-2 text-sm">
+            <div className="text-center">
+              <div className="font-bold text-lg" data-testid="text-total-calories">{computedCalories}</div>
+              <div className="text-muted-foreground text-xs">Calories</div>
+            </div>
+            <div className="text-center">
+              <div className="font-semibold text-green-500">{proteinGrams}g</div>
+              <div className="text-muted-foreground text-xs">Protein {proteinPercent}%</div>
+            </div>
+            <div className="text-center">
+              <div className="font-semibold text-blue-500">{carbsGrams}g</div>
+              <div className="text-muted-foreground text-xs">Carbs {carbPercent}%</div>
+            </div>
+            <div className="text-center">
+              <div className="font-semibold text-orange-500">{fatGrams}g</div>
+              <div className="text-muted-foreground text-xs">Fat {fatPercent}%</div>
             </div>
           </div>
-        )}
+          {targetCalories > 0 && Math.abs(calorieDelta) >= 25 && (
+            <div className={`text-xs text-center ${calorieDelta > 0 ? "text-orange-400" : "text-blue-400"}`}>
+              {calorieDelta > 0 ? `+${calorieDelta}` : calorieDelta} cal vs your {targetCalories} cal target
+            </div>
+          )}
+        </div>
 
         <div className="fixed bottom-0 left-0 right-0 p-4 bg-background border-t border-border pb-24">
           <Button
             onClick={handleSaveClick}
-            disabled={mutation.isPending || !calories || !isMacroValid}
+            disabled={mutation.isPending || computedCalories < 800 || computedCalories > 6000}
             className="w-full bg-[#0cc9a9] hover:bg-[#0cc9a9]/90 text-black font-semibold"
             data-testid="button-save"
           >
@@ -332,7 +340,8 @@ export default function GoalsNutritionEdit() {
               Confirm Changes
             </AlertDialogTitle>
             <AlertDialogDescription>
-              Are you sure you want to update your nutrition goal? This will change your daily calorie and macro targets.
+              Save {computedCalories} calories — {proteinGrams}g protein, {carbsGrams}g carbs, {fatGrams}g fat?
+              This will update what your Macro Tracker shows.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
@@ -346,6 +355,50 @@ export default function GoalsNutritionEdit() {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+    </div>
+  );
+}
+
+function MacroSlider({
+  label,
+  color,
+  barColor,
+  grams,
+  cals,
+  limits,
+  onChange,
+  testId,
+}: {
+  label: string;
+  color: string;
+  barColor: string;
+  grams: number;
+  cals: number;
+  limits: { min: number; max: number; step: number };
+  onChange: (v: number) => void;
+  testId: string;
+}) {
+  return (
+    <div className="space-y-2">
+      <div className="flex items-baseline justify-between">
+        <Label className="text-sm font-medium">{label}</Label>
+        <div className="text-sm">
+          <span className={`font-semibold ${color}`}>{grams}g</span>
+          <span className="text-muted-foreground ml-2 text-xs">{cals} cal</span>
+        </div>
+      </div>
+      <Slider
+        value={[grams]}
+        min={limits.min}
+        max={limits.max}
+        step={limits.step}
+        onValueChange={(v) => onChange(v[0])}
+        data-testid={testId}
+      />
+      <div className="flex justify-between text-[10px] text-muted-foreground">
+        <span>{limits.min}g</span>
+        <span>{limits.max}g</span>
+      </div>
     </div>
   );
 }

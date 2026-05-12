@@ -26,7 +26,7 @@ import { Label } from "@/components/ui/label";
 import QuickAddMenu from "@/components/QuickAddMenu";
 import RecipesList from "@/components/RecipesList";
 import SupplementsTab from "@/components/SupplementsTab";
-import type { Recipe, FoodLog, HydrationLog, HydrationGoal } from "@shared/schema";
+import type { Recipe, FoodLog, HydrationLog, HydrationGoal, Goal } from "@shared/schema";
 
 interface ExtendedFoodLog extends FoodLog {
   servingSize?: number;
@@ -422,6 +422,11 @@ export default function Nutrition() {
     retry: false,
     enabled: isAuthenticated,
   });
+
+  const { data: userGoals = [] } = useQuery<Goal[]>({
+    queryKey: ['/api/goals'],
+  });
+  const activeNutritionGoal = userGoals.find(g => g.type === 'nutrition' && !g.isCompleted);
 
   const { data: nutritionData } = useQuery<NutritionData>({
     queryKey: ['/api/nutrition/today'],
@@ -1324,6 +1329,15 @@ export default function Nutrition() {
                   data-testid="button-view-graphs"
                 >
                   <TrendingUp className="h-4 w-4" />
+                </Button>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => navigate(activeNutritionGoal ? `/goals/nutrition/edit/${activeNutritionGoal.id}` : '/goals/nutrition/new')}
+                  data-testid="button-edit-macro-targets"
+                  title={activeNutritionGoal ? 'Edit your nutrition goal' : 'Set a nutrition goal'}
+                >
+                  <Edit2 className="h-4 w-4" />
                 </Button>
               </div>
             </div>

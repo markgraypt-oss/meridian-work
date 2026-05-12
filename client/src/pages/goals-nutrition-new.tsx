@@ -573,6 +573,8 @@ export default function GoalsNutritionNew() {
               <NewMacroSlider
                 label="Protein"
                 color="text-green-500"
+                rangeClassName="bg-green-500"
+                thumbClassName="border-green-500"
                 grams={proteinGrams}
                 cals={proteinGrams * 4}
                 limits={SLIDER_LIMITS.protein}
@@ -582,6 +584,8 @@ export default function GoalsNutritionNew() {
               <NewMacroSlider
                 label="Carbs"
                 color="text-blue-500"
+                rangeClassName="bg-blue-500"
+                thumbClassName="border-blue-500"
                 grams={carbsGrams}
                 cals={carbsGrams * 4}
                 limits={SLIDER_LIMITS.carbs}
@@ -591,6 +595,8 @@ export default function GoalsNutritionNew() {
               <NewMacroSlider
                 label="Fat"
                 color="text-orange-500"
+                rangeClassName="bg-orange-500"
+                thumbClassName="border-orange-500"
                 grams={fatGrams}
                 cals={fatGrams * 9}
                 limits={SLIDER_LIMITS.fat}
@@ -661,6 +667,8 @@ export default function GoalsNutritionNew() {
 function NewMacroSlider({
   label,
   color,
+  rangeClassName,
+  thumbClassName,
   grams,
   cals,
   limits,
@@ -669,6 +677,8 @@ function NewMacroSlider({
 }: {
   label: string;
   color: string;
+  rangeClassName: string;
+  thumbClassName: string;
   grams: number;
   cals: number;
   limits: { min: number; max: number; step: number };
@@ -690,6 +700,8 @@ function NewMacroSlider({
         max={limits.max}
         step={limits.step}
         onValueChange={(v) => onChange(v[0])}
+        rangeClassName={rangeClassName}
+        thumbClassName={thumbClassName}
         data-testid={testId}
       />
       <div className="flex justify-between text-[10px] text-muted-foreground">

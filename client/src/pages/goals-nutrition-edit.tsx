@@ -72,8 +72,15 @@ export default function GoalsNutritionEdit() {
     if (goal) {
       const goalCalories = goal.nutritionCalories || 0;
       setCalories(goalCalories.toString());
-      setBaseCalories(goalCalories);
       setMacroPreset((goal.macroPreset as keyof typeof MACRO_PRESETS) || "balanced");
+
+      // Recover the user's maintenance calories so adjustment buttons work
+      // correctly (e.g. switching Mild → Moderate Deficit subtracts from
+      // maintenance, not from the previously saved target).
+      const savedCalorieGoalType = (goal as any).calorieGoalType;
+      const savedAdjustment = CALORIE_GOALS.find(g => g.id === savedCalorieGoalType)?.adjustment ?? 0;
+      setBaseCalories(goalCalories - savedAdjustment);
+      setSelectedCalorieGoal(savedCalorieGoalType || "custom");
 
       // Prefer saved grams; otherwise derive from saved percentages and calories
       const initProtein = goal.proteinGrams ?? (goalCalories && goal.proteinPercent ? Math.round((goalCalories * goal.proteinPercent / 100) / 4) : 150);
@@ -82,11 +89,19 @@ export default function GoalsNutritionEdit() {
       setProteinGrams(clamp(snap(initProtein, SLIDER_LIMITS.protein.step), SLIDER_LIMITS.protein.min, SLIDER_LIMITS.protein.max));
       setCarbsGrams(clamp(snap(initCarbs, SLIDER_LIMITS.carbs.step), SLIDER_LIMITS.carbs.min, SLIDER_LIMITS.carbs.max));
       setFatGrams(clamp(snap(initFat, SLIDER_LIMITS.fat.step), SLIDER_LIMITS.fat.min, SLIDER_LIMITS.fat.max));
-
-      const savedCalorieGoalType = (goal as any).calorieGoalType;
-      setSelectedCalorieGoal(savedCalorieGoalType || "custom");
     }
   }, [goal]);
+
+  // Re-snap sliders to current preset whenever the calorie target changes
+  // (e.g. user switches Calorie Adjustment). No-op for Custom preset so the
+  // user keeps their hand-set values.
+  const snapSlidersTo = (cals: number, preset: keyof typeof MACRO_PRESETS) => {
+    if (preset === "custom" || !cals) return;
+    const ratios = MACRO_PRESETS[preset];
+    setProteinGrams(clamp(snap(Math.round((cals * ratios.protein / 100) / 4), SLIDER_LIMITS.protein.step), SLIDER_LIMITS.protein.min, SLIDER_LIMITS.protein.max));
+    setCarbsGrams(clamp(snap(Math.round((cals * ratios.carbs / 100) / 4), SLIDER_LIMITS.carbs.step), SLIDER_LIMITS.carbs.min, SLIDER_LIMITS.carbs.max));
+    setFatGrams(clamp(snap(Math.round((cals * ratios.fat / 100) / 9), SLIDER_LIMITS.fat.step), SLIDER_LIMITS.fat.min, SLIDER_LIMITS.fat.max));
+  };
 
   const computedCalories = proteinGrams * 4 + carbsGrams * 4 + fatGrams * 9;
   const targetCalories = parseInt(calories) || 0;
@@ -135,20 +150,16 @@ export default function GoalsNutritionEdit() {
     if (id !== "custom" && baseCalories > 0) {
       const selected = CALORIE_GOALS.find(g => g.id === id);
       if (selected) {
-        setCalories((baseCalories + selected.adjustment).toString());
+        const newCals = baseCalories + selected.adjustment;
+        setCalories(newCals.toString());
+        snapSlidersTo(newCals, macroPreset);
       }
     }
   };
 
   const handleMacroPresetSelect = (preset: keyof typeof MACRO_PRESETS) => {
     setMacroPreset(preset);
-    if (preset !== "custom") {
-      const cals = parseInt(calories) || computedCalories || 2000;
-      const ratios = MACRO_PRESETS[preset];
-      setProteinGrams(clamp(snap(Math.round((cals * ratios.protein / 100) / 4), SLIDER_LIMITS.protein.step), SLIDER_LIMITS.protein.min, SLIDER_LIMITS.protein.max));
-      setCarbsGrams(clamp(snap(Math.round((cals * ratios.carbs / 100) / 4), SLIDER_LIMITS.carbs.step), SLIDER_LIMITS.carbs.min, SLIDER_LIMITS.carbs.max));
-      setFatGrams(clamp(snap(Math.round((cals * ratios.fat / 100) / 9), SLIDER_LIMITS.fat.step), SLIDER_LIMITS.fat.min, SLIDER_LIMITS.fat.max));
-    }
+    snapSlidersTo(parseInt(calories) || computedCalories || 2000, preset);
   };
 
   const handleSaveClick = () => setShowConfirmDialog(true);
@@ -177,13 +188,17 @@ export default function GoalsNutritionEdit() {
             value={calories}
             onChange={(e) => {
               setCalories(e.target.value);
-              setSelectedCalorieGoal("custom");
+              snapSlidersTo(parseInt(e.target.value) || 0, macroPreset);
             }}
+            readOnly={selectedCalorieGoal !== "custom"}
+            className={selectedCalorieGoal !== "custom" ? "opacity-60 cursor-not-allowed" : ""}
             placeholder="2500"
             data-testid="input-calories"
           />
           <p className="text-xs text-muted-foreground">
-            Used as a starting point when you tap a preset below.
+            {selectedCalorieGoal === "custom"
+              ? "Type your own daily calorie target."
+              : "Set automatically by the Calorie Adjustment you pick below. Choose Custom to type your own."}
           </p>
         </div>
 
@@ -257,7 +272,8 @@ export default function GoalsNutritionEdit() {
           <MacroSlider
             label="Protein"
             color="text-green-500"
-            barColor="bg-green-500"
+            rangeClassName="bg-green-500"
+            thumbClassName="border-green-500"
             grams={proteinGrams}
             cals={proteinGrams * 4}
             limits={SLIDER_LIMITS.protein}
@@ -267,7 +283,8 @@ export default function GoalsNutritionEdit() {
           <MacroSlider
             label="Carbs"
             color="text-blue-500"
-            barColor="bg-blue-500"
+            rangeClassName="bg-blue-500"
+            thumbClassName="border-blue-500"
             grams={carbsGrams}
             cals={carbsGrams * 4}
             limits={SLIDER_LIMITS.carbs}
@@ -277,7 +294,8 @@ export default function GoalsNutritionEdit() {
           <MacroSlider
             label="Fat"
             color="text-orange-500"
-            barColor="bg-orange-500"
+            rangeClassName="bg-orange-500"
+            thumbClassName="border-orange-500"
             grams={fatGrams}
             cals={fatGrams * 9}
             limits={SLIDER_LIMITS.fat}
@@ -362,7 +380,8 @@ export default function GoalsNutritionEdit() {
 function MacroSlider({
   label,
   color,
-  barColor,
+  rangeClassName,
+  thumbClassName,
   grams,
   cals,
   limits,
@@ -371,7 +390,8 @@ function MacroSlider({
 }: {
   label: string;
   color: string;
-  barColor: string;
+  rangeClassName: string;
+  thumbClassName: string;
   grams: number;
   cals: number;
   limits: { min: number; max: number; step: number };
@@ -393,6 +413,8 @@ function MacroSlider({
         max={limits.max}
         step={limits.step}
         onValueChange={(v) => onChange(v[0])}
+        rangeClassName={rangeClassName}
+        thumbClassName={thumbClassName}
         data-testid={testId}
       />
       <div className="flex justify-between text-[10px] text-muted-foreground">

@@ -134,10 +134,9 @@ function CircularProgress({ value, max, size = 56, strokeWidth = 4, color = "#0c
 }
 
 // Nutrition goal card matching the reference design
-function NutritionGoalCard({ goal, nutritionData, navigate }: {
+function NutritionGoalCard({ goal, nutritionData }: {
   goal: Goal;
   nutritionData: NutritionData | undefined;
-  navigate: (path: string) => void;
 }) {
   const targets = {
     calories: goal.nutritionCalories || nutritionData?.goal?.calorieTarget || 2000,
@@ -172,9 +171,8 @@ function NutritionGoalCard({ goal, nutritionData, navigate }: {
 
   return (
     <Card 
-      className="p-4 cursor-pointer hover:bg-muted/30 transition-colors"
+      className="p-4"
       data-testid={`card-goal-${goal.id}`}
-      onClick={() => navigate(`/goals/nutrition/edit/${goal.id}`)}
     >
       <div className="flex items-center justify-between mb-4">
         <span className="font-medium text-foreground">Daily nutrition goal</span>
@@ -826,7 +824,6 @@ export default function Dashboard() {
                       key={goal.id}
                       goal={goal}
                       nutritionData={nutritionData}
-                      navigate={navigate}
                     />
                   );
                 }

@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { useLocation, useParams } from "wouter";
 import { useMutation, useQuery } from "@tanstack/react-query";
 import type { Goal } from "@shared/schema";
@@ -62,6 +62,7 @@ export default function GoalsNutritionEdit() {
   const [carbsGrams, setCarbsGrams] = useState(200);
   const [fatGrams, setFatGrams] = useState(65);
   const [showConfirmDialog, setShowConfirmDialog] = useState(false);
+  const calorieDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const { data: goal, isLoading } = useQuery<Goal>({
     queryKey: [`/api/goals/${goalId}`],
@@ -199,25 +200,20 @@ export default function GoalsNutritionEdit() {
             type="number"
             value={calories}
             onChange={(e) => {
-              setCalories(e.target.value);
+              const newVal = e.target.value;
+              setCalories(newVal);
               setSelectedCalorieGoal("custom");
-            }}
-            onBlur={(e) => {
-              const val = parseInt(e.target.value);
-              if (val && val >= 800) snapSlidersTo(val, macroPreset);
-            }}
-            onKeyDown={(e) => {
-              if (e.key === "Enter") {
-                const val = parseInt((e.target as HTMLInputElement).value);
+              if (calorieDebounceRef.current) clearTimeout(calorieDebounceRef.current);
+              calorieDebounceRef.current = setTimeout(() => {
+                const val = parseInt(newVal);
                 if (val && val >= 800) snapSlidersTo(val, macroPreset);
-                (e.target as HTMLInputElement).blur();
-              }
+              }, 700);
             }}
             placeholder="2500"
             data-testid="input-calories"
           />
           <p className="text-xs text-muted-foreground">
-            Type a target then press Enter (or tap away) to rescale your macros, or pick a Calorie Adjustment below.
+            Type your own target, or pick a Calorie Adjustment below to set it for you.
           </p>
         </div>
 

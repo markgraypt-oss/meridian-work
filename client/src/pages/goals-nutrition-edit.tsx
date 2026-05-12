@@ -185,20 +185,15 @@ export default function GoalsNutritionEdit() {
           <Label className="text-sm font-medium">Daily Calorie Target</Label>
           <Input
             type="number"
-            value={calories}
-            onChange={(e) => {
-              setCalories(e.target.value);
-              snapSlidersTo(parseInt(e.target.value) || 0, macroPreset);
-            }}
-            readOnly={selectedCalorieGoal !== "custom"}
-            className={selectedCalorieGoal !== "custom" ? "opacity-60 cursor-not-allowed" : ""}
-            placeholder="2500"
+            value={selectedCalorieGoal === "custom" ? computedCalories : calories}
+            readOnly
+            className="opacity-60 cursor-not-allowed"
             data-testid="input-calories"
           />
           <p className="text-xs text-muted-foreground">
             {selectedCalorieGoal === "custom"
-              ? "Type your own daily calorie target."
-              : "Set automatically by the Calorie Adjustment you pick below. Choose Custom to type your own."}
+              ? "Calculated from your macro sliders below."
+              : "Set automatically by the Calorie Adjustment you pick below."}
           </p>
         </div>
 

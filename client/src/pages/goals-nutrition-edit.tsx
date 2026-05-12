@@ -178,7 +178,7 @@ export default function GoalsNutritionEdit() {
 
   return (
     <div className="min-h-screen bg-background">
-      <TopHeader title="Edit Nutrition Goal" onBack={() => setLocation("/goals")} />
+      <TopHeader title="Nutrition Goal" onBack={() => setLocation("/goals")} />
 
       <div className="px-6 py-4 pb-32 space-y-6">
         <div className="space-y-2">

@@ -1333,9 +1333,19 @@ export default function Nutrition() {
                 <Button
                   variant="ghost"
                   size="sm"
-                  onClick={() => navigate(activeNutritionGoal ? `/goals/nutrition/edit/${activeNutritionGoal.id}` : '/goals/nutrition/new')}
+                  onClick={() => {
+                    if (activeNutritionGoal) {
+                      toast({
+                        title: "Manage from Goals",
+                        description: "Your macro targets come from your nutrition goal. Edit them on the Goals page so your tracker and goal stay in sync.",
+                      });
+                      navigate(`/goals/nutrition/edit/${activeNutritionGoal.id}`);
+                    } else {
+                      navigate('/goals/nutrition/new');
+                    }
+                  }}
                   data-testid="button-edit-macro-targets"
-                  title={activeNutritionGoal ? 'Edit your nutrition goal' : 'Set a nutrition goal'}
+                  title={activeNutritionGoal ? 'Manage from Goals' : 'Set a nutrition goal'}
                 >
                   <Edit2 className="h-4 w-4" />
                 </Button>

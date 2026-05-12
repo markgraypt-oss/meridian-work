@@ -947,7 +947,11 @@ function GoalCard({ goal, calculateProgress, isGoalComplete, setEditingGoal, set
             return (
               <>
                 {/* Nutrition goal display - single horizontal bar with macro split */}
-                <div className="space-y-2">
+                <div
+                  className={`space-y-2 ${!goal.isCompleted ? 'cursor-pointer hover:bg-muted/30 -mx-2 px-2 py-1 rounded-lg transition-colors' : ''}`}
+                  onClick={() => !goal.isCompleted && (window.location.href = `/goals/nutrition/edit/${goal.id}`)}
+                  data-testid={`button-open-nutrition-goal-${goal.id}`}
+                >
                   {/* Combined macro bar */}
                   <div className="h-4 w-full rounded-full overflow-hidden flex">
                     <div 

@@ -134,9 +134,10 @@ function CircularProgress({ value, max, size = 56, strokeWidth = 4, color = "#0c
 }
 
 // Nutrition goal card matching the reference design
-function NutritionGoalCard({ goal, nutritionData }: {
+function NutritionGoalCard({ goal, nutritionData, navigate }: {
   goal: Goal;
   nutritionData: NutritionData | undefined;
+  navigate: (path: string) => void;
 }) {
   const targets = {
     calories: goal.nutritionCalories || nutritionData?.goal?.calorieTarget || 2000,
@@ -171,11 +172,13 @@ function NutritionGoalCard({ goal, nutritionData }: {
 
   return (
     <Card 
-      className="p-4"
+      className="p-4 cursor-pointer hover:bg-muted/30 transition-colors"
       data-testid={`card-goal-${goal.id}`}
+      onClick={() => navigate(`/goals/nutrition/edit/${goal.id}`)}
     >
       <div className="flex items-center justify-between mb-4">
         <span className="font-medium text-foreground">Daily nutrition goal</span>
+        <span className="text-xs text-muted-foreground">Tap to edit</span>
       </div>
       
       <div className="flex justify-around">
@@ -190,11 +193,12 @@ function NutritionGoalCard({ goal, nutritionData }: {
                 color="#0cc9a9"
               />
               <div className="absolute inset-0 flex flex-col items-center justify-center">
-                <span className={`text-lg font-semibold ${getMacroColor(m.value, m.target)}`}>{m.value}{m.unit}</span>
+                <span className={`text-base font-semibold ${getMacroColor(m.value, m.target)}`}>
+                  {m.value}<span className="text-muted-foreground">/{m.target}{m.unit}</span>
+                </span>
                 <span className="text-[10px] text-muted-foreground">{m.label}</span>
               </div>
             </div>
-            <span className="text-xs text-black font-medium -mt-1 px-2 py-0.5 rounded-full bg-[#0cc9a9] relative z-10">{m.targetLabel}</span>
           </div>
         ))}
       </div>
@@ -824,6 +828,7 @@ export default function Dashboard() {
                       key={goal.id}
                       goal={goal}
                       nutritionData={nutritionData}
+                      navigate={navigate}
                     />
                   );
                 }

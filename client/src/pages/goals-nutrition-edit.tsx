@@ -201,13 +201,23 @@ export default function GoalsNutritionEdit() {
             onChange={(e) => {
               setCalories(e.target.value);
               setSelectedCalorieGoal("custom");
-              snapSlidersTo(parseInt(e.target.value) || 0, macroPreset);
+            }}
+            onBlur={(e) => {
+              const val = parseInt(e.target.value);
+              if (val && val >= 800) snapSlidersTo(val, macroPreset);
+            }}
+            onKeyDown={(e) => {
+              if (e.key === "Enter") {
+                const val = parseInt((e.target as HTMLInputElement).value);
+                if (val && val >= 800) snapSlidersTo(val, macroPreset);
+                (e.target as HTMLInputElement).blur();
+              }
             }}
             placeholder="2500"
             data-testid="input-calories"
           />
           <p className="text-xs text-muted-foreground">
-            Type your own target, or pick a Calorie Adjustment below to set it for you.
+            Type a target then press Enter (or tap away) to rescale your macros, or pick a Calorie Adjustment below.
           </p>
         </div>
 

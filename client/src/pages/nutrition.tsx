@@ -337,6 +337,8 @@ export default function Nutrition() {
   const [supplementDosage, setSupplementDosage] = useState('');
   const [addingToTime, setAddingToTime] = useState<string | null>(null);
   const [editingFood, setEditingFood] = useState<ExtendedFoodLog | null>(null);
+  const [showGoalsModal, setShowGoalsModal] = useState(false);
+  const [goalsForm, setGoalsForm] = useState({ calorieTarget: '', proteinTarget: '', carbsTarget: '', fatTarget: '' });
   const [selectedMealCategory, setSelectedMealCategory] = useState<string>('meal 1');
   const [selectedTimeOfDay, setSelectedTimeOfDay] = useState<string>('morning');
   const [mealMenuOpen, setMealMenuOpen] = useState<string | null>(null);
@@ -532,6 +534,30 @@ export default function Nutrition() {
       toast({ title: "Error", description: "Failed to log food", variant: "destructive" });
     },
   });
+
+  const updateGoalsMutation = useMutation({
+    mutationFn: async (data: { calorieTarget: number; proteinTarget: number; carbsTarget: number; fatTarget: number }) => {
+      return await apiRequest('POST', '/api/nutrition/goal', data);
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['/api/nutrition/today'] });
+      toast({ title: "Goals updated", description: "Your calorie and macro targets have been saved." });
+      setShowGoalsModal(false);
+    },
+    onError: () => {
+      toast({ title: "Error", description: "Failed to update goals", variant: "destructive" });
+    },
+  });
+
+  const openGoalsEditor = () => {
+    setGoalsForm({
+      calorieTarget: String(goal.calorieTarget),
+      proteinTarget: String(goal.proteinTarget),
+      carbsTarget: String(goal.carbsTarget),
+      fatTarget: String(goal.fatTarget),
+    });
+    setShowGoalsModal(true);
+  };
 
   const updateFoodMutation = useMutation({
     mutationFn: async ({ id, data }: { id: number; data: any }) => {
@@ -1317,6 +1343,15 @@ export default function Nutrition() {
                 Macro Tracking
               </CardTitle>
               <div className="flex gap-2">
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={openGoalsEditor}
+                  data-testid="button-edit-goals"
+                  title="Edit calorie and macro targets"
+                >
+                  <Edit2 className="h-4 w-4" />
+                </Button>
                 <Button
                   variant="ghost"
                   size="sm"

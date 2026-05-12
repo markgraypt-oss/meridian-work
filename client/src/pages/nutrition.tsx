@@ -1330,25 +1330,17 @@ export default function Nutrition() {
                 >
                   <TrendingUp className="h-4 w-4" />
                 </Button>
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  onClick={() => {
-                    if (activeNutritionGoal) {
-                      toast({
-                        title: "Manage from Goals",
-                        description: "Your macro targets come from your nutrition goal. Edit them on the Goals page so your tracker and goal stay in sync.",
-                      });
-                      navigate(`/goals/nutrition/edit/${activeNutritionGoal.id}`);
-                    } else {
-                      navigate('/goals/nutrition/new');
-                    }
-                  }}
-                  data-testid="button-edit-macro-targets"
-                  title={activeNutritionGoal ? 'Manage from Goals' : 'Set a nutrition goal'}
-                >
-                  <Edit2 className="h-4 w-4" />
-                </Button>
+                {!activeNutritionGoal && (
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => navigate('/goals/nutrition/new')}
+                    data-testid="button-edit-macro-targets"
+                    title="Set a nutrition goal"
+                  >
+                    <Edit2 className="h-4 w-4" />
+                  </Button>
+                )}
               </div>
             </div>
           </CardHeader>

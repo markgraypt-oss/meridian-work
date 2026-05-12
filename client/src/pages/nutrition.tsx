@@ -397,10 +397,11 @@ export default function Nutrition() {
     window.scrollTo(0, 0);
   };
 
-  // AI Nutrition Insights states
-  const [aiInsightsMode, setAiInsightsMode] = useState<string | null>(null);
-  const [aiInsightsData, setAiInsightsData] = useState<any>(null);
-  const [aiInsightsExpanded, setAiInsightsExpanded] = useState(false);
+  // AI Nutrition Insights states — seeded from cache so they survive navigating away and back
+  const cachedPanel = queryClient.getQueryData<{ mode: string | null; data: any; expanded: boolean }>(['nutrition-ai-panel']);
+  const [aiInsightsMode, setAiInsightsMode] = useState<string | null>(cachedPanel?.mode ?? null);
+  const [aiInsightsData, setAiInsightsData] = useState<any>(cachedPanel?.data ?? null);
+  const [aiInsightsExpanded, setAiInsightsExpanded] = useState(cachedPanel?.expanded ?? false);
   const [aiFeedbackSent, setAiFeedbackSent] = useState<Record<string, boolean>>({});
   const [chatInput, setChatInput] = useState('');
   const [showChatInput, setShowChatInput] = useState(false);
@@ -798,6 +799,8 @@ export default function Nutrition() {
       setAiInsightsData(data);
       setAiInsightsMode(mode);
       setAiInsightsExpanded(true);
+      // Persist in cache so the panel survives navigating away to a recipe and back
+      queryClient.setQueryData(['nutrition-ai-panel'], { mode, data, expanded: true });
       if (mode === 'chat') {
         setChatInput('');
       }

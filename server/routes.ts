@@ -18557,7 +18557,8 @@ Generate the opening message now. Remember: 1-3 sentences, specific, mandatory t
 
       // ===== Recipe-driven modes: pull from real recipe library, never invent =====
       if (mode === 'recipe_suggestions' || mode === 'next_meal') {
-        const maxPicks = mode === 'next_meal' ? 2 : 3;
+        // next_meal: ONE decisive pick for right now. Smart recipes: 3 fits across the day.
+        const maxPicks = mode === 'next_meal' ? 1 : 3;
         const goal = await storage.getNutritionGoal(userId);
         const targets = {
           calories: goal?.calorieTarget ?? 2000,
@@ -18598,13 +18599,26 @@ Generate the opening message now. Remember: 1-3 sentences, specific, mandatory t
         const dietaryPreference = plan?.dietaryPreference || 'no_preference';
         const excludedIngredients = (plan?.excludedIngredients || []).map(s => s.toLowerCase());
 
-        // Decide which meal category fits the time of day
-        // Recipe categories in this library: 'breakfast', 'main', 'side', 'dessert'
+        // Decide which meal category fits the time of day.
+        // Recipe categories in this library: 'breakfast', 'main', 'side', 'dessert'.
+        // next_meal is decisive: it picks ONE meal that fits the moment, with strict time-of-day rules.
+        // recipe_suggestions is exploratory: it shows 3 fits across the day with a softer time bias.
         const categoryByTime = hour < 10 ? 'breakfast' : hour < 21 ? 'main' : 'side';
-        // Calorie ceiling for "next meal" — never blow past remaining + 150kcal cushion
-        const ceiling = remaining.calories > 0 ? remaining.calories + 150 : Math.round(targets.calories * 0.4);
+        // Calorie ceiling logic differs by mode:
+        // - next_meal at night (>21h): hard cap ~350kcal, never let a heavy meal slip in
+        // - next_meal mid-afternoon (14-17h): treat as a snack window, cap ~450kcal
+        // - everything else: stay within remaining + 150kcal cushion
+        let ceiling: number;
+        if (mode === 'next_meal' && hour >= 21) {
+          ceiling = Math.min(350, remaining.calories > 0 ? remaining.calories + 50 : 350);
+        } else if (mode === 'next_meal' && hour >= 14 && hour < 17) {
+          ceiling = Math.min(450, remaining.calories > 0 ? remaining.calories + 100 : 450);
+        } else {
+          ceiling = remaining.calories > 0 ? remaining.calories + 150 : Math.round(targets.calories * 0.4);
+        }
 
-        // Fetch candidates: try the time-appropriate category first, then widen
+        // Fetch candidates: try the time-appropriate category first, then widen.
+        // For next_meal, we widen LESS aggressively — time of day matters more than catalogue depth.
         let candidates: any[] = await storage.getRecipesForMealPlan({
           caloriesPerDay: targets.calories,
           macroSplit: 'balanced',
@@ -18614,8 +18628,8 @@ Generate the opening message now. Remember: 1-3 sentences, specific, mandatory t
           mealType: categoryByTime,
           maxPrepTime: plan?.maxPrepTime ?? null,
         });
-        // If too few in that category, widen across all categories
-        if (candidates.length < 6) {
+        const widenThreshold = mode === 'next_meal' ? 3 : 6;
+        if (candidates.length < widenThreshold) {
           const wider = await storage.getRecipesForMealPlan({
             caloriesPerDay: targets.calories,
             macroSplit: 'balanced',
@@ -18624,12 +18638,17 @@ Generate the opening message now. Remember: 1-3 sentences, specific, mandatory t
             excludedIngredients,
             maxPrepTime: plan?.maxPrepTime ?? null,
           });
-          // De-dupe
           const seen = new Set(candidates.map(c => c.id));
           for (const r of wider) if (!seen.has(r.id)) candidates.push(r);
         }
-        // Hard cap on calories so suggestions don't bust their day
+        // Hard cap on calories
         candidates = candidates.filter(r => (r.calories ?? 0) <= ceiling);
+
+        // For next_meal late at night, also strip out anything tagged or categorised as a heavy main course
+        // even if it slipped under the calorie cap (e.g. a low-calorie steak entry)
+        if (mode === 'next_meal' && hour >= 21) {
+          candidates = candidates.filter(r => r.category !== 'main' || (r.calories ?? 0) <= 300);
+        }
 
         // No real recipes fit — return honest message + gap-filling advice (no AI fallback)
         if (candidates.length === 0) {
@@ -18713,10 +18732,24 @@ Generate the opening message now. Remember: 1-3 sentences, specific, mandatory t
         // Hand the LLM the candidate set with IDs and ask it to pick + write reasons
         const candidateBlock = top.map(r => `- ID:${r.id} | "${r.title}" | ${r.calories}kcal | P${Math.round(r.protein)}g C${Math.round(r.carbs)}g F${Math.round(r.fat)}g | category:${r.category}${r.allergens?.length ? ` | contains: ${r.allergens.join(', ')}` : ''}`).join('\n');
 
+        // Time-of-day intent string — used heavily for next_meal so the AI weights this above all else
+        const intent = hour < 10
+          ? 'BREAKFAST window. Pick something breakfast-appropriate — eggs, oats, yoghurt, smoothies. Never suggest a heavy dinner here.'
+          : hour < 14
+          ? 'LUNCH window. A balanced main meal is appropriate.'
+          : hour < 17
+          ? 'AFTERNOON SNACK window. Pick something light — under 450 kcal. No full dinners. A side, snack, or light meal only.'
+          : hour < 21
+          ? 'DINNER window. A balanced main meal is appropriate.'
+          : 'LATE EVENING. Pick something LIGHT — under 350 kcal — protein-leaning, easy to digest. Never suggest a heavy meal close to bedtime.';
+
         const summaryRule = mode === 'next_meal'
-          ? `\n\nAlso write a "summary" — one short sentence (max 20 words) that tells ${userName} where they stand right now (e.g. "You've got 820 kcal and 55g protein left, so a balanced mid-sized meal would close the day cleanly.").`
+          ? `\n\nAlso write a "summary" — one short, decisive sentence (max 20 words) telling ${userName} where they stand right now and how much room they have for this meal. Example: "You've got 820 kcal and 55g protein left — a normal-sized dinner would close the day cleanly."`
           : '';
         const summaryField = mode === 'next_meal' ? `, "summary": "One-line status of where they stand"` : '';
+        const pickInstruction = mode === 'next_meal'
+          ? `Pick the SINGLE BEST recipe from this candidate list for THIS moment — be decisive. Time of day matters more than perfect macro fit.`
+          : `Pick the ${maxPicks} BEST recipes from this candidate list across the day.`;
 
         const recipePrompt = `${userName} has these macros LEFT today (target minus what they've already eaten):
 - Calories: ${remaining.calories}
@@ -18724,14 +18757,17 @@ Generate the opening message now. Remember: 1-3 sentences, specific, mandatory t
 - Carbs: ${remaining.carbs}g
 - Fat: ${remaining.fat}g
 
-Time of day: ${timeOfDay}.
+Local time: ${hour}:00 (${timeOfDay}).
+INTENT: ${intent}
 ${dietaryPreference !== 'no_preference' ? `Dietary preference: ${dietaryPreference}.` : ''}
 ${excludedIngredients.length > 0 ? `Avoiding: ${excludedIngredients.join(', ')}.` : ''}
 
-Pick the ${maxPicks} BEST recipes from this candidate list (these are real recipes in their library — only pick from here, never invent):
+These are real recipes in their library — only pick from here, never invent:
 ${candidateBlock}
 
-For each pick, write one short sentence (1-2 sentences max) explaining specifically why it fits THIS user's remaining macros and time of day. Be concrete: reference their actual numbers (e.g. "covers your remaining 38g protein gap", "fits cleanly under your 600kcal cushion").${summaryRule}
+${pickInstruction}
+
+For each pick, write one short sentence (1-2 sentences max) explaining specifically why it fits THIS user's remaining macros and the time of day. Be concrete: reference their actual numbers (e.g. "covers your remaining 38g protein gap", "light enough at this hour to avoid disturbing your sleep").${summaryRule}
 
 Respond in this exact JSON format — IDs must come from the candidate list above:
 {"picks": [{"id": <recipe_id>, "reason": "Why this fits"}]${summaryField}}`;

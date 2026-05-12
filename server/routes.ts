@@ -18555,8 +18555,9 @@ Generate the opening message now. Remember: 1-3 sentences, specific, mandatory t
 
       const timeOfDay = hour < 10 ? 'morning' : hour < 14 ? 'midday' : hour < 18 ? 'afternoon' : 'evening';
 
-      // ===== Smart recipe recommendations: pull from real recipe library =====
-      if (mode === 'recipe_suggestions') {
+      // ===== Recipe-driven modes: pull from real recipe library, never invent =====
+      if (mode === 'recipe_suggestions' || mode === 'next_meal') {
+        const maxPicks = mode === 'next_meal' ? 2 : 3;
         const goal = await storage.getNutritionGoal(userId);
         const targets = {
           calories: goal?.calorieTarget ?? 2000,
@@ -18688,6 +18689,7 @@ Generate the opening message now. Remember: 1-3 sentences, specific, mandatory t
               gapAdvice,
               remainingMacros: remaining,
               targets,
+              ...(mode === 'next_meal' ? { summary: `You've got ${remaining.calories} kcal, ${remaining.protein}g protein, ${remaining.carbs}g carbs and ${remaining.fat}g fat left for the day.` } : {}),
             },
           });
         }
@@ -18708,8 +18710,13 @@ Generate the opening message now. Remember: 1-3 sentences, specific, mandatory t
         }).sort((a, b) => a.score - b.score);
         const top = scored.slice(0, Math.min(10, scored.length)).map(s => s.recipe);
 
-        // Hand the LLM the candidate set with IDs and ask it to pick 3 + write reasons
+        // Hand the LLM the candidate set with IDs and ask it to pick + write reasons
         const candidateBlock = top.map(r => `- ID:${r.id} | "${r.title}" | ${r.calories}kcal | P${Math.round(r.protein)}g C${Math.round(r.carbs)}g F${Math.round(r.fat)}g | category:${r.category}${r.allergens?.length ? ` | contains: ${r.allergens.join(', ')}` : ''}`).join('\n');
+
+        const summaryRule = mode === 'next_meal'
+          ? `\n\nAlso write a "summary" — one short sentence (max 20 words) that tells ${userName} where they stand right now (e.g. "You've got 820 kcal and 55g protein left, so a balanced mid-sized meal would close the day cleanly.").`
+          : '';
+        const summaryField = mode === 'next_meal' ? `, "summary": "One-line status of where they stand"` : '';
 
         const recipePrompt = `${userName} has these macros LEFT today (target minus what they've already eaten):
 - Calories: ${remaining.calories}
@@ -18721,13 +18728,13 @@ Time of day: ${timeOfDay}.
 ${dietaryPreference !== 'no_preference' ? `Dietary preference: ${dietaryPreference}.` : ''}
 ${excludedIngredients.length > 0 ? `Avoiding: ${excludedIngredients.join(', ')}.` : ''}
 
-Pick the 3 BEST recipes from this candidate list (these are real recipes in their library — only pick from here, never invent):
+Pick the ${maxPicks} BEST recipes from this candidate list (these are real recipes in their library — only pick from here, never invent):
 ${candidateBlock}
 
-For each pick, write one short sentence (1-2 sentences max) explaining specifically why it fits THIS user's remaining macros and time of day. Be concrete: reference their actual numbers (e.g. "covers your remaining 38g protein gap", "fits cleanly under your 600kcal cushion").
+For each pick, write one short sentence (1-2 sentences max) explaining specifically why it fits THIS user's remaining macros and time of day. Be concrete: reference their actual numbers (e.g. "covers your remaining 38g protein gap", "fits cleanly under your 600kcal cushion").${summaryRule}
 
 Respond in this exact JSON format — IDs must come from the candidate list above:
-{"picks": [{"id": <recipe_id>, "reason": "Why this fits"}, {"id": <recipe_id>, "reason": "..."}, {"id": <recipe_id>, "reason": "..."}]}`;
+{"picks": [{"id": <recipe_id>, "reason": "Why this fits"}]${summaryField}}`;
 
         const sysPrompt = `You are the AI Nutrition Coach for The Paradigm Project. You ONLY recommend recipes from the candidate list provided — never invent recipes. Output raw JSON, no markdown.${coachingContext}${userDataContext}`;
 
@@ -18741,10 +18748,12 @@ Respond in this exact JSON format — IDs must come from the candidate list abov
         });
 
         let rawPicks: any[] = [];
+        let aiSummary = '';
         try {
           const cleaned = aiResp.text.replace(/```json\n?/g, '').replace(/```\n?/g, '').trim();
           const parsedAi = JSON.parse(cleaned);
           if (Array.isArray(parsedAi.picks)) rawPicks = parsedAi.picks;
+          if (typeof parsedAi.summary === 'string') aiSummary = parsedAi.summary.trim();
         } catch {
           rawPicks = [];
         }
@@ -18760,12 +18769,12 @@ Respond in this exact JSON format — IDs must come from the candidate list abov
           seenIds.add(id);
           const reason = typeof p.reason === 'string' && p.reason.trim().length > 0 ? p.reason.trim() : '';
           cleanPicks.push({ id, reason });
-          if (cleanPicks.length >= 3) break;
+          if (cleanPicks.length >= maxPicks) break;
         }
 
-        // Backfill from top until we have 3 (or as many as exist)
+        // Backfill from top until we have maxPicks (or as many as exist)
         for (const r of top) {
-          if (cleanPicks.length >= 3) break;
+          if (cleanPicks.length >= maxPicks) break;
           if (seenIds.has(r.id)) continue;
           seenIds.add(r.id);
           cleanPicks.push({ id: r.id, reason: '' });
@@ -18788,33 +18797,24 @@ Respond in this exact JSON format — IDs must come from the candidate list abov
           };
         });
 
+        const fallbackSummary = mode === 'next_meal'
+          ? `You've got ${remaining.calories} kcal, ${remaining.protein}g protein, ${remaining.carbs}g carbs and ${remaining.fat}g fat left for the day.`
+          : undefined;
+
         return res.json({
           mode,
           data: {
             suggestions,
             remainingMacros: remaining,
             targets,
+            ...(mode === 'next_meal' ? { summary: aiSummary || fallbackSummary } : {}),
           },
         });
       }
 
       let modePrompt = '';
 
-      if (mode === 'next_meal') {
-        modePrompt = `The user wants to know what they should eat next. It is currently ${timeOfDay} (${hour}:00).
-
-Analyze their food intake so far today vs their daily macro and calorie targets. Identify what's remaining (protein, carbs, fat, calories). Then suggest 1-2 specific, practical meal ideas that would help fill the gap.
-
-Rules:
-- Be specific with portion sizes and food items (e.g. "200g grilled chicken breast with 150g sweet potato and mixed greens")
-- Consider the time of day — don't suggest a heavy dinner at breakfast time
-- If they're close to their targets, acknowledge that and suggest a light option or say they're on track
-- If they haven't logged anything today, suggest a balanced first meal for the time of day
-- Keep it concise — 3-4 sentences max plus the meal suggestion(s)
-
-Respond in this JSON format:
-{"summary": "Brief analysis of where they stand today", "suggestions": [{"meal": "Specific meal description", "approxCalories": 450, "approxProtein": 35, "reason": "Why this fills the gap"}], "remainingMacros": {"calories": 800, "protein": 40, "carbs": 60, "fat": 25}}`;
-      } else if (mode === 'end_of_day') {
+      if (mode === 'end_of_day') {
         modePrompt = `Provide an end-of-day nutrition analysis for ${todayStr}.
 
 Review everything the user ate today against their targets. Give honest, constructive feedback with one specific actionable tip for tomorrow.

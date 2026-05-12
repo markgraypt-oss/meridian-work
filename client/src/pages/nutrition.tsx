@@ -1079,23 +1079,67 @@ export default function Nutrition() {
                 <CardContent className="pt-4 space-y-3">
                   {aiInsightsMode === 'next_meal' && aiInsightsData.data && (
                     <div className="space-y-3">
-                      <p className="text-sm text-muted-foreground">{aiInsightsData.data.summary}</p>
+                      {aiInsightsData.data.summary && (
+                        <p className="text-sm text-muted-foreground">{aiInsightsData.data.summary}</p>
+                      )}
                       {aiInsightsData.data.remainingMacros && (
-                        <div className="flex gap-3 text-xs">
+                        <div className="flex flex-wrap gap-2 text-xs">
                           <span className="bg-primary/10 text-primary px-2 py-1 rounded">{aiInsightsData.data.remainingMacros.calories} cal left</span>
                           <span className="bg-green-500/10 text-green-400 px-2 py-1 rounded">{aiInsightsData.data.remainingMacros.protein}g protein</span>
                           <span className="bg-blue-500/10 text-blue-400 px-2 py-1 rounded">{aiInsightsData.data.remainingMacros.carbs}g carbs</span>
+                          <span className="bg-[#0cc9a9]/10 text-[#0cc9a9] px-2 py-1 rounded">{aiInsightsData.data.remainingMacros.fat}g fat</span>
                         </div>
                       )}
-                      {aiInsightsData.data.suggestions?.map((s: any, i: number) => (
-                        <div key={i} className="bg-background rounded-lg p-3 border-l-4 border-l-green-500/50">
-                          <p className="text-sm font-medium">{s.meal}</p>
-                          <div className="flex gap-2 mt-1 text-xs text-muted-foreground">
-                            <span>~{s.approxCalories} cal</span>
-                            <span>~{s.approxProtein}g protein</span>
-                          </div>
-                          <p className="text-xs text-muted-foreground mt-1">{s.reason}</p>
+
+                      {aiInsightsData.data.noFitMessage && (
+                        <div className="bg-orange-500/5 border border-orange-500/20 rounded-lg p-3 space-y-2">
+                          <p className="text-sm text-foreground">{aiInsightsData.data.noFitMessage}</p>
+                          {aiInsightsData.data.gapAdvice?.length > 0 && (
+                            <div className="space-y-1.5 pt-1">
+                              <p className="text-xs font-medium text-orange-400">How to fill the gap</p>
+                              {aiInsightsData.data.gapAdvice.map((tip: string, i: number) => (
+                                <p key={i} className="text-xs text-muted-foreground leading-relaxed">- {tip}</p>
+                              ))}
+                            </div>
+                          )}
                         </div>
+                      )}
+
+                      {aiInsightsData.data.suggestions?.map((s: any) => (
+                        <Link
+                          key={s.id}
+                          href={`/recipe/${s.id}`}
+                          className="block bg-background rounded-lg overflow-hidden border-l-4 border-l-green-500/50 hover:border-l-green-500 hover:bg-background/80 transition-all"
+                          data-testid={`link-next-meal-recipe-${s.id}`}
+                        >
+                          {s.imageUrl && (
+                            <div className="w-full h-32 bg-muted overflow-hidden">
+                              <img src={s.imageUrl} alt={s.title} className="w-full h-full object-cover" loading="lazy" />
+                            </div>
+                          )}
+                          <div className="p-3">
+                            <p className="text-sm font-semibold text-foreground">{s.title}</p>
+                            {s.description && (
+                              <p className="text-xs text-muted-foreground mt-1 line-clamp-2">{s.description}</p>
+                            )}
+                            <div className="flex flex-wrap gap-1.5 mt-2 text-xs">
+                              <span className="bg-primary/10 text-primary px-2 py-1 rounded">{s.calories} cal</span>
+                              <span className="bg-green-500/10 text-green-400 px-2 py-1 rounded">{s.protein}g P</span>
+                              <span className="bg-blue-500/10 text-blue-400 px-2 py-1 rounded">{s.carbs}g C</span>
+                              <span className="bg-[#0cc9a9]/10 text-[#0cc9a9] px-2 py-1 rounded">{s.fat}g F</span>
+                              {s.totalTime && (
+                                <span className="bg-muted text-muted-foreground px-2 py-1 rounded">{s.totalTime} min</span>
+                              )}
+                            </div>
+                            {s.allergens?.length > 0 && (
+                              <p className="text-[11px] text-[#0cc9a9]/80 mt-1.5">Contains {s.allergens.join(", ")}</p>
+                            )}
+                            {s.reason && (
+                              <p className="text-xs text-muted-foreground mt-2 italic">{s.reason}</p>
+                            )}
+                            <p className="text-[11px] text-primary mt-2">Tap to view recipe →</p>
+                          </div>
+                        </Link>
                       ))}
                     </div>
                   )}

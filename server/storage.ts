@@ -6070,12 +6070,17 @@ export class DatabaseStorage implements IStorage {
   }
 
   // Get a single library item by ID
-  async getContentLibraryItem(id: number): Promise<LearnContentLibraryItem | undefined> {
-    const [item] = await db
-      .select()
+  async getContentLibraryItem(id: number): Promise<(LearnContentLibraryItem & { topicSlug?: string | null }) | undefined> {
+    const [row] = await db
+      .select({
+        item: learnContentLibrary,
+        topicSlug: learnTopics.slug,
+      })
       .from(learnContentLibrary)
+      .leftJoin(learnTopics, eq(learnContentLibrary.topicId, learnTopics.id))
       .where(eq(learnContentLibrary.id, id));
-    return item;
+    if (!row) return undefined;
+    return { ...row.item, topicSlug: row.topicSlug ?? null };
   }
 
   // Get content items for a learning path (from join table)

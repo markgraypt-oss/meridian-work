@@ -178,7 +178,6 @@ function NutritionGoalCard({ goal, nutritionData, navigate }: {
     >
       <div className="flex items-center justify-between mb-4">
         <span className="font-medium text-foreground">Daily nutrition goal</span>
-        <span className="text-xs text-muted-foreground">Tap to edit</span>
       </div>
       
       <div className="flex justify-around">
@@ -193,12 +192,11 @@ function NutritionGoalCard({ goal, nutritionData, navigate }: {
                 color="#0cc9a9"
               />
               <div className="absolute inset-0 flex flex-col items-center justify-center">
-                <span className={`text-base font-semibold ${getMacroColor(m.value, m.target)}`}>
-                  {m.value}<span className="text-muted-foreground">/{m.target}{m.unit}</span>
-                </span>
+                <span className={`text-lg font-semibold ${getMacroColor(m.value, m.target)}`}>{m.value}{m.unit}</span>
                 <span className="text-[10px] text-muted-foreground">{m.label}</span>
               </div>
             </div>
+            <span className="text-xs text-black font-medium -mt-1 px-2 py-0.5 rounded-full bg-[#0cc9a9] relative z-10">{m.targetLabel}</span>
           </div>
         ))}
       </div>

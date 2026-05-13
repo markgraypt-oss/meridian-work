@@ -1334,7 +1334,7 @@ export default function Nutrition() {
                   <Button
                     variant="ghost"
                     size="sm"
-                    onClick={() => navigate('/goals/nutrition/new')}
+                    onClick={() => navigate('/goals/nutrition/new?from=tracker')}
                     data-testid="button-edit-macro-targets"
                   >
                     <Edit2 className="h-4 w-4" />

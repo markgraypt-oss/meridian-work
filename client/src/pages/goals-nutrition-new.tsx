@@ -212,19 +212,49 @@ export default function GoalsNutritionNew() {
     setStep(3);
   };
 
+  const isTrackerOnly = typeof window !== "undefined" && new URLSearchParams(window.location.search).get("from") === "tracker";
+
   const mutation = useMutation({
     mutationFn: async () => {
-      return await apiRequest("POST", "/api/nutrition/goal", {
-        calorieTarget: computedCalories,
-        proteinTarget: proteinGrams,
-        carbsTarget: carbsGrams,
-        fatTarget: fatGrams,
-      });
+      if (isTrackerOnly) {
+        return await apiRequest("POST", "/api/nutrition/goal", {
+          calorieTarget: computedCalories,
+          proteinTarget: proteinGrams,
+          carbsTarget: carbsGrams,
+          fatTarget: fatGrams,
+        });
+      }
+      if (!finalCalories) throw new Error("No calorie target set");
+      const goalData = {
+        type: "nutrition",
+        title: "Daily Nutrition Target",
+        description: `${computedCalories} calories with ${MACRO_PRESETS[macroPreset].label} macro split`,
+        targetValue: computedCalories,
+        currentValue: 0,
+        unit: "kcal",
+        nutritionCalories: computedCalories,
+        calorieGoalType: selectedCalorieGoal || "custom",
+        macroPreset: macroPreset,
+        proteinPercent,
+        carbPercent,
+        fatPercent,
+        proteinGrams,
+        carbsGrams,
+        fatGrams,
+        startDate: todayLocalStr(),
+      };
+      return await apiRequest("POST", "/api/goals", goalData);
     },
     onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/goals"] });
       queryClient.invalidateQueries({ queryKey: ["/api/nutrition/today"] });
-      toast({ title: "Saved", description: "Macro tracker targets updated." });
-      setLocation("/nutrition");
+      if (isTrackerOnly) {
+        toast({ title: "Saved", description: "Macro tracker targets updated." });
+        setLocation("/nutrition");
+      } else {
+        toast({ title: "Success", description: "Nutrition goal created!" });
+        setLocation("/goals");
+      }
     },
     onError: (error: any) => {
       toast({ title: "Error", description: error.message || "Failed to save", variant: "destructive" });
@@ -638,7 +668,7 @@ export default function GoalsNutritionNew() {
               className="w-full bg-[#0cc9a9] hover:bg-[#0cc9a9]/90 text-black font-semibold"
               data-testid="button-create-goal"
             >
-              {mutation.isPending ? "Saving..." : "Save Macro Targets"}
+              {mutation.isPending ? (isTrackerOnly ? "Saving..." : "Creating...") : (isTrackerOnly ? "Save Macro Targets" : "Create Nutrition Goal")}
             </Button>
           </div>
         )}

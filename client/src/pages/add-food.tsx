@@ -245,12 +245,11 @@ export default function AddFood() {
       carbs = item.totalCarbs || 0;
       fat = item.totalFat || 0;
     } else if (itemType === "recipe") {
-      // Recipe stores total macros, calculate per serving
-      const servings = item.servings || 1;
-      calories = Math.round((item.calories || 0) / servings);
-      protein = Math.round(((item.protein || 0) / servings) * 10) / 10;
-      carbs = Math.round(((item.carbs || 0) / servings) * 10) / 10;
-      fat = Math.round(((item.fat || 0) / servings) * 10) / 10;
+      // Recipe macros are stored PER SERVING in the recipes table.
+      calories = item.calories || 0;
+      protein = item.protein || 0;
+      carbs = item.carbs || 0;
+      fat = item.fat || 0;
     } else {
       // Regular food item
       calories = item.calories || 0;

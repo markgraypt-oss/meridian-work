@@ -175,6 +175,7 @@ export default function RecipeDetail() {
 
       <div className="px-5 pt-5">
         <div className="rounded-xl bg-white/[0.03] border border-white/[0.06] p-4">
+          <p className="text-[11px] uppercase tracking-wide text-muted-foreground mb-3 text-center">Per serving</p>
           <div className="flex gap-4">
             <div className="flex-1 flex flex-col items-center">
               <div className="w-9 h-9 rounded-full bg-orange-500/15 flex items-center justify-center mb-1">

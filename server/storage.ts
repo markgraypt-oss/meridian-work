@@ -10317,8 +10317,8 @@ export class DatabaseStorage implements IStorage {
     const [recipe] = await db.select().from(recipes).where(eq(recipes.id, recipeId));
     if (!recipe) throw new Error('Recipe not found');
 
-    const multiplier = servings / recipe.servings;
-    
+    // Recipe macros are stored PER SERVING (see shared/schema.ts).
+    // `servings` is the number of servings the user is logging, so just multiply.
     const [entry] = await db
       .insert(mealFoodEntries)
       .values({
@@ -10328,10 +10328,10 @@ export class DatabaseStorage implements IStorage {
         servingSize: 1,
         servingSizeUnit: 'serving',
         servingQuantity: servings,
-        calories: Math.round(recipe.calories * multiplier),
-        protein: recipe.protein * multiplier,
-        carbs: recipe.carbs * multiplier,
-        fat: recipe.fat * multiplier,
+        calories: Math.round(recipe.calories * servings),
+        protein: recipe.protein * servings,
+        carbs: recipe.carbs * servings,
+        fat: recipe.fat * servings,
         sourceType: 'recipe',
         sourceId: recipeId,
       })

@@ -256,7 +256,7 @@ export default function Search() {
                           <span>{recipe.totalTime} min</span>
                           <div className="flex items-center">
                             <Star className="h-3 w-3 mr-1 fill-current text-[#0cc9a9]" />
-                            <span>4.7 ({recipe.calories} cal)</span>
+                            <span>4.7 ({recipe.calories} cal/serving)</span>
                           </div>
                         </div>
                         <div className="flex flex-wrap gap-1">

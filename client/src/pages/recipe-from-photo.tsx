@@ -270,6 +270,7 @@ export default function RecipeFromPhoto() {
               <span>·</span>
               <span>Serves {previewDraft.servings}</span>
             </div>
+            <p className="text-[11px] uppercase tracking-wide text-muted-foreground">Per serving</p>
             <div className="grid grid-cols-4 gap-2 text-center text-xs">
               <div className="p-2 rounded-md bg-muted">
                 <div className="font-semibold">{previewDraft.calories}</div>

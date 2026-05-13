@@ -1956,7 +1956,7 @@ export default function AdminPanel() {
                       <Badge variant="outline">{recipe.totalTime} min</Badge>
                     </div>
                     <div className="text-xs text-gray-600 dark:text-muted-foreground">
-                      {recipe.calories} cal • {recipe.protein}g protein
+                      {recipe.calories} cal • {recipe.protein}g protein (per serving)
                     </div>
                   </CardContent>
                 </Card>

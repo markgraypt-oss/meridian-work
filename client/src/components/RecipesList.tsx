@@ -383,7 +383,7 @@ export default function RecipesList() {
                       <Clock className="h-3.5 w-3.5" />
                       <span>{recipe.totalTime || 0}min</span>
                     </div>
-                    <span>{recipe.calories} cal</span>
+                    <span>{recipe.calories} cal/serving</span>
                   </div>
                 </div>
                 <ChevronRight className="h-5 w-5 text-muted-foreground self-center flex-shrink-0" />

@@ -326,7 +326,7 @@ export default function RecipeEdit() {
               name="calories"
               render={({ field }) => (
                 <FormItem>
-                  <FormLabel>Calories</FormLabel>
+                  <FormLabel>Calories (per serving)</FormLabel>
                   <FormControl>
                     <Input type="number" inputMode="numeric" min={0} {...field} data-testid="input-calories" />
                   </FormControl>
@@ -339,7 +339,7 @@ export default function RecipeEdit() {
               name="protein"
               render={({ field }) => (
                 <FormItem>
-                  <FormLabel>Protein (g)</FormLabel>
+                  <FormLabel>Protein (g, per serving)</FormLabel>
                   <FormControl>
                     <Input type="number" inputMode="decimal" min={0} step="0.1" {...field} data-testid="input-protein" />
                   </FormControl>
@@ -352,7 +352,7 @@ export default function RecipeEdit() {
               name="carbs"
               render={({ field }) => (
                 <FormItem>
-                  <FormLabel>Carbs (g)</FormLabel>
+                  <FormLabel>Carbs (g, per serving)</FormLabel>
                   <FormControl>
                     <Input type="number" inputMode="decimal" min={0} step="0.1" {...field} data-testid="input-carbs" />
                   </FormControl>
@@ -365,7 +365,7 @@ export default function RecipeEdit() {
               name="fat"
               render={({ field }) => (
                 <FormItem>
-                  <FormLabel>Fat (g)</FormLabel>
+                  <FormLabel>Fat (g, per serving)</FormLabel>
                   <FormControl>
                     <Input type="number" inputMode="decimal" min={0} step="0.1" {...field} data-testid="input-fat" />
                   </FormControl>

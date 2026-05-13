@@ -85,18 +85,13 @@ export default function GoalsHabitDetail() {
     },
     onSuccess: (data: any) => {
       queryClient.invalidateQueries({ queryKey: ["/api/goals"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/habits"] });
       if (data?.id) setCreatedGoalId(data.id);
-      if (isStepsGoal && trackingMode === "cumulative") {
-        toast({ title: "Goal created", description: `"${habit!.title}" has been added to your goals.` });
-        setLocation("/goals");
-        return;
-      }
-      if (companionHabitName) {
-        setShowSheet(true);
-      } else {
-        toast({ title: "Goal created", description: `"${habit!.title}" has been added to your goals.` });
-        setLocation("/goals");
-      }
+      const description = companionHabitName && !(isStepsGoal && trackingMode === "cumulative")
+        ? `"${habit!.title}" added. Your "${companionHabitName}" habit is set up to track it.`
+        : `"${habit!.title}" has been added to your goals.`;
+      toast({ title: "Goal created", description });
+      setLocation("/goals");
     },
     onError: () => {
       toast({ title: "Error", description: "Failed to create goal. Please try again.", variant: "destructive" });

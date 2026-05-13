@@ -22,6 +22,70 @@ import {
   weeklyCheckins,
 } from "@shared/schema";
 
+type CompanionHabitDef = { title: string; templateId: number | null; defaultSettings: any };
+const GOAL_COMPANION_HABITS: Record<string, CompanionHabitDef> = {
+  "walk-450k-steps": { title: "Hit Your Step Count", templateId: 2, defaultSettings: { stepTarget: 10000 } },
+  "30-day-alcohol-free": { title: "Avoided Alcohol", templateId: 35, defaultSettings: null },
+  "consistent-wake-time-30-days": { title: "Set a Consistent Wake Time", templateId: 27, defaultSettings: null },
+  "30-day-stretch": { title: "Evening Stretch", templateId: null, defaultSettings: null },
+};
+
+async function ensureCompanionHabitForGoal(userId: string, goal: any): Promise<void> {
+  const templateId = goal?.templateId as string | undefined;
+  if (!templateId) return;
+  const def = GOAL_COMPANION_HABITS[templateId];
+  if (!def) return;
+  if (goal?.trackingMode === "cumulative") return;
+
+  const goalStart = goal.startDate ? new Date(goal.startDate) : new Date();
+  const goalEnd = goal.deadline ? new Date(goal.deadline) : null;
+  const requiredWeeks = goalEnd
+    ? Math.max(1, Math.ceil((goalEnd.getTime() - goalStart.getTime()) / (7 * 24 * 60 * 60 * 1000)))
+    : 4;
+
+  const userHabits = await storage.getHabits(userId);
+  const match = userHabits.find(h => h.title.toLowerCase() === def.title.toLowerCase());
+
+  if (match) {
+    const existingStart = match.startDate ? new Date(match.startDate) : new Date();
+    const existingDuration = match.duration || 0;
+    const existingEnd = new Date(existingStart);
+    existingEnd.setDate(existingEnd.getDate() + existingDuration * 7);
+
+    const updates: any = {};
+    if (goalEnd && existingEnd < goalEnd) {
+      const newWeeks = Math.max(1, Math.ceil((goalEnd.getTime() - existingStart.getTime()) / (7 * 24 * 60 * 60 * 1000)));
+      updates.duration = newWeeks;
+    }
+    if (existingStart > goalStart) {
+      updates.startDate = goalStart;
+      const baseEnd = goalEnd || existingEnd;
+      updates.duration = Math.max(updates.duration || existingDuration, Math.ceil((baseEnd.getTime() - goalStart.getTime()) / (7 * 24 * 60 * 60 * 1000)));
+    }
+    if (match.goalId !== goal.id) updates.goalId = goal.id;
+    if (match.isActive === false) updates.isActive = true;
+
+    if (Object.keys(updates).length > 0) {
+      await storage.updateHabit(match.id, updates);
+      console.log(`[Goals] Updated companion habit ${match.id} for goal ${goal.id}:`, updates);
+    }
+    return;
+  }
+
+  const created = await storage.createHabit({
+    userId,
+    templateId: def.templateId ?? undefined,
+    goalId: goal.id,
+    title: def.title,
+    daysOfWeek: "Everyday",
+    startDate: goalStart,
+    duration: requiredWeeks,
+    settings: def.defaultSettings,
+    isActive: true,
+  } as any);
+  console.log(`[Goals] Auto-created companion habit ${created.id} for goal ${goal.id}`);
+}
+
 // Admin-only gate. Always pair with isAuthenticated. Looks up the calling
 // user from the session and rejects with 403 if they aren't an admin.
 async function requireAdmin(req: any, res: any, next: any) {
@@ -10690,7 +10754,14 @@ Rules:
       };
       
       const goal = await storage.createGoal(goalData);
-      
+
+      // Ensure companion habit exists, is active for the goal window, and is linked to the goal
+      try {
+        await ensureCompanionHabitForGoal(userId, goal);
+      } catch (companionErr) {
+        console.error("[Goals] ensureCompanionHabitForGoal failed:", companionErr);
+      }
+
       // Save milestones if provided
       if (milestonesData && Array.isArray(milestonesData) && milestonesData.length > 0) {
         for (let i = 0; i < milestonesData.length; i++) {

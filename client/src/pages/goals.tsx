@@ -774,8 +774,21 @@ function GoalCard({ goal, calculateProgress, isGoalComplete, setEditingGoal, set
     queryKey: ["/api/habit-templates"],
     enabled: isHabitLinked && !!companionHabitName,
   });
+  const isHabitActive = (h: Habit): boolean => {
+    if (h.isActive === false) return false;
+    if (!h.startDate) return true;
+    const start = new Date(h.startDate);
+    start.setHours(0, 0, 0, 0);
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    if (today < start) return false;
+    if (!h.duration) return true;
+    const end = new Date(start);
+    end.setDate(end.getDate() + h.duration * 7);
+    return today <= end;
+  };
   const alreadyHasCompanion = companionHabitName
-    ? userHabits.some(h => h.title.toLowerCase() === companionHabitName.toLowerCase())
+    ? userHabits.some(h => h.title.toLowerCase() === companionHabitName.toLowerCase() && isHabitActive(h))
     : true;
   const companionTemplate = companionHabitName
     ? habitTemplates.find(t => t.title.toLowerCase() === companionHabitName.toLowerCase())

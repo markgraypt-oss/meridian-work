@@ -99,6 +99,22 @@ export default function RecipeEdit() {
     defaultValues: DEFAULT_VALUES,
   });
 
+  // Auto-calculate calories from macros (4 cal/g protein, 4 cal/g carbs, 9 cal/g fat).
+  // Watching the three macro fields lets the user keep editing them and see calories
+  // update live, the same way the meal log does it.
+  const watchedProtein = form.watch("protein");
+  const watchedCarbs = form.watch("carbs");
+  const watchedFat = form.watch("fat");
+  useEffect(() => {
+    const p = Number(watchedProtein) || 0;
+    const c = Number(watchedCarbs) || 0;
+    const f = Number(watchedFat) || 0;
+    const computed = Math.round(p * 4 + c * 4 + f * 9);
+    if (form.getValues("calories") !== computed) {
+      form.setValue("calories", computed, { shouldDirty: true, shouldValidate: false });
+    }
+  }, [watchedProtein, watchedCarbs, watchedFat, form]);
+
   // Populate the form when the existing recipe arrives.
   useEffect(() => {
     if (!existing) return;
@@ -328,8 +344,17 @@ export default function RecipeEdit() {
                 <FormItem>
                   <FormLabel>Calories</FormLabel>
                   <FormControl>
-                    <Input type="number" inputMode="numeric" min={0} {...field} data-testid="input-calories" />
+                    <Input
+                      type="number"
+                      inputMode="numeric"
+                      min={0}
+                      {...field}
+                      readOnly
+                      className="bg-muted/50 cursor-not-allowed"
+                      data-testid="input-calories"
+                    />
                   </FormControl>
+                  <FormDescription>Auto-calculated from macros.</FormDescription>
                   <FormMessage />
                 </FormItem>
               )}

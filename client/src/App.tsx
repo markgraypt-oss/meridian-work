@@ -141,6 +141,7 @@ import ScheduleProgramme from "@/pages/schedule-programme";
 import WodDetail from "@/pages/wod-detail";
 import RecipeDetail from "@/pages/recipe-detail";
 import RecipeEdit from "@/pages/recipe-edit";
+import RecipeFromPhoto from "@/pages/recipe-from-photo";
 import Recipes from "@/pages/recipes";
 import MealPlan from "@/pages/meal-plan";
 import ShoppingListPage from "@/pages/shopping-list";
@@ -334,6 +335,7 @@ function Router() {
               <Route path="/shopping-list" component={ShoppingListPage} />
               <Route path="/recipes" component={Recipes} />
               <Route path="/my/recipes/new" component={RecipeEdit} />
+              <Route path="/my/recipes/from-photo" component={RecipeFromPhoto} />
               <Route path="/my/recipes/:id/edit" component={RecipeEdit} />
               <Route path="/recipe/:id" component={RecipeDetail} />
               <Route path="/calendar" component={Calendar} />

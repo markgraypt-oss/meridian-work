@@ -5463,6 +5463,244 @@ Return format: {"category": "strength|cardio|hiit|mobility|recovery", "difficult
     }
   });
 
+  // ============ AI: 3 short recipe ideas from one or more photos ============
+  // Cheap path: vision model returns short ideas (title + 1-sentence blurb +
+  // a few key visible ingredients). The user picks one and we then expand
+  // that single idea into a full saveable recipe in a separate call.
+  //
+  // Body: { images: string[] }  data URLs (e.g. "data:image/jpeg;base64,...")
+  //                              or raw base64. 1-4 images, total <= ~10 MB.
+  //       { exclude?: string[] } optional list of titles already shown so
+  //                              "Show me 3 more" doesn't repeat ideas.
+  app.post('/api/my/recipes/ideas-from-photo', isAuthenticated, aiVisionRateLimit, async (req: any, res) => {
+    try {
+      const ImageSchema = z.string().min(32).max(8 * 1024 * 1024); // ~6MB decoded
+      const BodySchema = z.object({
+        images: z.array(ImageSchema).min(1).max(4),
+        exclude: z.array(z.string().max(120)).max(20).optional(),
+      });
+      const parsed = BodySchema.safeParse(req.body);
+      if (!parsed.success) {
+        return res.status(400).json({ message: "Send 1 to 4 photos." });
+      }
+      const { images, exclude } = parsed.data;
+
+      // Total payload guard (sum of base64 chars). 12 MB cap matches the
+      // express body limit we set for this path.
+      const totalBytes = images.reduce((n, s) => n + s.length, 0);
+      if (totalBytes > 12 * 1024 * 1024) {
+        return res.status(413).json({ message: "Those photos are too large. Try fewer or smaller ones." });
+      }
+
+      const { detectImageMediaType } = await import('./aiProvider');
+      const OpenAI = (await import('openai')).default;
+      const openai = new OpenAI({
+        apiKey: process.env.AI_INTEGRATIONS_OPENAI_API_KEY,
+        baseURL: process.env.AI_INTEGRATIONS_OPENAI_BASE_URL,
+      });
+
+      const excludeNote = exclude && exclude.length
+        ? `\n\nDo NOT suggest any of these (already shown): ${exclude.map(t => `"${t}"`).join(', ')}.`
+        : '';
+
+      const prompt = `You are a chef helping a busy executive turn a fridge/pantry photo into meal ideas.
+
+Look at the photo(s) and propose exactly 3 SHORT recipe ideas that could realistically be made with what you can see (plus common pantry staples like oil, salt, pepper, basic spices).
+
+For each idea give:
+- title: short, appetising, max 6 words
+- blurb: ONE sentence describing the dish (max 25 words)
+- keyIngredients: 3-6 of the visible/likely ingredients you'd use
+- category: one of "breakfast", "main", "side", "dessert"
+
+Avoid em dashes. Keep ideas distinct from each other (different cuisines/techniques where possible).${excludeNote}
+
+Return STRICT JSON only, no prose, no markdown fences:
+{"ideas":[{"title":"","blurb":"","keyIngredients":[""],"category":""}]}`;
+
+      const imageContent = images.map((img) => {
+        const url = img.startsWith('data:')
+          ? img
+          : `data:${detectImageMediaType(img)};base64,${img}`;
+        return { type: 'image_url' as const, image_url: { url } };
+      });
+
+      const completion = await openai.chat.completions.create({
+        model: 'gpt-4o-mini',
+        max_tokens: 700,
+        temperature: 0.7,
+        response_format: { type: 'json_object' },
+        messages: [
+          {
+            role: 'user',
+            content: [...imageContent, { type: 'text', text: prompt }],
+          },
+        ],
+      });
+
+      const raw = completion.choices[0]?.message?.content || '';
+      let parsedJson: any;
+      try {
+        parsedJson = JSON.parse(raw);
+      } catch {
+        return res.status(502).json({ message: "The AI didn't return a usable answer. Try again." });
+      }
+
+      const IdeaSchema = z.object({
+        title: z.string().min(1).max(120),
+        blurb: z.string().min(1).max(400),
+        keyIngredients: z.array(z.string().min(1).max(80)).min(1).max(10),
+        category: z.enum(['breakfast', 'main', 'side', 'dessert']).catch('main'),
+      });
+      const IdeasSchema = z.object({ ideas: z.array(IdeaSchema).min(1).max(5) });
+      const validated = IdeasSchema.safeParse(parsedJson);
+      if (!validated.success) {
+        return res.status(502).json({ message: "The AI's answer didn't match what we expected. Try again." });
+      }
+
+      // Always hand back at most 3 (ask for exactly 3 in the prompt, but be defensive).
+      res.json({ ideas: validated.data.ideas.slice(0, 3) });
+    } catch (error: any) {
+      console.error("Error generating recipe ideas from photo:", error);
+      res.status(500).json({ message: "Couldn't generate ideas right now. Try again in a moment." });
+    }
+  });
+
+  // ============ AI: expand a chosen idea into a full recipe ============
+  // Takes the short idea the user picked (and optionally the original photos
+  // for visual context) and returns a full draft recipe matching our schema.
+  // The frontend then POSTs the draft (or an edited version) to
+  // /api/my/recipes with aiDraftedFromPhoto: true to save it.
+  //
+  // Macros are rough estimates and the UI labels them as "approx".
+  app.post('/api/my/recipes/expand-idea', isAuthenticated, aiVisionRateLimit, async (req: any, res) => {
+    try {
+      const ImageSchema = z.string().min(32).max(8 * 1024 * 1024);
+      const IdeaSchema = z.object({
+        title: z.string().min(1).max(120),
+        blurb: z.string().min(1).max(400),
+        keyIngredients: z.array(z.string().min(1).max(80)).min(1).max(15),
+        category: z.enum(['breakfast', 'main', 'side', 'dessert']).optional(),
+      });
+      const BodySchema = z.object({
+        idea: IdeaSchema,
+        images: z.array(ImageSchema).max(4).optional(),
+        servings: z.number().int().min(1).max(20).optional(),
+      });
+      const parsed = BodySchema.safeParse(req.body);
+      if (!parsed.success) {
+        return res.status(400).json({ message: "Pick an idea to expand." });
+      }
+      const { idea, images, servings } = parsed.data;
+
+      const totalBytes = (images || []).reduce((n, s) => n + s.length, 0);
+      if (totalBytes > 12 * 1024 * 1024) {
+        return res.status(413).json({ message: "Those photos are too large. Try fewer or smaller ones." });
+      }
+
+      const { detectImageMediaType } = await import('./aiProvider');
+      const OpenAI = (await import('openai')).default;
+      const openai = new OpenAI({
+        apiKey: process.env.AI_INTEGRATIONS_OPENAI_API_KEY,
+        baseURL: process.env.AI_INTEGRATIONS_OPENAI_BASE_URL,
+      });
+
+      const targetServings = servings ?? 2;
+
+      const prompt = `Expand this short recipe idea into a full, cookable recipe for ${targetServings} serving(s).
+
+Idea:
+- Title: ${idea.title}
+- Description: ${idea.blurb}
+- Key ingredients spotted: ${idea.keyIngredients.join(', ')}
+${idea.category ? `- Category: ${idea.category}` : ''}
+
+Use the photo(s) for context if provided. Assume the cook has common pantry staples (oil, salt, pepper, basic spices, vinegar, flour, sugar) on top of what's listed.
+
+Return STRICT JSON only, no prose, no markdown fences. Avoid em dashes anywhere.
+
+Shape:
+{
+  "title": "string (max 80 chars, can refine the idea title)",
+  "description": "1-2 sentences, max 280 chars",
+  "category": "breakfast" | "main" | "side" | "dessert",
+  "totalTime": integer minutes (5-240),
+  "servings": ${targetServings},
+  "calories": integer per serving (rough estimate),
+  "protein": number grams per serving (rough estimate, 1 decimal ok),
+  "carbs":   number grams per serving (rough estimate, 1 decimal ok),
+  "fat":     number grams per serving (rough estimate, 1 decimal ok),
+  "ingredients": ["string per line, with quantities, e.g. '2 tbsp olive oil'"],
+  "instructions": ["string per step, numbered prose, e.g. 'Heat oil in a pan over medium heat.'"]
+}
+
+Rules:
+- 4-15 ingredient lines, 3-10 instruction steps.
+- Quantities scaled for ${targetServings} serving(s).
+- Macros are best-effort estimates; do not refuse to estimate.
+- No commentary outside the JSON object.`;
+
+      const userContent: any[] = [];
+      if (images && images.length) {
+        for (const img of images) {
+          const url = img.startsWith('data:')
+            ? img
+            : `data:${detectImageMediaType(img)};base64,${img}`;
+          userContent.push({ type: 'image_url', image_url: { url } });
+        }
+      }
+      userContent.push({ type: 'text', text: prompt });
+
+      const completion = await openai.chat.completions.create({
+        model: 'gpt-4o-mini',
+        max_tokens: 1400,
+        temperature: 0.5,
+        response_format: { type: 'json_object' },
+        messages: [{ role: 'user', content: userContent }],
+      });
+
+      const raw = completion.choices[0]?.message?.content || '';
+      let parsedJson: any;
+      try {
+        parsedJson = JSON.parse(raw);
+      } catch {
+        return res.status(502).json({ message: "The AI didn't return a usable answer. Try again." });
+      }
+
+      const DraftSchema = z.object({
+        title: z.string().min(1).max(120),
+        description: z.string().min(1).max(600),
+        category: z.enum(['breakfast', 'main', 'side', 'dessert']).catch('main'),
+        totalTime: z.coerce.number().int().min(1).max(600),
+        servings: z.coerce.number().int().min(1).max(20),
+        calories: z.coerce.number().int().min(0).max(5000),
+        protein: z.coerce.number().min(0).max(500),
+        carbs: z.coerce.number().min(0).max(500),
+        fat: z.coerce.number().min(0).max(500),
+        ingredients: z.array(z.string().min(1).max(200)).min(1).max(40),
+        instructions: z.array(z.string().min(1).max(600)).min(1).max(30),
+      });
+      const validated = DraftSchema.safeParse(parsedJson);
+      if (!validated.success) {
+        return res.status(502).json({ message: "The AI's recipe didn't match what we expected. Try again." });
+      }
+
+      // Tag with key ingredients from the original idea so the saved recipe
+      // keeps a hint of what the user originally spotted.
+      res.json({
+        draft: {
+          ...validated.data,
+          keyIngredients: idea.keyIngredients,
+          aiGenerated: true,
+          aiDraftedFromPhoto: true,
+        },
+      });
+    } catch (error: any) {
+      console.error("Error expanding recipe idea:", error);
+      res.status(500).json({ message: "Couldn't build that recipe right now. Try again in a moment." });
+    }
+  });
+
   // Recipe routes
   app.get('/api/recipes', async (req, res) => {
     try {

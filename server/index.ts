@@ -1,5 +1,6 @@
 import cors from 'cors';
 import express, { type Request, Response, NextFunction } from "express";
+import rateLimit, { ipKeyGenerator } from "express-rate-limit";
 import { registerRoutes } from "./routes";
 import { setupVite, serveStatic, log } from "./vite";
 import { video } from "./mux";
@@ -36,7 +37,27 @@ const LARGE_BODY_PATHS = [
   "/api/users/me/profile-image",
   "/api/admin/companies",
   "/api/progress/pictures",
+  "/api/my/recipes/ideas-from-photo",
+  "/api/my/recipes/expand-idea",
 ];
+// Pre-parser per-IP throttle on the large-body AI photo routes. Sits in front
+// of the JSON parser so that an unauthenticated attacker can't repeatedly
+// stream 12 MB bodies into memory before the route's auth/rate-limit kicks
+// in. The per-user AI rate limiter still applies inside the route itself.
+const largeBodyIpLimit = rateLimit({
+  windowMs: 60 * 1000,
+  limit: 10,
+  standardHeaders: true,
+  legacyHeaders: false,
+  keyGenerator: (req: any) => ipKeyGenerator(req.ip),
+  message: { message: "Too many requests. Slow down and try again." },
+});
+app.use((req, res, next) => {
+  const isLarge = LARGE_BODY_PATHS.some((p) => req.path.startsWith(p));
+  if (!isLarge) return next();
+  return largeBodyIpLimit(req, res, next);
+});
+
 app.use((req, res, next) => {
   const isLarge = LARGE_BODY_PATHS.some((p) => req.path.startsWith(p));
   const limit = isLarge ? "12mb" : "2mb";

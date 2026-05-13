@@ -1330,15 +1330,6 @@ export default function Nutrition() {
                 >
                   <TrendingUp className="h-4 w-4" />
                 </Button>
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  onClick={() => navigate('/nutrition/macro-targets')}
-                  data-testid="button-edit-macro-targets"
-                  title="Edit macro tracker targets"
-                >
-                  <Edit2 className="h-4 w-4" />
-                </Button>
               </div>
             </div>
           </CardHeader>

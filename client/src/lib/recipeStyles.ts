@@ -35,9 +35,11 @@ const textIncludes = (recipe: Recipe, needles: string[]): boolean => {
 export function recipeMatchesStyle(recipe: Recipe, styleId: string): boolean {
   switch (styleId) {
     case "airfryer":
-      if (tagMatches(recipe, ["airfryer", "air-fryer", "air fryer"])) return true;
-      // Fallback: instructions/title mention air frying.
-      return textIncludes(recipe, ["air fry", "air-fry", "airfry", "air fryer"]);
+      // Air fryer recipes are intentionally tag-only: a recipe is "Air fryer"
+      // only if it has been explicitly marked as such (no text fallback,
+      // because plenty of recipes mention "works in an air fryer too" without
+      // actually being air fryer dishes).
+      return tagMatches(recipe, ["airfryer", "air-fryer", "air fryer"]);
 
     case "high-protein": {
       if (tagMatches(recipe, ["high-protein", "high protein", "highprotein"])) return true;

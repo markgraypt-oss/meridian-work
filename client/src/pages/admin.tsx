@@ -44,6 +44,7 @@ type Program = {
 };
 import { VideoForm } from "@/components/admin/VideoForm";
 import { RecipeForm } from "@/components/admin/RecipeForm";
+import { RecipeTagBackfillDialog } from "@/components/admin/RecipeTagBackfillDialog";
 import { ExerciseLibraryForm } from "@/components/admin/ExerciseLibraryForm";
 import { BodyMapConfig } from "@/components/admin/BodyMapConfig";
 
@@ -1901,12 +1902,15 @@ export default function AdminPanel() {
         </TabsContent>
 
         <TabsContent value="recipes" className="space-y-6">
-          <div className="flex justify-between items-center">
+          <div className="flex justify-between items-center flex-wrap gap-2">
             <h2 className="text-2xl font-bold">Nutrition Recipes</h2>
-            <Button onClick={() => setShowRecipeForm(true)}>
-              <Plus className="h-4 w-4 mr-2" />
-              Add Recipe
-            </Button>
+            <div className="flex gap-2">
+              <RecipeTagBackfillDialog />
+              <Button onClick={() => setShowRecipeForm(true)}>
+                <Plus className="h-4 w-4 mr-2" />
+                Add Recipe
+              </Button>
+            </div>
           </div>
 
           {recipesLoading ? (

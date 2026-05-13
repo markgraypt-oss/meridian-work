@@ -10397,6 +10397,101 @@ Rules:
     }
   });
 
+  // Admin tag backfill: find library recipes that look like candidates for a
+  // given style tag but aren't tagged yet, so an admin can review and tick
+  // which ones really belong before saving the tags in bulk.
+  app.get('/api/admin/recipe-tag-candidates', isAuthenticated, requireAdmin, async (req: any, res) => {
+    try {
+      const style = String(req.query.style || '');
+      if (style !== 'airfryer' && style !== 'high-protein') {
+        return res.status(400).json({ message: "Unknown style" });
+      }
+      const tagAliases: Record<string, string[]> = {
+        'airfryer': ['airfryer', 'air-fryer', 'air fryer'],
+        'high-protein': ['high-protein', 'high protein', 'highprotein'],
+      };
+      const norm = (s: string) => s.toLowerCase().replace(/[\s_-]+/g, '');
+      const wanted = new Set(tagAliases[style].map(norm));
+
+      const all = await storage.getRecipes();
+      const library = all.filter((r) => !r.userId);
+
+      const hasTag = (r: any) =>
+        Array.isArray(r.tags) && r.tags.some((t: string) => wanted.has(norm(String(t))));
+
+      let candidates = library.filter((r) => !hasTag(r));
+
+      if (style === 'airfryer') {
+        const re = /\bair[ -]?fry/i;
+        candidates = candidates.filter((r) => {
+          const blob = [r.title, ...(r.instructions || [])].filter(Boolean).join(' \n ');
+          return re.test(blob);
+        });
+      } else {
+        candidates = candidates.filter((r) => Number(r.protein || 0) >= 25);
+      }
+
+      // Light projection so the admin UI gets just what it needs to decide.
+      const out = candidates
+        .map((r: any) => {
+          let signal = '';
+          if (style === 'airfryer') {
+            const re = /\bair[ -]?fry[a-z ]*/i;
+            const titleHit = r.title?.match(re)?.[0];
+            const stepHit = (r.instructions || []).find((s: string) => re.test(s));
+            signal = (titleHit ? `Title: ${r.title}` : (stepHit || '')).slice(0, 240);
+          } else {
+            signal = `${Number(r.protein || 0).toFixed(0)}g protein per serving`;
+          }
+          return {
+            id: r.id,
+            title: r.title,
+            category: r.category,
+            totalTime: r.totalTime,
+            calories: r.calories,
+            protein: r.protein,
+            imageUrl: r.imageUrl,
+            signal,
+          };
+        })
+        .sort((a, b) => a.title.localeCompare(b.title));
+
+      res.json({ candidates: out });
+    } catch (error) {
+      console.error("Error loading tag candidates:", error);
+      res.status(500).json({ message: "Failed to load candidates" });
+    }
+  });
+
+  // Bulk add a single style tag onto a list of library recipes.
+  app.post('/api/admin/recipe-tags', isAuthenticated, requireAdmin, async (req: any, res) => {
+    try {
+      const Body = z.object({
+        recipeIds: z.array(z.number().int().positive()).min(1).max(500),
+        tag: z.enum(['airfryer', 'high-protein']),
+      });
+      const { recipeIds, tag } = Body.parse(req.body);
+      const norm = (s: string) => s.toLowerCase().replace(/[\s_-]+/g, '');
+      const wanted = norm(tag);
+
+      let updated = 0;
+      for (const id of recipeIds) {
+        const existing = await storage.getRecipeById(id);
+        if (!existing || existing.userId) continue; // library only
+        const tags = Array.isArray((existing as any).tags) ? [...(existing as any).tags] : [];
+        if (!tags.some((t: string) => norm(String(t)) === wanted)) {
+          tags.push(tag);
+          await storage.updateRecipe(id, { tags } as any);
+          updated += 1;
+        }
+      }
+      res.json({ updated });
+    } catch (error) {
+      console.error("Error saving recipe tags:", error);
+      res.status(500).json({ message: "Failed to save tags" });
+    }
+  });
+
   // Admin routes - Recipes (master/library only). These must never be used
   // to mutate user-owned custom recipes; that's what /api/my/recipes is for.
   // We strip any userId on the way in so an admin can't accidentally (or

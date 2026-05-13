@@ -5475,15 +5475,21 @@ Return format: {"category": "strength|cardio|hiit|mobility|recovery", "difficult
   app.post('/api/my/recipes/ideas-from-photo', isAuthenticated, aiVisionRateLimit, async (req: any, res) => {
     try {
       const ImageSchema = z.string().min(32).max(8 * 1024 * 1024); // ~6MB decoded
+      const PrefSchema = z.object({
+        mealType: z.enum(['breakfast', 'main', 'side', 'dessert']).optional(),
+        maxMinutes: z.number().int().min(5).max(240).optional(),
+        notes: z.string().max(500).optional(),
+      }).optional();
       const BodySchema = z.object({
         images: z.array(ImageSchema).min(1).max(4),
         exclude: z.array(z.string().max(120)).max(20).optional(),
+        preferences: PrefSchema,
       });
       const parsed = BodySchema.safeParse(req.body);
       if (!parsed.success) {
         return res.status(400).json({ message: "Send 1 to 4 photos." });
       }
-      const { images, exclude } = parsed.data;
+      const { images, exclude, preferences } = parsed.data;
 
       // Total payload guard (sum of base64 chars). 12 MB cap matches the
       // express body limit we set for this path.
@@ -5503,20 +5509,29 @@ Return format: {"category": "strength|cardio|hiit|mobility|recovery", "difficult
         ? `\n\nDo NOT suggest any of these (already shown): ${exclude.map(t => `"${t}"`).join(', ')}.`
         : '';
 
+      const prefLines: string[] = [];
+      if (preferences?.mealType) prefLines.push(`- Meal type MUST be: ${preferences.mealType}`);
+      if (preferences?.maxMinutes) prefLines.push(`- Total time MUST be <= ${preferences.maxMinutes} minutes`);
+      if (preferences?.notes && preferences.notes.trim()) prefLines.push(`- Other constraints from the user: ${preferences.notes.trim()}`);
+      const prefsBlock = prefLines.length
+        ? `\n\nThe user's requirements (follow these strictly):\n${prefLines.join('\n')}`
+        : '';
+
       const prompt = `You are a chef helping a busy executive turn a fridge/pantry photo into meal ideas.
 
-Look at the photo(s) and propose exactly 3 SHORT recipe ideas that could realistically be made with what you can see (plus common pantry staples like oil, salt, pepper, basic spices).
+Look at the photo(s) and propose exactly 3 SHORT recipe ideas that could realistically be made with what you can see (plus common pantry staples like oil, salt, pepper, basic spices).${prefsBlock}
 
 For each idea give:
 - title: short, appetising, max 6 words
-- blurb: ONE sentence describing the dish (max 25 words)
+- blurb: 2-3 sentences describing the dish, the rough method, and what makes it appealing (max 60 words)
+- totalTime: integer estimate of total prep + cook time in minutes (5-240)
 - keyIngredients: 3-6 of the visible/likely ingredients you'd use
 - category: one of "breakfast", "main", "side", "dessert"
 
 Avoid em dashes. Keep ideas distinct from each other (different cuisines/techniques where possible).${excludeNote}
 
 Return STRICT JSON only, no prose, no markdown fences:
-{"ideas":[{"title":"","blurb":"","keyIngredients":[""],"category":""}]}`;
+{"ideas":[{"title":"","blurb":"","totalTime":0,"keyIngredients":[""],"category":""}]}`;
 
       const imageContent = images.map((img) => {
         const url = img.startsWith('data:')
@@ -5548,7 +5563,8 @@ Return STRICT JSON only, no prose, no markdown fences:
 
       const IdeaSchema = z.object({
         title: z.string().min(1).max(120),
-        blurb: z.string().min(1).max(400),
+        blurb: z.string().min(1).max(600),
+        totalTime: z.coerce.number().int().min(1).max(600).optional(),
         keyIngredients: z.array(z.string().min(1).max(80)).min(1).max(10),
         category: z.enum(['breakfast', 'main', 'side', 'dessert']).catch('main'),
       });
@@ -5578,20 +5594,27 @@ Return STRICT JSON only, no prose, no markdown fences:
       const ImageSchema = z.string().min(32).max(8 * 1024 * 1024);
       const IdeaSchema = z.object({
         title: z.string().min(1).max(120),
-        blurb: z.string().min(1).max(400),
+        blurb: z.string().min(1).max(600),
+        totalTime: z.coerce.number().int().min(1).max(600).optional(),
         keyIngredients: z.array(z.string().min(1).max(80)).min(1).max(15),
         category: z.enum(['breakfast', 'main', 'side', 'dessert']).optional(),
       });
+      const PrefSchema = z.object({
+        mealType: z.enum(['breakfast', 'main', 'side', 'dessert']).optional(),
+        maxMinutes: z.number().int().min(5).max(240).optional(),
+        notes: z.string().max(500).optional(),
+      }).optional();
       const BodySchema = z.object({
         idea: IdeaSchema,
         images: z.array(ImageSchema).max(4).optional(),
         servings: z.number().int().min(1).max(20).optional(),
+        preferences: PrefSchema,
       });
       const parsed = BodySchema.safeParse(req.body);
       if (!parsed.success) {
         return res.status(400).json({ message: "Pick an idea to expand." });
       }
-      const { idea, images, servings } = parsed.data;
+      const { idea, images, servings, preferences } = parsed.data;
 
       const totalBytes = (images || []).reduce((n, s) => n + s.length, 0);
       if (totalBytes > 12 * 1024 * 1024) {
@@ -5607,13 +5630,22 @@ Return STRICT JSON only, no prose, no markdown fences:
 
       const targetServings = servings ?? 2;
 
+      const prefLines: string[] = [];
+      if (preferences?.mealType) prefLines.push(`- Meal type MUST be: ${preferences.mealType}`);
+      if (preferences?.maxMinutes) prefLines.push(`- Total time MUST be <= ${preferences.maxMinutes} minutes`);
+      if (preferences?.notes && preferences.notes.trim()) prefLines.push(`- Other constraints from the user: ${preferences.notes.trim()}`);
+      const prefsBlock = prefLines.length
+        ? `\n\nThe user's requirements (follow these strictly):\n${prefLines.join('\n')}`
+        : '';
+
       const prompt = `Expand this short recipe idea into a full, cookable recipe for ${targetServings} serving(s).
 
 Idea:
 - Title: ${idea.title}
 - Description: ${idea.blurb}
+${idea.totalTime ? `- Estimated total time: ${idea.totalTime} min` : ''}
 - Key ingredients spotted: ${idea.keyIngredients.join(', ')}
-${idea.category ? `- Category: ${idea.category}` : ''}
+${idea.category ? `- Category: ${idea.category}` : ''}${prefsBlock}
 
 Use the photo(s) for context if provided. Assume the cook has common pantry staples (oil, salt, pepper, basic spices, vinegar, flour, sugar) on top of what's listed.
 

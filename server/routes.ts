@@ -5519,19 +5519,27 @@ Return format: {"category": "strength|cardio|hiit|mobility|recovery", "difficult
 
       const prompt = `You are a chef helping a busy executive turn a fridge/pantry photo into meal ideas.
 
-Look at the photo(s) and propose exactly 3 SHORT recipe ideas that could realistically be made with what you can see (plus common pantry staples like oil, salt, pepper, basic spices).${prefsBlock}
+Look at the photo(s) and propose exactly 3 recipe ideas that could realistically be made with what you can see (plus common pantry staples like oil, salt, pepper, basic spices).${prefsBlock}
 
-For each idea give:
-- title: short, appetising, max 6 words
-- blurb: 2-3 sentences describing the dish, the rough method, and what makes it appealing (max 60 words)
-- totalTime: integer estimate of total prep + cook time in minutes (5-240)
-- keyIngredients: 3-6 of the visible/likely ingredients you'd use
-- category: one of "breakfast", "main", "side", "dessert"
+Return STRICT JSON only (no prose, no markdown fences) in EXACTLY this shape. EVERY field is REQUIRED for every idea:
 
-Avoid em dashes. Keep ideas distinct from each other (different cuisines/techniques where possible).${excludeNote}
+{
+  "ideas": [
+    {
+      "title": "string, max 6 words, appetising",
+      "blurb": "string, MUST be 2 to 3 full sentences, 40 to 70 words, describing the dish + rough method + why it's appealing",
+      "totalTime": integer minutes from 5 to 240 covering prep + cook time (REQUIRED, never omit, never zero),
+      "keyIngredients": ["3 to 6 visible/likely ingredients"],
+      "category": "breakfast" | "main" | "side" | "dessert"
+    }
+  ]
+}
 
-Return STRICT JSON only, no prose, no markdown fences:
-{"ideas":[{"title":"","blurb":"","totalTime":0,"keyIngredients":[""],"category":""}]}`;
+Hard rules:
+- Every idea MUST include totalTime as a positive integer number of minutes. Do not omit it.
+- Every idea MUST have a blurb of 2 to 3 sentences (not a single sentence).
+- Keep ideas distinct from each other (different cuisines/techniques where possible).
+- Avoid em dashes anywhere in the output.${excludeNote}`;
 
       const imageContent = images.map((img) => {
         const url = img.startsWith('data:')
@@ -5542,10 +5550,14 @@ Return STRICT JSON only, no prose, no markdown fences:
 
       const completion = await openai.chat.completions.create({
         model: 'gpt-4o-mini',
-        max_tokens: 700,
-        temperature: 0.7,
+        max_tokens: 900,
+        temperature: 0.4,
         response_format: { type: 'json_object' },
         messages: [
+          {
+            role: 'system',
+            content: 'You return strict JSON matching the exact shape requested. Every field listed as REQUIRED must be present in every object. Never omit totalTime. Never reduce blurbs to a single sentence.',
+          },
           {
             role: 'user',
             content: [...imageContent, { type: 'text', text: prompt }],
@@ -5564,6 +5576,8 @@ Return STRICT JSON only, no prose, no markdown fences:
       const IdeaSchema = z.object({
         title: z.string().min(1).max(120),
         blurb: z.string().min(1).max(600),
+        // Optional in the schema so a single missing/odd value doesn't 502 the
+        // user. We backfill a sensible default below if the model leaves it out.
         totalTime: z.coerce.number().int().min(1).max(600).optional(),
         keyIngredients: z.array(z.string().min(1).max(80)).min(1).max(10),
         category: z.enum(['breakfast', 'main', 'side', 'dessert']).catch('main'),
@@ -5574,8 +5588,23 @@ Return STRICT JSON only, no prose, no markdown fences:
         return res.status(502).json({ message: "The AI's answer didn't match what we expected. Try again." });
       }
 
-      // Always hand back at most 3 (ask for exactly 3 in the prompt, but be defensive).
-      res.json({ ideas: validated.data.ideas.slice(0, 3) });
+      // Defensive backfill: if the model still skipped totalTime, give the
+      // card a reasonable default keyed off the meal type so the user always
+      // sees a duration (the most important signal when picking).
+      const defaultMinutesFor = (cat?: string) => {
+        switch (cat) {
+          case 'breakfast': return 15;
+          case 'side': return 20;
+          case 'dessert': return 35;
+          default: return 30;
+        }
+      };
+      const ideasOut = validated.data.ideas.slice(0, 3).map((i) => ({
+        ...i,
+        totalTime: i.totalTime && i.totalTime > 0 ? i.totalTime : defaultMinutesFor(i.category),
+      }));
+
+      res.json({ ideas: ideasOut });
     } catch (error: any) {
       console.error("Error generating recipe ideas from photo:", error);
       res.status(500).json({ message: "Couldn't generate ideas right now. Try again in a moment." });

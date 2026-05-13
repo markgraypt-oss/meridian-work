@@ -320,7 +320,7 @@ export default function Profile() {
               >
                 <div className="flex items-center gap-3">
                   <Sparkles className="h-4 w-4 text-[#0cc9a9]" />
-                  <span className="text-foreground">{user.onboardingStep && user.onboardingStep > 0 ? "Continue setup" : "Set up your profile"}</span>
+                  <span className="text-foreground">{((user.onboardingStep && user.onboardingStep > 0) || (user.onboardingData && Object.keys(user.onboardingData as object).length > 0)) ? "Continue setup" : "Set up your profile"}</span>
                 </div>
                 <ChevronRight className="h-5 w-5 text-gray-500" />
               </Link>

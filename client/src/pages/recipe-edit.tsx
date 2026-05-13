@@ -423,7 +423,7 @@ export default function RecipeEdit() {
                       );
                     })}
                   </div>
-                  <FormDescription>Helps people find it under the matching filter.</FormDescription>
+                  <FormDescription>Tap any that fit so this recipe shows up when people filter by them.</FormDescription>
                 </FormItem>
               );
             }}

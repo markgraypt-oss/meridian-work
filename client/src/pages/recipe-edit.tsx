@@ -28,6 +28,7 @@ import {
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import type { Recipe } from "@shared/schema";
+import { STYLE_OPTIONS } from "@/lib/recipeStyles";
 
 const CATEGORY_OPTIONS = [
   { value: "breakfast", label: "Breakfast" },
@@ -50,6 +51,7 @@ const formSchema = z.object({
   fat: z.coerce.number().min(0, "Must be 0 or more."),
   ingredients: z.string(),
   instructions: z.string(),
+  tags: z.array(z.string()).default([]),
 });
 
 type FormValues = z.infer<typeof formSchema>;
@@ -75,6 +77,7 @@ const DEFAULT_VALUES: FormValues = {
   fat: 0,
   ingredients: "",
   instructions: "",
+  tags: [],
 };
 
 export default function RecipeEdit() {
@@ -111,6 +114,7 @@ export default function RecipeEdit() {
       fat: existing.fat ?? 0,
       ingredients: arrayToLines(existing.ingredients),
       instructions: arrayToLines(existing.instructions),
+      tags: Array.isArray((existing as any).tags) ? (existing as any).tags : [],
     });
   }, [existing, form]);
 
@@ -128,6 +132,7 @@ export default function RecipeEdit() {
         fat: values.fat,
         ingredients: linesToArray(values.ingredients),
         instructions: linesToArray(values.instructions),
+        tags: values.tags ?? [],
       };
       if (isEditing && editingId) {
         const res = await apiRequest("PATCH", `/api/my/recipes/${editingId}`, payload);
@@ -388,6 +393,40 @@ export default function RecipeEdit() {
                 <FormMessage />
               </FormItem>
             )}
+          />
+
+          <FormField
+            control={form.control}
+            name="tags"
+            render={({ field }) => {
+              const value = field.value ?? [];
+              const toggle = (id: string) =>
+                field.onChange(value.includes(id) ? value.filter((v: string) => v !== id) : [...value, id]);
+              return (
+                <FormItem>
+                  <FormLabel>Style (optional)</FormLabel>
+                  <div className="flex flex-wrap gap-2">
+                    {STYLE_OPTIONS.map((opt) => {
+                      const active = value.includes(opt.id);
+                      return (
+                        <Button
+                          key={opt.id}
+                          type="button"
+                          size="sm"
+                          variant={active ? "default" : "outline"}
+                          className={active ? "bg-[#0cc9a9] hover:bg-[#0cc9a9]/90 text-black" : ""}
+                          onClick={() => toggle(opt.id)}
+                          data-testid={`chip-tag-${opt.id}`}
+                        >
+                          {opt.label}
+                        </Button>
+                      );
+                    })}
+                  </div>
+                  <FormDescription>Helps people find it under the matching filter.</FormDescription>
+                </FormItem>
+              );
+            }}
           />
 
           <FormField

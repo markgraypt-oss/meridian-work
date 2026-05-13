@@ -5746,12 +5746,26 @@ Rules:
         return res.status(502).json({ message: "The AI's recipe didn't match what we expected. Try again." });
       }
 
+      // Auto-tag the draft with our cross-cutting style filters so it shows
+      // up under "Air fryer" / "High protein" without the user having to
+      // tick a box. Conservative checks based on the actual recipe content.
+      const inferredTags: string[] = [];
+      const instructionsBlob = validated.data.instructions.join(' \n ').toLowerCase();
+      const titleBlob = validated.data.title.toLowerCase();
+      if (/\bair[ -]?fry/.test(instructionsBlob) || /\bair[ -]?fry/.test(titleBlob)) {
+        inferredTags.push('airfryer');
+      }
+      if (validated.data.protein >= 25) {
+        inferredTags.push('high-protein');
+      }
+
       // Tag with key ingredients from the original idea so the saved recipe
       // keeps a hint of what the user originally spotted.
       res.json({
         draft: {
           ...validated.data,
           keyIngredients: idea.keyIngredients,
+          tags: inferredTags,
           aiGenerated: true,
           aiDraftedFromPhoto: true,
         },

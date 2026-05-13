@@ -33,6 +33,7 @@ type Draft = {
   ingredients: string[];
   instructions: string[];
   keyIngredients?: string[];
+  tags?: string[];
   aiGenerated?: boolean;
   aiDraftedFromPhoto?: boolean;
 };

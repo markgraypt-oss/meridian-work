@@ -18,6 +18,8 @@ import { Upload, X } from "lucide-react";
 import type { Recipe } from "@shared/schema";
 
 const TAG_OPTIONS = [
+  "Air fryer",
+  "High protein",
   "High fiber",
   "One pot",
   "Instant pot",

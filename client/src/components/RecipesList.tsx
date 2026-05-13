@@ -10,6 +10,7 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { ScrollArea, ScrollBar } from "@/components/ui/scroll-area";
 import { Search, SlidersHorizontal, Clock, ChevronRight, X, Loader2, Sparkles, Plus, Camera } from "lucide-react";
 import type { Recipe } from "@shared/schema";
+import { STYLE_OPTIONS, recipeMatchesStyle } from "@/lib/recipeStyles";
 
 type RecipeTab = "library" | "mine";
 
@@ -56,6 +57,7 @@ export default function RecipesList() {
   const [maxPrepTime, setMaxPrepTime] = useState<number | null>(null);
   const [selectedDietary, setSelectedDietary] = useState<string[]>([]);
   const [selectedIngredients, setSelectedIngredients] = useState<string[]>([]);
+  const [selectedStyles, setSelectedStyles] = useState<string[]>([]);
   const [filterOpen, setFilterOpen] = useState(false);
 
   const { data: libraryRecipes = [], isLoading: isLibraryLoading } = useQuery<Recipe[]>({
@@ -83,6 +85,12 @@ export default function RecipesList() {
     );
   };
 
+  const toggleStyle = (style: string) => {
+    setSelectedStyles((prev) =>
+      prev.includes(style) ? prev.filter((s) => s !== style) : [...prev, style]
+    );
+  };
+
   const filteredRecipes = useMemo(() => {
     return recipes.filter((recipe) => {
       if (searchQuery) {
@@ -107,9 +115,12 @@ export default function RecipesList() {
         );
         if (!hasMatchingIngredient) return false;
       }
+      if (selectedStyles.length > 0) {
+        if (!selectedStyles.every((style) => recipeMatchesStyle(recipe, style))) return false;
+      }
       return true;
     });
-  }, [recipes, searchQuery, selectedCategory, maxPrepTime, selectedDietary, selectedIngredients]);
+  }, [recipes, searchQuery, selectedCategory, maxPrepTime, selectedDietary, selectedIngredients, selectedStyles]);
 
   const clearFilters = () => {
     setSearchQuery("");
@@ -117,10 +128,11 @@ export default function RecipesList() {
     setMaxPrepTime(null);
     setSelectedDietary([]);
     setSelectedIngredients([]);
+    setSelectedStyles([]);
   };
 
-  const hasActiveFilters = searchQuery || selectedCategory !== "all" || maxPrepTime || selectedDietary.length > 0 || selectedIngredients.length > 0;
-  const activeFilterCount = (selectedCategory !== "all" ? 1 : 0) + (maxPrepTime ? 1 : 0) + selectedDietary.length + selectedIngredients.length;
+  const hasActiveFilters = searchQuery || selectedCategory !== "all" || maxPrepTime || selectedDietary.length > 0 || selectedIngredients.length > 0 || selectedStyles.length > 0;
+  const activeFilterCount = (selectedCategory !== "all" ? 1 : 0) + (maxPrepTime ? 1 : 0) + selectedDietary.length + selectedIngredients.length + selectedStyles.length;
 
   return (
     <div className="space-y-3">
@@ -231,6 +243,17 @@ export default function RecipesList() {
                     <div key={ingredient} className="flex items-center space-x-2">
                       <Checkbox id={`ing-${ingredient}`} checked={selectedIngredients.includes(ingredient)} onCheckedChange={() => toggleIngredient(ingredient)} />
                       <label htmlFor={`ing-${ingredient}`} className="text-sm cursor-pointer">{ingredient}</label>
+                    </div>
+                  ))}
+                </div>
+              </div>
+              <div>
+                <h3 className="font-medium mb-3">Style</h3>
+                <div className="space-y-2">
+                  {STYLE_OPTIONS.map((style) => (
+                    <div key={style.id} className="flex items-center space-x-2">
+                      <Checkbox id={`style-${style.id}`} checked={selectedStyles.includes(style.id)} onCheckedChange={() => toggleStyle(style.id)} />
+                      <label htmlFor={`style-${style.id}`} className="text-sm cursor-pointer">{style.label}</label>
                     </div>
                   ))}
                 </div>

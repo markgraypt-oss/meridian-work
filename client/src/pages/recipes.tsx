@@ -11,6 +11,7 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { ScrollArea, ScrollBar } from "@/components/ui/scroll-area";
 import { Search, SlidersHorizontal, Clock, ChevronRight, X, ChevronLeft, Sparkles, Plus, Camera } from "lucide-react";
 import type { Recipe } from "@shared/schema";
+import { STYLE_OPTIONS, recipeMatchesStyle } from "@/lib/recipeStyles";
 
 type RecipeTab = "library" | "mine";
 
@@ -61,6 +62,7 @@ export default function Recipes() {
   const [maxPrepTime, setMaxPrepTime] = useState<number | null>(null);
   const [selectedDietary, setSelectedDietary] = useState<string[]>([]);
   const [selectedIngredients, setSelectedIngredients] = useState<string[]>([]);
+  const [selectedStyles, setSelectedStyles] = useState<string[]>([]);
   const [filterOpen, setFilterOpen] = useState(false);
   const RECIPES_PAGE_SIZE = 20;
   const [visibleCount, setVisibleCount] = useState(RECIPES_PAGE_SIZE);
@@ -91,6 +93,12 @@ export default function Recipes() {
       prev.includes(ingredient)
         ? prev.filter((i) => i !== ingredient)
         : [...prev, ingredient]
+    );
+  };
+
+  const toggleStyle = (style: string) => {
+    setSelectedStyles((prev) =>
+      prev.includes(style) ? prev.filter((s) => s !== style) : [...prev, style]
     );
   };
 
@@ -129,13 +137,20 @@ export default function Recipes() {
         if (!hasMatchingIngredient) return false;
       }
 
+      if (selectedStyles.length > 0) {
+        const everyStyleMatches = selectedStyles.every((style) =>
+          recipeMatchesStyle(recipe, style)
+        );
+        if (!everyStyleMatches) return false;
+      }
+
       return true;
     });
-  }, [recipes, searchQuery, selectedCategory, maxPrepTime, selectedDietary, selectedIngredients]);
+  }, [recipes, searchQuery, selectedCategory, maxPrepTime, selectedDietary, selectedIngredients, selectedStyles]);
 
   useEffect(() => {
     setVisibleCount(RECIPES_PAGE_SIZE);
-  }, [activeTab, searchQuery, selectedCategory, maxPrepTime, selectedDietary, selectedIngredients]);
+  }, [activeTab, searchQuery, selectedCategory, maxPrepTime, selectedDietary, selectedIngredients, selectedStyles]);
 
   const visibleRecipes = filteredRecipes.slice(0, visibleCount);
   const hasMoreRecipes = visibleCount < filteredRecipes.length;
@@ -146,6 +161,7 @@ export default function Recipes() {
     setMaxPrepTime(null);
     setSelectedDietary([]);
     setSelectedIngredients([]);
+    setSelectedStyles([]);
   };
 
   const hasActiveFilters =
@@ -153,13 +169,15 @@ export default function Recipes() {
     selectedCategory !== "all" ||
     maxPrepTime ||
     selectedDietary.length > 0 ||
-    selectedIngredients.length > 0;
+    selectedIngredients.length > 0 ||
+    selectedStyles.length > 0;
 
   const activeFilterCount =
     (selectedCategory !== "all" ? 1 : 0) +
     (maxPrepTime ? 1 : 0) +
     selectedDietary.length +
-    selectedIngredients.length;
+    selectedIngredients.length +
+    selectedStyles.length;
 
   const formatCategory = (category: string) => {
     return category.charAt(0).toUpperCase() + category.slice(1);
@@ -258,6 +276,24 @@ export default function Recipes() {
                         />
                         <label htmlFor={`ing-${ingredient}`} className="text-sm cursor-pointer">
                           {ingredient}
+                        </label>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+
+                <div>
+                  <h3 className="font-medium mb-3">Style</h3>
+                  <div className="space-y-2">
+                    {STYLE_OPTIONS.map((style) => (
+                      <div key={style.id} className="flex items-center space-x-2">
+                        <Checkbox
+                          id={`style-${style.id}`}
+                          checked={selectedStyles.includes(style.id)}
+                          onCheckedChange={() => toggleStyle(style.id)}
+                        />
+                        <label htmlFor={`style-${style.id}`} className="text-sm cursor-pointer">
+                          {style.label}
                         </label>
                       </div>
                     ))}
@@ -405,6 +441,15 @@ export default function Recipes() {
                 <X className="h-3 w-3 cursor-pointer" onClick={() => toggleIngredient(ing)} />
               </Badge>
             ))}
+            {selectedStyles.map((styleId) => {
+              const opt = STYLE_OPTIONS.find((s) => s.id === styleId);
+              return (
+                <Badge key={styleId} variant="secondary" className="gap-1">
+                  {opt?.label ?? styleId}
+                  <X className="h-3 w-3 cursor-pointer" onClick={() => toggleStyle(styleId)} />
+                </Badge>
+              );
+            })}
             {searchQuery && (
               <Badge variant="secondary" className="gap-1">
                 "{searchQuery}"

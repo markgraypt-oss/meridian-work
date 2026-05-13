@@ -31,11 +31,8 @@ import type { Recipe } from "@shared/schema";
 
 const CATEGORY_OPTIONS = [
   { value: "breakfast", label: "Breakfast" },
-  { value: "lunch", label: "Lunch" },
-  { value: "dinner", label: "Dinner" },
   { value: "main", label: "Main" },
   { value: "side", label: "Side" },
-  { value: "snack", label: "Snack" },
   { value: "dessert", label: "Dessert" },
 ];
 

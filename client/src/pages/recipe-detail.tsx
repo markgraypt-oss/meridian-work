@@ -43,8 +43,9 @@ export default function RecipeDetail() {
       toast({ title: "Recipe deleted" });
       navigate("/recipes");
     },
-    onError: () => {
-      toast({ title: "Couldn't delete recipe", description: "Please try again.", variant: "destructive" });
+    onError: (err: unknown) => {
+      const description = err instanceof Error ? err.message : "Please try again.";
+      toast({ title: "Couldn't delete recipe", description, variant: "destructive" });
     },
   });
 

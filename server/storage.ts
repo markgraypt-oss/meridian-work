@@ -626,6 +626,7 @@ export interface IStorage {
   createCustomRecipe(userId: string, recipe: Partial<InsertRecipe>): Promise<Recipe>;
   updateCustomRecipe(userId: string, id: number, recipe: Partial<InsertRecipe>): Promise<Recipe | undefined>;
   deleteCustomRecipe(userId: string, id: number): Promise<boolean>;
+  countMealPlanReferencesToRecipe(recipeId: number): Promise<number>;
 
   // User progress operations
   getUserProgress(userId: string, limit?: number): Promise<UserProgress[]>;
@@ -3818,6 +3819,15 @@ export class DatabaseStorage implements IStorage {
       .where(and(eq(recipes.id, id), eq(recipes.userId, userId)))
       .returning({ id: recipes.id });
     return deleted.length > 0;
+  }
+
+  async countMealPlanReferencesToRecipe(recipeId: number): Promise<number> {
+    const rows = await db
+      .select({ id: mealPlanMeals.id })
+      .from(mealPlanMeals)
+      .where(eq(mealPlanMeals.recipeId, recipeId))
+      .limit(1);
+    return rows.length;
   }
 
   // User progress operations
@@ -10859,6 +10869,9 @@ export class DatabaseStorage implements IStorage {
     targetCaloriesPerMeal?: number;
     maxCalories?: number;
     maxPrepTime?: number | null;
+    // When provided, the candidate pool also includes recipes owned by this user
+    // (in addition to the master library). Other users' custom recipes are never included.
+    includeUserId?: string;
   }): Promise<Recipe[]> {
     const conditions: any[] = [];
 
@@ -10873,12 +10886,16 @@ export class DatabaseStorage implements IStorage {
       );
     }
 
+    // Candidate pool: master/admin library plus (optionally) the user's own custom recipes.
+    const ownershipFilter = options.includeUserId
+      ? or(isNull(recipes.userId), eq(recipes.userId, options.includeUserId))!
+      : isNull(recipes.userId);
+
     let allRecipes: Recipe[];
-    // Meal plans only ever pull from the admin/master library (userId IS NULL).
     if (conditions.length > 0) {
-      allRecipes = await db.select().from(recipes).where(and(isNull(recipes.userId), ...conditions));
+      allRecipes = await db.select().from(recipes).where(and(ownershipFilter, ...conditions));
     } else {
-      allRecipes = await db.select().from(recipes).where(isNull(recipes.userId));
+      allRecipes = await db.select().from(recipes).where(ownershipFilter);
     }
 
     if (options.excludedIngredients && options.excludedIngredients.length > 0) {

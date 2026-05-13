@@ -5439,6 +5439,21 @@ Return format: {"category": "strength|cardio|hiit|mobility|recovery", "difficult
       const userId = req.user.claims.sub;
       const id = parseInt(req.params.id);
       if (!Number.isFinite(id)) return res.status(400).json({ message: "Invalid recipe id" });
+
+      // Confirm ownership first so we don't leak existence of others' recipes.
+      const owned = await storage.getCustomRecipeForUser(userId, id);
+      if (!owned) return res.status(404).json({ message: "Recipe not found" });
+
+      // Block deletion if this recipe is still referenced by any meal plan, to
+      // avoid orphaned meal_plan_meals rows breaking plan/shopping-list views.
+      const refs = await storage.countMealPlanReferencesToRecipe(id);
+      if (refs > 0) {
+        return res.status(409).json({
+          message: "This recipe is being used in a meal plan. Swap it out or regenerate the plan first, then try again.",
+          code: "RECIPE_IN_USE",
+        });
+      }
+
       const ok = await storage.deleteCustomRecipe(userId, id);
       if (!ok) return res.status(404).json({ message: "Recipe not found" });
       res.json({ success: true });
@@ -16111,6 +16126,7 @@ Keep your response concise, practical, and evidence-based. Do not use em dashes.
         excludedIngredients: fullPlan.plan.excludedIngredients || [],
         excludeRecipeIds: allUsedIds, mealType: baseType,
         maxPrepTime: fullPlan.plan.maxPrepTime ?? null,
+        includeUserId: req.user.claims.sub,
       });
 
       let newRecipe;
@@ -16121,6 +16137,7 @@ Keep your response concise, practical, and evidence-based. Do not use em dashes.
           excludedIngredients: fullPlan.plan.excludedIngredients || [],
           excludeRecipeIds: [currentMeal.recipeId], mealType: baseType,
           maxPrepTime: fullPlan.plan.maxPrepTime ?? null,
+          includeUserId: req.user.claims.sub,
         });
         if (fallback.length === 0) return res.status(400).json({ message: "No alternative available" });
         newRecipe = fallback[Math.floor(Math.random() * fallback.length)];
@@ -16275,6 +16292,7 @@ Keep your response concise, practical, and evidence-based. Do not use em dashes.
         aiCandidates = await storage.getRecipesForMealPlan({
           caloriesPerDay, macroSplit, mealsPerDay: slots.length, dietaryPreference,
           excludedIngredients, maxPrepTime,
+          includeUserId: userId,
         });
         // Always attempt AI (even with empty catalog — the model may fully gap-fill).
         aiPlan = await generateAiPlan({
@@ -16311,6 +16329,7 @@ Keep your response concise, practical, and evidence-based. Do not use em dashes.
       const candidateRecipes = await storage.getRecipesForMealPlan({
         caloriesPerDay, macroSplit, mealsPerDay: slots.length, dietaryPreference,
         excludedIngredients, maxPrepTime,
+        includeUserId: userId,
       });
       for (const r of candidateRecipes) recipeMap.set(r.id, r);
 
@@ -16405,6 +16424,7 @@ Keep your response concise, practical, and evidence-based. Do not use em dashes.
             caloriesPerDay, macroSplit, mealsPerDay: slots.length, dietaryPreference,
             excludedIngredients, excludeRecipeIds: usedRecipeIds, mealType: mealTypeForSearch,
             targetCaloriesPerMeal, maxCalories: roomUntilMax, maxPrepTime,
+            includeUserId: userId,
           });
           if (recipes.length > 0) {
             const validRecipe = recipes.find((r) => dayCalories + r.calories <= dailyMax);
@@ -18838,6 +18858,7 @@ Generate the opening message now. Remember: 1-3 sentences, specific, mandatory t
           excludedIngredients,
           mealType: categoryByTime,
           maxPrepTime: plan?.maxPrepTime ?? null,
+          includeUserId: userId,
         });
         const widenThreshold = mode === 'next_meal' ? 3 : 6;
         if (candidates.length < widenThreshold) {
@@ -18848,6 +18869,7 @@ Generate the opening message now. Remember: 1-3 sentences, specific, mandatory t
             dietaryPreference,
             excludedIngredients,
             maxPrepTime: plan?.maxPrepTime ?? null,
+            includeUserId: userId,
           });
           const seen = new Set(candidates.map(c => c.id));
           for (const r of wider) if (!seen.has(r.id)) candidates.push(r);

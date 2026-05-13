@@ -8,8 +8,10 @@ import { Badge } from "@/components/ui/badge";
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetTrigger } from "@/components/ui/sheet";
 import { Checkbox } from "@/components/ui/checkbox";
 import { ScrollArea, ScrollBar } from "@/components/ui/scroll-area";
-import { Search, SlidersHorizontal, Clock, ChevronRight, X, Loader2 } from "lucide-react";
+import { Search, SlidersHorizontal, Clock, ChevronRight, X, Loader2, Sparkles } from "lucide-react";
 import type { Recipe } from "@shared/schema";
+
+type RecipeTab = "library" | "mine";
 
 const CATEGORIES = [
   { id: "all", label: "All" },
@@ -48,6 +50,7 @@ const getCategoryColor = (category: string) => {
 
 export default function RecipesList() {
   const [, navigate] = useLocation();
+  const [activeTab, setActiveTab] = useState<RecipeTab>("library");
   const [searchQuery, setSearchQuery] = useState("");
   const [selectedCategory, setSelectedCategory] = useState("all");
   const [maxPrepTime, setMaxPrepTime] = useState<number | null>(null);
@@ -55,9 +58,18 @@ export default function RecipesList() {
   const [selectedIngredients, setSelectedIngredients] = useState<string[]>([]);
   const [filterOpen, setFilterOpen] = useState(false);
 
-  const { data: recipes = [], isLoading } = useQuery<Recipe[]>({
+  const { data: libraryRecipes = [], isLoading: isLibraryLoading } = useQuery<Recipe[]>({
     queryKey: ["/api/recipes"],
+    enabled: activeTab === "library",
   });
+
+  const { data: myRecipes = [], isLoading: isMineLoading } = useQuery<Recipe[]>({
+    queryKey: ["/api/my/recipes"],
+    enabled: activeTab === "mine",
+  });
+
+  const recipes = activeTab === "mine" ? myRecipes : libraryRecipes;
+  const isLoading = activeTab === "mine" ? isMineLoading : isLibraryLoading;
 
   const toggleDietary = (diet: string) => {
     setSelectedDietary((prev) =>
@@ -112,6 +124,27 @@ export default function RecipesList() {
 
   return (
     <div className="space-y-3">
+      <div className="flex gap-2" data-testid="recipes-tabs">
+        <Button
+          variant={activeTab === "library" ? "default" : "outline"}
+          size="sm"
+          onClick={() => setActiveTab("library")}
+          className="rounded-full flex-1"
+          data-testid="tab-recipes-library"
+        >
+          Library
+        </Button>
+        <Button
+          variant={activeTab === "mine" ? "default" : "outline"}
+          size="sm"
+          onClick={() => setActiveTab("mine")}
+          className="rounded-full flex-1"
+          data-testid="tab-recipes-mine"
+        >
+          My recipes
+        </Button>
+      </div>
+
       <div className="flex gap-2">
         <div className="relative flex-1">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
@@ -241,9 +274,21 @@ export default function RecipesList() {
           </div>
         ) : filteredRecipes.length === 0 ? (
           <div className="text-center py-8">
-            <p className="text-muted-foreground mb-4">No recipes found</p>
-            {hasActiveFilters && (
-              <Button variant="outline" onClick={clearFilters}>Clear Filters</Button>
+            {activeTab === "mine" && !hasActiveFilters ? (
+              <>
+                <Sparkles className="h-8 w-8 text-[#0cc9a9] mx-auto mb-3" />
+                <p className="font-medium mb-1">You haven't saved any recipes yet</p>
+                <p className="text-sm text-muted-foreground">
+                  Your custom recipes will appear here once you create them.
+                </p>
+              </>
+            ) : (
+              <>
+                <p className="text-muted-foreground mb-4">No recipes found</p>
+                {hasActiveFilters && (
+                  <Button variant="outline" onClick={clearFilters}>Clear Filters</Button>
+                )}
+              </>
             )}
           </div>
         ) : (

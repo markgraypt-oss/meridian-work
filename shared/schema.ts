@@ -292,6 +292,12 @@ export const recipes = pgTable("recipes", {
   keyIngredients: text("key_ingredients").array(),
   difficulty: text("difficulty"), // 'easy', 'medium', 'hard' - shown in admin recipe list
   aiGenerated: boolean("ai_generated").notNull().default(false),
+  // Custom user-owned recipes: null = admin/master library recipe (visible to all),
+  // set = personal recipe owned by that user (private to them).
+  userId: varchar("user_id"),
+  // True when this custom recipe was drafted by the AI from an ingredient photo
+  // (vs created from scratch by the user).
+  aiDraftedFromPhoto: boolean("ai_drafted_from_photo").notNull().default(false),
   createdAt: timestamp("created_at").defaultNow(),
 });
 

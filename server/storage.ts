@@ -611,7 +611,7 @@ export interface IStorage {
   updateVideo(id: number, video: Partial<InsertVideo>): Promise<Video>;
   deleteVideo(id: number): Promise<void>;
 
-  // Recipe operations
+  // Recipe operations (admin/master library only — userId IS NULL)
   getRecipes(category?: string): Promise<Recipe[]>;
   getRecipesByIds(ids: number[]): Promise<Recipe[]>;
   getRecipeById(id: number): Promise<Recipe | undefined>;
@@ -619,6 +619,13 @@ export interface IStorage {
   createRecipe(recipe: InsertRecipe): Promise<Recipe>;
   updateRecipe(id: number, recipe: Partial<InsertRecipe>): Promise<Recipe>;
   deleteRecipe(id: number): Promise<void>;
+
+  // Custom user-owned recipes (private to a single user)
+  getUserCustomRecipes(userId: string): Promise<Recipe[]>;
+  getCustomRecipeForUser(userId: string, id: number): Promise<Recipe | undefined>;
+  createCustomRecipe(userId: string, recipe: Partial<InsertRecipe>): Promise<Recipe>;
+  updateCustomRecipe(userId: string, id: number, recipe: Partial<InsertRecipe>): Promise<Recipe | undefined>;
+  deleteCustomRecipe(userId: string, id: number): Promise<boolean>;
 
   // User progress operations
   getUserProgress(userId: string, limit?: number): Promise<UserProgress[]>;
@@ -3715,15 +3722,18 @@ export class DatabaseStorage implements IStorage {
     await db.delete(videos).where(eq(videos.id, id));
   }
 
-  // Recipe operations
+  // Recipe operations — admin/master library only (userId IS NULL).
+  // Personal user-owned recipes never leak into these methods.
   async getRecipes(category?: string): Promise<Recipe[]> {
     if (category) {
       return await db.select().from(recipes)
-        .where(eq(recipes.category, category))
+        .where(and(eq(recipes.category, category), isNull(recipes.userId)))
         .orderBy(desc(recipes.createdAt));
     }
-    
-    return await db.select().from(recipes).orderBy(desc(recipes.createdAt));
+
+    return await db.select().from(recipes)
+      .where(isNull(recipes.userId))
+      .orderBy(desc(recipes.createdAt));
   }
 
   async getRecipeById(id: number): Promise<Recipe | undefined> {
@@ -3733,7 +3743,8 @@ export class DatabaseStorage implements IStorage {
 
   async getRecipesByIds(ids: number[]): Promise<Recipe[]> {
     if (!ids.length) return [];
-    return await db.select().from(recipes).where(inArray(recipes.id, ids));
+    return await db.select().from(recipes)
+      .where(and(inArray(recipes.id, ids), isNull(recipes.userId)));
   }
 
   async searchRecipes(query: string): Promise<Recipe[]> {
@@ -3741,9 +3752,12 @@ export class DatabaseStorage implements IStorage {
       .select()
       .from(recipes)
       .where(
-        or(
-          ilike(recipes.title, `%${query}%`),
-          ilike(recipes.description, `%${query}%`)
+        and(
+          isNull(recipes.userId),
+          or(
+            ilike(recipes.title, `%${query}%`),
+            ilike(recipes.description, `%${query}%`)
+          )
         )
       );
   }
@@ -3764,6 +3778,46 @@ export class DatabaseStorage implements IStorage {
 
   async deleteRecipe(id: number): Promise<void> {
     await db.delete(recipes).where(eq(recipes.id, id));
+  }
+
+  // Custom user-owned recipes — private to one user.
+  async getUserCustomRecipes(userId: string): Promise<Recipe[]> {
+    return await db.select().from(recipes)
+      .where(eq(recipes.userId, userId))
+      .orderBy(desc(recipes.createdAt));
+  }
+
+  async getCustomRecipeForUser(userId: string, id: number): Promise<Recipe | undefined> {
+    const [recipe] = await db.select().from(recipes)
+      .where(and(eq(recipes.id, id), eq(recipes.userId, userId)));
+    return recipe;
+  }
+
+  async createCustomRecipe(userId: string, recipe: Partial<InsertRecipe>): Promise<Recipe> {
+    const { id: _omitId, userId: _omitUser, createdAt: _omitCreated, ...rest } = (recipe as any) || {};
+    const [newRecipe] = await db.insert(recipes).values({
+      ...rest,
+      userId,
+    } as InsertRecipe).returning();
+    return newRecipe;
+  }
+
+  async updateCustomRecipe(userId: string, id: number, recipe: Partial<InsertRecipe>): Promise<Recipe | undefined> {
+    const { id: _omitId, userId: _omitUser, createdAt: _omitCreated, ...rest } = (recipe as any) || {};
+    const [updated] = await db
+      .update(recipes)
+      .set(rest)
+      .where(and(eq(recipes.id, id), eq(recipes.userId, userId)))
+      .returning();
+    return updated;
+  }
+
+  async deleteCustomRecipe(userId: string, id: number): Promise<boolean> {
+    const deleted = await db
+      .delete(recipes)
+      .where(and(eq(recipes.id, id), eq(recipes.userId, userId)))
+      .returning({ id: recipes.id });
+    return deleted.length > 0;
   }
 
   // User progress operations
@@ -10820,10 +10874,11 @@ export class DatabaseStorage implements IStorage {
     }
 
     let allRecipes: Recipe[];
+    // Meal plans only ever pull from the admin/master library (userId IS NULL).
     if (conditions.length > 0) {
-      allRecipes = await db.select().from(recipes).where(and(...conditions));
+      allRecipes = await db.select().from(recipes).where(and(isNull(recipes.userId), ...conditions));
     } else {
-      allRecipes = await db.select().from(recipes);
+      allRecipes = await db.select().from(recipes).where(isNull(recipes.userId));
     }
 
     if (options.excludedIngredients && options.excludedIngredients.length > 0) {

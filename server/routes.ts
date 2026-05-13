@@ -5372,6 +5372,82 @@ Return format: {"category": "strength|cardio|hiit|mobility|recovery", "difficult
     }
   });
 
+  // ============ MY RECIPES (user-owned custom recipes) ============
+  // These endpoints are scoped strictly to the calling user. Admin/master
+  // recipes (userId IS NULL) are never returned here, and a user can only
+  // see, edit, or delete their own custom recipes.
+
+  app.get('/api/my/recipes', isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = req.user.claims.sub;
+      const items = await storage.getUserCustomRecipes(userId);
+      res.json(items);
+    } catch (error) {
+      console.error("Error fetching user custom recipes:", error);
+      res.status(500).json({ message: "Failed to fetch recipes" });
+    }
+  });
+
+  app.get('/api/my/recipes/:id', isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = req.user.claims.sub;
+      const id = parseInt(req.params.id);
+      if (!Number.isFinite(id)) return res.status(400).json({ message: "Invalid recipe id" });
+      const recipe = await storage.getCustomRecipeForUser(userId, id);
+      if (!recipe) return res.status(404).json({ message: "Recipe not found" });
+      res.json(recipe);
+    } catch (error) {
+      console.error("Error fetching user custom recipe:", error);
+      res.status(500).json({ message: "Failed to fetch recipe" });
+    }
+  });
+
+  app.post('/api/my/recipes', isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = req.user.claims.sub;
+      // Strip ownership/audit fields the client must never set, then validate
+      // the rest against the existing recipe insert schema (partial — clients
+      // building from scratch may not supply every macro field up front).
+      const { id: _i, userId: _u, createdAt: _c, ...payload } = (req.body || {}) as Record<string, unknown>;
+      const data = insertRecipeSchema.partial().parse(payload);
+      const created = await storage.createCustomRecipe(userId, data);
+      res.status(201).json(created);
+    } catch (error) {
+      console.error("Error creating user custom recipe:", error);
+      res.status(400).json({ message: "Failed to create recipe" });
+    }
+  });
+
+  app.patch('/api/my/recipes/:id', isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = req.user.claims.sub;
+      const id = parseInt(req.params.id);
+      if (!Number.isFinite(id)) return res.status(400).json({ message: "Invalid recipe id" });
+      const { id: _i, userId: _u, createdAt: _c, ...payload } = (req.body || {}) as Record<string, unknown>;
+      const data = insertRecipeSchema.partial().parse(payload);
+      const updated = await storage.updateCustomRecipe(userId, id, data);
+      if (!updated) return res.status(404).json({ message: "Recipe not found" });
+      res.json(updated);
+    } catch (error) {
+      console.error("Error updating user custom recipe:", error);
+      res.status(400).json({ message: "Failed to update recipe" });
+    }
+  });
+
+  app.delete('/api/my/recipes/:id', isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = req.user.claims.sub;
+      const id = parseInt(req.params.id);
+      if (!Number.isFinite(id)) return res.status(400).json({ message: "Invalid recipe id" });
+      const ok = await storage.deleteCustomRecipe(userId, id);
+      if (!ok) return res.status(404).json({ message: "Recipe not found" });
+      res.json({ success: true });
+    } catch (error) {
+      console.error("Error deleting user custom recipe:", error);
+      res.status(500).json({ message: "Failed to delete recipe" });
+    }
+  });
+
   // Recipe routes
   app.get('/api/recipes', async (req, res) => {
     try {
@@ -5384,12 +5460,21 @@ Return format: {"category": "strength|cardio|hiit|mobility|recovery", "difficult
     }
   });
 
-  app.get('/api/recipes/:id', async (req, res) => {
+  app.get('/api/recipes/:id', async (req: any, res) => {
     try {
       const id = parseInt(req.params.id);
       const recipe = await storage.getRecipeById(id);
       if (!recipe) {
         return res.status(404).json({ message: "Recipe not found" });
+      }
+      // If this recipe belongs to a user (custom recipe), only the owner
+      // may view it through this endpoint. Admin/master recipes (userId
+      // null) remain publicly readable as before.
+      if (recipe.userId) {
+        const callerId: string | undefined = req.user?.claims?.sub;
+        if (!callerId || callerId !== recipe.userId) {
+          return res.status(404).json({ message: "Recipe not found" });
+        }
       }
       res.json(recipe);
     } catch (error) {
@@ -9984,10 +10069,14 @@ Rules:
     }
   });
 
-  // Admin routes - Recipes
-  app.post('/api/recipes', isAuthenticated, async (req, res) => {
+  // Admin routes - Recipes (master/library only). These must never be used
+  // to mutate user-owned custom recipes; that's what /api/my/recipes is for.
+  // We strip any userId on the way in so an admin can't accidentally (or
+  // maliciously) reassign ownership of a private recipe via this endpoint.
+  app.post('/api/recipes', isAuthenticated, requireAdmin, async (req, res) => {
     try {
-      const recipeData = insertRecipeSchema.parse(req.body);
+      const { userId: _omitUser, ...payload } = (req.body || {}) as Record<string, unknown>;
+      const recipeData = insertRecipeSchema.parse(payload);
       const recipe = await storage.createRecipe(recipeData);
       res.status(201).json(recipe);
     } catch (error) {
@@ -9996,10 +10085,15 @@ Rules:
     }
   });
 
-  app.put('/api/recipes/:id', isAuthenticated, async (req, res) => {
+  app.put('/api/recipes/:id', isAuthenticated, requireAdmin, async (req, res) => {
     try {
       const id = parseInt(req.params.id);
-      const recipeData = insertRecipeSchema.partial().parse(req.body);
+      const existing = await storage.getRecipeById(id);
+      if (!existing) return res.status(404).json({ message: "Recipe not found" });
+      // Admin may only edit master/library recipes through this endpoint.
+      if (existing.userId) return res.status(403).json({ message: "Cannot edit a user's custom recipe" });
+      const { userId: _omitUser, ...payload } = (req.body || {}) as Record<string, unknown>;
+      const recipeData = insertRecipeSchema.partial().parse(payload);
       const recipe = await storage.updateRecipe(id, recipeData);
       res.json(recipe);
     } catch (error) {
@@ -10008,9 +10102,12 @@ Rules:
     }
   });
 
-  app.delete('/api/recipes/:id', isAuthenticated, async (req, res) => {
+  app.delete('/api/recipes/:id', isAuthenticated, requireAdmin, async (req, res) => {
     try {
       const id = parseInt(req.params.id);
+      const existing = await storage.getRecipeById(id);
+      if (!existing) return res.status(404).json({ message: "Recipe not found" });
+      if (existing.userId) return res.status(403).json({ message: "Cannot delete a user's custom recipe" });
       await storage.deleteRecipe(id);
       res.json({ success: true });
     } catch (error) {
@@ -13081,14 +13178,23 @@ Rules:
       const userId = req.user.claims.sub;
       const { recipeId } = req.params;
       const { mealName, servings, date: dateParam } = req.body;
-      
+
+      const recipeIdNum = parseInt(recipeId);
+      // Make sure the user is allowed to log this recipe: master recipes
+      // (no owner) are open to everyone, custom recipes only to their owner.
+      const targetRecipe = await storage.getRecipeById(recipeIdNum);
+      if (!targetRecipe) return res.status(404).json({ message: "Recipe not found" });
+      if (targetRecipe.userId && targetRecipe.userId !== userId) {
+        return res.status(404).json({ message: "Recipe not found" });
+      }
+
       const date = dateParam ? new Date(dateParam) : new Date();
-      
+
       // Get or create the meal log
       const mealLog = await storage.getOrCreateMealLog(userId, date, mealName);
-      
+
       // Add recipe to the meal
-      const entry = await storage.addRecipeToMeal(userId, parseInt(recipeId), mealLog.id, servings || 1);
+      const entry = await storage.addRecipeToMeal(userId, recipeIdNum, mealLog.id, servings || 1);
       
       res.status(201).json(entry);
     } catch (error) {

@@ -8,11 +8,12 @@ import {
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Input } from "@/components/ui/input";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { useToast } from "@/hooks/use-toast";
 import {
   Sparkles, MessageSquarePlus, BookOpen, Info, Search, Copy, ArrowLeft, Check,
   Hotel, Plane, Zap, Wind, User, Dumbbell, Flame, Shield, Footprints, Briefcase,
-  Heart, Home, RefreshCw,
+  Heart, Home, RefreshCw, Activity, MapPin,
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 
@@ -66,6 +67,108 @@ function PromptIcon({ name, className }: { name: string | null; className?: stri
  * "Prompt library" (opens a searchable library; pick a prompt to view its
  * detail, copy its text, or use it to prefill the builder).
  */
+interface PersonalisationSignal {
+  key: "burnout" | "bodyMap" | "equipment";
+  label: string;
+  description: string;
+  icon: LucideIcon;
+}
+
+function PersonalisationSignals({ kind }: { kind: AiBuilderKind }) {
+  const { data: burnout } = useQuery<{ score?: number } | null>({
+    queryKey: ["/api/burnout/current"],
+    queryFn: async () => {
+      const res = await fetch("/api/burnout/current", { credentials: "include" });
+      if (!res.ok) return null;
+      return res.json();
+    },
+    staleTime: 5 * 60 * 1000,
+  });
+
+  const { data: bodyMapLogs } = useQuery<Array<{ severity: number }>>({
+    queryKey: ["/api/body-map"],
+    queryFn: async () => {
+      const res = await fetch("/api/body-map", { credentials: "include" });
+      if (!res.ok) return [];
+      return res.json();
+    },
+    staleTime: 5 * 60 * 1000,
+  });
+
+  const { data: user } = useQuery<{ onboardingData?: { coaching?: { equipment?: string[] } } } | null>({
+    queryKey: ["/api/auth/user"],
+  });
+
+  const signals: PersonalisationSignal[] = [];
+
+  if (burnout && typeof burnout.score === "number") {
+    signals.push({
+      key: "burnout",
+      label: "burnout",
+      icon: Activity,
+      description:
+        kind === "workout"
+          ? "Your latest burnout score tunes today's intensity — higher burnout dials the session toward recovery and lower volume."
+          : "Your latest burnout score shapes how aggressively the programme ramps load week over week.",
+    });
+  }
+
+  const activeBodyMap = (bodyMapLogs || []).some(l => typeof l.severity === "number" && l.severity > 0);
+  if (activeBodyMap) {
+    signals.push({
+      key: "bodyMap",
+      label: "body map",
+      icon: MapPin,
+      description:
+        "Active body-map flags steer the AI away from movements that aggravate your reported areas and bias toward safer alternatives.",
+    });
+  }
+
+  const userEquipment = user?.onboardingData?.coaching?.equipment;
+  if (Array.isArray(userEquipment) && userEquipment.length > 0) {
+    signals.push({
+      key: "equipment",
+      label: "equipment",
+      icon: Dumbbell,
+      description:
+        "Your saved equipment access from onboarding limits the AI to exercises you can actually perform with what you have.",
+    });
+  }
+
+  if (signals.length === 0) return null;
+
+  return (
+    <TooltipProvider delayDuration={150}>
+      <div
+        className="mt-3 flex flex-wrap items-center gap-1.5"
+        data-testid={`ai-personalisation-signals-${kind}`}
+      >
+        <span className="text-[10px] uppercase tracking-wide text-white/60 font-semibold mr-0.5">
+          Personalised with
+        </span>
+        {signals.map((s) => {
+          const Icon = s.icon;
+          return (
+            <Tooltip key={s.key}>
+              <TooltipTrigger asChild>
+                <Badge
+                  variant="outline"
+                  className="border-[#0cc9a9]/50 bg-[#0cc9a9]/10 text-[#0cc9a9] text-[10px] font-medium cursor-help hover:bg-[#0cc9a9]/15"
+                  data-testid={`pill-signal-${s.key}-${kind}`}
+                >
+                  <Icon className="h-3 w-3 mr-1" />
+                  {s.label}
+                </Badge>
+              </TooltipTrigger>
+              <TooltipContent className="max-w-xs">{s.description}</TooltipContent>
+            </Tooltip>
+          );
+        })}
+      </div>
+    </TooltipProvider>
+  );
+}
+
 export default function AiBuilderEntry({ kind, title, subtitle, renderBuilder }: Props) {
   const { toast } = useToast();
   const [builderOpen, setBuilderOpen] = useState(false);
@@ -173,6 +276,8 @@ export default function AiBuilderEntry({ kind, title, subtitle, renderBuilder }:
             </PopoverContent>
           </Popover>
         </div>
+
+        <PersonalisationSignals kind={kind} />
 
         <div className="mt-3 grid grid-cols-2 gap-2">
           <Button

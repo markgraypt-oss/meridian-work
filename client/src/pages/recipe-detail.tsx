@@ -1,16 +1,51 @@
 import { useRoute, useLocation } from "wouter";
-import { useQuery } from "@tanstack/react-query";
-import { X, Clock, Flame, AlertTriangle, Users } from "lucide-react";
+import { useQuery, useMutation } from "@tanstack/react-query";
+import { X, Clock, Flame, AlertTriangle, Users, Trash2, Sparkles } from "lucide-react";
 import type { Recipe } from "@shared/schema";
+import { useAuth } from "@/hooks/useAuth";
+import { apiRequest, queryClient } from "@/lib/queryClient";
+import { useToast } from "@/hooks/use-toast";
+import { Button } from "@/components/ui/button";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogTrigger,
+} from "@/components/ui/alert-dialog";
 
 export default function RecipeDetail() {
   const [, params] = useRoute("/recipe/:id");
   const [, navigate] = useLocation();
   const recipeId = params?.id;
+  const { user } = useAuth();
+  const { toast } = useToast();
 
   const { data: recipe, isLoading, error } = useQuery<Recipe>({
     queryKey: [`/api/recipes/${recipeId}`],
     enabled: !!recipeId,
+  });
+
+  const isOwner = !!(user && recipe?.userId && recipe.userId === user.id);
+
+  const deleteMutation = useMutation({
+    mutationFn: async () => {
+      if (!recipe) return;
+      await apiRequest("DELETE", `/api/my/recipes/${recipe.id}`);
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/my/recipes"] });
+      queryClient.invalidateQueries({ queryKey: [`/api/recipes/${recipeId}`] });
+      toast({ title: "Recipe deleted" });
+      navigate("/recipes");
+    },
+    onError: () => {
+      toast({ title: "Couldn't delete recipe", description: "Please try again.", variant: "destructive" });
+    },
   });
 
   if (isLoading) {
@@ -49,9 +84,54 @@ export default function RecipeDetail() {
       </div>
 
       <div className="px-5 pt-5 pb-2">
-        <h2 className="text-2xl font-bold tracking-tight" data-testid="text-recipe-title">
-          {recipe.title}
-        </h2>
+        <div className="flex items-start justify-between gap-3">
+          <h2 className="text-2xl font-bold tracking-tight flex-1" data-testid="text-recipe-title">
+            {recipe.title}
+          </h2>
+          {isOwner && (
+            <div className="flex items-center gap-2 flex-shrink-0">
+              {/* Edit button is intentionally hidden until the editor page lands in step 3. */}
+              <AlertDialog>
+                <AlertDialogTrigger asChild>
+                  <Button
+                    variant="outline"
+                    size="icon"
+                    aria-label="Delete recipe"
+                    data-testid="button-delete-recipe"
+                  >
+                    <Trash2 className="h-4 w-4 text-red-400" />
+                  </Button>
+                </AlertDialogTrigger>
+                <AlertDialogContent>
+                  <AlertDialogHeader>
+                    <AlertDialogTitle>Delete this recipe?</AlertDialogTitle>
+                    <AlertDialogDescription>
+                      This will permanently remove "{recipe.title}" from your recipes.
+                      Past meal logs that used it will stay as they are.
+                    </AlertDialogDescription>
+                  </AlertDialogHeader>
+                  <AlertDialogFooter>
+                    <AlertDialogCancel data-testid="button-cancel-delete-recipe">Cancel</AlertDialogCancel>
+                    <AlertDialogAction
+                      onClick={() => deleteMutation.mutate()}
+                      disabled={deleteMutation.isPending}
+                      data-testid="button-confirm-delete-recipe"
+                    >
+                      {deleteMutation.isPending ? "Deleting..." : "Delete"}
+                    </AlertDialogAction>
+                  </AlertDialogFooter>
+                </AlertDialogContent>
+              </AlertDialog>
+            </div>
+          )}
+        </div>
+
+        {isOwner && recipe.aiDraftedFromPhoto && (
+          <div className="mt-2 inline-flex items-center gap-1.5 text-[11px] font-medium text-[#0cc9a9]" data-testid="badge-ai-drafted">
+            <Sparkles className="h-3 w-3" />
+            Drafted from your photo
+          </div>
+        )}
 
         {recipe.description && (
           <p className="text-sm text-muted-foreground mt-2 leading-relaxed" data-testid="text-description">

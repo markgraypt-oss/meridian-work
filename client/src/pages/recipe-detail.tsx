@@ -1,6 +1,6 @@
 import { useRoute, useLocation } from "wouter";
 import { useQuery, useMutation } from "@tanstack/react-query";
-import { X, Clock, Flame, AlertTriangle, Users, Trash2, Sparkles } from "lucide-react";
+import { X, Clock, Flame, AlertTriangle, Users, Pencil, Trash2, Sparkles } from "lucide-react";
 import type { Recipe } from "@shared/schema";
 import { useAuth } from "@/hooks/useAuth";
 import { apiRequest, queryClient } from "@/lib/queryClient";
@@ -91,7 +91,15 @@ export default function RecipeDetail() {
           </h2>
           {isOwner && (
             <div className="flex items-center gap-2 flex-shrink-0">
-              {/* Edit button is intentionally hidden until the editor page lands in step 3. */}
+              <Button
+                variant="outline"
+                size="icon"
+                onClick={() => navigate(`/my/recipes/${recipe.id}/edit`)}
+                aria-label="Edit recipe"
+                data-testid="button-edit-recipe"
+              >
+                <Pencil className="h-4 w-4" />
+              </Button>
               <AlertDialog>
                 <AlertDialogTrigger asChild>
                   <Button

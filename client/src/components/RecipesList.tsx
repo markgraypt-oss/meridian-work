@@ -8,7 +8,7 @@ import { Badge } from "@/components/ui/badge";
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetTrigger } from "@/components/ui/sheet";
 import { Checkbox } from "@/components/ui/checkbox";
 import { ScrollArea, ScrollBar } from "@/components/ui/scroll-area";
-import { Search, SlidersHorizontal, Clock, ChevronRight, X, Loader2, Sparkles } from "lucide-react";
+import { Search, SlidersHorizontal, Clock, ChevronRight, X, Loader2, Sparkles, Plus } from "lucide-react";
 import type { Recipe } from "@shared/schema";
 
 type RecipeTab = "library" | "mine";
@@ -145,6 +145,18 @@ export default function RecipesList() {
         </Button>
       </div>
 
+      {activeTab === "mine" && (
+        <Button
+          onClick={() => navigate("/my/recipes/new")}
+          variant="outline"
+          className="w-full justify-center border-dashed"
+          data-testid="button-new-recipe"
+        >
+          <Plus className="h-4 w-4 mr-2" />
+          New recipe
+        </Button>
+      )}
+
       <div className="flex gap-2">
         <div className="relative flex-1">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
@@ -278,9 +290,17 @@ export default function RecipesList() {
               <>
                 <Sparkles className="h-8 w-8 text-[#0cc9a9] mx-auto mb-3" />
                 <p className="font-medium mb-1">You haven't saved any recipes yet</p>
-                <p className="text-sm text-muted-foreground">
+                <p className="text-sm text-muted-foreground mb-4">
                   Your custom recipes will appear here once you create them.
                 </p>
+                <Button
+                  onClick={() => navigate("/my/recipes/new")}
+                  className="bg-[#0cc9a9] hover:bg-[#0cc9a9]/90 text-black"
+                  data-testid="button-new-recipe-empty"
+                >
+                  <Plus className="h-4 w-4 mr-2" />
+                  New recipe
+                </Button>
               </>
             ) : (
               <>

@@ -108,6 +108,7 @@ import HelpSupport from "@/pages/help-support";
 import Goals from "@/pages/goals";
 import GoalsNutritionNew from "@/pages/goals-nutrition-new";
 import GoalsNutritionEdit from "@/pages/goals-nutrition-edit";
+import MacroTargetsEdit from "@/pages/macro-targets-edit";
 import GoalsNew from "@/pages/goals-new";
 import GoalsBodyweightEdit from "@/pages/goals-bodyweight-edit";
 import GoalsCustomEdit from "@/pages/goals-custom-edit";
@@ -325,6 +326,7 @@ function Router() {
               <Route path="/nutrition/save-meal" component={SaveMeal} />
               <Route path="/nutrition/edit-saved-meal/:id" component={EditSavedMeal} />
               <Route path="/nutrition/meal-plan-settings" component={MealPlanSettings} />
+              <Route path="/nutrition/macro-targets" component={MacroTargetsEdit} />
               <Route path="/supplement-stacks" component={SupplementStacks} />
               <Route path="/supplement-detail/:name" component={SupplementDetail} />
               <Route path="/supplement-history" component={SupplementHistory} />

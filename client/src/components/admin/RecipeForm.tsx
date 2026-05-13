@@ -331,7 +331,7 @@ export function RecipeForm({ recipe, onClose }: RecipeFormProps) {
                 name="calories"
                 render={({ field }) => (
                   <FormItem>
-                    <FormLabel>Calories (auto)</FormLabel>
+                    <FormLabel>Calories per serving (auto)</FormLabel>
                     <FormControl>
                       <Input 
                         type="number" 
@@ -351,7 +351,7 @@ export function RecipeForm({ recipe, onClose }: RecipeFormProps) {
                 name="protein"
                 render={({ field }) => (
                   <FormItem>
-                    <FormLabel>Protein (g)</FormLabel>
+                    <FormLabel>Protein (g, per serving)</FormLabel>
                     <FormControl>
                       <Input 
                         type="number" 
@@ -370,7 +370,7 @@ export function RecipeForm({ recipe, onClose }: RecipeFormProps) {
                 name="carbs"
                 render={({ field }) => (
                   <FormItem>
-                    <FormLabel>Carbs (g)</FormLabel>
+                    <FormLabel>Carbs (g, per serving)</FormLabel>
                     <FormControl>
                       <Input 
                         type="number" 
@@ -389,7 +389,7 @@ export function RecipeForm({ recipe, onClose }: RecipeFormProps) {
                 name="fat"
                 render={({ field }) => (
                   <FormItem>
-                    <FormLabel>Fat (g)</FormLabel>
+                    <FormLabel>Fat (g, per serving)</FormLabel>
                     <FormControl>
                       <Input 
                         type="number" 

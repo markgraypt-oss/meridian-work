@@ -279,10 +279,14 @@ export const recipes = pgTable("recipes", {
   category: text("category").notNull(), // 'breakfast', 'lunch', 'dinner', 'snack'
   totalTime: integer("total_time").notNull(), // minutes
   servings: integer("servings").notNull(),
-  calories: integer("calories").notNull(),
-  protein: real("protein").notNull(),
-  carbs: real("carbs").notNull(),
-  fat: real("fat").notNull(),
+  // IMPORTANT: calories and macros below are stored PER SERVING, not totals.
+  // The recipe page displays them raw without dividing, so writing totals
+  // here will display 4x/6x too high. Library imports and AI generation must
+  // both produce per-serving values.
+  calories: integer("calories").notNull(), // per serving
+  protein: real("protein").notNull(), // grams per serving
+  carbs: real("carbs").notNull(), // grams per serving
+  fat: real("fat").notNull(), // grams per serving
   imageUrl: text("image_url"),
   ingredients: text("ingredients").array(),
   instructions: text("instructions").array(),

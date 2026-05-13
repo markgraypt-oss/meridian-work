@@ -214,37 +214,20 @@ export default function GoalsNutritionNew() {
 
   const mutation = useMutation({
     mutationFn: async () => {
-      if (!finalCalories) throw new Error("No calorie target set");
-      
-      const goalData = {
-        type: "nutrition",
-        title: "Daily Nutrition Target",
-        description: `${computedCalories} calories with ${MACRO_PRESETS[macroPreset].label} macro split`,
-        targetValue: computedCalories,
-        currentValue: 0,
-        unit: "kcal",
-        nutritionCalories: computedCalories,
-        calorieGoalType: selectedCalorieGoal || "custom",
-        macroPreset: macroPreset,
-        proteinPercent,
-        carbPercent,
-        fatPercent,
-        proteinGrams,
-        carbsGrams,
-        fatGrams,
-        startDate: todayLocalStr(),
-      };
-      
-      return await apiRequest("POST", "/api/goals", goalData);
+      return await apiRequest("POST", "/api/nutrition/goal", {
+        calorieTarget: computedCalories,
+        proteinTarget: proteinGrams,
+        carbsTarget: carbsGrams,
+        fatTarget: fatGrams,
+      });
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["/api/goals"] });
       queryClient.invalidateQueries({ queryKey: ["/api/nutrition/today"] });
-      toast({ title: "Success", description: "Nutrition goal created!" });
-      setLocation("/goals");
+      toast({ title: "Saved", description: "Macro tracker targets updated." });
+      setLocation("/nutrition");
     },
     onError: (error: any) => {
-      toast({ title: "Error", description: error.message || "Failed to create goal", variant: "destructive" });
+      toast({ title: "Error", description: error.message || "Failed to save", variant: "destructive" });
     },
   });
 
@@ -655,7 +638,7 @@ export default function GoalsNutritionNew() {
               className="w-full bg-[#0cc9a9] hover:bg-[#0cc9a9]/90 text-black font-semibold"
               data-testid="button-create-goal"
             >
-              {mutation.isPending ? "Creating..." : "Create Nutrition Goal"}
+              {mutation.isPending ? "Saving..." : "Save Macro Targets"}
             </Button>
           </div>
         )}

@@ -27,37 +27,57 @@ import {
   ChevronLeft,
   RefreshCw,
   ShoppingCart,
-  Sparkles,
   Plus,
   Pencil,
   Trash2,
 } from "lucide-react";
 import type { ShoppingList, ShoppingListItem } from "@shared/schema";
 
-const SECTION_LABELS: Record<string, string> = {
-  produce: "Produce",
-  protein: "Protein",
-  dairy: "Dairy",
-  bakery: "Bakery",
-  pantry: "Pantry",
-  frozen: "Frozen",
-  other: "Other",
+const MEAL_TYPE_ORDER: Record<string, number> = {
+  breakfast: 0,
+  brunch: 1,
+  lunch: 2,
+  snack: 3,
+  dinner: 4,
+  main: 5,
+  side: 6,
 };
-const SECTION_ORDER = ["produce", "protein", "dairy", "bakery", "pantry", "frozen", "other"];
+
+// Stored mealType may carry a slot suffix like "breakfast_0" or "main_1".
+const baseMealType = (t?: string | null) => (t ? t.split("_")[0].toLowerCase() : "");
+
+const formatMealType = (t?: string | null) => {
+  const b = baseMealType(t);
+  if (!b) return "";
+  return b.charAt(0).toUpperCase() + b.slice(1);
+};
 
 type EditorState =
   | { mode: "add" }
   | { mode: "edit"; index: number }
   | null;
 
+interface MealGroup {
+  key: string;
+  mealPlanMealId: number | null;
+  dayIndex: number | null;
+  mealType: string | null;
+  recipeTitle: string | null;
+  entries: { item: ShoppingListItem; index: number }[];
+}
+
 export default function ShoppingListPage() {
   const [, navigate] = useLocation();
   const { toast } = useToast();
   const [editor, setEditor] = useState<EditorState>(null);
-  const [form, setForm] = useState<{ name: string; section: string; quantity: string }>({
+  const [form, setForm] = useState<{
+    name: string;
+    quantity: string;
+    mealPlanMealId: string; // "" = Extras
+  }>({
     name: "",
-    section: "other",
     quantity: "",
+    mealPlanMealId: "",
   });
 
   const { data, isLoading } = useQuery<{
@@ -70,14 +90,86 @@ export default function ShoppingListPage() {
   const list = data?.list || null;
   const items = useMemo(() => (list?.items as ShoppingListItem[]) || [], [list]);
 
-  const grouped = useMemo(() => {
-    const map: Record<string, { item: ShoppingListItem; index: number }[]> = {};
+  // Group by mealPlanMealId. Items without one go into "Extras".
+  const grouped = useMemo<MealGroup[]>(() => {
+    const map = new Map<string, MealGroup>();
     items.forEach((it, index) => {
-      const s = it.section in SECTION_LABELS ? it.section : "other";
-      (map[s] = map[s] || []).push({ item: it, index });
+      const key = it.mealPlanMealId ? `meal-${it.mealPlanMealId}` : "extras";
+      let g = map.get(key);
+      if (!g) {
+        g = {
+          key,
+          mealPlanMealId: it.mealPlanMealId ?? null,
+          dayIndex: it.dayIndex ?? null,
+          mealType: it.mealType ?? null,
+          recipeTitle: it.recipeTitle ?? null,
+          entries: [],
+        };
+        map.set(key, g);
+      }
+      g.entries.push({ item: it, index });
     });
-    return SECTION_ORDER.filter((s) => map[s]?.length).map((s) => ({ section: s, entries: map[s] }));
+
+    const groups = Array.from(map.values());
+    groups.sort((a, b) => {
+      // Extras always last
+      if (a.key === "extras") return 1;
+      if (b.key === "extras") return -1;
+      const da = a.dayIndex ?? 999;
+      const db = b.dayIndex ?? 999;
+      if (da !== db) return da - db;
+      const ma = MEAL_TYPE_ORDER[baseMealType(a.mealType)] ?? 99;
+      const mb = MEAL_TYPE_ORDER[baseMealType(b.mealType)] ?? 99;
+      if (ma !== mb) return ma - mb;
+      return (a.mealPlanMealId ?? 0) - (b.mealPlanMealId ?? 0);
+    });
+    return groups;
   }, [items]);
+
+  // Fetch meal plan details so the editor's meal selector covers every meal in
+  // the plan, not just meals that already have ingredient items in the list.
+  const { data: mealPlanData } = useQuery<any>({
+    queryKey: ["/api/meal-plan"],
+    enabled: !!data?.planId,
+  });
+
+  const mealOptions = useMemo(() => {
+    const out: { id: number; label: string; sort: number }[] = [];
+    const seen = new Set<number>();
+
+    // Prefer meals from the live plan
+    const planDays = (mealPlanData?.days as any[]) || [];
+    planDays.forEach((d: any) => {
+      (d.meals || []).forEach((m: any) => {
+        if (!m?.id || seen.has(m.id)) return;
+        seen.add(m.id);
+        const day = d.dayIndex ? `Day ${d.dayIndex}` : "";
+        const type = formatMealType(m.mealType);
+        const title = m.recipe?.title || "";
+        const label = [day, type, title].filter(Boolean).join(" · ");
+        const sort =
+          (d.dayIndex ?? 999) * 100 +
+          (MEAL_TYPE_ORDER[baseMealType(m.mealType)] ?? 99);
+        out.push({ id: m.id, label, sort });
+      });
+    });
+
+    // Fall back to any meals referenced only by existing items
+    items.forEach((it) => {
+      if (!it.mealPlanMealId || seen.has(it.mealPlanMealId)) return;
+      seen.add(it.mealPlanMealId);
+      const day = it.dayIndex ? `Day ${it.dayIndex}` : "";
+      const type = formatMealType(it.mealType);
+      const title = it.recipeTitle || "";
+      const label = [day, type, title].filter(Boolean).join(" · ");
+      const sort =
+        (it.dayIndex ?? 999) * 100 +
+        (MEAL_TYPE_ORDER[baseMealType(it.mealType)] ?? 99);
+      out.push({ id: it.mealPlanMealId, label, sort });
+    });
+
+    return out.sort((a, b) => a.sort - b.sort);
+  }, [items, mealPlanData]);
 
   const remaining = items.filter((i) => !i.checked).length;
 
@@ -110,20 +202,32 @@ export default function ShoppingListPage() {
     updateMutation.mutate(next);
   };
 
+  const toggleGroup = (group: MealGroup, allChecked: boolean) => {
+    const indices = new Set(group.entries.map((e) => e.index));
+    const next = items.map((it, i) =>
+      indices.has(i) ? { ...it, checked: !allChecked } : it,
+    );
+    updateMutation.mutate(next);
+  };
+
   const clearChecked = () => {
     const next = items.map((it) => ({ ...it, checked: false }));
     updateMutation.mutate(next);
   };
 
   const openAdd = () => {
-    setForm({ name: "", section: "other", quantity: "" });
+    setForm({ name: "", quantity: "", mealPlanMealId: "" });
     setEditor({ mode: "add" });
   };
 
   const openEdit = (idx: number) => {
     const it = items[idx];
     if (!it) return;
-    setForm({ name: it.name, section: it.section, quantity: it.quantity || "" });
+    setForm({
+      name: it.name,
+      quantity: it.quantity || "",
+      mealPlanMealId: it.mealPlanMealId ? String(it.mealPlanMealId) : "",
+    });
     setEditor({ mode: "edit", index: idx });
   };
 
@@ -136,23 +240,66 @@ export default function ShoppingListPage() {
       toast({ title: "Name is required", variant: "destructive" });
       return;
     }
-    const section = form.section in SECTION_LABELS ? form.section : "other";
     const quantity = form.quantity.trim();
+    const mealId = form.mealPlanMealId ? parseInt(form.mealPlanMealId) : undefined;
+    // Look up meal context from existing items first, then the live plan.
+    let sourceMeal:
+      | { recipeId?: number; dayIndex?: number; mealType?: string; recipeTitle?: string }
+      | undefined;
+    if (mealId) {
+      const fromItems = items.find((it) => it.mealPlanMealId === mealId);
+      if (fromItems) {
+        sourceMeal = {
+          recipeId: fromItems.recipeId,
+          dayIndex: fromItems.dayIndex,
+          mealType: fromItems.mealType,
+          recipeTitle: fromItems.recipeTitle,
+        };
+      } else {
+        const planDays = (mealPlanData?.days as any[]) || [];
+        for (const d of planDays) {
+          const m = (d.meals || []).find((mm: any) => mm.id === mealId);
+          if (m) {
+            sourceMeal = {
+              recipeId: m.recipe?.id,
+              dayIndex: d.dayIndex,
+              mealType: m.mealType,
+              recipeTitle: m.recipe?.title,
+            };
+            break;
+          }
+        }
+      }
+    }
 
     let next: ShoppingListItem[];
     if (editor.mode === "add") {
       const newItem: ShoppingListItem = {
         name,
-        section,
         quantity: quantity || undefined,
-        recipeIds: [],
+        mealPlanMealId: mealId,
+        recipeId: sourceMeal?.recipeId,
+        dayIndex: sourceMeal?.dayIndex,
+        mealType: sourceMeal?.mealType,
+        recipeTitle: sourceMeal?.recipeTitle,
+        manual: true,
         checked: false,
       };
       next = [...items, newItem];
     } else {
       next = items.map((it, i) =>
         i === editor.index
-          ? { ...it, name, section, quantity: quantity || undefined }
+          ? {
+              ...it,
+              name,
+              quantity: quantity || undefined,
+              mealPlanMealId: mealId,
+              recipeId: sourceMeal?.recipeId,
+              dayIndex: sourceMeal?.dayIndex,
+              mealType: sourceMeal?.mealType,
+              recipeTitle: sourceMeal?.recipeTitle,
+              manual: true,
+            }
           : it,
       );
     }
@@ -176,7 +323,7 @@ export default function ShoppingListPage() {
           <Button
             variant="ghost"
             size="icon"
-            onClick={() => navigate("/meal-plan")}
+            onClick={() => navigate("/nutrition")}
             data-testid="btn-back"
           >
             <ChevronLeft className="w-5 h-5" />
@@ -234,31 +381,50 @@ export default function ShoppingListPage() {
         ) : (
           <>
             <div className="flex items-center justify-between mb-4">
-              <div className="flex items-center gap-2">
-                <span className="text-sm text-muted-foreground">{remaining} of {items.length} remaining</span>
-                {list?.aiGenerated && (
-                  <Badge variant="outline" className="gap-1">
-                    <Sparkles className="w-3 h-3" /> AI
-                  </Badge>
-                )}
-              </div>
+              <span className="text-sm text-muted-foreground">{remaining} of {items.length} remaining</span>
               <Button variant="ghost" size="sm" onClick={clearChecked} data-testid="btn-clear">
                 Reset
               </Button>
             </div>
 
             <div className="space-y-4">
-              {grouped.map(({ section, entries }) => (
-                <div key={section}>
-                  <h2 className="text-sm font-bold uppercase tracking-wide text-muted-foreground mb-2">
-                    {SECTION_LABELS[section]}
-                  </h2>
-                  <Card>
-                    <CardContent className="p-0">
-                      {entries.map(({ item: it, index: idx }) => {
-                        return (
+              {grouped.map((group) => {
+                const allChecked = group.entries.every((e) => e.item.checked);
+                const isExtras = group.key === "extras";
+                const checkedCount = group.entries.filter((e) => e.item.checked).length;
+                return (
+                  <div key={group.key}>
+                    <div className="flex items-center justify-between mb-2">
+                      <div className="flex-1 min-w-0">
+                        {isExtras ? (
+                          <h2 className="text-sm font-bold uppercase tracking-wide text-muted-foreground">
+                            Extras
+                          </h2>
+                        ) : (
+                          <div className="flex items-center gap-2 flex-wrap">
+                            {group.dayIndex && (
+                              <Badge
+                                variant="secondary"
+                                className="bg-cyan-500/20 text-cyan-400 border-cyan-500/30 text-[10px] uppercase tracking-wide"
+                              >
+                                Day {group.dayIndex} · {formatMealType(group.mealType || "")}
+                              </Badge>
+                            )}
+                            <h2 className="text-sm font-semibold truncate">
+                              {group.recipeTitle || "Meal"}
+                            </h2>
+                          </div>
+                        )}
+                      </div>
+                      <span className="text-xs text-muted-foreground ml-2 shrink-0">
+                        {checkedCount}/{group.entries.length}
+                      </span>
+                    </div>
+                    <Card>
+                      <CardContent className="p-0">
+                        {group.entries.map(({ item: it, index: idx }) => (
                           <div
-                            key={`${section}-${idx}`}
+                            key={`${group.key}-${idx}`}
                             className="flex items-start gap-3 p-3 border-b border-border/50 last:border-b-0"
                             data-testid={`row-item-${idx}`}
                           >
@@ -272,7 +438,7 @@ export default function ShoppingListPage() {
                               <p className={`font-medium capitalize ${it.checked ? "line-through text-muted-foreground" : ""}`}>
                                 {it.name}
                               </p>
-                              {it.quantity && (
+                              {it.quantity && it.quantity.toLowerCase() !== it.name.toLowerCase() && (
                                 <p className={`text-xs text-muted-foreground ${it.checked ? "line-through" : ""}`}>
                                   {it.quantity}
                                 </p>
@@ -299,12 +465,24 @@ export default function ShoppingListPage() {
                               <Trash2 className="w-4 h-4" />
                             </Button>
                           </div>
-                        );
-                      })}
-                    </CardContent>
-                  </Card>
-                </div>
-              ))}
+                        ))}
+                        <div className="px-3 py-2 border-t border-border/50">
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            className="text-xs h-7"
+                            onClick={() => toggleGroup(group, allChecked)}
+                            disabled={updateMutation.isPending}
+                            data-testid={`btn-toggle-group-${group.key}`}
+                          >
+                            {allChecked ? "Uncheck all" : "Check all"}
+                          </Button>
+                        </div>
+                      </CardContent>
+                    </Card>
+                  </div>
+                );
+              })}
             </div>
           </>
         )}
@@ -336,24 +514,29 @@ export default function ShoppingListPage() {
                 data-testid="input-item-quantity"
               />
             </div>
-            <div className="space-y-1">
-              <Label htmlFor="item-section">Section</Label>
-              <Select
-                value={form.section}
-                onValueChange={(v) => setForm({ ...form, section: v })}
-              >
-                <SelectTrigger id="item-section" data-testid="select-item-section">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  {SECTION_ORDER.map((s) => (
-                    <SelectItem key={s} value={s}>
-                      {SECTION_LABELS[s]}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
+            {mealOptions.length > 0 && (
+              <div className="space-y-1">
+                <Label htmlFor="item-meal">Meal</Label>
+                <Select
+                  value={form.mealPlanMealId || "extras"}
+                  onValueChange={(v) =>
+                    setForm({ ...form, mealPlanMealId: v === "extras" ? "" : v })
+                  }
+                >
+                  <SelectTrigger id="item-meal" data-testid="select-item-meal">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="extras">Extras</SelectItem>
+                    {mealOptions.map((m) => (
+                      <SelectItem key={m.id} value={String(m.id)}>
+                        {m.label}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+            )}
           </div>
           <DialogFooter>
             <Button variant="ghost" onClick={closeEditor} data-testid="btn-cancel-item">

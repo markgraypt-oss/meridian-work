@@ -2349,9 +2349,18 @@ export const insertMealPlanMealSchema = createInsertSchema(mealPlanMeals).omit({
 // Shopping list - aggregated ingredients for a meal plan
 export type ShoppingListItem = {
   name: string;
-  section: string; // 'produce' | 'protein' | 'dairy' | 'pantry' | 'bakery' | 'frozen' | 'other'
   quantity?: string; // human-readable e.g. "2 cups", "300g"
-  recipeIds: number[]; // recipe ids that contributed to this item
+  // Meal-grouping fields (preferred). Items without these fall into "Extras".
+  mealPlanMealId?: number; // which meal in the plan this ingredient belongs to
+  recipeId?: number;       // recipe the ingredient came from
+  dayIndex?: number;       // 1-based day for sorting
+  mealType?: string;       // 'breakfast' | 'lunch' | 'dinner' | 'snack' | 'main' | 'side'
+  recipeTitle?: string;    // recipe title for display
+  // Legacy fields (kept for back-compat with old lists; new code should not rely on them)
+  section?: string;        // 'produce' | 'protein' | ... (legacy food-type grouping)
+  recipeIds?: number[];    // recipe ids that contributed to this item (legacy aggregated)
+  // True for items the user added by hand (so rebuilds keep them; generated items are replaced).
+  manual?: boolean;
   checked: boolean;
 };
 

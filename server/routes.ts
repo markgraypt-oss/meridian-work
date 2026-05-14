@@ -16587,9 +16587,25 @@ Keep your response concise, practical, and evidence-based. Do not use em dashes.
       // Rebuild shopping list so it reflects the swapped meal's ingredients.
       try {
         if (updated) {
-          const recipes = updated.days.flatMap((d) => d.meals.map((m) => m.recipe).filter(Boolean));
+          const meals = updated.days.flatMap((d) =>
+            d.meals.filter((m) => m.recipe).map((m) => ({
+              mealPlanMealId: m.id,
+              recipeId: m.recipe.id,
+              recipeTitle: m.recipe.title,
+              dayIndex: d.dayIndex,
+              mealType: m.mealType,
+              ingredients: m.recipe.ingredients,
+            }))
+          );
+          const existing = await storage.getShoppingListByPlan(fullPlan.plan.id);
+          const existingItems = (existing?.items as any[] | undefined) || [];
+          const isLegacy = existingItems.length > 0 && !existingItems.some((it: any) => it.mealPlanMealId || it.manual === true);
           const { buildShoppingList } = await import('./mealPlanAi');
-          const built = await buildShoppingList({ userId: req.user.claims.sub, recipes });
+          const built = await buildShoppingList({
+            userId: req.user.claims.sub,
+            meals,
+            existingItems: isLegacy ? undefined : existingItems,
+          });
           await storage.upsertShoppingList({
             userId: req.user.claims.sub,
             mealPlanId: fullPlan.plan.id,
@@ -16992,9 +17008,18 @@ Keep your response concise, practical, and evidence-based. Do not use em dashes.
     try {
       const details = await storage.getMealPlanWithDetails(plan.id);
       if (details) {
-        const recipes = details.days.flatMap((d) => d.meals.map((m) => m.recipe).filter(Boolean));
+        const meals = details.days.flatMap((d) =>
+          d.meals.filter((m) => m.recipe).map((m) => ({
+            mealPlanMealId: m.id,
+            recipeId: m.recipe.id,
+            recipeTitle: m.recipe.title,
+            dayIndex: d.dayIndex,
+            mealType: m.mealType,
+            ingredients: m.recipe.ingredients,
+          }))
+        );
         const { buildShoppingList } = await import('./mealPlanAi');
-        const built = await buildShoppingList({ userId, recipes });
+        const built = await buildShoppingList({ userId, meals });
         await storage.upsertShoppingList({
           userId, mealPlanId: plan.id, items: built.items, aiGenerated: built.aiGenerated,
         });
@@ -17018,15 +17043,31 @@ Keep your response concise, practical, and evidence-based. Do not use em dashes.
       if (!plan) return res.json({ list: null, planId: null });
 
       let list = await storage.getShoppingListByPlan(plan.id);
-      if (!list) {
+      // Auto-rebuild if missing OR using legacy food-type grouping (no mealPlanMealId on any item)
+      const itemsArr = (list?.items as any[]) || [];
+      const isLegacy = itemsArr.length > 0 && !itemsArr.some((it: any) => it.mealPlanMealId || it.manual === true);
+      const needsRebuild = !list || isLegacy;
+      if (needsRebuild) {
         const details = await storage.getMealPlanWithDetails(plan.id);
         if (details) {
-          const recipes = details.days.flatMap((d) => d.meals.map((m) => m.recipe).filter(Boolean));
-          const { buildShoppingList } = await import('./mealPlanAi');
-          const built = await buildShoppingList({ userId, recipes });
-          list = await storage.upsertShoppingList({
-            userId, mealPlanId: plan.id, items: built.items, aiGenerated: built.aiGenerated,
-          });
+          const meals = details.days.flatMap((d) =>
+            d.meals.filter((m) => m.recipe).map((m) => ({
+              mealPlanMealId: m.id,
+              recipeId: m.recipe.id,
+              recipeTitle: m.recipe.title,
+              dayIndex: d.dayIndex,
+              mealType: m.mealType,
+              ingredients: m.recipe.ingredients,
+            }))
+          );
+          if (meals.length > 0) {
+            const { buildShoppingList } = await import('./mealPlanAi');
+            // Don't carry legacy items forward — their grouping/checked state is meaningless.
+            const built = await buildShoppingList({ userId, meals });
+            list = await storage.upsertShoppingList({
+              userId, mealPlanId: plan.id, items: built.items, aiGenerated: built.aiGenerated,
+            });
+          }
         }
       }
       return res.json({ list: list || null, planId: plan.id });
@@ -17047,9 +17088,15 @@ Keep your response concise, practical, and evidence-based. Do not use em dashes.
 
       const ShoppingListItemSchema = z.object({
         name: z.string().min(1).max(200),
-        section: z.string().min(1).max(40),
         quantity: z.string().max(200).optional(),
-        recipeIds: z.array(z.number().int()).max(200),
+        mealPlanMealId: z.number().int().optional(),
+        recipeId: z.number().int().optional(),
+        dayIndex: z.number().int().optional(),
+        mealType: z.string().max(40).optional(),
+        recipeTitle: z.string().max(200).optional(),
+        section: z.string().max(40).optional(),
+        recipeIds: z.array(z.number().int()).max(200).optional(),
+        manual: z.boolean().optional(),
         checked: z.boolean(),
       });
       const ItemsSchema = z.object({ items: z.array(ShoppingListItemSchema).max(500) });
@@ -17072,9 +17119,26 @@ Keep your response concise, practical, and evidence-based. Do not use em dashes.
       if (!plan) return res.status(404).json({ message: 'No active meal plan' });
       const details = await storage.getMealPlanWithDetails(plan.id);
       if (!details) return res.status(404).json({ message: 'Plan not found' });
-      const recipes = details.days.flatMap((d) => d.meals.map((m) => m.recipe).filter(Boolean));
+      const meals = details.days.flatMap((d) =>
+        d.meals.filter((m) => m.recipe).map((m) => ({
+          mealPlanMealId: m.id,
+          recipeId: m.recipe.id,
+          recipeTitle: m.recipe.title,
+          dayIndex: d.dayIndex,
+          mealType: m.mealType,
+          ingredients: m.recipe.ingredients,
+        }))
+      );
+      const existing = await storage.getShoppingListByPlan(plan.id);
+      // Preserve manual items if existing list already uses meal grouping
+      const existingItems = (existing?.items as any[] | undefined) || [];
+      const isLegacy = existingItems.length > 0 && !existingItems.some((it: any) => it.mealPlanMealId || it.manual === true);
       const { buildShoppingList } = await import('./mealPlanAi');
-      const built = await buildShoppingList({ userId, recipes });
+      const built = await buildShoppingList({
+        userId,
+        meals,
+        existingItems: isLegacy ? undefined : existingItems,
+      });
       const list = await storage.upsertShoppingList({
         userId, mealPlanId: plan.id, items: built.items, aiGenerated: built.aiGenerated,
       });

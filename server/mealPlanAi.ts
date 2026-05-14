@@ -286,96 +286,102 @@ function normalizeName(raw: string): string {
     .trim();
 }
 
-interface RawIngredient {
-  raw: string;
+export interface ShoppingListMealInput {
+  mealPlanMealId: number;
   recipeId: number;
+  recipeTitle: string;
+  dayIndex: number;     // 1-based
+  mealType: string;     // raw stored value, may carry slot suffix like "breakfast_0"
+  ingredients: string[] | null;
 }
 
-const AiCategorizationSchema = z.object({
-  items: z.array(
-    z.object({
-      name: z.string(),
-      section: z.enum(["produce", "protein", "dairy", "bakery", "frozen", "pantry", "other"]),
-    }),
-  ),
-});
+const MEAL_TYPE_ORDER: Record<string, number> = {
+  breakfast: 0,
+  brunch: 1,
+  lunch: 2,
+  snack: 3,
+  dinner: 4,
+  main: 5,
+  side: 6,
+};
+
+// Stored mealType may have slot suffix like "breakfast_0" or "main_1".
+// Strip everything after the first underscore for sorting/display.
+function baseMealType(raw?: string): string {
+  if (!raw) return "";
+  return raw.split("_")[0].toLowerCase();
+}
 
 export async function buildShoppingList(opts: {
   userId: string;
-  recipes: { id: number; ingredients: string[] | null }[];
+  meals: ShoppingListMealInput[];
+  // Optional: existing list items to merge with (preserves manual Extras + checked state)
+  existingItems?: ShoppingListItem[];
 }): Promise<{ items: ShoppingListItem[]; aiGenerated: boolean }> {
-  const raw: RawIngredient[] = [];
-  for (const r of opts.recipes) {
-    for (const ing of r.ingredients || []) {
-      if (ing && typeof ing === "string") raw.push({ raw: ing, recipeId: r.id });
+  const items: ShoppingListItem[] = [];
+
+  for (const meal of opts.meals) {
+    const seen = new Set<string>();
+    for (const ing of meal.ingredients || []) {
+      if (!ing || typeof ing !== "string") continue;
+      const trimmed = ing.trim();
+      if (!trimmed) continue;
+      const key = normalizeName(trimmed);
+      if (!key || seen.has(key)) continue; // dedupe within the same meal
+      seen.add(key);
+      items.push({
+        name: key,
+        quantity: trimmed,
+        mealPlanMealId: meal.mealPlanMealId,
+        recipeId: meal.recipeId,
+        recipeTitle: meal.recipeTitle,
+        dayIndex: meal.dayIndex,
+        mealType: meal.mealType,
+        section: categorizeKeyword(key),
+        recipeIds: [meal.recipeId],
+        checked: false,
+      });
     }
   }
 
-  // Aggregate by normalized name
-  const byKey = new Map<string, { name: string; quantities: string[]; recipeIds: Set<number> }>();
-  for (const r of raw) {
-    const key = normalizeName(r.raw);
-    if (!key) continue;
-    const entry = byKey.get(key) || { name: key, quantities: [], recipeIds: new Set<number>() };
-    entry.quantities.push(r.raw.trim());
-    entry.recipeIds.add(r.recipeId);
-    byKey.set(key, entry);
-  }
-
-  const aggregated = Array.from(byKey.values()).map((e) => ({
-    name: e.name,
-    quantity: e.quantities.length === 1 ? e.quantities[0] : `${e.quantities.length}x (${e.quantities.slice(0, 3).join("; ")}${e.quantities.length > 3 ? "..." : ""})`,
-    recipeIds: Array.from(e.recipeIds),
-  }));
-
-  if (aggregated.length === 0) return { items: [], aiGenerated: false };
-
-  // Try AI categorization
-  let aiSections: Record<string, string> | null = null;
-  let aiGenerated = false;
-  try {
-    const prompt = [
-      "Categorize each grocery ingredient into one section.",
-      'Sections: "produce", "protein", "dairy", "bakery", "frozen", "pantry", "other".',
-      "",
-      "Ingredients:",
-      JSON.stringify(aggregated.map((a) => a.name)),
-      "",
-      'Respond ONLY with raw JSON: {"items":[{"name":"...","section":"..."}, ...]}. Use the same names as input.',
-    ].join("\n");
-    const result = await aiCall({
-      feature: "shopping_list_categorize",
-      userId: opts.userId,
-      prompt,
-      schema: AiCategorizationSchema,
-      maxTokens: 1500,
-      temperature: 0,
+  // Merge with existing list:
+  //  - carry over `checked` for generated items that still exist (matched by mealPlanMealId + normalized name)
+  //  - keep manual items (manual === true OR no mealPlanMealId for legacy adds), preserving Extras and per-meal manual additions
+  //  - drop generated items whose recipe was swapped or removed
+  if (opts.existingItems && opts.existingItems.length > 0) {
+    const newKeyed = new Map<string, ShoppingListItem>();
+    items.forEach((it) => {
+      newKeyed.set(`${it.mealPlanMealId}:${normalizeName(it.name)}`, it);
     });
-    if (result.data) {
-      aiSections = {};
-      for (const it of result.data.items) aiSections[it.name.toLowerCase()] = it.section;
-      aiGenerated = true;
+
+    for (const old of opts.existingItems) {
+      const isManual = old.manual === true || !old.mealPlanMealId;
+      if (isManual) {
+        // Always keep user-added items (Extras or per-meal manual)
+        items.push({ ...old });
+        continue;
+      }
+      // Generated item — only carry over checked state if it still exists
+      const k = `${old.mealPlanMealId}:${normalizeName(old.name)}`;
+      const matched = newKeyed.get(k);
+      if (matched && old.checked) matched.checked = true;
+      // Otherwise drop (recipe swapped or removed)
     }
-  } catch (err: any) {
-    console.error("[shopping_list_categorize] failed:", err?.message);
   }
 
-  const items: ShoppingListItem[] = aggregated.map((a) => ({
-    name: a.name,
-    section: aiSections?.[a.name.toLowerCase()] || categorizeKeyword(a.name),
-    quantity: a.quantity,
-    recipeIds: a.recipeIds,
-    checked: false,
-  }));
-
-  // Sort: by section, then alphabetical
-  const sectionOrder = ["produce", "protein", "dairy", "bakery", "pantry", "frozen", "other"];
-  items.sort((x, y) => {
-    const sx = sectionOrder.indexOf(x.section);
-    const sy = sectionOrder.indexOf(y.section);
-    if (sx !== sy) return sx - sy;
-    return x.name.localeCompare(y.name);
+  // Sort: by day, then base meal type, then meal id, then alphabetical
+  items.sort((a, b) => {
+    const da = a.dayIndex ?? 999;
+    const db = b.dayIndex ?? 999;
+    if (da !== db) return da - db;
+    const ma = MEAL_TYPE_ORDER[baseMealType(a.mealType)] ?? 99;
+    const mb = MEAL_TYPE_ORDER[baseMealType(b.mealType)] ?? 99;
+    if (ma !== mb) return ma - mb;
+    const ra = a.mealPlanMealId ?? 0;
+    const rb = b.mealPlanMealId ?? 0;
+    if (ra !== rb) return ra - rb;
+    return a.name.localeCompare(b.name);
   });
 
-  return { items, aiGenerated };
+  return { items, aiGenerated: false };
 }

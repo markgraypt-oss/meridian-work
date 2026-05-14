@@ -8866,21 +8866,22 @@ export class DatabaseStorage implements IStorage {
     const prs: any[] = [];
     
     for (const exerciseLog of exerciseLogs) {
+      if (exerciseLog.section === 'warmup' || exerciseLog.kind === 'rest') continue;
       const setLogs = await this.getWorkoutSetLogs(exerciseLog.id);
-      
+
       for (const setLog of setLogs) {
         // Calculate volume (weight x reps)
         const setVolume = (setLog.actualWeight || 0) * (setLog.actualReps || 0);
         totalVolume += setVolume;
-        
+
         // Calculate time
         const setTimeSeconds = (setLog.actualDurationMinutes || 0) * 60 + (setLog.actualDurationSeconds || 0);
         totalTimeSeconds += setTimeSeconds;
-        
+
         // Update exercise snapshot and check for PRs
         if (exerciseLog.exerciseLibraryId && (setLog.actualReps || setLog.actualWeight || setTimeSeconds > 0)) {
           const existingSnapshot = await this.getExerciseSnapshot(log.userId, exerciseLog.exerciseLibraryId);
-          
+
           // Check for PRs before updating
           if (existingSnapshot) {
             if (setLog.actualWeight && existingSnapshot.bestWeight && setLog.actualWeight > existingSnapshot.bestWeight) {
@@ -8896,7 +8897,7 @@ export class DatabaseStorage implements IStorage {
             // First time doing this exercise - could be considered a PR
             prs.push({ type: 'first', exerciseName: exerciseLog.exerciseName, reps: setLog.actualReps, weight: setLog.actualWeight });
           }
-          
+
           // Update snapshot
           await this.updateExerciseSnapshot(log.userId, exerciseLog.exerciseLibraryId, {
             reps: setLog.actualReps || undefined,

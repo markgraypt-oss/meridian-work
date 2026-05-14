@@ -4452,6 +4452,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const exerciseLogs = await storage.getWorkoutExerciseLogs(id);
       const exerciseLines: string[] = [];
       for (const ex of exerciseLogs) {
+        if (ex.section === 'warmup' || ex.kind === 'rest') continue;
         const sets = await storage.getWorkoutSetLogs(ex.id);
         const setSummaries = sets.map((s, i) => {
           const parts: string[] = [];

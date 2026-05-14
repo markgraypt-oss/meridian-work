@@ -52,7 +52,6 @@ import EducationLabBookmarks from "@/pages/education-lab-bookmarks";
 import LearnVideoDetail from "@/pages/learn-video-detail";
 import LearnTopicVideoDetail from "@/pages/learn-topic-video-detail";
 import LearnVideoStandalone from "@/pages/learn-video-standalone";
-import Library from "@/pages/library";
 import Nutrition from "@/pages/nutrition";
 import NutritionGraphs from "@/pages/nutrition-graphs";
 import MyMeals from "@/pages/my-meals";
@@ -317,7 +316,6 @@ function Router() {
               <Route path="/programme-history/:id" component={ProgrammeHistoryStats} />
               <Route path="/workout-detail/:enrollmentId/:week/:day" component={WorkoutDetail} />
               <Route path="/exercise/:id" component={ExerciseDetail} />
-              <Route path="/library" component={Library} />
               <Route path="/perform" component={Perform} />
               <Route path="/nutrition" component={Nutrition} />
               <Route path="/nutrition/graphs" component={NutritionGraphs} />

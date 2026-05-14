@@ -9743,7 +9743,7 @@ Rules:
           agg.totalReps += r;
           if (w > agg.maxWeight) { agg.maxWeight = w; }
           if (r > agg.maxReps) { agg.maxReps = r; }
-          if (w > 0 && r >= 1 && r <= 1 && (agg.rm1 === null || w > agg.rm1)) { agg.rm1 = w; }
+          if (w > 0 && r >= 1) { const e1rm = Math.round(w * (1 + r / 30)); if (agg.rm1 === null || e1rm > agg.rm1) { agg.rm1 = e1rm; } }
           if (w > 0 && r >= 5 && (agg.rm5 === null || w > agg.rm5)) { agg.rm5 = w; }
           if (w > 0 && r >= 10 && (agg.rm10 === null || w > agg.rm10)) { agg.rm10 = w; }
         }

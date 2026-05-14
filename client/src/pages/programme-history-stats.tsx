@@ -572,31 +572,35 @@ export default function ProgrammeHistoryStats() {
         </div>
 
         {/* Personal Records - Top 5 with Metric Toggle */}
-        {sortedPRs.length > 0 && (
-          <div className="mb-6">
-            <div className="flex items-center justify-between mb-3">
-              <h2 className="text-lg font-semibold text-foreground flex items-center gap-2">
-                <Trophy className="h-5 w-5 text-[#0cc9a9]" />
-                Personal Records
-              </h2>
-            </div>
-            <div className="flex gap-1.5 mb-3">
-              {(Object.keys(prMetricLabels) as PRMetric[]).map(metric => (
-                <button
-                  key={metric}
-                  onClick={() => { setPrMetric(metric); setExpandedPR(null); }}
-                  className={`px-3 py-1.5 rounded-full text-xs font-medium transition-colors ${
-                    prMetric === metric
-                      ? 'bg-[#0cc9a9] text-black'
-                      : 'bg-muted text-muted-foreground hover:bg-muted/80'
-                  }`}
-                >
-                  {prMetricLabels[metric]}
-                </button>
-              ))}
-            </div>
-            <Card>
-              <CardContent className="p-4">
+        <div className="mb-6">
+          <div className="flex items-center justify-between mb-3">
+            <h2 className="text-lg font-semibold text-foreground flex items-center gap-2">
+              <Trophy className="h-5 w-5 text-[#0cc9a9]" />
+              Personal Records
+            </h2>
+          </div>
+          <div className="flex gap-1.5 mb-3">
+            {(Object.keys(prMetricLabels) as PRMetric[]).map(metric => (
+              <button
+                key={metric}
+                onClick={() => { setPrMetric(metric); setExpandedPR(null); }}
+                className={`px-3 py-1.5 rounded-full text-xs font-medium transition-colors ${
+                  prMetric === metric
+                    ? 'bg-[#0cc9a9] text-black'
+                    : 'bg-muted text-muted-foreground hover:bg-muted/80'
+                }`}
+              >
+                {prMetricLabels[metric]}
+              </button>
+            ))}
+          </div>
+          <Card>
+            <CardContent className="p-4">
+              {sortedPRs.length === 0 ? (
+                <p className="text-sm text-muted-foreground text-center py-4">
+                  No {prMetricLabels[prMetric]} records yet
+                </p>
+              ) : (
                 <div className="space-y-0">
                   {sortedPRs.map((pr: any, i: number) => {
                     const progression = getProgressionForExercise(pr.exerciseName);
@@ -671,10 +675,10 @@ export default function ProgrammeHistoryStats() {
                     );
                   })}
                 </div>
-              </CardContent>
-            </Card>
-          </div>
-        )}
+              )}
+            </CardContent>
+          </Card>
+        </div>
 
         {/* Exercise Browser with Sort */}
         {sortedExercises.length > 0 && (

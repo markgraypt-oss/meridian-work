@@ -12,7 +12,7 @@ import { Drawer, DrawerContent, DrawerHeader, DrawerTitle } from "@/components/u
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { isUnauthorizedError } from "@/lib/authUtils";
 import { apiRequest } from "@/lib/queryClient";
-import { Utensils, PieChart, Pill, Droplets, Plus, Minus, ChevronRight, TrendingUp, Calculator, Check, Trash2, Edit2, X, Sparkles, Info, ChevronDown, ChevronUp, Flag, MoreHorizontal, RefreshCw, Settings, History, Calendar, Brain, Zap, BarChart3, BookOpen, ThumbsUp, ThumbsDown, Loader2, MessageSquare } from "lucide-react";
+import { Utensils, PieChart, Pill, Droplets, Plus, Minus, ChevronRight, TrendingUp, Calculator, Check, Trash2, Edit2, X, Sparkles, Info, ChevronDown, ChevronUp, Flag, MoreHorizontal, RefreshCw, Settings, History, Calendar, Brain, Zap, BarChart3, BookOpen, ThumbsUp, ThumbsDown, Loader2, MessageSquare, ShoppingCart } from "lucide-react";
 
 const isEatenToday = (ateTodayDate: Date | string | null): boolean => {
   if (!ateTodayDate) return false;
@@ -1572,21 +1572,32 @@ export default function Nutrition() {
               </CardTitle>
               <div className="flex items-center gap-1">
                 {mealPlanData && (
-                  <Button
-                    variant="ghost"
-                    size="icon"
-                    className="h-8 w-8"
-                    onClick={() => regenerateMealPlanMutation.mutate(mealPlanData.plan.id)}
-                    disabled={regenerateMealPlanMutation.isPending}
-                    data-testid="btn-refresh-meal-plan"
-                  >
-                    <RefreshCw className={`h-5 w-5 ${regenerateMealPlanMutation.isPending ? 'animate-spin' : ''}`} />
-                  </Button>
+                  <>
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      className="h-8 w-8"
+                      onClick={() => goToSubPage('/shopping-list')}
+                      data-testid="btn-shopping-list"
+                    >
+                      <ShoppingCart className="h-5 w-5" />
+                    </Button>
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      className="h-8 w-8"
+                      onClick={() => regenerateMealPlanMutation.mutate(mealPlanData.plan.id)}
+                      disabled={regenerateMealPlanMutation.isPending}
+                      data-testid="btn-refresh-meal-plan"
+                    >
+                      <RefreshCw className={`h-5 w-5 ${regenerateMealPlanMutation.isPending ? 'animate-spin' : ''}`} />
+                    </Button>
+                  </>
                 )}
-                <Button 
-                  variant="ghost" 
-                  size="icon" 
-                  className="h-8 w-8" 
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  className="h-8 w-8"
                   onClick={() => goToSubPage('/nutrition/meal-plan-settings')}
                   data-testid="btn-meal-plan-settings"
                 >

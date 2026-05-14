@@ -9621,7 +9621,6 @@ Rules:
         )
         .orderBy(workoutLogs.completedAt);
 
-      const totalVolume = logs.reduce((sum, l) => sum + (l.autoCalculatedVolume || 0), 0);
       const totalDuration = logs.reduce((sum, l) => sum + (l.duration || 0), 0);
       const avgSessionLength = logs.length > 0 ? Math.round(totalDuration / logs.length) : 0;
       const ratedLogs = logs.filter(l => l.workoutRating && l.workoutRating > 0);
@@ -9656,8 +9655,9 @@ Rules:
           inArray(workoutSetLogs.exerciseLogId, exerciseLogs.map(e => e.id))
         ) : [];
 
-      const totalSets = setLogs.filter(s => s.isCompleted).length;
-      const totalReps = setLogs.reduce((sum, s) => sum + (s.actualReps || 0), 0);
+      let totalVolume = 0;
+      let totalSets = 0;
+      let totalReps = 0;
 
       const prMap = new Map<string, { weight: number; reps: number }>();
       for (const el of exerciseLogs) {
@@ -9713,6 +9713,7 @@ Rules:
 
       const exerciseWeeklyMap = new Map<string, Map<number, { bestWeight: number; bestReps: number; totalVolume: number; totalReps: number }>>();
       const exerciseAggMap = new Map<string, { maxWeight: number; maxReps: number; totalVolume: number; totalReps: number; sessionsCount: number; exerciseLibraryId: number | null; rm1: number | null; rm5: number | null; rm10: number | null }>();
+      const workoutVolumeMap = new Map<number, number>();
 
       for (const el of exerciseLogs) {
         if (el.section === 'warmup') continue;
@@ -9739,6 +9740,12 @@ Rules:
           const w = s.actualWeight || 0;
           const r = s.actualReps || 0;
           const vol = w * r;
+          if (s.isCompleted) {
+            totalSets++;
+            totalVolume += vol;
+            workoutVolumeMap.set(el.workoutLogId, (workoutVolumeMap.get(el.workoutLogId) || 0) + vol);
+          }
+          totalReps += r;
           weekData.totalVolume += vol;
           weekData.totalReps += r;
           if (w > weekData.bestWeight) { weekData.bestWeight = w; weekData.bestReps = r; }
@@ -9778,7 +9785,15 @@ Rules:
 
       const mostVolumeExercise = allExerciseStats.length > 0 ? allExerciseStats[0] : null;
       const mostRepsExercise = allExerciseStats.length > 0 ? [...allExerciseStats].sort((a, b) => b.totalReps - a.totalReps)[0] : null;
-      const biggestSession = logs.length > 0 ? logs.reduce((best, l) => (!best || (l.autoCalculatedVolume || 0) > (best.autoCalculatedVolume || 0)) ? l : best, logs[0]) : null;
+      let biggestSession = null;
+      let biggestVolume = 0;
+      for (const l of logs) {
+        const vol = workoutVolumeMap.get(l.id) || 0;
+        if (vol > biggestVolume) {
+          biggestVolume = vol;
+          biggestSession = l;
+        }
+      }
 
       res.json({
         enrollment: {
@@ -9811,7 +9826,7 @@ Rules:
           mostImproved,
           mostVolumeExercise: mostVolumeExercise ? { exerciseName: mostVolumeExercise.exerciseName, totalVolume: mostVolumeExercise.totalVolume } : null,
           mostRepsExercise: mostRepsExercise ? { exerciseName: mostRepsExercise.exerciseName, totalReps: mostRepsExercise.totalReps } : null,
-          biggestSession: biggestSession ? { workoutName: biggestSession.workoutName, volume: biggestSession.autoCalculatedVolume || 0, date: biggestSession.completedAt ? new Date(biggestSession.completedAt).toISOString().split('T')[0] : null, week: biggestSession.week } : null,
+          biggestSession: biggestSession ? { workoutName: biggestSession.workoutName, volume: biggestVolume, date: biggestSession.completedAt ? new Date(biggestSession.completedAt).toISOString().split('T')[0] : null, week: biggestSession.week } : null,
         },
         workoutCalendar,
         scheduledDays,

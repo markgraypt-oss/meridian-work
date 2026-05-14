@@ -118,6 +118,7 @@ export function registerNotificationRoutes(app: Express): void {
         body: "If you can see this, your notifications are wired up correctly.",
         data: { url: "/profile/notifications" },
         force: true,
+        disableEmail: true,
       });
       res.json(result);
     } catch (e) {

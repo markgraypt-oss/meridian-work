@@ -343,7 +343,6 @@ function Router() {
                 <Redirect to="/training/body-map" />
               </Route>
               <Route path="/body-map-simple" component={BodyMapSimple} />
-              <Route path="/search" component={Search} />
               <Route path="/admin/edit-path/:id" component={AdminEditPath} />
               <Route path="/admin/programmes/new" component={AddProgramme} />
               <Route path="/admin/programmes/:id" component={EditProgramme} />

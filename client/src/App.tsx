@@ -68,7 +68,6 @@ import Perform from "@/pages/perform";
 import BodyMapSimple from "@/pages/body-map-simple";
 import BodyMapUnified from "@/pages/body-map-unified";
 import InjuryTracking from "@/pages/injury-tracking";
-import Search from "@/pages/search";
 import AdminPanel from "@/pages/admin";
 import AdminEditPath from "@/pages/admin-edit-path";
 import SelectExercise from "@/pages/admin/SelectExercise";

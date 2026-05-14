@@ -290,6 +290,7 @@ Return only the JSON object now.`;
       title: headline,
       body: firstFocus,
       data: { url: `/?coach=1&briefing=${briefing.id}`, briefingId: briefing.id, type },
+      disableEmail: true,
     }).catch((err) => console.error("[coach-briefing] notify failed:", err));
   }
 

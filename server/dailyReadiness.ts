@@ -555,6 +555,7 @@ export async function maybeAwardWeeklyBaseline(userId: string, weekStartKey: str
         aboveBaselineDays: aboveBaseline,
         points: WEEKLY_REWARD_POINTS,
       },
+      disableEmail: true,
     });
   } catch (err: any) {
     console.error(

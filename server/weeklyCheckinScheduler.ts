@@ -101,6 +101,7 @@ async function dispatchForUser(
       title,
       body,
       data,
+      disableEmail: true,
     });
     const delivered =
       result.channels.inApp || result.channels.email || result.channels.push;

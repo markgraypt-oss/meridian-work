@@ -152,6 +152,7 @@ async function dispatchForUser(u: BriefingUser, tz: string | null): Promise<void
       title,
       body,
       data,
+      disableEmail: true,
     });
     // Idempotency contract: alreadyBriefedToday() looks for a notifications
     // row with data.briefing=true. notify() only inserts an in-app row when

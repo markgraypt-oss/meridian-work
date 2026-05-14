@@ -50,6 +50,8 @@ export interface NotifyOptions {
   data?: Record<string, any>;
   // Force-send overrides preference + quiet-hours + cap (used by "test" buttons)
   force?: boolean;
+  // Schedulers set this to true — automated sends never email, only in-app + push
+  disableEmail?: boolean;
 }
 
 export interface NotifyResult {
@@ -65,7 +67,7 @@ export interface NotifyResult {
 // ---------------------------------------------------------------------------
 
 export async function notify(opts: NotifyOptions): Promise<NotifyResult> {
-  const { userId, category, title, body, data, force } = opts;
+  const { userId, category, title, body, data, force, disableEmail } = opts;
   const result: NotifyResult = {
     notification: null,
     channels: { inApp: false, email: false, push: false },
@@ -103,8 +105,8 @@ export async function notify(opts: NotifyOptions): Promise<NotifyResult> {
     }
   }
 
-  // 4. Email fan-out.
-  const wantEmail = force || (channelToggles.email && !inQuiet && !overCap);
+  // 4. Email fan-out — never fires for scheduled/automated sends (disableEmail).
+  const wantEmail = !disableEmail && (force || (channelToggles.email && !inQuiet && !overCap));
   if (wantEmail && user.email && resend) {
     const ok = await sendCategoryEmail(user.email, user.firstName ?? null, category, title, body, data);
     result.channels.email = ok;

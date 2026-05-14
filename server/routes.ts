@@ -9637,6 +9637,7 @@ Rules:
           exerciseName: workoutExerciseLogs.exerciseName,
           exerciseLibraryId: workoutExerciseLogs.exerciseLibraryId,
           section: workoutExerciseLogs.section,
+          kind: workoutExerciseLogs.kind,
         })
         .from(workoutExerciseLogs)
         .where(
@@ -9661,7 +9662,7 @@ Rules:
 
       const prMap = new Map<string, { weight: number; reps: number }>();
       for (const el of exerciseLogs) {
-        if (el.section === 'warmup') continue;
+        if (el.section === 'warmup' || el.kind === 'rest') continue;
         const sets = setLogs.filter(s => s.exerciseLogId === el.id);
         for (const s of sets) {
           if (s.actualWeight && s.actualWeight > 0) {
@@ -9716,7 +9717,7 @@ Rules:
       const workoutVolumeMap = new Map<number, number>();
 
       for (const el of exerciseLogs) {
-        if (el.section === 'warmup') continue;
+        if (el.section === 'warmup' || el.kind === 'rest') continue;
         const logEntry = logs.find(l => l.id === el.workoutLogId);
         const week = logEntry?.week || 1;
         const sets = setLogs.filter(s => s.exerciseLogId === el.id);

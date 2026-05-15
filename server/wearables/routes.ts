@@ -11,7 +11,10 @@ import {
   getConnections,
   syncProvider,
   upsertConnection,
+  upsertWearableWorkouts,
+  getWearableWorkouts,
 } from "./index";
+import { z } from "zod";
 import { parseAppleHealthExport } from "./appleHealth";
 import type { WearableProvider } from "./types";
 
@@ -188,6 +191,103 @@ export function registerWearableRoutes(app: Express) {
     } catch (err: any) {
       console.error("[wearables] apple health upload error", err);
       res.status(500).json({ message: "Failed to parse Apple Health export", error: err?.message });
+    }
+  });
+
+  // Apple Health: mobile HealthKit JSON sync
+  // Accepts structured day-level metrics and per-workout records from the mobile app.
+  // Fully idempotent — the mobile app can safely re-send any date range.
+  const mobileMetricSchema = z.object({
+    date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+    sleepMinutes: z.number().int().nonnegative().optional().nullable(),
+    sleepDeepMinutes: z.number().int().nonnegative().optional().nullable(),
+    sleepRemMinutes: z.number().int().nonnegative().optional().nullable(),
+    sleepLightMinutes: z.number().int().nonnegative().optional().nullable(),
+    sleepAwakeMinutes: z.number().int().nonnegative().optional().nullable(),
+    sleepScore: z.number().int().min(0).max(100).optional().nullable(),
+    steps: z.number().int().nonnegative().optional().nullable(),
+    activeEnergyKcal: z.number().nonnegative().optional().nullable(),
+    exerciseMinutes: z.number().int().nonnegative().optional().nullable(),
+    restingHeartRate: z.number().int().nonnegative().optional().nullable(),
+  });
+
+  const mobileWorkoutSchema = z.object({
+    startedAt: z.string().datetime(),
+    endedAt: z.string().datetime().optional().nullable(),
+    type: z.string().max(64).optional().nullable(),
+    durationMinutes: z.number().int().nonnegative().optional().nullable(),
+    distanceMeters: z.number().int().nonnegative().optional().nullable(),
+    activeEnergyKcal: z.number().nonnegative().optional().nullable(),
+    averageHeartRate: z.number().int().nonnegative().optional().nullable(),
+  });
+
+  const mobileSyncBodySchema = z.object({
+    metrics: z.array(mobileMetricSchema).max(366).default([]),
+    workouts: z.array(mobileWorkoutSchema).max(500).default([]),
+  });
+
+  app.post("/api/wearables/apple-health/sync", isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = req.user.claims.sub;
+
+      const parsed = mobileSyncBodySchema.safeParse(req.body);
+      if (!parsed.success) {
+        return res.status(400).json({ message: "Invalid sync payload", errors: parsed.error.flatten() });
+      }
+
+      const { metrics, workouts } = parsed.data;
+
+      // Mark connection as active
+      await upsertConnection(userId, "apple_health", { status: "connected" });
+
+      // Map mobile metric field names to the NormalisedDailyMetrics interface
+      const { upsertDailyMetrics } = await import("./index");
+      const normalisedMetrics = metrics.map((m) => ({
+        date: m.date,
+        sleepMinutes: m.sleepMinutes ?? null,
+        sleepDeepMinutes: m.sleepDeepMinutes ?? null,
+        sleepRemMinutes: m.sleepRemMinutes ?? null,
+        sleepLightMinutes: m.sleepLightMinutes ?? null,
+        sleepAwakeMinutes: m.sleepAwakeMinutes ?? null,
+        sleepScore: m.sleepScore ?? null,
+        steps: m.steps ?? null,
+        caloriesBurned: m.activeEnergyKcal != null ? Math.round(m.activeEnergyKcal) : null,
+        activeMinutes: m.exerciseMinutes ?? null,
+        restingHrBpm: m.restingHeartRate ?? null,
+        workoutCount: null,
+        raw: m,
+      }));
+
+      const daysWritten = await upsertDailyMetrics(userId, "apple_health", normalisedMetrics);
+
+      // Upsert per-workout records
+      const workoutsWritten = await upsertWearableWorkouts(userId, "apple_health", workouts);
+
+      // Determine the latest successfully synced date from the metrics batch
+      const dates = metrics.map((m) => m.date).filter(Boolean).sort();
+      const latestSyncedDate = dates[dates.length - 1] ?? null;
+
+      console.log(`[wearables] apple-health/sync user=${userId} days=${daysWritten} workouts=${workoutsWritten}`);
+
+      res.json({ daysWritten, workoutsWritten, latestSyncedDate });
+    } catch (err: any) {
+      console.error("[wearables] apple-health/sync error", err);
+      res.status(500).json({ message: "Failed to sync Apple Health data", error: err?.message });
+    }
+  });
+
+  // Wearable workouts: fetch per-workout records (all providers)
+  // Mobile and web can use this to build a unified training history alongside workoutLogs.
+  app.get("/api/wearables/workouts", isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = req.user.claims.sub;
+      const limit = Math.min(Number(req.query.limit) || 20, 200);
+      const provider = req.query.provider as WearableProvider | undefined;
+      const workouts = await getWearableWorkouts(userId, limit, provider);
+      res.json(workouts);
+    } catch (err: any) {
+      console.error("[wearables] workouts fetch error", err);
+      res.status(500).json({ message: "Failed to fetch wearable workouts" });
     }
   });
 

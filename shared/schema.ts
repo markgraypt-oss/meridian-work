@@ -2941,6 +2941,31 @@ export const wearableMetricsDaily = pgTable("wearable_metrics_daily", {
 export type WearableMetricsDaily = typeof wearableMetricsDaily.$inferSelect;
 export type InsertWearableMetricsDaily = typeof wearableMetricsDaily.$inferInsert;
 
+// Per-workout records synced from wearable providers (e.g. Apple Watch runs).
+// Separate from workoutLogs which tracks in-app workouts.
+// Unique per (userId, provider, startedAt) — safe for idempotent mobile re-sends.
+export const wearableWorkouts = pgTable("wearable_workouts", {
+  id: serial("id").primaryKey(),
+  userId: varchar("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+  provider: text("provider").notNull(), // 'apple_health'
+  startedAt: timestamp("started_at").notNull(),
+  endedAt: timestamp("ended_at"),
+  type: text("type"), // 'running', 'cycling', 'walking', 'strength_training', etc.
+  durationMinutes: integer("duration_minutes"),
+  distanceMeters: integer("distance_meters"),
+  activeEnergyKcal: integer("active_energy_kcal"),
+  averageHeartRate: integer("average_heart_rate"),
+  raw: jsonb("raw"), // original payload for audit
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+}, (t) => ({
+  userProviderStarted: uniqueIndex("wearable_workouts_user_provider_started_idx").on(t.userId, t.provider, t.startedAt),
+}));
+
+export type WearableWorkout = typeof wearableWorkouts.$inferSelect;
+export type InsertWearableWorkout = typeof wearableWorkouts.$inferInsert;
+export const insertWearableWorkoutSchema = createInsertSchema(wearableWorkouts).omit({ id: true, createdAt: true, updatedAt: true });
+
 // Per-sync log of fetch attempts (visible to user/admin for debugging)
 export const wearableSyncLogs = pgTable("wearable_sync_logs", {
   id: serial("id").primaryKey(),

@@ -1,11 +1,11 @@
 import { db } from "../db";
-import { wearableConnections, wearableMetricsDaily, wearableSyncLogs, type WearableConnection, type WearableMetricsDaily } from "@shared/schema";
+import { wearableConnections, wearableMetricsDaily, wearableSyncLogs, wearableWorkouts, type WearableConnection, type WearableMetricsDaily, type WearableWorkout } from "@shared/schema";
 import type { NormalisedDailyMetrics, WearableAdapter, WearableProvider } from "./types";
 import { ouraAdapter } from "./oura";
 import { whoopAdapter } from "./whoop";
 import { googleFitAdapter } from "./googleFit";
 import { encryptToken, decryptToken } from "./encryption";
-import { eq, and, sql } from "drizzle-orm";
+import { eq, and, sql, desc } from "drizzle-orm";
 
 export const ADAPTERS: Record<WearableProvider, WearableAdapter | null> = {
   oura: ouraAdapter,
@@ -220,6 +220,82 @@ export async function syncProvider(userId: string, provider: WearableProvider, o
     await finalize("error", 0, msg);
     return { daysSynced: 0, status: "error", error: msg };
   }
+}
+
+export interface MobileWorkoutInput {
+  startedAt: string; // ISO 8601
+  endedAt?: string | null;
+  type?: string | null;
+  durationMinutes?: number | null;
+  distanceMeters?: number | null;
+  activeEnergyKcal?: number | null;
+  averageHeartRate?: number | null;
+}
+
+/**
+ * Idempotently upsert per-workout records from a mobile HealthKit sync.
+ * Unique constraint: (userId, provider, startedAt).
+ * Returns the count of rows inserted or updated.
+ */
+export async function upsertWearableWorkouts(
+  userId: string,
+  provider: WearableProvider,
+  workouts: MobileWorkoutInput[],
+): Promise<number> {
+  let count = 0;
+  for (const w of workouts) {
+    if (!w.startedAt) continue;
+    const startedAt = new Date(w.startedAt);
+    if (isNaN(startedAt.getTime())) continue;
+
+    const values: any = {
+      userId,
+      provider,
+      startedAt,
+      endedAt: w.endedAt ? new Date(w.endedAt) : null,
+      type: w.type ?? null,
+      durationMinutes: w.durationMinutes ?? null,
+      distanceMeters: w.distanceMeters ?? null,
+      activeEnergyKcal: w.activeEnergyKcal ?? null,
+      averageHeartRate: w.averageHeartRate ?? null,
+      raw: w,
+      updatedAt: new Date(),
+    };
+
+    await db.insert(wearableWorkouts).values(values).onConflictDoUpdate({
+      target: [wearableWorkouts.userId, wearableWorkouts.provider, wearableWorkouts.startedAt],
+      set: {
+        endedAt: values.endedAt,
+        type: values.type,
+        durationMinutes: values.durationMinutes,
+        distanceMeters: values.distanceMeters,
+        activeEnergyKcal: values.activeEnergyKcal,
+        averageHeartRate: values.averageHeartRate,
+        raw: values.raw,
+        updatedAt: values.updatedAt,
+      },
+    });
+    count++;
+  }
+  return count;
+}
+
+/**
+ * Fetch the most recent wearable workouts for a user across all (or a specific) provider.
+ */
+export async function getWearableWorkouts(
+  userId: string,
+  limit = 20,
+  provider?: WearableProvider,
+): Promise<WearableWorkout[]> {
+  const conditions = [eq(wearableWorkouts.userId, userId)];
+  if (provider) conditions.push(eq(wearableWorkouts.provider, provider));
+  return db
+    .select()
+    .from(wearableWorkouts)
+    .where(and(...conditions))
+    .orderBy(desc(wearableWorkouts.startedAt))
+    .limit(limit);
 }
 
 // Get the most recent N days of normalised metrics across all providers,

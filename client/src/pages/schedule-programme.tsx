@@ -323,7 +323,7 @@ export default function ScheduleProgrammePage() {
                   </div>
 
                   <div>
-                    <Label className="text-xs mb-2 block">Tags</Label>
+                    <Label className="text-xs mb-2 block">Focus</Label>
                     <Select value={filterTag || "all"} onValueChange={(v) => setFilterTag(v === "all" ? "" : v)}>
                       <SelectTrigger>
                         <SelectValue placeholder="All Tags" />

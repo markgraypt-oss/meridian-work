@@ -60,7 +60,7 @@ export default function TrainingStretching() {
 
   return (
     <div className="min-h-screen bg-background pb-20">
-      <TopHeader onBack={() => navigate("/training/programme-library")} title="Stretching & Mobility Library" />
+      <TopHeader onBack={() => navigate("/training")} title="Stretching & Mobility Library" />
       
       <div className="p-6">
         <div className="max-w-7xl mx-auto">

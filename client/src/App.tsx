@@ -18,7 +18,6 @@ import CoachMemoryPage from "@/pages/coach-memory";
 import CoachBriefingsPage from "@/pages/coach-briefings";
 import Training from "@/pages/training";
 import TrainingMainProgramme from "@/pages/training-main-programme";
-import TrainingLibrary from "@/pages/training-library";
 
 import TrainingStretching from "@/pages/training-stretching";
 import TrainingYoga from "@/pages/training-yoga";
@@ -265,7 +264,6 @@ function Router() {
               <Route path="/" component={Dashboard} />
               <Route path="/training" component={Training} />
               <Route path="/training/main-programme" component={TrainingMainProgramme} />
-              <Route path="/training/programme-library" component={TrainingLibrary} />
               <Route path="/training/programmes/:section?" component={TrainingProgrammes} />
               <Route path="/training/workouts" component={TrainingWorkouts} />
               <Route path="/training/workouts/:routineType/:category" component={TrainingWorkoutCategory} />
@@ -309,7 +307,7 @@ function Router() {
               <Route path="/education-lab/bookmarks" component={EducationLabBookmarks} />
               <Route path="/education-lab" component={Learn} />
               <Route path="/programs">
-                <Redirect to="/training/programme-library" />
+                <Redirect to="/training" />
               </Route>
               <Route path="/program-hub/:id" component={ProgrammeHub} />
               <Route path="/programme-history/:id" component={ProgrammeHistoryStats} />

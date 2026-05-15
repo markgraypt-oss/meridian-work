@@ -37,7 +37,7 @@ export default function TrainingWorkouts() {
 
   return (
     <div className="min-h-screen bg-background pb-20">
-      <TopHeader onBack={() => navigate("/training/programme-library")} title="Workouts" />
+      <TopHeader onBack={() => navigate("/training")} title="Workouts" />
       
       <div className="p-6">
         <div className="max-w-7xl mx-auto">

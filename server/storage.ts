@@ -11445,6 +11445,7 @@ export class DatabaseStorage implements IStorage {
           title: `Badge unlocked: ${b.name}`,
           body: b.description || `You earned the ${b.name} badge.`,
           data: { url: "/badges", badgeId },
+          disableEmail: true,
         }).catch(err => console.error("[awardBadge] notify failed:", err));
       }
     } catch (err) {

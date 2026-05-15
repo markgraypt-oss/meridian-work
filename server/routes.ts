@@ -1558,6 +1558,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
           title: 'Your personalised plan is ready',
           body: `We picked ${totalRecs} recommendation${totalRecs === 1 ? '' : 's'} for you. Open onboarding to review and confirm.`,
           data: { url: '/onboarding' },
+          disableEmail: true,
         }).catch(err => console.error('[recommendations.generated] notify failed:', err));
       }
 
@@ -1602,6 +1603,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
           title: 'New programme recommendation accepted',
           body: 'You enrolled in a recommended programme. Open it to see this week\'s sessions.',
           data: { url: '/programs', programId },
+          disableEmail: true,
         }).catch(err => console.error('[recommendations.enrolled] notify failed:', err));
       } else if (eventType === 'completed') {
         notify({
@@ -1610,6 +1612,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
           title: 'Programme completed',
           body: 'Great work — your recommended programme is complete. Check the next suggestion.',
           data: { url: '/programs', programId },
+          disableEmail: true,
         }).catch(err => console.error('[recommendations.completed] notify failed:', err));
       }
       res.json(event);
@@ -5877,6 +5880,7 @@ Rules:
         title: "Check-in saved",
         body: "Thanks for checking in. Your coach will use this to tailor today's guidance.",
         data: { url: "/check-in" },
+        disableEmail: true,
       }).catch(err => console.error("[check-in] notify failed:", err));
       res.json(checkIn);
     } catch (error) {
@@ -14046,6 +14050,7 @@ Keep your response concise, practical, and evidence-based. Do not use em dashes.
         title: "Check-in saved",
         body: "Thanks for checking in. Your coach will use this to tailor today's guidance.",
         data: { url: "/check-in" },
+        disableEmail: true,
       }).catch(err => console.error("[check-in] notify failed:", err));
 
       // Auto-complete the "Complete Your Check-In" habit (templateId 31) if the user has it

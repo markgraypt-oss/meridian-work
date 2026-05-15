@@ -326,10 +326,10 @@ export default function ScheduleProgrammePage() {
                     <Label className="text-xs mb-2 block">Focus</Label>
                     <Select value={filterTag || "all"} onValueChange={(v) => setFilterTag(v === "all" ? "" : v)}>
                       <SelectTrigger>
-                        <SelectValue placeholder="All Tags" />
+                        <SelectValue placeholder="All Focus" />
                       </SelectTrigger>
                       <SelectContent>
-                        <SelectItem value="all">All Tags</SelectItem>
+                        <SelectItem value="all">All Focus</SelectItem>
                         {availableTags.map((t: string) => (
                           <SelectItem key={t} value={t}>
                             {tagLabels[t] || t.replace(/_/g, " ")}

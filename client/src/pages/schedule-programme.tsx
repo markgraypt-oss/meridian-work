@@ -50,18 +50,25 @@ const goalLabels: Record<string, string> = {
 };
 
 const equipmentLabels: Record<string, string> = {
+  no_equipment: "No Equipment (At Home)",
   bodyweight: "Bodyweight",
-  home_gym: "Home Gym",
+  bands_only: "Bands Only",
+  kettlebell_only: "Kettlebell Only",
+  dumbbell_only: "Dumbbell Only",
+  db_bench_only: "DB/Bench Only",
   full_gym: "Full Gym",
+  home_gym: "Home Gym",
   resistance_bands: "Resistance Bands",
   dumbbells: "Dumbbells",
 };
 
-const typeLabels: Record<string, string> = {
-  main: "Main",
-  supplementary: "Supplementary",
-  corrective: "Corrective",
-  stretching: "Stretching",
+const tagLabels: Record<string, string> = {
+  full_body: "Full Body",
+  upper_body: "Upper Body",
+  lower_body: "Lower Body",
+  time_efficient: "Time Efficient",
+  free_weights_only: "Free Weights Only",
+  cardio: "Cardio",
 };
 
 export default function ScheduleProgrammePage() {
@@ -74,7 +81,7 @@ export default function ScheduleProgrammePage() {
   const [filterGoal, setFilterGoal] = useState<string>("");
   const [filterDifficulty, setFilterDifficulty] = useState<string>("");
   const [filterEquipment, setFilterEquipment] = useState<string>("");
-  const [filterType, setFilterType] = useState<string>("");
+  const [filterTag, setFilterTag] = useState<string>("");
 
   const { data: programs = [], isLoading: programsLoading } = useQuery<any[]>({
     queryKey: ["/api/programs"],
@@ -109,9 +116,9 @@ export default function ScheduleProgrammePage() {
     return Array.from(equip).sort();
   }, [officialPrograms]);
 
-  const availableTypes = useMemo(() => {
-    const types = new Set(officialPrograms.map(p => p.programmeType).filter(Boolean));
-    return Array.from(types).sort();
+  const availableTags = useMemo(() => {
+    const tags = new Set(officialPrograms.flatMap(p => p.tags || []).filter(Boolean));
+    return Array.from(tags).sort();
   }, [officialPrograms]);
 
   const filteredProgrammes = useMemo(() => {
@@ -122,19 +129,19 @@ export default function ScheduleProgrammePage() {
       const matchesGoal = !filterGoal || program.goal === filterGoal;
       const matchesDifficulty = !filterDifficulty || program.difficulty === filterDifficulty;
       const matchesEquipment = !filterEquipment || program.equipment === filterEquipment;
-      const matchesType = !filterType || program.programmeType === filterType;
-      return matchesSearch && matchesGoal && matchesDifficulty && matchesEquipment && matchesType;
+      const matchesTag = !filterTag || (program.tags || []).includes(filterTag);
+      return matchesSearch && matchesGoal && matchesDifficulty && matchesEquipment && matchesTag;
     });
-  }, [officialPrograms, searchQuery, filterGoal, filterDifficulty, filterEquipment, filterType]);
+  }, [officialPrograms, searchQuery, filterGoal, filterDifficulty, filterEquipment, filterTag]);
 
-  const hasActiveFilters = filterGoal || filterDifficulty || filterEquipment || filterType;
-  const activeFilterCount = [filterGoal, filterDifficulty, filterEquipment, filterType].filter(Boolean).length;
+  const hasActiveFilters = filterGoal || filterDifficulty || filterEquipment || filterTag;
+  const activeFilterCount = [filterGoal, filterDifficulty, filterEquipment, filterTag].filter(Boolean).length;
 
   const clearFilters = () => {
     setFilterGoal("");
     setFilterDifficulty("");
     setFilterEquipment("");
-    setFilterType("");
+    setFilterTag("");
   };
 
   const selectedProgram = programs.find((p: any) => p.id === selectedProgramme);
@@ -284,21 +291,6 @@ export default function ScheduleProgrammePage() {
                   </div>
 
                   <div>
-                    <Label className="text-xs mb-2 block">Difficulty</Label>
-                    <Select value={filterDifficulty || "all"} onValueChange={(v) => setFilterDifficulty(v === "all" ? "" : v)}>
-                      <SelectTrigger>
-                        <SelectValue placeholder="All Levels" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="all">All Levels</SelectItem>
-                        <SelectItem value="beginner">Beginner</SelectItem>
-                        <SelectItem value="intermediate">Intermediate</SelectItem>
-                        <SelectItem value="advanced">Advanced</SelectItem>
-                      </SelectContent>
-                    </Select>
-                  </div>
-
-                  <div>
                     <Label className="text-xs mb-2 block">Equipment</Label>
                     <Select value={filterEquipment || "all"} onValueChange={(v) => setFilterEquipment(v === "all" ? "" : v)}>
                       <SelectTrigger>
@@ -316,16 +308,31 @@ export default function ScheduleProgrammePage() {
                   </div>
 
                   <div>
-                    <Label className="text-xs mb-2 block">Type</Label>
-                    <Select value={filterType || "all"} onValueChange={(v) => setFilterType(v === "all" ? "" : v)}>
+                    <Label className="text-xs mb-2 block">Difficulty</Label>
+                    <Select value={filterDifficulty || "all"} onValueChange={(v) => setFilterDifficulty(v === "all" ? "" : v)}>
                       <SelectTrigger>
-                        <SelectValue placeholder="All Types" />
+                        <SelectValue placeholder="All Levels" />
                       </SelectTrigger>
                       <SelectContent>
-                        <SelectItem value="all">All Types</SelectItem>
-                        {availableTypes.map((t: string) => (
+                        <SelectItem value="all">All Levels</SelectItem>
+                        <SelectItem value="beginner">Beginner</SelectItem>
+                        <SelectItem value="intermediate">Intermediate</SelectItem>
+                        <SelectItem value="advanced">Advanced</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+
+                  <div>
+                    <Label className="text-xs mb-2 block">Tags</Label>
+                    <Select value={filterTag || "all"} onValueChange={(v) => setFilterTag(v === "all" ? "" : v)}>
+                      <SelectTrigger>
+                        <SelectValue placeholder="All Tags" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="all">All Tags</SelectItem>
+                        {availableTags.map((t: string) => (
                           <SelectItem key={t} value={t}>
-                            {typeLabels[t] || t}
+                            {tagLabels[t] || t.replace(/_/g, " ")}
                           </SelectItem>
                         ))}
                       </SelectContent>

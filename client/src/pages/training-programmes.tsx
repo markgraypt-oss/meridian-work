@@ -55,7 +55,7 @@ export default function TrainingProgrammes() {
     goal: "All Goals",
     difficulty: "All Levels",
     equipment: "All Equipment",
-    tag: "All Tags",
+    tag: "All Focus",
   });
 
   const pageTitle = sectionLabels[section] || "All Programmes";
@@ -105,7 +105,7 @@ export default function TrainingProgrammes() {
     );
   }
 
-  if (filters.tag && filters.tag !== "All Tags") {
+  if (filters.tag && filters.tag !== "All Focus") {
     displayPrograms = displayPrograms.filter(
       (p) => (p.tags || []).includes(filters.tag)
     );
@@ -182,10 +182,10 @@ export default function TrainingProgrammes() {
                   ],
                 },
                 {
-                  label: "Tags",
+                  label: "Focus",
                   value: "tag",
                   options: [
-                    { label: "All Tags", value: "All Tags" },
+                    { label: "All Focus", value: "All Focus" },
                     { label: "Full Body", value: "full_body" },
                     { label: "Upper Body", value: "upper_body" },
                     { label: "Lower Body", value: "lower_body" },
@@ -195,7 +195,7 @@ export default function TrainingProgrammes() {
                   ],
                 },
               ]}
-              onClearFilters={() => setFilters({ goal: "All Goals", difficulty: "All Levels", equipment: "All Equipment", tag: "All Tags" })}
+              onClearFilters={() => setFilters({ goal: "All Goals", difficulty: "All Levels", equipment: "All Equipment", tag: "All Focus" })}
             />
           </div>
 

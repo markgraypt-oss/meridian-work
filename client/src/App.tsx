@@ -34,7 +34,6 @@ import BreathCategory from "@/pages/breath-category";
 import RecoveryMindfulness from "@/pages/recovery-mindfulness";
 import MeditationPlayer from "@/pages/meditation-player";
 import MeditationList from "@/pages/meditation-list";
-import RecoverySleep from "@/pages/recovery-sleep";
 import RecoveryBurnout from "@/pages/recovery-burnout";
 import BurnoutSigns from "@/pages/burnout-signs";
 import BurnoutTalking from "@/pages/burnout-talking";
@@ -288,7 +287,6 @@ function Router() {
               <Route path="/recovery/mindfulness" component={RecoveryMindfulness} />
               <Route path="/recovery/mindfulness/meditations/:category" component={MeditationList} />
               <Route path="/recovery/mindfulness/meditation/:id" component={MeditationPlayer} />
-              <Route path="/recovery/sleep-support" component={RecoverySleep} />
               <Route path="/recovery/burnout-tracker" component={RecoveryBurnout} />
               <Route path="/recovery/burnout-signs" component={BurnoutSigns} />
               <Route path="/recovery/burnout-talking" component={BurnoutTalking} />

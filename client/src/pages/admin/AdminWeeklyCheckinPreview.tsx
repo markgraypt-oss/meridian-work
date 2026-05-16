@@ -18,19 +18,15 @@ interface UserData {
   isAdmin?: boolean;
 }
 
-interface PreviewSuggestion {
-  id: string;
-  title: string;
-  body: string;
-  category: string;
-}
 
 interface PreviewPayload {
+  _v: number;
   weekStart: string;
   weekEnd: string;
-  summary: { wins: string[]; concerns: string[]; burnoutTrajectory: string };
+  hero: string;
+  trajectoryLabel: string;
+  cards: Record<string, unknown>;
   metrics: Record<string, unknown>;
-  suggestions: PreviewSuggestion[];
 }
 
 interface PreviewResult {

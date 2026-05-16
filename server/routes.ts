@@ -20612,8 +20612,7 @@ RULES:
   // ===== Weekly AI Check-in Routes =====
   {
     const {
-      getOrCreateCurrentWeeklyCheckin,
-      generateWeeklyCheckinPayload,
+      generateWeeklyCheckinPayloadV2,
       getIsoWeekStart,
       getOrCreateCurrentWeeklyCheckinV2,
     } = await import("./weeklyCheckin");
@@ -20768,7 +20767,7 @@ RULES:
         if (!target) return res.status(404).json({ message: "User not found" });
 
         const weekStart = getIsoWeekStart();
-        const payload = await generateWeeklyCheckinPayload(targetUserId, weekStart);
+        const payload = await generateWeeklyCheckinPayloadV2(targetUserId, weekStart);
         res.json({
           userId: targetUserId,
           weekStart: weekStart.toISOString(),

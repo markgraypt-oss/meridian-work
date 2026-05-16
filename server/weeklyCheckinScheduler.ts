@@ -89,22 +89,64 @@ function composeEmail(
 
 async function dispatchForUser(
   userId: string,
-  _firstName: string | null,
+  firstName: string | null,
   weekStart: Date,
 ): Promise<"sent" | "skipped" | "error"> {
-  // Weekly check-in notifications are disabled.
-  // The payload is still generated on demand when the user visits /weekly-checkin.
-  // We just need to generate the check-in so it's ready when they open it.
   if (await alreadyEmailedThisWeek(userId, weekStart)) return "skipped";
 
+  let payload: any;
   try {
-    await getOrCreateCurrentWeeklyCheckinV2(userId);
+    const checkin = await getOrCreateCurrentWeeklyCheckinV2(userId);
+    payload = checkin.payload;
   } catch (e) {
     console.error(`[weekly-checkin-scheduler] generate failed for ${userId}:`, e);
     return "error";
   }
 
-  return "skipped";
+  const { title, body } = composeEmail(firstName, payload);
+  const data = {
+    weeklyCheckin: true,
+    weekStart: weekStart.toISOString(),
+    url: `${APP_BASE_URL}/weekly-checkin`,
+  };
+
+  try {
+    const result = await notify({
+      userId,
+      category: "coach",
+      title,
+      body,
+      data,
+      disableEmail: true,
+    });
+    const delivered =
+      result.channels.inApp || result.channels.email || result.channels.push;
+    if (!delivered) {
+      return "skipped";
+    }
+    if (!result.notification) {
+      try {
+        await db.insert(notifications).values({
+          userId,
+          category: "coach",
+          title,
+          body,
+          data: { ...data, _hidden: true },
+          emailDeliveredAt: result.channels.email ? new Date() : null,
+          pushDeliveredAt: result.channels.push ? new Date() : null,
+        });
+      } catch (e) {
+        console.error(
+          `[weekly-checkin-scheduler] dedupe marker write failed for ${userId}:`,
+          e,
+        );
+      }
+    }
+    return "sent";
+  } catch (e) {
+    console.error(`[weekly-checkin-scheduler] notify failed for ${userId}:`, e);
+    return "error";
+  }
 }
 
 async function tick(): Promise<void> {

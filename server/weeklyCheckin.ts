@@ -270,24 +270,28 @@ export async function aggregateWeekV2(userId: string, weekStart: Date): Promise<
     }));
 
   // ---- Habits ----
-  const completionsByHabit = new Map<number, number>();
+  // Count unique completion days per habit (user can accidentally tap twice on same day)
+  const completionsByHabit = new Map<number, Set<string>>();
   for (const c of weekHabitCompletions) {
-    completionsByHabit.set(c.habitId, (completionsByHabit.get(c.habitId) ?? 0) + 1);
+    const key = c.habitId;
+    const dateKey = new Date(c.completedDate).toISOString().slice(0, 10);
+    if (!completionsByHabit.has(key)) completionsByHabit.set(key, new Set());
+    completionsByHabit.get(key)!.add(dateKey);
   }
   const habitItems = activeHabits
-    .filter((h) => (completionsByHabit.get(h.id) ?? 0) > 0)
+    .filter((h) => (completionsByHabit.get(h.id)?.size ?? 0) > 0)
     .map((h) => {
       const weekDays: boolean[] = Array(7).fill(false);
       for (const c of weekHabitCompletions) {
         if (c.habitId !== h.id) continue;
         const d = new Date(c.completedDate);
         // ISO week: Monday=0 ... Sunday=6
-        const day = (d.getDay() + 6) % 7;
+        const day = (d.getUTCDay() + 6) % 7;
         if (day >= 0 && day < 7) weekDays[day] = true;
       }
       return {
         title: h.title,
-        completionsThisWeek: completionsByHabit.get(h.id) ?? 0,
+        completionsThisWeek: completionsByHabit.get(h.id)?.size ?? 0,
         targetDaysThisWeek: habitTargetDays(h.daysOfWeek),
         weekDays,
       };

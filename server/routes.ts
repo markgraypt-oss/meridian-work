@@ -20794,6 +20794,28 @@ RULES:
     }
   });
 
+  // ============================================
+  // Dev-only: weekly check-in verification
+  // NOT reachable in production (hard gated)
+  // ============================================
+  if (process.env.NODE_ENV !== "production") {
+    app.post("/api/dev/weekly-checkin-test", isAuthenticated, async (req: any, res) => {
+      try {
+        const { buildSyntheticPayloadV2 } = await import("./weeklyCheckinDevTest");
+        const { scenario } = req.body as { scenario?: string };
+        const valid = ["connected", "unconnected", "sparse", "claude_failure"] as const;
+        if (!scenario || !valid.includes(scenario as any)) {
+          return res.status(400).json({ message: `scenario must be one of: ${valid.join(", ")}` });
+        }
+        const payload = await buildSyntheticPayloadV2(scenario as typeof valid[number]);
+        res.json(payload);
+      } catch (err: any) {
+        console.error("[dev/weekly-checkin-test] error:", err?.message);
+        res.status(500).json({ message: err?.message || "Failed to build synthetic payload" });
+      }
+    });
+  }
+
   const httpServer = createServer(app);
   return httpServer;
 }

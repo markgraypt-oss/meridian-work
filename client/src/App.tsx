@@ -87,6 +87,7 @@ import AdminUsers from "@/pages/admin-users";
 import AdminCompanies from "@/pages/admin-companies";
 import AdminReports from "@/pages/admin-reports";
 import WeeklyCheckinPage from "@/pages/weekly-checkin";
+import WeeklyCheckinDevTest from "@/pages/dev/WeeklyCheckinDevTest";
 import Achievements from "@/pages/achievements";
 import ProgrammeHub from "@/pages/program-hub";
 import ProgrammeHistoryStats from "@/pages/programme-history-stats";
@@ -401,6 +402,9 @@ function Router() {
               <Route path="/active-workout/:workoutLogId/substitute/:exerciseIndex" component={SubstituteExercise} />
               <Route path="/build-wod" component={BuildWod} />
               <Route path="/wod/:id" component={WodDetail} />
+              {import.meta.env.DEV && (
+                <Route path="/dev/weekly-checkin-test" component={WeeklyCheckinDevTest} />
+              )}
             </>
           )}
           <Route component={NotFound} />

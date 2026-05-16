@@ -49,9 +49,6 @@ export interface WeeklyCheckinPayloadV2 {
       sleepSource: "wearable" | "manual" | null;
       roughDaysCount: number;
     };
-    bodyStatus?: {
-      areas: Array<{ bodyPart: string; status: "active" | "chronic" | "resolved" }>;
-    };
     patterns?: {
       narrative: string;
       bulletPoints: string[];
@@ -368,10 +365,6 @@ export async function aggregateWeekV2(userId: string, weekStart: Date): Promise<
       sleepSource,
       roughDaysCount,
     };
-  }
-
-  if (bodyAreas.length > 0) {
-    cards.bodyStatus = { areas: bodyAreas };
   }
 
   // patterns card populated by AI generation below

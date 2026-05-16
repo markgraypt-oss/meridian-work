@@ -38,7 +38,6 @@ interface V2Cards {
   goals?: { items: Array<{ title: string; progressPct: number | null; isCompleted: boolean }> };
   habits?: { items: Array<{ title: string; completionsThisWeek: number; targetDaysThisWeek: number }> };
   lifestyle?: { avgSleepHours: number | null; sleepSource: "wearable" | "manual" | null; roughDaysCount: number };
-  bodyStatus?: { areas: Array<{ bodyPart: string; status: "active" | "chronic" | "resolved" }> };
   patterns?: { narrative: string; bulletPoints: string[]; isAI: boolean; generatedAt: string };
   nutrition?: { daysTracked: number; mealsLogged: number };
 }
@@ -250,40 +249,7 @@ function LifestyleCard({ data }: { data: NonNullable<V2Cards["lifestyle"]> }) {
   );
 }
 
-// ─── Card 6: Body status ──────────────────────────────────────────────────────
-
-const statusConfig: Record<"active" | "chronic" | "resolved", { color: string; label: string }> = {
-  active: { color: "bg-amber-500/15 text-amber-700 dark:text-amber-300 border-amber-300/40", label: "Active" },
-  chronic: { color: "bg-red-500/15 text-red-700 dark:text-red-300 border-red-300/40", label: "Ongoing" },
-  resolved: { color: "bg-emerald-500/15 text-emerald-700 dark:text-emerald-300 border-emerald-300/40", label: "Resolved" },
-};
-
-function BodyStatusCard({ data }: { data: NonNullable<V2Cards["bodyStatus"]> }) {
-  return (
-    <Card>
-      <CardHeader className="pb-3">
-        <CardTitle className="text-sm font-semibold flex items-center gap-2">
-          <ScanLine className="h-4 w-4 text-orange-500" /> Body status
-        </CardTitle>
-      </CardHeader>
-      <CardContent>
-        <div className="flex flex-wrap gap-2">
-          {data.areas.map((a, i) => {
-            const cfg = statusConfig[a.status];
-            return (
-              <span key={i} className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-medium border ${cfg.color}`}>
-                {a.bodyPart}
-                <span className="opacity-60">· {cfg.label}</span>
-              </span>
-            );
-          })}
-        </div>
-      </CardContent>
-    </Card>
-  );
-}
-
-// ─── Card 7: Patterns (AI narrative) ─────────────────────────────────────────
+// ─── Card 6: Patterns (AI narrative) ─────────────────────────────────────────
 
 function PatternsCard({ data }: { data: NonNullable<V2Cards["patterns"]> }) {
   return (
@@ -358,7 +324,6 @@ function CheckinDetailV2({ checkIn }: { checkIn: WeeklyCheckin }) {
       {cards.goals && <GoalsCard data={cards.goals} />}
       {cards.habits && <HabitsCard data={cards.habits} />}
       {cards.lifestyle && <LifestyleCard data={cards.lifestyle} />}
-      {cards.bodyStatus && <BodyStatusCard data={cards.bodyStatus} />}
       {cards.patterns && <PatternsCard data={cards.patterns} />}
       {cards.nutrition && <NutritionCard data={cards.nutrition} />}
     </div>

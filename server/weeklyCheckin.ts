@@ -42,7 +42,7 @@ export interface WeeklyCheckinPayloadV2 {
       items: Array<{ title: string; progressPct: number | null; isCompleted: boolean }>;
     };
     habits?: {
-      items: Array<{ title: string; completionsThisWeek: number; targetDaysThisWeek: number }>;
+      items: Array<{ title: string; completionsThisWeek: number; targetDaysThisWeek: number; weekDays: boolean[] }>;
     };
     lifestyle?: {
       avgSleepHours: number | null;
@@ -276,11 +276,22 @@ export async function aggregateWeekV2(userId: string, weekStart: Date): Promise<
   }
   const habitItems = activeHabits
     .filter((h) => (completionsByHabit.get(h.id) ?? 0) > 0)
-    .map((h) => ({
-      title: h.title,
-      completionsThisWeek: completionsByHabit.get(h.id) ?? 0,
-      targetDaysThisWeek: habitTargetDays(h.daysOfWeek),
-    }));
+    .map((h) => {
+      const weekDays: boolean[] = Array(7).fill(false);
+      for (const c of weekHabitCompletions) {
+        if (c.habitId !== h.id) continue;
+        const d = new Date(c.completedDate);
+        // ISO week: Monday=0 ... Sunday=6
+        const day = (d.getDay() + 6) % 7;
+        if (day >= 0 && day < 7) weekDays[day] = true;
+      }
+      return {
+        title: h.title,
+        completionsThisWeek: completionsByHabit.get(h.id) ?? 0,
+        targetDaysThisWeek: habitTargetDays(h.daysOfWeek),
+        weekDays,
+      };
+    });
 
   // ---- Body map ----
   const bodyAreas: Array<{ bodyPart: string; status: "active" | "chronic" | "resolved" }> = [];

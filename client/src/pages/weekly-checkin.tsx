@@ -36,7 +36,7 @@ interface V2Cards {
   howYouFelt?: { checkInCount: number; avgMood: number | null; avgEnergy: number | null; avgStress: number | null; roughDaysCount: number };
   howYouMoved?: { sessionsCompleted: number; sessionsPlanned: number; adherencePct: number | null };
   goals?: { items: Array<{ title: string; progressPct: number | null; isCompleted: boolean }> };
-  habits?: { items: Array<{ title: string; completionsThisWeek: number; targetDaysThisWeek: number }> };
+  habits?: { items: Array<{ title: string; completionsThisWeek: number; targetDaysThisWeek: number; weekDays: boolean[] }> };
   lifestyle?: { avgSleepHours: number | null; sleepSource: "wearable" | "manual" | null; roughDaysCount: number };
   patterns?: { narrative: string; bulletPoints: string[]; isAI: boolean; generatedAt: string };
   nutrition?: { daysTracked: number; mealsLogged: number };
@@ -188,6 +188,8 @@ function GoalsCard({ data }: { data: NonNullable<V2Cards["goals"]> }) {
 
 // ─── Card 4: Habits ──────────────────────────────────────────────────────────
 
+const DAY_LABELS = ["M", "T", "W", "T", "F", "S", "S"];
+
 function HabitsCard({ data }: { data: NonNullable<V2Cards["habits"]> }) {
   return (
     <Card>
@@ -196,21 +198,31 @@ function HabitsCard({ data }: { data: NonNullable<V2Cards["habits"]> }) {
           <Repeat2 className="h-4 w-4 text-teal-500" /> Habits
         </CardTitle>
       </CardHeader>
-      <CardContent className="space-y-2.5">
-        {data.items.map((h, i) => {
-          const pct = Math.round((h.completionsThisWeek / h.targetDaysThisWeek) * 100);
-          return (
-            <div key={i} className="space-y-1">
-              <div className="flex justify-between text-xs">
-                <span className="font-medium line-clamp-1">{h.title}</span>
-                <span className="text-muted-foreground tabular-nums">
-                  {h.completionsThisWeek} of {h.targetDaysThisWeek} days
-                </span>
-              </div>
-              <Progress value={Math.min(pct, 100)} className="h-1.5" />
+      <CardContent className="space-y-3">
+        {data.items.map((h, i) => (
+          <div key={i} className="space-y-1.5">
+            <div className="flex items-center justify-between text-xs">
+              <span className="font-medium line-clamp-1">{h.title}</span>
+              <span className="text-muted-foreground tabular-nums">
+                {h.completionsThisWeek} / {h.targetDaysThisWeek}
+              </span>
             </div>
-          );
-        })}
+            <div className="flex items-center gap-1">
+              {h.weekDays.map((done, d) => (
+                <div key={d} className="flex flex-col items-center gap-0.5">
+                  <div
+                    className={`w-4 h-4 rounded-full border ${
+                      done
+                        ? "bg-teal-500 border-teal-500"
+                        : "bg-transparent border-muted-foreground/30"
+                    }`}
+                  />
+                  <span className="text-[8px] text-muted-foreground leading-none">{DAY_LABELS[d]}</span>
+                </div>
+              ))}
+            </div>
+          </div>
+        ))}
       </CardContent>
     </Card>
   );

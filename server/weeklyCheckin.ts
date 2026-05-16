@@ -101,6 +101,13 @@ export async function aggregateWeek(userId: string, weekStart: Date): Promise<{
 }
 
 async function aggregateRange(userId: string, start: Date, end: Date): Promise<{ metrics: WeeklyCheckinPayload["metrics"] }> {
+  const { getRecentWearableMetrics } = await import("./wearables");
+  // Resilient: if wearables table is missing or any DB error, continue without it.
+  const wearableSafe = getRecentWearableMetrics(userId, 60).catch((e: any) => {
+    console.warn("[weekly-checkin] wearable fetch failed, continuing without it:", e?.message || e);
+    return { rows: [], bestProviderByDate: new Map<string, string>() };
+  });
+
   const [
     checkInData,
     workoutLogData,
@@ -109,6 +116,7 @@ async function aggregateRange(userId: string, start: Date, end: Date): Promise<{
     stepData,
     weekMeals,
     scheduledThisWeek,
+    wearable,
   ] = await Promise.all([
     storage.getCheckInsInRange(userId, start, end),
     storage.getUserWorkoutLogs(userId, 200),
@@ -121,6 +129,7 @@ async function aggregateRange(userId: string, start: Date, end: Date): Promise<{
       lt(meals.date, end),
     )),
     storage.getScheduledWorkoutsInRange(userId, start, new Date(end.getTime() - 1)),
+    wearableSafe,
   ]);
 
   // Burnout for this window
@@ -133,7 +142,7 @@ async function aggregateRange(userId: string, start: Date, end: Date): Promise<{
       bodyMapLogs: bodyMapData,
       sleepEntries: sleepData,
       stepEntries: stepData,
-      wearableMetrics: [],
+      wearableMetrics: wearable.rows,
     });
     burnoutScore = result.score;
     burnoutTraj = result.trajectory;

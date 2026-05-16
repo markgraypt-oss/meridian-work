@@ -110,8 +110,10 @@ function HowYouFeltCard({ data }: { data: NonNullable<V2Cards["howYouFelt"]> }) 
         <div className="flex items-center justify-between text-xs text-muted-foreground pt-1 border-t border-border/40">
           <span>{data.checkInCount} check-in{data.checkInCount !== 1 ? "s" : ""} this week</span>
           {data.roughDaysCount > 0 && (
-            <span className="text-amber-600 dark:text-amber-400 font-medium">
-              {data.roughDaysCount} rough day{data.roughDaysCount !== 1 ? "s" : ""}
+            <span className="text-amber-600 dark:text-amber-400 font-medium group relative cursor-help"
+              title="Days where headache, fatigue, anxiety, or feeling unwell were logged">
+              {data.roughDaysCount} challenging day{data.roughDaysCount !== 1 ? "s" : ""}
+              <span className="inline-block w-3.5 h-3.5 rounded-full border border-amber-500/40 text-[9px] text-center leading-[14px] ml-1">?</span>
             </span>
           )}
         </div>
@@ -202,7 +204,7 @@ function HabitsCard({ data }: { data: NonNullable<V2Cards["habits"]> }) {
               <div className="flex justify-between text-xs">
                 <span className="font-medium line-clamp-1">{h.title}</span>
                 <span className="text-muted-foreground tabular-nums">
-                  {h.completionsThisWeek}/{h.targetDaysThisWeek}d
+                  {h.completionsThisWeek} of {h.targetDaysThisWeek} days
                 </span>
               </div>
               <Progress value={Math.min(pct, 100)} className="h-1.5" />
@@ -238,7 +240,10 @@ function LifestyleCard({ data }: { data: NonNullable<V2Cards["lifestyle"]> }) {
         )}
         {data.roughDaysCount > 0 && (
           <div className="flex items-center justify-between text-sm">
-            <span className="text-muted-foreground">Rough days</span>
+            <span className="text-muted-foreground cursor-help" title="Days where headache, fatigue, anxiety, or feeling unwell were logged">
+              Challenging days
+              <span className="inline-block w-3.5 h-3.5 rounded-full border border-muted-foreground/30 text-[9px] text-center leading-[14px] ml-1">?</span>
+            </span>
             <span className="font-semibold text-amber-600 dark:text-amber-400">
               {data.roughDaysCount} day{data.roughDaysCount !== 1 ? "s" : ""}
             </span>

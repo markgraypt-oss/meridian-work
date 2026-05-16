@@ -152,7 +152,7 @@ function parseIdParam(s: string | undefined): number | null {
   return Number.isFinite(n) && n > 0 ? n : null;
 }
 import { eq, and, like, inArray, desc, or, isNull, asc, gte, lte, lt, sql } from "drizzle-orm";
-import { users, userProgramEnrollments, programWeeks, programDays, programmeWorkouts, programmeWorkoutBlocks, pathContentItems, topicContentItems, learningPaths, programmeModificationRecords, exerciseSubstitutionMappings, programmeBlockExercises, enrollmentWorkouts, enrollmentWorkoutBlocks, enrollmentBlockExercises, programs, userExtraWorkoutSessions, scheduledWorkouts, workoutLogs, learnContentLibrary, exerciseLibrary, workoutExerciseLogs, workoutSetLogs, aiFeedback, workouts, workoutBlocks, blockExercises, stepEntries, sleepEntries, bodyweightEntries, bodyFatEntries, restingHREntries, caloricBurnEntries, exerciseMinutesEntries, bloodPressureEntries, leanBodyMassEntries, caloricIntakeEntries, hydrationLogs } from "@shared/schema";
+import { users, userProgramEnrollments, programWeeks, programDays, programmeWorkouts, programmeWorkoutBlocks, pathContentItems, topicContentItems, learningPaths, programmeModificationRecords, exerciseSubstitutionMappings, programmeBlockExercises, enrollmentWorkouts, enrollmentWorkoutBlocks, enrollmentBlockExercises, programs, userExtraWorkoutSessions, scheduledWorkouts, workoutLogs, learnContentLibrary, exerciseLibrary, workoutExerciseLogs, workoutSetLogs, aiFeedback, workouts, workoutBlocks, blockExercises, stepEntries, sleepEntries, bodyweightEntries, bodyFatEntries, restingHREntries, caloricBurnEntries, exerciseMinutesEntries, bloodPressureEntries, leanBodyMassEntries, caloricIntakeEntries, hydrationLogs, habitCompletions, habits } from "@shared/schema";
 import { calculateProgramEquipment, updateProgramEquipmentAuto } from "./equipmentDetection";
 import multer from "multer";
 import path from "path";
@@ -20443,6 +20443,107 @@ RULES:
       } catch (error: any) {
         console.error("Error fetching weekly check-ins:", error?.message);
         res.status(500).json({ message: "Failed to load weekly check-ins" });
+      }
+    });
+
+    app.get("/api/weekly-checkins/trends", isAuthenticated, async (req: any, res) => {
+      try {
+        const userId = req.user.claims.sub;
+        const weeks = Math.min(Math.max(Number(req.query.weeks) || 12, 1), 26);
+
+        // Build N week buckets ending with current ISO week
+        const { getIsoWeekStart, getPreviousIsoWeekStart } = await import("./weeklyCheckin");
+        const currentWeekStart = getIsoWeekStart(new Date());
+        const buckets: { weekStart: Date; weekEnd: Date }[] = [];
+        let cur = currentWeekStart;
+        for (let i = 0; i < weeks; i++) {
+          const end = new Date(cur); end.setUTCDate(end.getUTCDate() + 7);
+          buckets.unshift({ weekStart: new Date(cur), weekEnd: end });
+          cur = getPreviousIsoWeekStart(cur);
+        }
+        const windowStart = buckets[0].weekStart;
+        const windowEnd = buckets[buckets.length - 1].weekEnd;
+
+        // Pull all relevant data once for the window
+        const [checkIns, steps, exMins, weights, sleep, completions, userHabits] = await Promise.all([
+          storage.getUserWeeklyCheckins(userId, weeks + 4),
+          db.select().from(stepEntries).where(and(eq(stepEntries.userId, userId), gte(stepEntries.date, windowStart), lt(stepEntries.date, windowEnd))),
+          db.select().from(exerciseMinutesEntries).where(and(eq(exerciseMinutesEntries.userId, userId), gte(exerciseMinutesEntries.date, windowStart), lt(exerciseMinutesEntries.date, windowEnd))),
+          db.select().from(bodyweightEntries).where(and(eq(bodyweightEntries.userId, userId), gte(bodyweightEntries.date, windowStart), lt(bodyweightEntries.date, windowEnd))).orderBy(asc(bodyweightEntries.date)),
+          db.select().from(sleepEntries).where(and(eq(sleepEntries.userId, userId), gte(sleepEntries.date, windowStart), lt(sleepEntries.date, windowEnd))),
+          db.select({ id: habitCompletions.id, completedDate: habitCompletions.completedDate }).from(habitCompletions).where(and(eq(habitCompletions.userId, userId), gte(habitCompletions.completedDate, windowStart), lt(habitCompletions.completedDate, windowEnd))),
+          db.select({ id: habits.id, daysOfWeek: habits.daysOfWeek, isActive: habits.isActive }).from(habits).where(eq(habits.userId, userId)),
+        ]);
+
+        const habitTargetPerWeek = userHabits
+          .filter((h: any) => h.isActive !== false)
+          .reduce((sum: number, h: any) => {
+            const dow = h.daysOfWeek;
+            if (!dow || dow === "everyday") return sum + 7;
+            const parts = String(dow).split(",").filter((d: string) => d.trim().length > 0);
+            return sum + (parts.length > 0 ? parts.length : 7);
+          }, 0);
+
+        const inBucket = (d: Date, b: { weekStart: Date; weekEnd: Date }) => d >= b.weekStart && d < b.weekEnd;
+
+        const trends = buckets.map((b) => {
+          const ci = checkIns.find((c: any) => {
+            const ws = new Date(c.weekStart);
+            return ws.getTime() === b.weekStart.getTime();
+          });
+          const payload = ci?.payload as any;
+          const m = payload?.metrics;
+          const cards = payload?.cards;
+
+          // From check-in payload
+          const burnoutScore = m?.burnout?.score ?? null;
+          const trainingVolumeKg = m?.training?.totalVolumeKg ?? null;
+          const sessionsCompleted = m?.training?.sessionsCompleted ?? null;
+          const activeBodyAreas = (cards?.bodyStatus?.areas || []).filter((a: any) => a.status === "active" || a.status === "chronic").length || null;
+
+          // Fresh aggregates
+          const weekSteps = steps.filter((s: any) => inBucket(new Date(s.date), b));
+          // Average across 7 days of the week, treating un-logged days as 0
+          const avgSteps = weekSteps.length ? Math.round(weekSteps.reduce((a: number, s: any) => a + (s.steps || 0), 0) / 7) : null;
+
+          const weekExMins = exMins.filter((e: any) => inBucket(new Date(e.date), b));
+          const totalExerciseMinutes = weekExMins.length ? weekExMins.reduce((a: number, e: any) => a + (e.minutes || 0), 0) : null;
+
+          const weekWeights = weights.filter((w: any) => inBucket(new Date(w.date), b));
+          const latestWeightKg = weekWeights.length ? Number(weekWeights[weekWeights.length - 1].weight) : null;
+
+          // Always compute from raw entries for consistent sparkline (avoid mixing payload + raw sources)
+          const weekSleep = sleep.filter((s: any) => inBucket(new Date(s.date), b));
+          const avgSleepHours: number | null = weekSleep.length
+            ? Math.round((weekSleep.reduce((a: number, s: any) => a + (s.durationMinutes || 0), 0) / weekSleep.length / 60) * 10) / 10
+            : (cards?.lifestyle?.avgSleepHours ?? null);
+
+          const weekCompletions = completions.filter((c: any) => inBucket(new Date(c.completedDate), b));
+          const habitsCompletionPct = habitTargetPerWeek > 0
+            ? Math.min(100, Math.round((weekCompletions.length / habitTargetPerWeek) * 100))
+            : null;
+
+          return {
+            weekStart: b.weekStart.toISOString(),
+            weekEnd: b.weekEnd.toISOString(),
+            label: b.weekStart.toISOString().slice(5, 10).replace("-", "/"),
+            checkInId: ci?.id ?? null,
+            burnoutScore,
+            avgSleepHours,
+            trainingVolumeKg,
+            sessionsCompleted,
+            avgSteps,
+            totalExerciseMinutes,
+            bodyWeightKg: latestWeightKg,
+            habitsCompletionPct,
+            activeBodyAreas,
+          };
+        });
+
+        res.json({ weeks: trends });
+      } catch (error: any) {
+        console.error("Error fetching weekly check-in trends:", error?.message, error?.stack);
+        res.status(500).json({ message: "Failed to load trends" });
       }
     });
 

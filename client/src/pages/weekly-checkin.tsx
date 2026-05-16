@@ -427,7 +427,6 @@ const METRICS: MetricDef[] = [
   { key: "trainingVolumeKg", title: "Training volume", unit: "kg/week", icon: Dumbbell, format: (v) => v >= 1000 ? `${(v / 1000).toFixed(1)}k` : String(Math.round(v)) },
   { key: "habitsCompletionPct", title: "Habits", unit: "% completed", icon: Repeat2, format: (v) => `${Math.round(v)}%` },
   { key: "bodyWeightKg", title: "Body weight", unit: "kg", icon: ScanLine, format: (v) => v.toFixed(1) },
-  { key: "activeBodyAreas", title: "Active pain areas", unit: "this week", icon: Heart, format: (v) => String(Math.round(v)), inverse: true },
 ];
 
 function MiniSparkline({ values, color }: { values: (number | null)[]; color: string }) {

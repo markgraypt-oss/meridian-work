@@ -5,9 +5,8 @@ import { notify } from "./notifications";
 import { storage } from "./storage";
 import {
   getIsoWeekStart,
-  getOrCreateCurrentWeeklyCheckin,
+  getOrCreateCurrentWeeklyCheckinV2,
 } from "./weeklyCheckin";
-import type { WeeklyCheckinPayload } from "./weeklyCheckin";
 
 const TICK_INTERVAL_MS = 30 * 60 * 1000; // 30 minutes
 const SEND_HOUR_START = 7; // 07:00 server local
@@ -39,31 +38,48 @@ async function alreadyEmailedThisWeek(
 
 function composeEmail(
   firstName: string | null,
-  payload: WeeklyCheckinPayload,
+  payload: any,
 ): { title: string; body: string } {
   const name = firstName ? firstName : "there";
-  const wins = payload.summary?.wins ?? [];
-  const concerns = payload.summary?.concerns ?? [];
-  const traj = payload.summary?.burnoutTrajectory ?? "";
-
   const lines: string[] = [];
   lines.push(`Hi ${name}, here's your weekly review.`);
   lines.push("");
-  if (traj) {
-    lines.push(traj);
-    lines.push("");
+
+  if (payload?._v === 2) {
+    // V2 payload
+    const hero: string = payload.hero ?? "";
+    const patterns: string[] = payload.cards?.patterns?.bulletPoints ?? [];
+    if (hero) {
+      lines.push(hero);
+      lines.push("");
+    }
+    if (patterns.length > 0) {
+      lines.push("Patterns we noticed:");
+      for (const p of patterns.slice(0, 3)) lines.push(`• ${p}`);
+      lines.push("");
+    }
+  } else {
+    // V1 payload fallback
+    const wins: string[] = payload?.summary?.wins ?? [];
+    const concerns: string[] = payload?.summary?.concerns ?? [];
+    const traj: string = payload?.summary?.burnoutTrajectory ?? "";
+    if (traj) {
+      lines.push(traj);
+      lines.push("");
+    }
+    if (wins.length > 0) {
+      lines.push("Wins this week:");
+      for (const w of wins.slice(0, 3)) lines.push(`• ${w}`);
+      lines.push("");
+    }
+    if (concerns.length > 0) {
+      lines.push("Worth watching:");
+      for (const c of concerns.slice(0, 3)) lines.push(`• ${c}`);
+      lines.push("");
+    }
   }
-  if (wins.length > 0) {
-    lines.push("Wins this week:");
-    for (const w of wins.slice(0, 3)) lines.push(`• ${w}`);
-    lines.push("");
-  }
-  if (concerns.length > 0) {
-    lines.push("Worth watching:");
-    for (const c of concerns.slice(0, 3)) lines.push(`• ${c}`);
-    lines.push("");
-  }
-  lines.push("Open your dashboard to see suggestions and full details.");
+
+  lines.push("Open your dashboard to see your full weekly summary.");
 
   return {
     title: "Your weekly check-in is ready",
@@ -78,10 +94,10 @@ async function dispatchForUser(
 ): Promise<"sent" | "skipped" | "error"> {
   if (await alreadyEmailedThisWeek(userId, weekStart)) return "skipped";
 
-  let payload: WeeklyCheckinPayload;
+  let payload: any;
   try {
-    const checkin = await getOrCreateCurrentWeeklyCheckin(userId);
-    payload = checkin.payload as WeeklyCheckinPayload;
+    const checkin = await getOrCreateCurrentWeeklyCheckinV2(userId);
+    payload = checkin.payload;
   } catch (e) {
     console.error(`[weekly-checkin-scheduler] generate failed for ${userId}:`, e);
     return "error";
@@ -105,17 +121,9 @@ async function dispatchForUser(
     });
     const delivered =
       result.channels.inApp || result.channels.email || result.channels.push;
-    // If nothing was delivered (user opted out of all coach channels, or quiet
-    // hours / daily cap blocked fan-out, or push isn't configured) don't write
-    // a dedupe marker — we want to retry on a later tick in the same window
-    // in case prefs change. Skipping permanent opt-outs is fine: notify() will
-    // still no-op next tick.
     if (!delivered) {
       return "skipped";
     }
-    // notify() writes the in-app row when inAppCoach is on. If only email/push
-    // delivered we still need a marker row so alreadyEmailedThisWeek() returns
-    // true on the next tick. Hidden rows are filtered from the bell.
     if (!result.notification) {
       try {
         await db.insert(notifications).values({
@@ -150,10 +158,6 @@ async function tick(): Promise<void> {
 
     const weekStart = getIsoWeekStart(now);
 
-    // "Active user" predicate: has logged in at least once and has an email
-    // address we can deliver to. This excludes invited-but-unactivated users
-    // and seed/system rows. Per-channel preferences (handled by notify())
-    // further refine who actually receives an email/push.
     const rows = await db
       .select({ id: users.id, firstName: users.firstName })
       .from(users)
@@ -181,7 +185,6 @@ async function tick(): Promise<void> {
 export function startWeeklyCheckinScheduler(): void {
   if (started) return;
   started = true;
-  // First tick after 2m so we don't compete with boot work; then every 30m.
   setTimeout(() => {
     tick().catch(() => {});
     setInterval(() => tick().catch(() => {}), TICK_INTERVAL_MS);
@@ -191,7 +194,6 @@ export function startWeeklyCheckinScheduler(): void {
   );
 }
 
-// Exposed for admin/test triggers.
 export async function runWeeklyCheckinForUserNow(userId: string): Promise<void> {
   const user = await storage.getUser(userId);
   if (!user) return;

@@ -20615,12 +20615,25 @@ RULES:
       getOrCreateCurrentWeeklyCheckin,
       generateWeeklyCheckinPayload,
       getIsoWeekStart,
+      getOrCreateCurrentWeeklyCheckinV2,
     } = await import("./weeklyCheckin");
+
+    // V2 endpoint — used by the new weekly check-in UI (clean API, mobile-consumable later)
+    app.get("/api/weekly-checkins/v2/current", isAuthenticated, async (req: any, res) => {
+      try {
+        const userId = req.user.claims.sub;
+        const weekly = await getOrCreateCurrentWeeklyCheckinV2(userId);
+        res.json(weekly);
+      } catch (error: any) {
+        console.error("Error fetching v2 weekly check-in:", error?.message);
+        res.status(500).json({ message: "Failed to load weekly check-in" });
+      }
+    });
 
     app.get("/api/weekly-checkins/current", isAuthenticated, async (req: any, res) => {
       try {
         const userId = req.user.claims.sub;
-        const weekly = await getOrCreateCurrentWeeklyCheckin(userId);
+        const weekly = await getOrCreateCurrentWeeklyCheckinV2(userId);
         res.json(weekly);
       } catch (error: any) {
         console.error("Error fetching current weekly check-in:", error?.message);

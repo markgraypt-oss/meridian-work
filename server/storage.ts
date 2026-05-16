@@ -650,6 +650,7 @@ export interface IStorage {
   getUserWeeklyCheckins(userId: string, limit?: number): Promise<WeeklyCheckin[]>;
   createWeeklyCheckin(checkIn: InsertWeeklyCheckin): Promise<WeeklyCheckin>;
   updateWeeklyCheckinSuggestions(id: number, accepted: string[], dismissed: string[]): Promise<WeeklyCheckin>;
+  updateWeeklyCheckinPayload(id: number, payload: any): Promise<WeeklyCheckin>;
 
   // Body map operations
   getBodyMapLogs(userId: string): Promise<BodyMapLog[]>;
@@ -12141,6 +12142,14 @@ export class DatabaseStorage implements IStorage {
   async updateWeeklyCheckinSuggestions(id: number, accepted: string[], dismissed: string[]): Promise<WeeklyCheckin> {
     const [updated] = await db.update(weeklyCheckins)
       .set({ acceptedSuggestions: accepted, dismissedSuggestions: dismissed })
+      .where(eq(weeklyCheckins.id, id))
+      .returning();
+    return updated;
+  }
+
+  async updateWeeklyCheckinPayload(id: number, payload: any): Promise<WeeklyCheckin> {
+    const [updated] = await db.update(weeklyCheckins)
+      .set({ payload })
       .where(eq(weeklyCheckins.id, id))
       .returning();
     return updated;

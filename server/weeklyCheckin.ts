@@ -135,7 +135,7 @@ interface V2AggData {
   };
 }
 
-async function aggregateWeekV2(userId: string, weekStart: Date): Promise<V2AggData> {
+export async function aggregateWeekV2(userId: string, weekStart: Date): Promise<V2AggData> {
   const weekEnd = new Date(weekStart);
   weekEnd.setUTCDate(weekEnd.getUTCDate() + 7);
   const prevWeekStart = getPreviousIsoWeekStart(weekStart);

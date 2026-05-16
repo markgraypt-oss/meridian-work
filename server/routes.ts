@@ -20799,6 +20799,17 @@ RULES:
   // NOT reachable in production (hard gated)
   // ============================================
   if (process.env.NODE_ENV !== "production") {
+    app.get("/api/dev/weekly-checkin-retry-test", async (_req: any, res) => {
+      try {
+        const { runRetryIntegrationTest } = await import("./weeklyCheckinDevTest");
+        const report = await runRetryIntegrationTest();
+        res.json(report);
+      } catch (err: any) {
+        console.error("[dev/weekly-checkin-retry-test] error:", err?.message);
+        res.status(500).json({ message: err?.message || "Retry test failed" });
+      }
+    });
+
     app.post("/api/dev/weekly-checkin-test", isAuthenticated, async (req: any, res) => {
       try {
         const { buildSyntheticPayloadV2 } = await import("./weeklyCheckinDevTest");

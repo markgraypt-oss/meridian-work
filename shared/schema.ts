@@ -2143,6 +2143,13 @@ export type InsertCaloricBurnEntry = typeof caloricBurnEntries.$inferInsert;
 export type ExerciseMinutesEntry = typeof exerciseMinutesEntries.$inferSelect;
 export type InsertExerciseMinutesEntry = typeof exerciseMinutesEntries.$inferInsert;
 
+// Unified display types: manual entry merged with wearable data at read time.
+// source tells the frontend whether the value came from a wearable or was self-logged.
+export type SleepEntryWithSource = SleepEntry & { source: "wearable" | "manual" };
+export type StepEntryWithSource = StepEntry & { source: "wearable" | "manual" };
+export type RestingHREntryWithSource = RestingHREntry & { source: "wearable" | "manual" };
+export type ExerciseMinutesEntryWithSource = ExerciseMinutesEntry & { source: "wearable" | "manual" };
+
 export const insertBodyweightEntrySchema = createInsertSchema(bodyweightEntries).omit({ id: true, createdAt: true });
 export const insertBodyMeasurementSchema = createInsertSchema(bodyMeasurements).omit({ id: true, createdAt: true });
 export const insertProgressPictureSchema = createInsertSchema(progressPictures).omit({ id: true, createdAt: true });

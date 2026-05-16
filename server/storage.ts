@@ -281,6 +281,12 @@ import {
   type InsertCaloricBurnEntry,
   type ExerciseMinutesEntry,
   type InsertExerciseMinutesEntry,
+  wearableMetricsDaily,
+  type WearableMetricsDaily,
+  type SleepEntryWithSource,
+  type StepEntryWithSource,
+  type RestingHREntryWithSource,
+  type ExerciseMinutesEntryWithSource,
   breathTechniques,
   breathWorkSessionLogs,
   customBreathRoutines,
@@ -9173,7 +9179,63 @@ export class DatabaseStorage implements IStorage {
   // PROGRESS TRACKING - Sleep
   // ============================================
 
-  async getSleepEntries(userId: string, limit?: number): Promise<SleepEntry[]> {
+  /**
+   * Read-time merge of wearable metrics and manual sleep entries.
+   * Wearable data wins per day when present; manual entries fill gaps.
+   * Each returned entry carries source: "wearable" | "manual".
+   */
+  async getSleepEntries(userId: string, limit?: number): Promise<SleepEntryWithSource[]> {
+    const manual = await db
+      .select()
+      .from(sleepEntries)
+      .where(eq(sleepEntries.userId, userId))
+      .orderBy(desc(sleepEntries.date));
+
+    const wearRows = await db
+      .select()
+      .from(wearableMetricsDaily)
+      .where(and(eq(wearableMetricsDaily.userId, userId), sql`${wearableMetricsDaily.sleepMinutes} IS NOT NULL`))
+      .orderBy(desc(wearableMetricsDaily.date));
+
+    const byDate = new Map<string, SleepEntryWithSource>();
+
+    for (const w of wearRows) {
+      const d = w.date;
+      byDate.set(d, {
+        id: 0, userId: w.userId,
+        date: new Date(`${d}T00:00:00Z`),
+        durationMinutes: w.sleepMinutes ?? 0,
+        quality: null,
+        bedTime: null,
+        wakeTime: null,
+        deepSleepMinutes: w.sleepDeepMinutes ?? null,
+        lightSleepMinutes: w.sleepLightMinutes ?? null,
+        remSleepMinutes: w.sleepRemMinutes ?? null,
+        awakeMinutes: w.sleepAwakeMinutes ?? null,
+        sleepScore: w.sleepScore ?? null,
+        notes: null,
+        createdAt: w.createdAt,
+        source: "wearable",
+      } as SleepEntryWithSource);
+    }
+
+    for (const m of manual) {
+      const d = m.date.toISOString().slice(0, 10);
+      if (!byDate.has(d)) {
+        byDate.set(d, { ...m, source: "manual" });
+      }
+    }
+
+    const merged = Array.from(byDate.values()).sort((a, b) => {
+      return new Date(b.date).getTime() - new Date(a.date).getTime();
+    });
+
+    if (limit) return merged.slice(0, limit);
+    return merged;
+  }
+
+  /** Legacy raw manual sleep entries (kept for write paths). */
+  async getSleepEntriesRaw(userId: string, limit?: number): Promise<SleepEntry[]> {
     const query = db
       .select()
       .from(sleepEntries)
@@ -9204,13 +9266,62 @@ export class DatabaseStorage implements IStorage {
   // PROGRESS TRACKING - Steps
   // ============================================
 
-  async getStepEntries(userId: string, limit?: number): Promise<StepEntry[]> {
+  /**
+   * Read-time merge of wearable metrics and manual step entries.
+   * Wearable data wins per day when present; manual entries fill gaps.
+   */
+  async getStepEntries(userId: string, limit?: number): Promise<StepEntryWithSource[]> {
+    const manual = await db
+      .select()
+      .from(stepEntries)
+      .where(eq(stepEntries.userId, userId))
+      .orderBy(desc(stepEntries.date));
+
+    const wearRows = await db
+      .select()
+      .from(wearableMetricsDaily)
+      .where(and(eq(wearableMetricsDaily.userId, userId), sql`${wearableMetricsDaily.steps} IS NOT NULL`))
+      .orderBy(desc(wearableMetricsDaily.date));
+
+    const byDate = new Map<string, StepEntryWithSource>();
+
+    for (const w of wearRows) {
+      const d = w.date;
+      byDate.set(d, {
+        id: 0, userId: w.userId,
+        date: new Date(`${d}T00:00:00Z`),
+        steps: w.steps ?? 0,
+        distance: null,
+        activeMinutes: w.activeMinutes ?? null,
+        notes: null,
+        createdAt: w.createdAt,
+        source: "wearable",
+      } as StepEntryWithSource);
+    }
+
+    for (const m of manual) {
+      const d = m.date.toISOString().slice(0, 10);
+      if (!byDate.has(d)) {
+        byDate.set(d, { ...m, source: "manual" });
+      }
+    }
+
+    const merged = Array.from(byDate.values()).sort((a, b) => {
+      return new Date(b.date).getTime() - new Date(a.date).getTime();
+    });
+
+    if (limit) return merged.slice(0, limit);
+    return merged;
+  }
+
+  /** Legacy raw manual step entries (kept for write paths). */
+  async getStepEntriesRaw(userId: string, limit?: number): Promise<StepEntry[]> {
     const query = db
       .select()
       .from(stepEntries)
       .where(eq(stepEntries.userId, userId))
       .orderBy(desc(stepEntries.date));
-    
+
     if (limit) {
       return query.limit(limit);
     }
@@ -9374,13 +9485,60 @@ export class DatabaseStorage implements IStorage {
   // PROGRESS TRACKING - Resting Heart Rate
   // ============================================
 
-  async getRestingHREntries(userId: string, limit?: number): Promise<RestingHREntry[]> {
+  /**
+   * Read-time merge of wearable metrics and manual resting HR entries.
+   * Wearable data wins per day when present; manual entries fill gaps.
+   */
+  async getRestingHREntries(userId: string, limit?: number): Promise<RestingHREntryWithSource[]> {
+    const manual = await db
+      .select()
+      .from(restingHREntries)
+      .where(eq(restingHREntries.userId, userId))
+      .orderBy(desc(restingHREntries.date));
+
+    const wearRows = await db
+      .select()
+      .from(wearableMetricsDaily)
+      .where(and(eq(wearableMetricsDaily.userId, userId), sql`${wearableMetricsDaily.restingHrBpm} IS NOT NULL`))
+      .orderBy(desc(wearableMetricsDaily.date));
+
+    const byDate = new Map<string, RestingHREntryWithSource>();
+
+    for (const w of wearRows) {
+      const d = w.date;
+      byDate.set(d, {
+        id: 0, userId: w.userId,
+        date: new Date(`${d}T00:00:00Z`),
+        bpm: w.restingHrBpm ?? 0,
+        notes: null,
+        createdAt: w.createdAt,
+        source: "wearable",
+      } as RestingHREntryWithSource);
+    }
+
+    for (const m of manual) {
+      const d = m.date.toISOString().slice(0, 10);
+      if (!byDate.has(d)) {
+        byDate.set(d, { ...m, source: "manual" });
+      }
+    }
+
+    const merged = Array.from(byDate.values()).sort((a, b) => {
+      return new Date(b.date).getTime() - new Date(a.date).getTime();
+    });
+
+    if (limit) return merged.slice(0, limit);
+    return merged;
+  }
+
+  /** Legacy raw manual resting HR entries (kept for write paths). */
+  async getRestingHREntriesRaw(userId: string, limit?: number): Promise<RestingHREntry[]> {
     const query = db
       .select()
       .from(restingHREntries)
       .where(eq(restingHREntries.userId, userId))
       .orderBy(desc(restingHREntries.date));
-    
+
     if (limit) {
       return query.limit(limit);
     }
@@ -9556,13 +9714,60 @@ export class DatabaseStorage implements IStorage {
   // EXERCISE MINUTES
   // ============================================
 
-  async getExerciseMinutesEntries(userId: string, limit?: number): Promise<ExerciseMinutesEntry[]> {
+  /**
+   * Read-time merge of wearable metrics and manual exercise-minutes entries.
+   * Wearable data wins per day when present; manual entries fill gaps.
+   */
+  async getExerciseMinutesEntries(userId: string, limit?: number): Promise<ExerciseMinutesEntryWithSource[]> {
+    const manual = await db
+      .select()
+      .from(exerciseMinutesEntries)
+      .where(eq(exerciseMinutesEntries.userId, userId))
+      .orderBy(desc(exerciseMinutesEntries.date));
+
+    const wearRows = await db
+      .select()
+      .from(wearableMetricsDaily)
+      .where(and(eq(wearableMetricsDaily.userId, userId), sql`${wearableMetricsDaily.activeMinutes} IS NOT NULL`))
+      .orderBy(desc(wearableMetricsDaily.date));
+
+    const byDate = new Map<string, ExerciseMinutesEntryWithSource>();
+
+    for (const w of wearRows) {
+      const d = w.date;
+      byDate.set(d, {
+        id: 0, userId: w.userId,
+        date: new Date(`${d}T00:00:00Z`),
+        minutes: w.activeMinutes ?? 0,
+        notes: null,
+        createdAt: w.createdAt,
+        source: "wearable",
+      } as ExerciseMinutesEntryWithSource);
+    }
+
+    for (const m of manual) {
+      const d = m.date.toISOString().slice(0, 10);
+      if (!byDate.has(d)) {
+        byDate.set(d, { ...m, source: "manual" });
+      }
+    }
+
+    const merged = Array.from(byDate.values()).sort((a, b) => {
+      return new Date(b.date).getTime() - new Date(a.date).getTime();
+    });
+
+    if (limit) return merged.slice(0, limit);
+    return merged;
+  }
+
+  /** Legacy raw manual exercise-minutes entries (kept for write paths). */
+  async getExerciseMinutesEntriesRaw(userId: string, limit?: number): Promise<ExerciseMinutesEntry[]> {
     const query = db
       .select()
       .from(exerciseMinutesEntries)
       .where(eq(exerciseMinutesEntries.userId, userId))
       .orderBy(desc(exerciseMinutesEntries.date));
-    
+
     if (limit) {
       return query.limit(limit);
     }

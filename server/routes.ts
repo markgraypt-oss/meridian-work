@@ -2581,6 +2581,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         intervalTenSecondWarning: user.intervalTenSecondWarning ?? true,
         intervalBeepsEnabled: user.intervalBeepsEnabled ?? true,
         breathworkCueStyle: user.breathworkCueStyle || "inhale_exhale",
+        dismissedWeeklyCheckinId: user.dismissedWeeklyCheckinId ?? null,
       });
     } catch (error) {
       console.error("Get preferences error:", error);
@@ -2602,6 +2603,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     intervalTenSecondWarning: z.boolean().optional(),
     intervalBeepsEnabled: z.boolean().optional(),
     breathworkCueStyle: z.enum(["inhale_exhale", "in_out", "breathe_in_out", "silent"]).optional(),
+    dismissedWeeklyCheckinId: z.number().int().nullable().optional(),
   });
 
   app.patch('/api/user/preferences', isAuthenticated, async (req: any, res) => {
@@ -2626,6 +2628,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       if (parsed.data.intervalTenSecondWarning !== undefined) updates.intervalTenSecondWarning = parsed.data.intervalTenSecondWarning;
       if (parsed.data.intervalBeepsEnabled !== undefined) updates.intervalBeepsEnabled = parsed.data.intervalBeepsEnabled;
       if (parsed.data.breathworkCueStyle !== undefined) updates.breathworkCueStyle = parsed.data.breathworkCueStyle;
+      if (parsed.data.dismissedWeeklyCheckinId !== undefined) updates.dismissedWeeklyCheckinId = parsed.data.dismissedWeeklyCheckinId;
       
       await storage.updateUser(userId, updates);
       const updatedUser = await storage.getUser(userId);
@@ -2643,6 +2646,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         intervalTenSecondWarning: updatedUser?.intervalTenSecondWarning ?? true,
         intervalBeepsEnabled: updatedUser?.intervalBeepsEnabled ?? true,
         breathworkCueStyle: updatedUser?.breathworkCueStyle || "inhale_exhale",
+        dismissedWeeklyCheckinId: updatedUser?.dismissedWeeklyCheckinId ?? null,
       });
     } catch (error) {
       console.error("Update preferences error:", error);

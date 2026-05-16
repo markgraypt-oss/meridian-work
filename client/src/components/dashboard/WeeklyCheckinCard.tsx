@@ -1,9 +1,12 @@
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useMutation } from "@tanstack/react-query";
 import { useLocation } from "wouter";
 import { Card } from "@/components/ui/card";
-import { Sparkles, ChevronRight, TrendingUp, TrendingDown, Minus, Activity } from "lucide-react";
+import { Sparkles, ChevronRight, TrendingUp, TrendingDown, Minus, Activity, X } from "lucide-react";
 import { format } from "date-fns";
 import type { WeeklyCheckin } from "@shared/schema";
+import { useUserPreferences } from "@/contexts/UserPreferencesContext";
+import { queryClient, apiRequest } from "@/lib/queryClient";
+import { useToast } from "@/hooks/use-toast";
 
 type TrajectoryLabel = "holding steady" | "trending up" | "declining" | "not enough data";
 
@@ -46,13 +49,26 @@ const trajectoryIcons: Record<TrajectoryLabel, React.FC<any>> = {
 
 export default function WeeklyCheckinCard() {
   const [, navigate] = useLocation();
+  const { preferences } = useUserPreferences();
+  const { toast } = useToast();
   const { data, isLoading } = useQuery<WeeklyCheckin[]>({
     queryKey: ["/api/weekly-checkins"],
   });
 
+  const dismissMutation = useMutation({
+    mutationFn: async (checkinId: number) => {
+      return apiRequest("PATCH", "/api/user/preferences", {
+        dismissedWeeklyCheckinId: checkinId,
+      });
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/user/preferences"] });
+      toast({ title: "Weekly check-in dismissed" });
+    },
+  });
+
   if (isLoading || !data || data.length === 0) return null;
 
-  // Only show check-ins for completed weeks (previous weeks, not current)
   const now = new Date();
   const completedCheckins = data.filter((checkin) => {
     const weekStart = new Date(checkin.weekStart);
@@ -64,6 +80,10 @@ export default function WeeklyCheckinCard() {
   if (completedCheckins.length === 0) return null;
 
   const latest = completedCheckins[0];
+
+  // Hide if user has dismissed this specific weekly check-in
+  if (latest.id === preferences.dismissedWeeklyCheckinId) return null;
+
   const payload = latest.payload as any;
 
   if (isV2(payload)) {
@@ -72,7 +92,7 @@ export default function WeeklyCheckinCard() {
     const TrajIcon = trajectoryIcons[traj] ?? Activity;
     return (
       <Card
-        className="p-4 flex items-start justify-between hover:bg-foreground/5 active:bg-foreground/10 transition-colors cursor-pointer border-2 border-[#0cc9a9]/30"
+        className="p-4 flex items-start justify-between hover:bg-foreground/5 active:bg-foreground/10 transition-colors cursor-pointer border-2 border-[#0cc9a9]/30 relative group"
         onClick={() => navigate(`/weekly-checkin/${latest.id}`)}
         data-testid="card-weekly-checkin"
       >
@@ -92,7 +112,20 @@ export default function WeeklyCheckinCard() {
             </span>
           </div>
         </div>
-        <ChevronRight className="h-5 w-5 text-muted-foreground ml-4 flex-shrink-0 mt-0.5" />
+        <div className="flex flex-col items-end gap-2 ml-4 flex-shrink-0">
+          <button
+            className="opacity-0 group-hover:opacity-100 transition-opacity p-1 rounded hover:bg-foreground/10 text-muted-foreground"
+            onClick={(e) => {
+              e.stopPropagation();
+              dismissMutation.mutate(latest.id);
+            }}
+            aria-label="Dismiss weekly check-in"
+            title="Dismiss"
+          >
+            <X className="h-4 w-4" />
+          </button>
+          <ChevronRight className="h-5 w-5 text-muted-foreground mt-0.5" />
+        </div>
       </Card>
     );
   }
@@ -108,7 +141,7 @@ export default function WeeklyCheckinCard() {
 
   return (
     <Card
-      className="p-4 flex items-start justify-between hover:bg-foreground/5 active:bg-foreground/10 transition-colors cursor-pointer border-2 border-[#0cc9a9]/30"
+      className="p-4 flex items-start justify-between hover:bg-foreground/5 active:bg-foreground/10 transition-colors cursor-pointer border-2 border-[#0cc9a9]/30 relative group"
       onClick={() => navigate(`/weekly-checkin/${latest.id}`)}
       data-testid="card-weekly-checkin"
     >
@@ -136,7 +169,20 @@ export default function WeeklyCheckinCard() {
           )}
         </div>
       </div>
-      <ChevronRight className="h-5 w-5 text-muted-foreground ml-4 flex-shrink-0 mt-0.5" />
+      <div className="flex flex-col items-end gap-2 ml-4 flex-shrink-0">
+        <button
+          className="opacity-0 group-hover:opacity-100 transition-opacity p-1 rounded hover:bg-foreground/10 text-muted-foreground"
+          onClick={(e) => {
+            e.stopPropagation();
+            dismissMutation.mutate(latest.id);
+          }}
+          aria-label="Dismiss weekly check-in"
+          title="Dismiss"
+        >
+          <X className="h-4 w-4" />
+        </button>
+        <ChevronRight className="h-5 w-5 text-muted-foreground mt-0.5" />
+      </div>
     </Card>
   );
 }

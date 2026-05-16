@@ -63,6 +63,7 @@ export const users = pgTable("users", {
   onboardingStep: integer("onboarding_step").default(0),
   onboardingData: jsonb("onboarding_data"),
   movementScreeningFlags: jsonb("movement_screening_flags"),
+  dismissedWeeklyCheckinId: integer("dismissed_weekly_checkin_id"),
   firstLoginAt: timestamp("first_login_at"),
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow(),

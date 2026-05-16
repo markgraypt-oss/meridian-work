@@ -9,6 +9,7 @@ export interface UserPreferences {
   dateFormat: "DD/MM/YYYY" | "MM/DD/YYYY" | "YYYY-MM-DD";
   restTimerSounds: boolean;
   countdownBeeps: boolean;
+  dismissedWeeklyCheckinId: number | null;
 }
 
 const defaultPreferences: UserPreferences = {
@@ -18,6 +19,7 @@ const defaultPreferences: UserPreferences = {
   dateFormat: "DD/MM/YYYY",
   restTimerSounds: true,
   countdownBeeps: true,
+  dismissedWeeklyCheckinId: null,
 };
 
 interface UserPreferencesContextType {
@@ -45,6 +47,7 @@ export function UserPreferencesProvider({ children }: { children: ReactNode }) {
     dateFormat: data?.dateFormat || defaultPreferences.dateFormat,
     restTimerSounds: data?.restTimerSounds ?? defaultPreferences.restTimerSounds,
     countdownBeeps: data?.countdownBeeps ?? defaultPreferences.countdownBeeps,
+    dismissedWeeklyCheckinId: data?.dismissedWeeklyCheckinId ?? defaultPreferences.dismissedWeeklyCheckinId,
   };
 
   return (

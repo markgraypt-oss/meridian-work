@@ -556,6 +556,37 @@ export async function generateWeeklyCheckinPayloadV2(userId: string, weekStart: 
   };
 }
 
+/**
+ * Returns true if a stored payload is missing post-rebuild fields and should be regenerated.
+ * Triggers: older version, habits items missing weekDays array, or removed bodyStatus card present.
+ */
+export function isWeeklyCheckinPayloadStale(payload: any): boolean {
+  const habitsItems: any[] = Array.isArray(payload?.cards?.habits?.items) ? payload.cards.habits.items : [];
+  const habitsMissingWeekDays = habitsItems.some(
+    (h) => !Array.isArray(h?.weekDays) || h.weekDays.length !== 7,
+  );
+  const hasRemovedBodyStatus = payload?.cards?.bodyStatus !== undefined;
+  return payload?._v !== 3 || habitsMissingWeekDays || hasRemovedBodyStatus;
+}
+
+/**
+ * If the stored row's payload is stale, regenerate in place and return the updated row.
+ * Otherwise returns the row unchanged. Only regenerates rows for the CURRENT ISO week —
+ * past weeks are historical snapshots and should not be touched.
+ */
+export async function upgradeWeeklyCheckinIfStale(row: WeeklyCheckin): Promise<WeeklyCheckin> {
+  if (!isWeeklyCheckinPayloadStale(row.payload)) return row;
+  const currentWeekStart = getIsoWeekStart();
+  const rowWeekStart = new Date(row.weekStart);
+  if (rowWeekStart.getTime() !== currentWeekStart.getTime()) return row;
+  console.log(
+    `[weekly-checkin-v2] upgrading stale payload row ${row.id} for user ${row.userId} ` +
+      `(v=${(row.payload as any)?._v})`,
+  );
+  const newPayload = await generateWeeklyCheckinPayloadV2(row.userId, rowWeekStart);
+  return await storage.updateWeeklyCheckinPayload(row.id, newPayload);
+}
+
 export async function getOrCreateCurrentWeeklyCheckinV2(userId: string): Promise<WeeklyCheckin> {
   const weekStart = getIsoWeekStart();
   const existing = await storage.getWeeklyCheckin(userId, weekStart);
@@ -590,18 +621,9 @@ export async function getOrCreateCurrentWeeklyCheckinV2(userId: string): Promise
       }
     }
     // Regenerate stale payloads in place so they upgrade to current schema without losing row id/weekStart.
-    // Triggers: (a) older version number, (b) habits items missing the weekDays array (post-rebuild schema change),
-    // (c) presence of removed bodyStatus card (pre-cleanup payload).
-    const habitsItems: any[] = Array.isArray(p?.cards?.habits?.items) ? p.cards.habits.items : [];
-    const habitsMissingWeekDays = habitsItems.some(
-      (h) => !Array.isArray(h?.weekDays) || h.weekDays.length !== 7,
-    );
-    const hasRemovedBodyStatus = p?.cards?.bodyStatus !== undefined;
-    const isStale = p?._v !== 3 || habitsMissingWeekDays || hasRemovedBodyStatus;
-    if (isStale) {
+    if (isWeeklyCheckinPayloadStale(p)) {
       console.log(
-        `[weekly-checkin-v2] upgrading stale payload row ${existing.id} for user ${userId} ` +
-          `(v=${p?._v}, habitsMissingWeekDays=${habitsMissingWeekDays}, hasRemovedBodyStatus=${hasRemovedBodyStatus})`,
+        `[weekly-checkin-v2] upgrading stale payload row ${existing.id} for user ${userId} (v=${p?._v})`,
       );
       const newPayload = await generateWeeklyCheckinPayloadV2(userId, weekStart);
       const updated = await storage.updateWeeklyCheckinPayload(existing.id, newPayload);

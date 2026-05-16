@@ -20409,6 +20409,7 @@ RULES:
       generateWeeklyCheckinPayloadV2,
       getIsoWeekStart,
       getOrCreateCurrentWeeklyCheckinV2,
+      upgradeWeeklyCheckinIfStale,
     } = await import("./weeklyCheckin");
 
     // V2 endpoint — used by the new weekly check-in UI (clean API, mobile-consumable later)
@@ -20438,8 +20439,12 @@ RULES:
       try {
         const userId = req.user.claims.sub;
         const limit = Math.min(Number(req.query.limit) || 12, 52);
+        // Ensure the current week's row exists and is fresh before returning the list
+        await getOrCreateCurrentWeeklyCheckinV2(userId);
         const list = await storage.getUserWeeklyCheckins(userId, limit);
-        res.json(list);
+        // Upgrade any stale current-week row served via the list (no-op for past weeks)
+        const upgraded = await Promise.all(list.map((r) => upgradeWeeklyCheckinIfStale(r)));
+        res.json(upgraded);
       } catch (error: any) {
         console.error("Error fetching weekly check-ins:", error?.message);
         res.status(500).json({ message: "Failed to load weekly check-ins" });
@@ -20555,7 +20560,8 @@ RULES:
         const row = await storage.getWeeklyCheckinById(id);
         if (!row) return res.status(404).json({ message: "Not found" });
         if (row.userId !== userId) return res.status(403).json({ message: "Forbidden" });
-        res.json(row);
+        const upgraded = await upgradeWeeklyCheckinIfStale(row);
+        res.json(upgraded);
       } catch (error: any) {
         console.error("Error fetching weekly check-in:", error?.message);
         res.status(500).json({ message: "Failed to load weekly check-in" });

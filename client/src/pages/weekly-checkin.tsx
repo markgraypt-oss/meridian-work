@@ -455,7 +455,7 @@ function TrendsChart({ checkIns, onPointClick }: { checkIns: WeeklyCheckin[]; on
             label: format(new Date(weekStart), "d MMM"),
             trainingAdherence: m?.training?.adherencePct ?? null,
             nutritionAdherence: m?.nutrition?.targetDays > 0 ? Math.round((m.nutrition.daysWithMeals / m.nutrition.targetDays) * 100) : null,
-            avgMood: p.cards?.howYouFelt?.avgMood ? Math.round((p.cards.howYouFelt.avgMood / 5) * 100) : null,
+            avgMood: p.cards?.howYouFelt?.avgMood ? Math.round((p.cards.howYouFelt.avgMood / 10) * 100) : null,
           };
         }
         return {

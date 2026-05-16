@@ -589,9 +589,20 @@ export async function getOrCreateCurrentWeeklyCheckinV2(userId: string): Promise
         console.warn("[weekly-checkin-v2] retry narrative failed, returning cached fallback:", e?.message);
       }
     }
-    // Regenerate stale payloads (V1 or older V2 schemas) in place so they upgrade to current version without losing row id/weekStart
-    if (p?._v !== 3) {
-      console.log(`[weekly-checkin-v2] upgrading stale payload (v=${p?._v}) row ${existing.id} for user ${userId}`);
+    // Regenerate stale payloads in place so they upgrade to current schema without losing row id/weekStart.
+    // Triggers: (a) older version number, (b) habits items missing the weekDays array (post-rebuild schema change),
+    // (c) presence of removed bodyStatus card (pre-cleanup payload).
+    const habitsItems: any[] = Array.isArray(p?.cards?.habits?.items) ? p.cards.habits.items : [];
+    const habitsMissingWeekDays = habitsItems.some(
+      (h) => !Array.isArray(h?.weekDays) || h.weekDays.length !== 7,
+    );
+    const hasRemovedBodyStatus = p?.cards?.bodyStatus !== undefined;
+    const isStale = p?._v !== 3 || habitsMissingWeekDays || hasRemovedBodyStatus;
+    if (isStale) {
+      console.log(
+        `[weekly-checkin-v2] upgrading stale payload row ${existing.id} for user ${userId} ` +
+          `(v=${p?._v}, habitsMissingWeekDays=${habitsMissingWeekDays}, hasRemovedBodyStatus=${hasRemovedBodyStatus})`,
+      );
       const newPayload = await generateWeeklyCheckinPayloadV2(userId, weekStart);
       const updated = await storage.updateWeeklyCheckinPayload(existing.id, newPayload);
       return updated;

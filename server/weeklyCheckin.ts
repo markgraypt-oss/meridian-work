@@ -20,7 +20,7 @@ import type { WeeklyCheckin } from "@shared/schema";
 export type TrajectoryLabel = "holding steady" | "trending up" | "declining" | "not enough data";
 
 export interface WeeklyCheckinPayloadV2 {
-  _v: 2;
+  _v: 3;
   weekStart: string;
   weekEnd: string;
   hero: string;
@@ -538,7 +538,7 @@ export async function generateWeeklyCheckinPayloadV2(userId: string, weekStart: 
   const hero = isAI ? narrative : narrative;
 
   return {
-    _v: 2,
+    _v: 3,
     weekStart: weekStart.toISOString(),
     weekEnd: agg.weekEnd.toISOString(),
     hero,
@@ -563,7 +563,7 @@ export async function getOrCreateCurrentWeeklyCheckinV2(userId: string): Promise
   if (existing) {
     const p = existing.payload as any;
     // Retry: if stored payload is V2 with a fallback narrative, attempt Claude again
-    if (p?._v === 2 && p.cards?.patterns?.isAI === false) {
+    if (p?._v === 3 && p.cards?.patterns?.isAI === false) {
       try {
         const agg = await aggregateWeekV2(userId, weekStart);
         const result = await generatePatternsNarrative(agg.promptData, weekStart, agg.weekEnd, userId);
@@ -589,9 +589,9 @@ export async function getOrCreateCurrentWeeklyCheckinV2(userId: string): Promise
         console.warn("[weekly-checkin-v2] retry narrative failed, returning cached fallback:", e?.message);
       }
     }
-    // Regenerate stale V1 payloads in place so they upgrade to V2 without losing row id/weekStart
-    if (p?._v !== 2) {
-      console.log(`[weekly-checkin-v2] upgrading stale V1 row ${existing.id} for user ${userId}`);
+    // Regenerate stale payloads (V1 or older V2 schemas) in place so they upgrade to current version without losing row id/weekStart
+    if (p?._v !== 3) {
+      console.log(`[weekly-checkin-v2] upgrading stale payload (v=${p?._v}) row ${existing.id} for user ${userId}`);
       const newPayload = await generateWeeklyCheckinPayloadV2(userId, weekStart);
       const updated = await storage.updateWeeklyCheckinPayload(existing.id, newPayload);
       return updated;

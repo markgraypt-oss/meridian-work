@@ -11,7 +11,7 @@ import { useToast } from "@/hooks/use-toast";
 type TrajectoryLabel = "holding steady" | "trending up" | "declining" | "not enough data";
 
 interface V2Payload {
-  _v: 2;
+  _v: 3;
   weekStart: string;
   hero: string;
   trajectoryLabel: TrajectoryLabel;
@@ -30,7 +30,7 @@ interface V1Payload {
 }
 
 function isV2(p: any): p is V2Payload {
-  return p?._v === 2;
+  return p?._v === 3;
 }
 
 const trajectoryColors: Record<TrajectoryLabel, string> = {

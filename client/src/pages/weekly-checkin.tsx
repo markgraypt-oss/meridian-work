@@ -43,7 +43,7 @@ interface V2Cards {
 }
 
 interface V2Payload {
-  _v: 2;
+  _v: 3;
   weekStart: string;
   weekEnd: string;
   hero: string;
@@ -53,7 +53,7 @@ interface V2Payload {
 }
 
 function isV2(payload: any): payload is V2Payload {
-  return payload?._v === 2;
+  return payload?._v === 3;
 }
 
 // ─── Trajectory pill ──────────────────────────────────────────────────────────

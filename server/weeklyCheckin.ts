@@ -581,6 +581,13 @@ export async function getOrCreateCurrentWeeklyCheckinV2(userId: string): Promise
         console.warn("[weekly-checkin-v2] retry narrative failed, returning cached fallback:", e?.message);
       }
     }
+    // Regenerate stale V1 payloads in place so they upgrade to V2 without losing row id/weekStart
+    if (p?._v !== 2) {
+      console.log(`[weekly-checkin-v2] upgrading stale V1 row ${existing.id} for user ${userId}`);
+      const newPayload = await generateWeeklyCheckinPayloadV2(userId, weekStart);
+      const updated = await storage.updateWeeklyCheckinPayload(existing.id, newPayload);
+      return updated;
+    }
     return existing;
   }
 

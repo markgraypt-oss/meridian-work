@@ -15141,121 +15141,7 @@ Keep your response concise, practical, and evidence-based. Do not use em dashes.
     }
   });
 
-  app.post('/api/progress/steps', isAuthenticated, async (req: any, res) => {
-    try {
-      const userId = req.user.claims.sub;
-      const { date, steps, distance, activeMinutes, notes } = req.body;
-      
-      if (!date || steps === undefined) {
-        return res.status(400).json({ message: "Missing date or steps" });
-      }
-
-      const entry = await storage.createStepEntry({
-        userId,
-        date: new Date(date),
-        steps: parseInt(steps),
-        distance: distance ? parseFloat(distance) : null,
-        activeMinutes: activeMinutes ? parseInt(activeMinutes) : null,
-        notes,
-      });
-
-      // Auto-complete "Hit Your Step Count" habit if the target is met for today
-      try {
-        const todayStr = new Date().toISOString().split('T')[0];
-        const entryDateStr = new Date(date).toISOString().split('T')[0];
-        if (entryDateStr === todayStr) {
-          const userHabits = await storage.getHabits(userId);
-          // Find all active step habits (templateId=2) that have a stepTarget configured
-          const stepHabits = userHabits.filter(h => h.templateId === 2 && h.settings && (h.settings as any).stepTarget);
-          for (const stepHabit of stepHabits) {
-            const stepTarget = (stepHabit.settings as any).stepTarget as number;
-            const stepsLogged = typeof steps === 'number' ? steps : parseInt(steps);
-            console.log(`[Steps] Habit ${stepHabit.id}: target=${stepTarget} logged=${stepsLogged}`);
-            if (stepsLogged >= stepTarget) {
-              const completions = await storage.getHabitCompletions(stepHabit.id);
-              const alreadyCompleted = completions.some(c => {
-                return new Date(c.completedDate).toISOString().split('T')[0] === todayStr;
-              });
-              if (!alreadyCompleted) {
-                await storage.completeHabit(stepHabit.id, userId);
-                console.log(`[Steps] Auto-completed habit ${stepHabit.id} for user ${userId} (${stepsLogged}/${stepTarget} steps)`);
-              }
-            }
-          }
-        }
-      } catch (habitError) {
-        console.error("Error auto-completing step habit:", habitError);
-      }
-
-      res.status(201).json(entry);
-    } catch (error) {
-      console.error("Error creating step entry:", error);
-      res.status(500).json({ message: "Failed to create step entry" });
-    }
-  });
-
-  app.patch('/api/progress/steps/:id', isAuthenticated, async (req: any, res) => {
-    try {
-      const userId = req.user.claims.sub;
-      const id = parseInt(req.params.id);
-      const { steps, distance, activeMinutes, notes } = req.body;
-
-      const updateData: any = {};
-      if (steps !== undefined) updateData.steps = parseInt(steps);
-      if (distance !== undefined) updateData.distance = distance ? parseFloat(distance) : null;
-      if (activeMinutes !== undefined) updateData.activeMinutes = activeMinutes ? parseInt(activeMinutes) : null;
-      if (notes !== undefined) updateData.notes = notes;
-
-      const updated = await storage.updateStepEntry(id, userId, updateData);
-      if (!updated) return res.status(404).json({ message: "Entry not found" });
-
-      // Auto-complete step habit if the updated steps meet the target for today
-      if (steps !== undefined) {
-        try {
-          const todayStr = new Date().toISOString().split('T')[0];
-          const entryDateStr = new Date(updated.date).toISOString().split('T')[0];
-          if (entryDateStr === todayStr) {
-            const userHabits = await storage.getHabits(userId);
-            const stepHabits = userHabits.filter(h => h.templateId === 2 && h.settings && (h.settings as any).stepTarget);
-            for (const stepHabit of stepHabits) {
-              const stepTarget = (stepHabit.settings as any).stepTarget as number;
-              const stepsLogged = typeof steps === 'number' ? steps : parseInt(steps);
-              console.log(`[Steps PATCH] Habit ${stepHabit.id}: target=${stepTarget} logged=${stepsLogged}`);
-              if (stepsLogged >= stepTarget) {
-                const completions = await storage.getHabitCompletions(stepHabit.id);
-                const alreadyCompleted = completions.some(c => {
-                  return new Date(c.completedDate).toISOString().split('T')[0] === todayStr;
-                });
-                if (!alreadyCompleted) {
-                  await storage.completeHabit(stepHabit.id, userId);
-                  console.log(`[Steps PATCH] Auto-completed habit ${stepHabit.id} for user ${userId} (${stepsLogged}/${stepTarget} steps)`);
-                }
-              }
-            }
-          }
-        } catch (habitError) {
-          console.error("Error auto-completing step habit on PATCH:", habitError);
-        }
-      }
-
-      res.json(updated);
-    } catch (error) {
-      console.error("Error updating step entry:", error);
-      res.status(500).json({ message: "Failed to update step entry" });
-    }
-  });
-
-  app.delete('/api/progress/steps/:id', isAuthenticated, async (req: any, res) => {
-    try {
-      const userId = req.user.claims.sub;
-      const id = parseInt(req.params.id);
-      await storage.deleteStepEntry(id, userId);
-      res.status(204).send();
-    } catch (error) {
-      console.error("Error deleting step entry:", error);
-      res.status(500).json({ message: "Failed to delete step entry" });
-    }
-  });
+  // Note: manual POST/PATCH/DELETE for steps removed. Steps are device-sourced only.
 
   // Stress/Burnout Entries
   app.get('/api/progress/stress', isAuthenticated, async (req: any, res) => {
@@ -15410,39 +15296,7 @@ Keep your response concise, practical, and evidence-based. Do not use em dashes.
     }
   });
 
-  app.post('/api/progress/resting-hr', isAuthenticated, async (req: any, res) => {
-    try {
-      const userId = req.user.claims.sub;
-      const { date, bpm, notes } = req.body;
-      
-      if (!date || bpm === undefined) {
-        return res.status(400).json({ message: "Missing date or bpm" });
-      }
-
-      const entry = await storage.createRestingHREntry({
-        userId,
-        date: new Date(date),
-        bpm: parseInt(bpm),
-        notes,
-      });
-      res.status(201).json(entry);
-    } catch (error) {
-      console.error("Error creating resting HR entry:", error);
-      res.status(500).json({ message: "Failed to create resting HR entry" });
-    }
-  });
-
-  app.delete('/api/progress/resting-hr/:id', isAuthenticated, async (req: any, res) => {
-    try {
-      const userId = req.user.claims.sub;
-      const id = parseInt(req.params.id);
-      await storage.deleteRestingHREntry(id, userId);
-      res.status(204).send();
-    } catch (error) {
-      console.error("Error deleting resting HR entry:", error);
-      res.status(500).json({ message: "Failed to delete resting HR entry" });
-    }
-  });
+  // Note: manual POST/DELETE for resting-hr removed. Resting HR is device-sourced only.
 
   // ============================================
   // PROGRESS TRACKING - Blood Pressure
@@ -15629,39 +15483,7 @@ Keep your response concise, practical, and evidence-based. Do not use em dashes.
     }
   });
 
-  app.post('/api/progress/caloric-burn', isAuthenticated, async (req: any, res) => {
-    try {
-      const userId = req.user.claims.sub;
-      const { date, calories, notes } = req.body;
-      
-      if (!date || calories === undefined) {
-        return res.status(400).json({ message: "Missing date or calories" });
-      }
-
-      const entry = await storage.createCaloricBurnEntry({
-        userId,
-        date: new Date(date),
-        calories: parseInt(calories),
-        notes,
-      });
-      res.status(201).json(entry);
-    } catch (error) {
-      console.error("Error creating caloric burn entry:", error);
-      res.status(500).json({ message: "Failed to create caloric burn entry" });
-    }
-  });
-
-  app.delete('/api/progress/caloric-burn/:id', isAuthenticated, async (req: any, res) => {
-    try {
-      const userId = req.user.claims.sub;
-      const id = parseInt(req.params.id);
-      await storage.deleteCaloricBurnEntry(id, userId);
-      res.status(204).send();
-    } catch (error) {
-      console.error("Error deleting caloric burn entry:", error);
-      res.status(500).json({ message: "Failed to delete caloric burn entry" });
-    }
-  });
+  // Note: manual POST/DELETE for caloric-burn removed. Caloric burn is device-sourced only.
 
   // Exercise Minutes
   app.get('/api/progress/exercise-minutes', isAuthenticated, async (req: any, res) => {
@@ -15675,39 +15497,7 @@ Keep your response concise, practical, and evidence-based. Do not use em dashes.
     }
   });
 
-  app.post('/api/progress/exercise-minutes', isAuthenticated, async (req: any, res) => {
-    try {
-      const userId = req.user.claims.sub;
-      const { date, minutes, notes } = req.body;
-      
-      if (!date || minutes === undefined) {
-        return res.status(400).json({ message: "Missing date or minutes" });
-      }
-
-      const entry = await storage.createExerciseMinutesEntry({
-        userId,
-        date: new Date(date),
-        minutes: parseInt(minutes),
-        notes,
-      });
-      res.status(201).json(entry);
-    } catch (error) {
-      console.error("Error creating exercise minutes entry:", error);
-      res.status(500).json({ message: "Failed to create exercise minutes entry" });
-    }
-  });
-
-  app.delete('/api/progress/exercise-minutes/:id', isAuthenticated, async (req: any, res) => {
-    try {
-      const userId = req.user.claims.sub;
-      const id = parseInt(req.params.id);
-      await storage.deleteExerciseMinutesEntry(id, userId);
-      res.status(204).send();
-    } catch (error) {
-      console.error("Error deleting exercise minutes entry:", error);
-      res.status(500).json({ message: "Failed to delete exercise minutes entry" });
-    }
-  });
+  // Note: manual POST/DELETE for exercise-minutes removed. Exercise minutes are device-sourced only.
 
   // ============================================
   // BREATH WORK - Techniques

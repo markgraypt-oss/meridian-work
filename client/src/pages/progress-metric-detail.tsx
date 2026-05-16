@@ -1652,7 +1652,7 @@ export default function ProgressMetricDetail() {
                 <ChevronUp className={`w-4 h-4 text-foreground transition-transform ${showDropdown ? '' : 'rotate-180'}`} />
               </button>
             )}
-            {metricKey === "caloricIntake" || metricKey === "hydration" || metricKey === "sleep" ? (
+            {metricKey === "caloricIntake" || metricKey === "hydration" || metricKey === "sleep" || metricKey === "steps" || metricKey === "restingHR" || metricKey === "caloricBurn" || metricKey === "exerciseMinutes" ? (
               <div style={{ width: '50px' }} />
             ) : (
               <Button
@@ -2607,12 +2607,14 @@ export default function ProgressMetricDetail() {
                         const measurementMetrics = ["neck", "chest", "shoulder", "leftBicep", "rightBicep", "leftForearm", "rightForearm", "waist", "hips", "leftThigh", "rightThigh", "leftCalf", "rightCalf"];
                         const isMeasurement = measurementMetrics.includes(metricKey);
                         const hasDetailPage = metricKey === "bodyWeight" || metricKey === "bodyFat" || isMeasurement;
+                        const deviceSourcedMetrics: MetricKey[] = ["steps", "restingHR", "caloricBurn", "exerciseMinutes"];
+                        const isDeviceSourced = deviceSourcedMetrics.includes(metricKey);
                         return (
-                          <div 
-                            key={entry.id} 
-                            className={`py-3 flex items-center justify-between border-b border-border transition-colors ${metricKey === "hydration" ? "" : "cursor-pointer hover:bg-muted/30"}`}
+                          <div
+                            key={entry.id}
+                            className={`py-3 flex items-center justify-between border-b border-border transition-colors ${metricKey === "hydration" || isDeviceSourced ? "" : "cursor-pointer hover:bg-muted/30"}`}
                             onClick={() => {
-                              if (metricKey === "hydration") {
+                              if (metricKey === "hydration" || isDeviceSourced) {
                                 return;
                               }
                               if (hasDetailPage) {

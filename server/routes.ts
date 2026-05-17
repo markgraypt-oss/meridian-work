@@ -20470,14 +20470,12 @@ RULES:
         const windowEnd = buckets[buckets.length - 1].weekEnd;
 
         // Pull all relevant data once for the window
-        const [checkIns, steps, exMins, weights, sleep, completions, userHabits, burnoutHistory, workoutHistory] = await Promise.all([
+        const [checkIns, steps, exMins, weights, sleep, burnoutHistory, workoutHistory] = await Promise.all([
           storage.getUserWeeklyCheckins(userId, weeks + 4),
           db.select().from(stepEntries).where(and(eq(stepEntries.userId, userId), gte(stepEntries.date, windowStart), lt(stepEntries.date, windowEnd))),
           db.select().from(exerciseMinutesEntries).where(and(eq(exerciseMinutesEntries.userId, userId), gte(exerciseMinutesEntries.date, windowStart), lt(exerciseMinutesEntries.date, windowEnd))),
           db.select().from(bodyweightEntries).where(and(eq(bodyweightEntries.userId, userId), gte(bodyweightEntries.date, windowStart), lt(bodyweightEntries.date, windowEnd))).orderBy(asc(bodyweightEntries.date)),
           db.select().from(sleepEntries).where(and(eq(sleepEntries.userId, userId), gte(sleepEntries.date, windowStart), lt(sleepEntries.date, windowEnd))),
-          db.select({ id: habitCompletions.id, completedDate: habitCompletions.completedDate }).from(habitCompletions).where(and(eq(habitCompletions.userId, userId), gte(habitCompletions.completedDate, windowStart), lt(habitCompletions.completedDate, windowEnd))),
-          db.select({ id: habits.id, daysOfWeek: habits.daysOfWeek, isActive: habits.isActive }).from(habits).where(eq(habits.userId, userId)),
           db.select({ computedDate: burnoutScores.computedDate, score: burnoutScores.score })
             .from(burnoutScores)
             .where(and(eq(burnoutScores.userId, userId), gte(burnoutScores.computedDate, windowStart), lt(burnoutScores.computedDate, windowEnd))),
@@ -20485,15 +20483,6 @@ RULES:
             .from(workoutLogs)
             .where(and(eq(workoutLogs.userId, userId), eq(workoutLogs.status, "completed"), gte(workoutLogs.completedAt, windowStart), lt(workoutLogs.completedAt, windowEnd))),
         ]);
-
-        const habitTargetPerWeek = userHabits
-          .filter((h: any) => h.isActive !== false)
-          .reduce((sum: number, h: any) => {
-            const dow = h.daysOfWeek;
-            if (!dow || dow === "everyday") return sum + 7;
-            const parts = String(dow).split(",").filter((d: string) => d.trim().length > 0);
-            return sum + (parts.length > 0 ? parts.length : 7);
-          }, 0);
 
         const inBucket = (d: Date, b: { weekStart: Date; weekEnd: Date }) => d >= b.weekStart && d < b.weekEnd;
 
@@ -20523,8 +20512,6 @@ RULES:
             ? weekWorkouts.length
             : (m?.training?.sessionsCompleted ?? null);
 
-          const activeBodyAreas = (cards?.bodyStatus?.areas || []).filter((a: any) => a.status === "active" || a.status === "chronic").length || null;
-
           // Fresh aggregates
           const weekSteps = steps.filter((s: any) => inBucket(new Date(s.date), b));
           // Average across 7 days of the week, treating un-logged days as 0
@@ -20542,11 +20529,6 @@ RULES:
             ? Math.round((weekSleep.reduce((a: number, s: any) => a + (s.durationMinutes || 0), 0) / weekSleep.length / 60) * 10) / 10
             : (cards?.lifestyle?.avgSleepHours ?? null);
 
-          const weekCompletions = completions.filter((c: any) => inBucket(new Date(c.completedDate), b));
-          const habitsCompletionPct = habitTargetPerWeek > 0
-            ? Math.min(100, Math.round((weekCompletions.length / habitTargetPerWeek) * 100))
-            : null;
-
           return {
             weekStart: b.weekStart.toISOString(),
             weekEnd: b.weekEnd.toISOString(),
@@ -20559,8 +20541,6 @@ RULES:
             avgSteps,
             totalExerciseMinutes,
             bodyWeightKg: latestWeightKg,
-            habitsCompletionPct,
-            activeBodyAreas,
           };
         });
 

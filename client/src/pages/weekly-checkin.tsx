@@ -407,11 +407,9 @@ interface TrendWeek {
   avgSteps: number | null;
   totalExerciseMinutes: number | null;
   bodyWeightKg: number | null;
-  habitsCompletionPct: number | null;
-  activeBodyAreas: number | null;
 }
 
-type MetricKey = keyof Omit<TrendWeek, "weekStart" | "weekEnd" | "label" | "checkInId">;
+type MetricKey = keyof Omit<TrendWeek, "weekStart" | "weekEnd" | "label" | "checkInId" | "sessionsCompleted">;
 
 interface MetricDef {
   key: MetricKey;
@@ -429,7 +427,6 @@ const METRICS: MetricDef[] = [
   { key: "avgSteps", title: "Steps", unit: "/day", icon: Activity, format: (v) => v >= 1000 ? `${(v / 1000).toFixed(1)}k` : String(Math.round(v)) },
   { key: "totalExerciseMinutes", title: "Exercise", unit: "min/week", icon: Activity, format: (v) => String(Math.round(v)) },
   { key: "trainingVolumeKg", title: "Training volume", unit: "kg/week", icon: Dumbbell, format: (v) => v >= 1000 ? `${(v / 1000).toFixed(1)}k` : String(Math.round(v)) },
-  { key: "habitsCompletionPct", title: "Habits", unit: "% completed", icon: Repeat2, format: (v) => `${Math.round(v)}%` },
   { key: "bodyWeightKg", title: "Body weight", unit: "kg", icon: ScanLine, format: (v) => v.toFixed(1) },
 ];
 

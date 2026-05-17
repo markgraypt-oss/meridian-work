@@ -34,7 +34,6 @@ interface PromptData {
   adherencePct: number | null;
   avgSleepHours: number | null;
   sleepSource: "wearable" | "manual" | null;
-  persistentBodyConditions: string[];
   nutritionDaysTracked: number;
   goalsOnTrackCount: number;
   goalsTotalCount: number;
@@ -62,7 +61,6 @@ const FIXTURES: Record<DevScenario, {
       adherencePct: 75,
       avgSleepHours: 7.2,
       sleepSource: "wearable",
-      persistentBodyConditions: ["lower back"],
       nutritionDaysTracked: 5,
       goalsOnTrackCount: 2,
       goalsTotalCount: 3,
@@ -115,7 +113,6 @@ const FIXTURES: Record<DevScenario, {
       adherencePct: null,
       avgSleepHours: 6.8,
       sleepSource: "manual",
-      persistentBodyConditions: [],
       nutritionDaysTracked: 1,
       goalsOnTrackCount: 0,
       goalsTotalCount: 0,
@@ -150,7 +147,6 @@ const FIXTURES: Record<DevScenario, {
       adherencePct: null,
       avgSleepHours: null,
       sleepSource: null,
-      persistentBodyConditions: [],
       nutritionDaysTracked: 0,
       goalsOnTrackCount: 0,
       goalsTotalCount: 0,
@@ -183,7 +179,6 @@ const FIXTURES: Record<DevScenario, {
       adherencePct: 75,
       avgSleepHours: 7.2,
       sleepSource: "wearable",
-      persistentBodyConditions: ["lower back"],
       nutritionDaysTracked: 5,
       goalsOnTrackCount: 2,
       goalsTotalCount: 3,

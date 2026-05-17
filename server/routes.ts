@@ -4403,19 +4403,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
         }
       }
 
-      // Persist video watch duration (sent as seconds, stored as minutes)
-      if (typeof duration === 'number' && duration > 0) {
-        try {
-          await storage.updateWorkoutLog(id, { duration: Math.max(1, Math.round(duration / 60)) });
-        } catch (durErr: any) {
-          console.error(`[WORKOUT COMPLETE] Failed to persist duration for id=${id}:`, durErr?.message);
-        }
-      }
 
       let completed;
       // If rating provided, use the enhanced completion method with PR detection
       if (workoutRating !== undefined) {
-        completed = await storage.completeWorkoutLogWithRating(id, workoutRating);
+        completed = await storage.completeWorkoutLogWithRating(id, workoutRating, typeof duration === 'number' && duration > 0 ? duration : undefined);
         console.log(`[WORKOUT COMPLETE] Successfully completed workout log id=${id}`);
       } else {
         // Legacy: complete without rating

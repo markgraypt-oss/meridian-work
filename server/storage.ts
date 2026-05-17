@@ -912,7 +912,7 @@ export interface IStorage {
   getUserExerciseSnapshots(userId: string): Promise<any[]>;
   
   // Enhanced workout completion with auto-calculations
-  completeWorkoutLogWithRating(id: number, workoutRating: number): Promise<any>;
+  completeWorkoutLogWithRating(id: number, workoutRating: number, durationOverrideSeconds?: number): Promise<any>;
 
   // Nutrition tracking operations
   getNutritionGoal(userId: string): Promise<NutritionGoal | undefined>;
@@ -8847,7 +8847,7 @@ export class DatabaseStorage implements IStorage {
   // Enhanced Workout Completion with Rating
   // ============================================
 
-  async completeWorkoutLogWithRating(id: number, workoutRating: number): Promise<WorkoutLog & { prs: any[]; summary: any }> {
+  async completeWorkoutLogWithRating(id: number, workoutRating: number, durationOverrideSeconds?: number): Promise<WorkoutLog & { prs: any[]; summary: any }> {
     console.log(`[completeWorkoutLogWithRating] Starting for id=${id}, rating=${workoutRating}`);
     
     const log = await this.getWorkoutLogById(id);
@@ -8862,7 +8862,10 @@ export class DatabaseStorage implements IStorage {
     
     const now = new Date();
     const startedAt = log.startedAt ? new Date(log.startedAt) : now;
-    const durationSeconds = Math.floor((now.getTime() - startedAt.getTime()) / 1000);
+    const calculatedSeconds = Math.floor((now.getTime() - startedAt.getTime()) / 1000);
+    const durationSeconds = (typeof durationOverrideSeconds === 'number' && durationOverrideSeconds > 0)
+      ? durationOverrideSeconds
+      : calculatedSeconds;
     
     // Get all exercise logs for this workout
     const exerciseLogs = await this.getWorkoutExerciseLogs(id);

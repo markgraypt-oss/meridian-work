@@ -137,7 +137,7 @@ interface V2AggData {
     adherencePct: number | null;
     avgSleepHours: number | null;
     sleepSource: "wearable" | "manual" | null;
-    activeBodyAreas: string[];
+    persistentBodyConditions: string[];
     nutritionDaysTracked: number;
     goalsOnTrackCount: number;
     goalsTotalCount: number;
@@ -488,7 +488,7 @@ export async function aggregateWeekV2(userId: string, weekStart: Date): Promise<
       adherencePct,
       avgSleepHours,
       sleepSource,
-      activeBodyAreas: bodyAreas.filter(b => b.status === "active" || b.status === "chronic").map(b => b.bodyPart),
+      persistentBodyConditions: bodyAreas.filter(b => b.status === "active" || b.status === "chronic").map(b => b.bodyPart),
       nutritionDaysTracked,
       goalsOnTrackCount: activeGoalItems.filter(g => (g.progressPct ?? 0) >= 50).length,
       goalsTotalCount: activeGoalItems.length,
@@ -528,7 +528,8 @@ Rules:
 - "hero": specific to this person's actual numbers. Not generic. Max 2 sentences.
 - "trajectoryLabel": based on the overall wellbeing picture across all streams. Use "not enough data" only if fewer than 2 streams have data.
 - "patterns": 2-3 specific observations that connect two or more data streams (e.g. "Your three lowest-mood days all followed nights with under 6 h sleep"). If fewer than 2 genuine cross-stream patterns exist, return an empty array.
-- Tone: warm, honest, non-prescriptive. Never diagnose. Reference actual numbers.`;
+- Tone: warm, honest, non-prescriptive. Never diagnose. Reference actual numbers.
+- IMPORTANT: "persistentBodyConditions" lists ongoing body map conditions the user has previously logged — they are NOT per-check-in mentions. Never say a body area was "mentioned in every check-in" or count them as check-in occurrences. Only reference them if genuinely relevant to patterns in mood, sleep, or training this week.`;
 }
 
 function buildFallbackNarrative(promptData: V2AggData["promptData"]): { narrative: string; trajectoryLabel: TrajectoryLabel } {

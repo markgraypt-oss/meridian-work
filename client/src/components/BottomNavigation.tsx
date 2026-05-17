@@ -42,8 +42,8 @@ export default function BottomNavigation({ onCoachOpen }: BottomNavigationProps)
 
   const isMorning = briefing?.type === 'morning';
   const currentHour = new Date().getHours();
-  // Don't show the morning tooltip in the afternoon/evening, or evening before 5pm
-  const briefingTooltipRelevant = isMorning ? currentHour < 12 : currentHour >= 17;
+  // Morning tooltip only before noon; evening tooltip only from 20:00 (matches when the briefing is generated)
+  const briefingTooltipRelevant = isMorning ? currentHour < 12 : currentHour >= 20;
   const tooltipGreeting = isMorning ? 'Good morning ☀️' : 'Evening check-in 🌙';
   const tooltipCta = isMorning
     ? "Your briefing is ready — tap to start the day."

@@ -303,7 +303,7 @@ export async function aggregateWeekV2(userId: string, weekStart: Date): Promise<
 
   // ---- Goals ----
   const activeGoalItems = allGoals
-    .filter((g) => !g.isCompleted)
+    .filter((g) => !g.isCompleted && g.type !== "nutrition")
     .slice(0, 6)
     .map((g) => ({
       title: g.title,

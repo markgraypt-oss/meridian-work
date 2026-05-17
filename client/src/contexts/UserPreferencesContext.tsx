@@ -10,6 +10,7 @@ export interface UserPreferences {
   restTimerSounds: boolean;
   countdownBeeps: boolean;
   dismissedWeeklyCheckinId: number | null;
+  dismissedConnectNudge: boolean;
 }
 
 const defaultPreferences: UserPreferences = {
@@ -20,6 +21,7 @@ const defaultPreferences: UserPreferences = {
   restTimerSounds: true,
   countdownBeeps: true,
   dismissedWeeklyCheckinId: null,
+  dismissedConnectNudge: false,
 };
 
 interface UserPreferencesContextType {
@@ -48,6 +50,7 @@ export function UserPreferencesProvider({ children }: { children: ReactNode }) {
     restTimerSounds: data?.restTimerSounds ?? defaultPreferences.restTimerSounds,
     countdownBeeps: data?.countdownBeeps ?? defaultPreferences.countdownBeeps,
     dismissedWeeklyCheckinId: data?.dismissedWeeklyCheckinId ?? defaultPreferences.dismissedWeeklyCheckinId,
+    dismissedConnectNudge: data?.dismissedConnectNudge ?? defaultPreferences.dismissedConnectNudge,
   };
 
   return (

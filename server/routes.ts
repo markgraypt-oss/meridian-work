@@ -2582,6 +2582,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         intervalBeepsEnabled: user.intervalBeepsEnabled ?? true,
         breathworkCueStyle: user.breathworkCueStyle || "inhale_exhale",
         dismissedWeeklyCheckinId: user.dismissedWeeklyCheckinId ?? null,
+        dismissedConnectNudge: user.dismissedConnectNudge ?? false,
       });
     } catch (error) {
       console.error("Get preferences error:", error);
@@ -2604,6 +2605,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     intervalBeepsEnabled: z.boolean().optional(),
     breathworkCueStyle: z.enum(["inhale_exhale", "in_out", "breathe_in_out", "silent"]).optional(),
     dismissedWeeklyCheckinId: z.number().int().nullable().optional(),
+    dismissedConnectNudge: z.boolean().optional(),
   });
 
   app.patch('/api/user/preferences', isAuthenticated, async (req: any, res) => {
@@ -2629,6 +2631,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       if (parsed.data.intervalBeepsEnabled !== undefined) updates.intervalBeepsEnabled = parsed.data.intervalBeepsEnabled;
       if (parsed.data.breathworkCueStyle !== undefined) updates.breathworkCueStyle = parsed.data.breathworkCueStyle;
       if (parsed.data.dismissedWeeklyCheckinId !== undefined) updates.dismissedWeeklyCheckinId = parsed.data.dismissedWeeklyCheckinId;
+      if (parsed.data.dismissedConnectNudge !== undefined) updates.dismissedConnectNudge = parsed.data.dismissedConnectNudge;
       
       await storage.updateUser(userId, updates);
       const updatedUser = await storage.getUser(userId);
@@ -2647,6 +2650,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         intervalBeepsEnabled: updatedUser?.intervalBeepsEnabled ?? true,
         breathworkCueStyle: updatedUser?.breathworkCueStyle || "inhale_exhale",
         dismissedWeeklyCheckinId: updatedUser?.dismissedWeeklyCheckinId ?? null,
+        dismissedConnectNudge: updatedUser?.dismissedConnectNudge ?? false,
       });
     } catch (error) {
       console.error("Update preferences error:", error);

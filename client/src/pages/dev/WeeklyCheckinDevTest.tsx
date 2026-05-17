@@ -52,7 +52,7 @@ interface V2Cards {
 }
 
 interface V2Payload {
-  _v: 3;
+  _v: 4;
   weekStart: string;
   weekEnd: string;
   hero: string;

@@ -34,7 +34,12 @@ type TrajectoryLabel = "holding steady" | "trending up" | "declining" | "not eno
 
 interface V2Cards {
   howYouFelt?: { checkInCount: number; avgMood: number | null; avgEnergy: number | null; avgStress: number | null; roughDaysCount: number };
-  howYouMoved?: { sessionsCompleted: number; sessionsPlanned: number; adherencePct: number | null };
+  howYouMoved?: {
+    sessionsCompleted: number;
+    sessionsPlanned: number;
+    adherencePct: number | null;
+    steps?: { avg: number; bestDay: { dayLabel: string; steps: number } | null; source: "wearable" | "manual" } | null;
+  };
   goals?: { items: Array<{ title: string; progressPct: number | null; isCompleted: boolean }> };
   habits?: { items: Array<{ title: string; completionsThisWeek: number; targetDaysThisWeek: number; weekDays: boolean[] }> };
   lifestyle?: { avgSleepHours: number | null; sleepSource: "wearable" | "manual" | null; roughDaysCount: number };
@@ -43,7 +48,7 @@ interface V2Cards {
 }
 
 interface V2Payload {
-  _v: 3;
+  _v: 4;
   weekStart: string;
   weekEnd: string;
   hero: string;
@@ -53,7 +58,7 @@ interface V2Payload {
 }
 
 function isV2(payload: any): payload is V2Payload {
-  return payload?._v === 3;
+  return payload?._v === 4;
 }
 
 // ─── Trajectory pill ──────────────────────────────────────────────────────────
@@ -151,6 +156,23 @@ function HowYouMovedCard({ data }: { data: NonNullable<V2Cards["howYouMoved"]> }
         )}
         {data.adherencePct === null && data.sessionsCompleted > 0 && (
           <p className="text-xs text-muted-foreground">No scheduled plan this week</p>
+        )}
+        {data.steps && (
+          <div className="pt-2 mt-1 border-t border-border/40 flex items-center justify-between text-xs">
+            <div className="flex flex-col">
+              <span className="text-muted-foreground">Avg steps</span>
+              <span className="font-semibold tabular-nums text-foreground">{data.steps.avg.toLocaleString()}</span>
+            </div>
+            {data.steps.bestDay && (
+              <div className="flex flex-col items-end">
+                <span className="text-muted-foreground">Best day</span>
+                <span className="font-semibold tabular-nums text-foreground">
+                  {data.steps.bestDay.steps.toLocaleString()}
+                  <span className="text-muted-foreground font-normal"> on {data.steps.bestDay.dayLabel}</span>
+                </span>
+              </div>
+            )}
+          </div>
         )}
       </CardContent>
     </Card>

@@ -20,7 +20,7 @@ import type { WeeklyCheckin } from "@shared/schema";
 export type TrajectoryLabel = "holding steady" | "trending up" | "declining" | "not enough data";
 
 export interface WeeklyCheckinPayloadV2 {
-  _v: 3;
+  _v: 4;
   weekStart: string;
   weekEnd: string;
   hero: string;
@@ -37,6 +37,11 @@ export interface WeeklyCheckinPayloadV2 {
       sessionsCompleted: number;
       sessionsPlanned: number;
       adherencePct: number | null;
+      steps?: {
+        avg: number;
+        bestDay: { dayLabel: string; steps: number } | null;
+        source: "wearable" | "manual";
+      } | null;
     };
     goals?: {
       items: Array<{ title: string; progressPct: number | null; isCompleted: boolean }>;
@@ -97,8 +102,12 @@ function avg(values: number[]): number | null {
 }
 
 function habitTargetDays(daysOfWeek: string | null | undefined): number {
-  if (!daysOfWeek || daysOfWeek === "everyday") return 7;
-  const parts = daysOfWeek.split(",").filter((d) => d.trim().length > 0);
+  if (!daysOfWeek) return 7;
+  const normalized = daysOfWeek.trim().toLowerCase();
+  if (normalized === "everyday" || normalized === "every day" || normalized === "daily") return 7;
+  const parts = daysOfWeek.split(",").map((d) => d.trim()).filter((d) => d.length > 0);
+  // Single token "Everyday" inside a list shouldn't be treated as 1 scheduled day.
+  if (parts.length === 1 && ["everyday", "every day", "daily"].includes(parts[0].toLowerCase())) return 7;
   return parts.length > 0 ? parts.length : 7;
 }
 
@@ -358,11 +367,41 @@ export async function aggregateWeekV2(userId: string, weekStart: Date): Promise<
     };
   }
 
-  if (completedThisWeek.length > 0 || sessionsPlanned > 0) {
+  // ---- Steps (wearable + manual merged) for the current week ----
+  const DAY_LABELS_FULL = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
+  const stepsByDay = new Map<number, { total: number; source: "wearable" | "manual" }>();
+  for (const s of stepData as any[]) {
+    const d = s.date ? new Date(s.date) : null;
+    if (!d || d < weekStart || d >= weekEnd) continue;
+    const day = (d.getUTCDay() + 6) % 7;
+    const steps = Number(s.steps || 0);
+    if (!Number.isFinite(steps) || steps <= 0) continue;
+    const prev = stepsByDay.get(day);
+    const src: "wearable" | "manual" = s.source === "wearable" ? "wearable" : "manual";
+    if (!prev || steps > prev.total) {
+      stepsByDay.set(day, { total: steps, source: src });
+    }
+  }
+  let stepsBlock: NonNullable<WeeklyCheckinPayloadV2["cards"]["howYouMoved"]>["steps"] = null;
+  if (stepsByDay.size > 0) {
+    const entries = Array.from(stepsByDay.entries());
+    const totalSteps = entries.reduce((sum, [, v]) => sum + v.total, 0);
+    const avgSteps = Math.round(totalSteps / entries.length);
+    const best = entries.reduce((acc, e) => (e[1].total > acc[1].total ? e : acc));
+    const anyWearable = entries.some(([, v]) => v.source === "wearable");
+    stepsBlock = {
+      avg: avgSteps,
+      bestDay: { dayLabel: DAY_LABELS_FULL[best[0]], steps: best[1].total },
+      source: anyWearable ? "wearable" : "manual",
+    };
+  }
+
+  if (completedThisWeek.length > 0 || sessionsPlanned > 0 || stepsBlock) {
     cards.howYouMoved = {
       sessionsCompleted: completedThisWeek.length,
       sessionsPlanned,
       adherencePct,
+      steps: stepsBlock,
     };
   }
 
@@ -538,7 +577,7 @@ export async function generateWeeklyCheckinPayloadV2(userId: string, weekStart: 
   const hero = isAI ? narrative : narrative;
 
   return {
-    _v: 3,
+    _v: 4,
     weekStart: weekStart.toISOString(),
     weekEnd: agg.weekEnd.toISOString(),
     hero,
@@ -566,7 +605,7 @@ export function isWeeklyCheckinPayloadStale(payload: any): boolean {
     (h) => !Array.isArray(h?.weekDays) || h.weekDays.length !== 7,
   );
   const hasRemovedBodyStatus = payload?.cards?.bodyStatus !== undefined;
-  return payload?._v !== 3 || habitsMissingWeekDays || hasRemovedBodyStatus;
+  return payload?._v !== 4 || habitsMissingWeekDays || hasRemovedBodyStatus;
 }
 
 /**
@@ -594,7 +633,7 @@ export async function getOrCreateCurrentWeeklyCheckinV2(userId: string): Promise
   if (existing) {
     const p = existing.payload as any;
     // Retry: if stored payload is V2 with a fallback narrative, attempt Claude again
-    if (p?._v === 3 && p.cards?.patterns?.isAI === false) {
+    if (p?._v === 4 && p.cards?.patterns?.isAI === false) {
       try {
         const agg = await aggregateWeekV2(userId, weekStart);
         const result = await generatePatternsNarrative(agg.promptData, weekStart, agg.weekEnd, userId);

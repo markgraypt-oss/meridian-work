@@ -446,7 +446,7 @@ function MiniSparkline({ values, color }: { values: (number | null)[]; color: st
   );
 }
 
-function MetricSparkCard({ def, weeks, onOpen }: { def: MetricDef; weeks: TrendWeek[]; onOpen: (checkInId: number | null) => void }) {
+function MetricSparkCard({ def, weeks }: { def: MetricDef; weeks: TrendWeek[] }) {
   const values = weeks.map((w) => w[def.key]);
   const present = values.filter((v): v is number => v !== null && v !== undefined);
   if (present.length < 2) return null;
@@ -470,13 +470,10 @@ function MetricSparkCard({ def, weeks, onOpen }: { def: MetricDef; weeks: TrendW
 
   const Icon = def.icon;
   const lineColor = def.inverse ? "var(--chart-5)" : "var(--chart-2)";
-  const latestWeek = weeks[latestIdx];
 
   return (
-    <button
-      type="button"
-      onClick={() => onOpen(latestWeek?.checkInId ?? null)}
-      className="text-left rounded-lg border border-border bg-card p-3 hover:bg-accent/40 transition-colors"
+    <div
+      className="text-left rounded-lg border border-border bg-card p-3"
       data-testid={`metric-spark-${def.key}`}
     >
       <div className="flex items-center justify-between mb-1">
@@ -496,11 +493,11 @@ function MetricSparkCard({ def, weeks, onOpen }: { def: MetricDef; weeks: TrendW
         <span className="text-[10px] text-muted-foreground">{def.unit}</span>
       </div>
       <MiniSparkline values={values} color={lineColor} />
-    </button>
+    </div>
   );
 }
 
-function TrendsChart({ onPointClick }: { onPointClick: (id: number) => void }) {
+function TrendsChart() {
   const { data, isLoading } = useQuery<{ weeks: TrendWeek[] }>({
     queryKey: ["/api/weekly-checkins/trends", { weeks: 12 }],
     queryFn: async () => {
@@ -520,10 +517,8 @@ function TrendsChart({ onPointClick }: { onPointClick: (id: number) => void }) {
   if (isLoading) return null;
   if (weeksWithAnyData < 4) return null;
 
-  const handleOpen = (checkInId: number | null) => { if (checkInId) onPointClick(checkInId); };
-
   const renderableCards = METRICS
-    .map((def) => ({ def, card: <MetricSparkCard key={def.key} def={def} weeks={weeks} onOpen={handleOpen} /> }))
+    .map((def) => ({ def, card: <MetricSparkCard key={def.key} def={def} weeks={weeks} /> }))
     .filter(({ def }) => weeks.filter((w) => w[def.key] !== null).length >= 2);
 
   if (renderableCards.length === 0) return null;
@@ -536,7 +531,7 @@ function TrendsChart({ onPointClick }: { onPointClick: (id: number) => void }) {
           Trends · last {weeks.length} weeks
         </CardTitle>
         <p className="text-xs text-muted-foreground">
-          Each card shows the latest week's value, change vs. the prior week, and a 12-week trend. Tap to open that week.
+          Each card shows the latest week's value, change vs. the prior week, and a 12-week trend.
         </p>
       </CardHeader>
       <CardContent>
@@ -668,7 +663,7 @@ export default function WeeklyCheckinPage() {
         )}
 
         {allCheckIns.length >= 2 && (
-          <TrendsChart onPointClick={(id) => navigate(`/weekly-checkin/${id}`)} />
+          <TrendsChart />
         )}
 
         <HistoryList history={history} onOpen={(id) => navigate(`/weekly-checkin/${id}`)} />

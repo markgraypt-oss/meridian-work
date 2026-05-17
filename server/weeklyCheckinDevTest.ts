@@ -271,7 +271,7 @@ export async function buildSyntheticPayloadV2(
   }
 
   return {
-    _v: 4,
+    _v: 5,
     weekStart: weekStart.toISOString(),
     weekEnd: weekEnd.toISOString(),
     hero,
@@ -323,7 +323,7 @@ export async function runRetryIntegrationTest(): Promise<RetryTestReport> {
 
     // ── 3. Plant fallback payload (isAI: false) ──────────────────────────────
     const fallbackPayload: WeeklyCheckinPayloadV2 = {
-      _v: 4,
+      _v: 5,
       weekStart: sentinelWeek.toISOString(),
       weekEnd: sentinelWeekEnd.toISOString(),
       hero: "Fallback static text.",
@@ -364,7 +364,7 @@ export async function runRetryIntegrationTest(): Promise<RetryTestReport> {
       const existing = await storage.getWeeklyCheckin(userId, sentinelWeek);
       if (existing) {
         const p = existing.payload as any;
-        if (p?._v === 4 && p.cards?.patterns?.isAI === false) {
+        if (p?._v === 5 && p.cards?.patterns?.isAI === false) {
           const agg = await aggregateWeekV2(userId, sentinelWeek);
           const result = await generatePatternsNarrative(
             agg.promptData, sentinelWeek, agg.weekEnd, userId,
@@ -404,7 +404,7 @@ export async function runRetryIntegrationTest(): Promise<RetryTestReport> {
       const existing = await storage.getWeeklyCheckin(userId, sentinelWeek);
       if (existing) {
         const p = existing.payload as any;
-        if (p?._v === 4 && p.cards?.patterns?.isAI === false) {
+        if (p?._v === 5 && p.cards?.patterns?.isAI === false) {
           // Should NOT enter here if Call 1 succeeded
           const agg = await aggregateWeekV2(userId, sentinelWeek);
           const result = await generatePatternsNarrative(

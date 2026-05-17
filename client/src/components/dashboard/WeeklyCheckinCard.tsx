@@ -9,7 +9,7 @@ import { useToast } from "@/hooks/use-toast";
 
 
 interface V2Payload {
-  _v: 4;
+  _v: 5;
   weekStart: string;
   hero: string;
   trajectoryLabel: string;

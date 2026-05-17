@@ -20,7 +20,7 @@ import type { WeeklyCheckin } from "@shared/schema";
 export type TrajectoryLabel = "holding steady" | "trending up" | "declining" | "not enough data";
 
 export interface WeeklyCheckinPayloadV2 {
-  _v: 4;
+  _v: 5;
   weekStart: string;
   weekEnd: string;
   hero: string;
@@ -618,7 +618,7 @@ export async function generateWeeklyCheckinPayloadV2(userId: string, weekStart: 
   const hero = isAI ? narrative : narrative;
 
   return {
-    _v: 4,
+    _v: 5,
     weekStart: weekStart.toISOString(),
     weekEnd: agg.weekEnd.toISOString(),
     hero,
@@ -646,7 +646,7 @@ export function isWeeklyCheckinPayloadStale(payload: any): boolean {
     (h) => !Array.isArray(h?.weekDays) || h.weekDays.length !== 7,
   );
   const hasRemovedBodyStatus = payload?.cards?.bodyStatus !== undefined;
-  return payload?._v !== 4 || habitsMissingWeekDays || hasRemovedBodyStatus;
+  return payload?._v !== 5 || habitsMissingWeekDays || hasRemovedBodyStatus;
 }
 
 /**

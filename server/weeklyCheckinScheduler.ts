@@ -45,7 +45,7 @@ function composeEmail(
   lines.push(`Hi ${name}, here's your weekly review.`);
   lines.push("");
 
-  if (payload?._v === 4) {
+  if (payload?._v === 5) {
     // V2 payload
     const hero: string = payload.hero ?? "";
     const patterns: string[] = payload.cards?.patterns?.bulletPoints ?? [];

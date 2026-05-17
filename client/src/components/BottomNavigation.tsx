@@ -17,7 +17,7 @@ export default function BottomNavigation({ onCoachOpen }: BottomNavigationProps)
   const isHome = location === '/';
 
   useEffect(() => {
-    if (!isUnread || !tooltipKey || !isHome) {
+    if (!isUnread || !tooltipKey || !isHome || !briefingTooltipRelevant) {
       setShowTooltip(false);
       return;
     }
@@ -38,9 +38,12 @@ export default function BottomNavigation({ onCoachOpen }: BottomNavigationProps)
       window.removeEventListener('scroll', dismiss);
       window.removeEventListener('touchstart', dismiss);
     };
-  }, [isUnread, tooltipKey, isHome]);
+  }, [isUnread, tooltipKey, isHome, briefingTooltipRelevant]);
 
   const isMorning = briefing?.type === 'morning';
+  const currentHour = new Date().getHours();
+  // Don't show the morning tooltip in the afternoon/evening, or evening before 5pm
+  const briefingTooltipRelevant = isMorning ? currentHour < 12 : currentHour >= 17;
   const tooltipGreeting = isMorning ? 'Good morning ☀️' : 'Evening check-in 🌙';
   const tooltipCta = isMorning
     ? "Your briefing is ready — tap to start the day."

@@ -4381,7 +4381,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     try {
       const id = parseInt(req.params.id);
       const userId = req.user.claims.sub;
-      const { workoutRating, notes } = req.body;
+      const { workoutRating, notes, duration } = req.body;
 
       console.log(`[WORKOUT COMPLETE] Starting completion for workout log id=${id}, rating=${workoutRating}`);
 
@@ -4400,6 +4400,15 @@ export async function registerRoutes(app: Express): Promise<Server> {
           await storage.updateWorkoutLog(id, { notes: notes.trim() });
         } catch (notesErr: any) {
           console.error(`[WORKOUT COMPLETE] Failed to persist notes for id=${id}:`, notesErr?.message);
+        }
+      }
+
+      // Persist video watch duration (sent as seconds, stored as minutes)
+      if (typeof duration === 'number' && duration > 0) {
+        try {
+          await storage.updateWorkoutLog(id, { duration: Math.max(1, Math.round(duration / 60)) });
+        } catch (durErr: any) {
+          console.error(`[WORKOUT COMPLETE] Failed to persist duration for id=${id}:`, durErr?.message);
         }
       }
 

@@ -152,7 +152,7 @@ function parseIdParam(s: string | undefined): number | null {
   return Number.isFinite(n) && n > 0 ? n : null;
 }
 import { eq, and, like, inArray, desc, or, isNull, asc, gte, lte, lt, sql } from "drizzle-orm";
-import { users, userProgramEnrollments, programWeeks, programDays, programmeWorkouts, programmeWorkoutBlocks, pathContentItems, topicContentItems, learningPaths, programmeModificationRecords, exerciseSubstitutionMappings, programmeBlockExercises, enrollmentWorkouts, enrollmentWorkoutBlocks, enrollmentBlockExercises, programs, userExtraWorkoutSessions, scheduledWorkouts, workoutLogs, learnContentLibrary, exerciseLibrary, workoutExerciseLogs, workoutSetLogs, aiFeedback, workouts, workoutBlocks, blockExercises, stepEntries, sleepEntries, bodyweightEntries, bodyFatEntries, restingHREntries, caloricBurnEntries, exerciseMinutesEntries, bloodPressureEntries, leanBodyMassEntries, caloricIntakeEntries, hydrationLogs, habitCompletions, habits } from "@shared/schema";
+import { users, userProgramEnrollments, programWeeks, programDays, programmeWorkouts, programmeWorkoutBlocks, pathContentItems, topicContentItems, learningPaths, programmeModificationRecords, exerciseSubstitutionMappings, programmeBlockExercises, enrollmentWorkouts, enrollmentWorkoutBlocks, enrollmentBlockExercises, programs, userExtraWorkoutSessions, scheduledWorkouts, workoutLogs, learnContentLibrary, exerciseLibrary, workoutExerciseLogs, workoutSetLogs, aiFeedback, workouts, workoutBlocks, blockExercises, stepEntries, sleepEntries, bodyweightEntries, bodyFatEntries, restingHREntries, caloricBurnEntries, exerciseMinutesEntries, bloodPressureEntries, leanBodyMassEntries, caloricIntakeEntries, hydrationLogs, habitCompletions, habits, wearableMetricsDaily } from "@shared/schema";
 import { calculateProgramEquipment, updateProgramEquipmentAuto } from "./equipmentDetection";
 import multer from "multer";
 import path from "path";
@@ -20473,8 +20473,11 @@ RULES:
         const windowStart = buckets[0].weekStart;
         const windowEnd = buckets[buckets.length - 1].weekEnd;
 
+        const windowStartStr = windowStart.toISOString().slice(0, 10);
+        const windowEndStr = windowEnd.toISOString().slice(0, 10);
+
         // Pull all relevant data once for the window
-        const [checkIns, steps, exMins, weights, sleep, burnoutHistory, workoutHistory] = await Promise.all([
+        const [checkIns, steps, exMins, weights, sleep, burnoutHistory, workoutHistory, wearableDaily, manualRestingHR] = await Promise.all([
           storage.getUserWeeklyCheckins(userId, weeks + 4),
           db.select().from(stepEntries).where(and(eq(stepEntries.userId, userId), gte(stepEntries.date, windowStart), lt(stepEntries.date, windowEnd))),
           db.select().from(exerciseMinutesEntries).where(and(eq(exerciseMinutesEntries.userId, userId), gte(exerciseMinutesEntries.date, windowStart), lt(exerciseMinutesEntries.date, windowEnd))),
@@ -20486,6 +20489,12 @@ RULES:
           db.select({ completedAt: workoutLogs.completedAt, autoCalculatedVolume: workoutLogs.autoCalculatedVolume })
             .from(workoutLogs)
             .where(and(eq(workoutLogs.userId, userId), eq(workoutLogs.status, "completed"), gte(workoutLogs.completedAt, windowStart), lt(workoutLogs.completedAt, windowEnd))),
+          db.select({ date: wearableMetricsDaily.date, steps: wearableMetricsDaily.steps, activeMinutes: wearableMetricsDaily.activeMinutes, restingHrBpm: wearableMetricsDaily.restingHrBpm })
+            .from(wearableMetricsDaily)
+            .where(and(eq(wearableMetricsDaily.userId, userId), gte(wearableMetricsDaily.date, windowStartStr), lt(wearableMetricsDaily.date, windowEndStr))),
+          db.select({ date: restingHREntries.date, bpm: restingHREntries.bpm })
+            .from(restingHREntries)
+            .where(and(eq(restingHREntries.userId, userId), gte(restingHREntries.date, windowStart), lt(restingHREntries.date, windowEnd))),
         ]);
 
         const inBucket = (d: Date, b: { weekStart: Date; weekEnd: Date }) => d >= b.weekStart && d < b.weekEnd;
@@ -20516,13 +20525,59 @@ RULES:
             ? weekWorkouts.length
             : (m?.training?.sessionsCompleted ?? null);
 
-          // Fresh aggregates
-          const weekSteps = steps.filter((s: any) => inBucket(new Date(s.date), b));
-          // Average across 7 days of the week, treating un-logged days as 0
-          const avgSteps = weekSteps.length ? Math.round(weekSteps.reduce((a: number, s: any) => a + (s.steps || 0), 0) / 7) : null;
+          // Fresh aggregates — steps: merge wearable (prefer) + manual per day
+          const bStartStr = b.weekStart.toISOString().slice(0, 10);
+          const bEndStr = b.weekEnd.toISOString().slice(0, 10);
+          const stepsByDay = new Map<string, number>();
+          // Wearable first (higher priority)
+          for (const w of wearableDaily as any[]) {
+            if (w.date >= bStartStr && w.date < bEndStr && w.steps != null) {
+              stepsByDay.set(w.date, Number(w.steps));
+            }
+          }
+          // Manual fallback for days with no wearable data
+          for (const s of steps as any[]) {
+            const d = new Date(s.date).toISOString().slice(0, 10);
+            if (d >= bStartStr && d < bEndStr && !stepsByDay.has(d) && s.steps != null) {
+              stepsByDay.set(d, Number(s.steps));
+            }
+          }
+          const stepVals = Array.from(stepsByDay.values());
+          const avgSteps = stepVals.length ? Math.round(stepVals.reduce((a, v) => a + v, 0) / 7) : null;
 
-          const weekExMins = exMins.filter((e: any) => inBucket(new Date(e.date), b));
-          const totalExerciseMinutes = weekExMins.length ? weekExMins.reduce((a: number, e: any) => a + (e.minutes || 0), 0) : null;
+          // Active minutes: merge wearable + manual, prefer wearable per day
+          const activeByDay = new Map<string, number>();
+          for (const w of wearableDaily as any[]) {
+            if (w.date >= bStartStr && w.date < bEndStr && w.activeMinutes != null) {
+              activeByDay.set(w.date, Number(w.activeMinutes));
+            }
+          }
+          for (const e of exMins as any[]) {
+            const d = new Date(e.date).toISOString().slice(0, 10);
+            if (d >= bStartStr && d < bEndStr && !activeByDay.has(d) && e.minutes != null) {
+              activeByDay.set(d, Number(e.minutes));
+            }
+          }
+          const activeVals = Array.from(activeByDay.values());
+          const avgActiveMinutes = activeVals.length ? Math.round(activeVals.reduce((a, v) => a + v, 0) / activeVals.length) : null;
+
+          const totalExerciseMinutes = activeVals.length ? activeVals.reduce((a, v) => a + v, 0) : null;
+
+          // Resting HR: wearable preferred, manual fallback per day
+          const hrByDay = new Map<string, number>();
+          for (const w of wearableDaily as any[]) {
+            if (w.date >= bStartStr && w.date < bEndStr && w.restingHrBpm != null) {
+              hrByDay.set(w.date, Number(w.restingHrBpm));
+            }
+          }
+          for (const r of manualRestingHR as any[]) {
+            const d = new Date(r.date).toISOString().slice(0, 10);
+            if (d >= bStartStr && d < bEndStr && !hrByDay.has(d) && r.bpm != null) {
+              hrByDay.set(d, Number(r.bpm));
+            }
+          }
+          const hrVals = Array.from(hrByDay.values());
+          const avgRestingHr = hrVals.length ? Math.round(hrVals.reduce((a, v) => a + v, 0) / hrVals.length) : null;
 
           const weekWeights = weights.filter((w: any) => inBucket(new Date(w.date), b));
           const latestWeightKg = weekWeights.length ? Number(weekWeights[weekWeights.length - 1].weight) : null;
@@ -20543,7 +20598,9 @@ RULES:
             trainingVolumeKg,
             sessionsCompleted,
             avgSteps,
+            avgActiveMinutes,
             totalExerciseMinutes,
+            avgRestingHr,
             bodyWeightKg: latestWeightKg,
           };
         });

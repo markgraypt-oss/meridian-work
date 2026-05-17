@@ -53,6 +53,11 @@ export interface WeeklyCheckinPayloadV2 {
       avgSleepHours: number | null;
       sleepSource: "wearable" | "manual" | null;
       roughDaysCount: number;
+      avgStepsPerDay: number | null;
+      stepsSource: "wearable" | "manual" | null;
+      avgActiveMinutesPerDay: number | null;
+      activeMinutesSource: "wearable" | "manual" | null;
+      avgRestingHr: number | null;
     };
     patterns?: {
       narrative: string;
@@ -164,6 +169,8 @@ export async function aggregateWeekV2(userId: string, weekStart: Date): Promise<
     allGoals,
     activeHabits,
     weekHabitCompletions,
+    activeMinutesData,
+    restingHrData,
   ] = await Promise.all([
     storage.getCheckInsInRange(userId, weekStart, weekEnd),
     storage.getUserWorkoutLogs(userId, 200),
@@ -184,6 +191,8 @@ export async function aggregateWeekV2(userId: string, weekStart: Date): Promise<
       gte(hcTable.completedDate, weekStart),
       lt(hcTable.completedDate, weekEnd),
     )),
+    storage.getExerciseMinutesEntries(userId, 60),
+    storage.getRestingHREntries(userId, 60),
   ]);
 
   // ---- Burnout (for legacy metrics / trajectoryLabel fallback) ----
@@ -259,6 +268,30 @@ export async function aggregateWeekV2(userId: string, weekStart: Date): Promise<
     avgSleepHours = Math.round((totalMins / weekSleepEntries.length / 60) * 10) / 10;
     // Prefer wearable if any entry is wearable, else manual
     sleepSource = weekSleepEntries.some((s: any) => s.source === "wearable") ? "wearable" : "manual";
+  }
+
+  // ---- Active minutes (wearable + manual merged, prefer wearable per day) ----
+  const weekExMinEntries = (activeMinutesData as any[]).filter((e: any) => {
+    const d = e.date ? new Date(e.date) : null;
+    return d && d >= weekStart && d < weekEnd;
+  });
+  let avgActiveMinutesPerDay: number | null = null;
+  let activeMinutesSource: "wearable" | "manual" | null = null;
+  if (weekExMinEntries.length > 0) {
+    const totalMins = weekExMinEntries.reduce((sum: number, e: any) => sum + Number(e.minutes || 0), 0);
+    avgActiveMinutesPerDay = Math.round(totalMins / weekExMinEntries.length);
+    activeMinutesSource = weekExMinEntries.some((e: any) => e.source === "wearable") ? "wearable" : "manual";
+  }
+
+  // ---- Resting HR (wearable preferred via storage merge; no separate manual fallback needed) ----
+  const weekHrEntries = (restingHrData as any[]).filter((e: any) => {
+    const d = e.date ? new Date(e.date) : null;
+    return d && d >= weekStart && d < weekEnd;
+  });
+  let avgRestingHr: number | null = null;
+  if (weekHrEntries.length > 0) {
+    const totalBpm = weekHrEntries.reduce((sum: number, e: any) => sum + Number(e.bpm || 0), 0);
+    avgRestingHr = Math.round(totalBpm / weekHrEntries.length);
   }
 
   // ---- Nutrition ----
@@ -413,11 +446,20 @@ export async function aggregateWeekV2(userId: string, weekStart: Date): Promise<
     cards.habits = { items: habitItems };
   }
 
-  if (avgSleepHours !== null || roughDaysCount > 0) {
+  // Derive steps summary fields for lifestyle card from the already-computed stepsByDay
+  const avgStepsPerDay: number | null = stepsBlock ? stepsBlock.avg : null;
+  const stepsSource: "wearable" | "manual" | null = stepsBlock ? stepsBlock.source : null;
+
+  if (avgSleepHours !== null || roughDaysCount > 0 || avgStepsPerDay !== null || avgActiveMinutesPerDay !== null || avgRestingHr !== null) {
     cards.lifestyle = {
       avgSleepHours,
       sleepSource,
       roughDaysCount,
+      avgStepsPerDay,
+      stepsSource,
+      avgActiveMinutesPerDay,
+      activeMinutesSource,
+      avgRestingHr,
     };
   }
 

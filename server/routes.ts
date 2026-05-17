@@ -20470,7 +20470,7 @@ RULES:
         const windowEnd = buckets[buckets.length - 1].weekEnd;
 
         // Pull all relevant data once for the window
-        const [checkIns, steps, exMins, weights, sleep, completions, userHabits] = await Promise.all([
+        const [checkIns, steps, exMins, weights, sleep, completions, userHabits, burnoutHistory, workoutHistory] = await Promise.all([
           storage.getUserWeeklyCheckins(userId, weeks + 4),
           db.select().from(stepEntries).where(and(eq(stepEntries.userId, userId), gte(stepEntries.date, windowStart), lt(stepEntries.date, windowEnd))),
           db.select().from(exerciseMinutesEntries).where(and(eq(exerciseMinutesEntries.userId, userId), gte(exerciseMinutesEntries.date, windowStart), lt(exerciseMinutesEntries.date, windowEnd))),
@@ -20478,6 +20478,12 @@ RULES:
           db.select().from(sleepEntries).where(and(eq(sleepEntries.userId, userId), gte(sleepEntries.date, windowStart), lt(sleepEntries.date, windowEnd))),
           db.select({ id: habitCompletions.id, completedDate: habitCompletions.completedDate }).from(habitCompletions).where(and(eq(habitCompletions.userId, userId), gte(habitCompletions.completedDate, windowStart), lt(habitCompletions.completedDate, windowEnd))),
           db.select({ id: habits.id, daysOfWeek: habits.daysOfWeek, isActive: habits.isActive }).from(habits).where(eq(habits.userId, userId)),
+          db.select({ computedDate: burnoutScores.computedDate, score: burnoutScores.score })
+            .from(burnoutScores)
+            .where(and(eq(burnoutScores.userId, userId), gte(burnoutScores.computedDate, windowStart), lt(burnoutScores.computedDate, windowEnd))),
+          db.select({ completedAt: workoutLogs.completedAt, autoCalculatedVolume: workoutLogs.autoCalculatedVolume })
+            .from(workoutLogs)
+            .where(and(eq(workoutLogs.userId, userId), eq(workoutLogs.status, "completed"), gte(workoutLogs.completedAt, windowStart), lt(workoutLogs.completedAt, windowEnd))),
         ]);
 
         const habitTargetPerWeek = userHabits
@@ -20500,10 +20506,23 @@ RULES:
           const m = payload?.metrics;
           const cards = payload?.cards;
 
-          // From check-in payload
-          const burnoutScore = m?.burnout?.score ?? null;
-          const trainingVolumeKg = m?.training?.totalVolumeKg ?? null;
-          const sessionsCompleted = m?.training?.sessionsCompleted ?? null;
+          // Burnout: latest computed score within this week's bucket (fall back to payload then null)
+          const weekBurnouts = burnoutHistory
+            .filter((bs: any) => inBucket(new Date(bs.computedDate), b))
+            .sort((x: any, y: any) => new Date(y.computedDate).getTime() - new Date(x.computedDate).getTime());
+          const burnoutScore = weekBurnouts.length > 0
+            ? weekBurnouts[0].score
+            : (m?.burnout?.score ?? null);
+
+          // Training volume + session count from raw workout logs in this bucket
+          const weekWorkouts = workoutHistory.filter((w: any) => w.completedAt && inBucket(new Date(w.completedAt), b));
+          const trainingVolumeKg = weekWorkouts.length > 0
+            ? Math.round(weekWorkouts.reduce((sum: number, w: any) => sum + Number(w.autoCalculatedVolume || 0), 0))
+            : (m?.training?.totalVolumeKg ?? null);
+          const sessionsCompleted = weekWorkouts.length > 0
+            ? weekWorkouts.length
+            : (m?.training?.sessionsCompleted ?? null);
+
           const activeBodyAreas = (cards?.bodyStatus?.areas || []).filter((a: any) => a.status === "active" || a.status === "chronic").length || null;
 
           // Fresh aggregates

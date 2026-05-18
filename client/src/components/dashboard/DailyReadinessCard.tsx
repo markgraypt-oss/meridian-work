@@ -274,6 +274,13 @@ function ReasonsPanel({ inputs }: { inputs: InputsMap }) {
           const meta = INPUT_META[key];
           const missing = value == null;
           const Icon = meta.Icon;
+          // Training Load is a strain metric: high value = heavy day = bad for readiness.
+          // All other metrics are recovery-based: high = good. So we invert the color only for trainingLoad.
+          const displayColor = missing
+            ? "#94a3b8"
+            : key === "trainingLoad"
+              ? inputColor(value == null ? null : 10 - value)
+              : inputColor(value);
           return (
             <li
               key={key}
@@ -282,7 +289,7 @@ function ReasonsPanel({ inputs }: { inputs: InputsMap }) {
             >
               <Icon
                 className="h-4 w-4 shrink-0"
-                style={{ color: inputColor(value) }}
+                style={{ color: displayColor }}
               />
               <span className="font-medium text-foreground w-24 shrink-0">{meta.label}</span>
               {missing ? (
@@ -301,7 +308,7 @@ function ReasonsPanel({ inputs }: { inputs: InputsMap }) {
                 <div className="flex items-center gap-2 flex-1">
                   <span
                     className="font-mono text-sm tabular-nums"
-                    style={{ color: inputColor(value) }}
+                    style={{ color: displayColor }}
                     data-testid={`reason-value-${key}`}
                   >
                     {value!.toFixed(1)}

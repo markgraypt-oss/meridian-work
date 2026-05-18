@@ -97,10 +97,13 @@ export function computeDailyReadinessV1(inputs: ReadinessInputs): ReadinessResul
     return { inputs, inputCount, score: null };
   }
   const totalWeight = available.reduce((s, k) => s + WEIGHTS[k], 0);
-  const weightedSum = available.reduce(
-    (s, k) => s + (inputs[k] as number) * (WEIGHTS[k] / totalWeight),
-    0,
-  );
+  const weightedSum = available.reduce((s, k) => {
+    const raw = inputs[k] as number;
+    // Training Load is stored as raw strain (high = heavy day).
+    // Invert here so a hard day lowers the readiness score.
+    const v = k === "trainingLoad" ? clamp(10 - raw, 0, 10) : raw;
+    return s + v * (WEIGHTS[k] / totalWeight);
+  }, 0);
   const score = Math.round(clamp(weightedSum * 10, 0, 100));
   return { inputs, inputCount, score };
 }
@@ -419,9 +422,9 @@ export async function gatherInputsForDay(
     }
   }
 
-  // Invert: high stress yesterday → lower readiness contribution
+  // Store raw strain (high = heavy day). Inversion happens in computeDailyReadinessV1.
   if (yesterdayStress != null) {
-    trainingLoad = clamp(10 - yesterdayStress, 0, 10);
+    trainingLoad = clamp(yesterdayStress, 0, 10);
   }
 
   const r = (v: number | null) => (v == null ? null : Math.round(v * 10) / 10);

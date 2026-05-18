@@ -8866,6 +8866,7 @@ export class DatabaseStorage implements IStorage {
     const durationSeconds = (typeof durationOverrideSeconds === 'number' && durationOverrideSeconds > 0)
       ? durationOverrideSeconds
       : calculatedSeconds;
+    console.log('[DURATION DEBUG] override arg =', durationOverrideSeconds, 'calculated =', calculatedSeconds, 'final =', durationSeconds);
     
     // Get all exercise logs for this workout
     const exerciseLogs = await this.getWorkoutExerciseLogs(id);

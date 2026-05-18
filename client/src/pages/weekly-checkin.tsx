@@ -181,7 +181,29 @@ function HowYouMovedCard({ data }: { data: NonNullable<V2Cards["howYouMoved"]> }
 
 // ─── Card 3: Goals ───────────────────────────────────────────────────────────
 
-function GoalsCard({ data }: { data: NonNullable<V2Cards["goals"]> }) {
+interface LiveGoal {
+  id: number;
+  title: string;
+  type: string;
+  progress: number | null;
+  isCompleted: boolean | null;
+}
+
+function GoalsCard({ data, liveGoals }: { data: NonNullable<V2Cards["goals"]>; liveGoals?: LiveGoal[] }) {
+  // Build a lookup by title so we can override stale payload progress
+  // with the live value from /api/goals (which is kept current).
+  const liveByTitle = useMemo(() => {
+    const m = new Map<string, LiveGoal>();
+    (liveGoals ?? []).forEach((g) => m.set(g.title.toLowerCase().trim(), g));
+    return m;
+  }, [liveGoals]);
+
+  const items = data.items.map((item) => {
+    const live = liveByTitle.get(item.title.toLowerCase().trim());
+    const progressPct = live && typeof live.progress === "number" ? live.progress : item.progressPct;
+    return { ...item, progressPct };
+  });
+
   return (
     <Card>
       <CardHeader className="pb-3">
@@ -190,7 +212,7 @@ function GoalsCard({ data }: { data: NonNullable<V2Cards["goals"]> }) {
         </CardTitle>
       </CardHeader>
       <CardContent className="space-y-3">
-        {data.items.map((g, i) => (
+        {items.map((g, i) => (
           <div key={i} className="space-y-1">
             <div className="flex justify-between text-xs">
               <span className="font-medium line-clamp-1">{g.title}</span>
@@ -343,7 +365,7 @@ function NutritionCard({ data }: { data: NonNullable<V2Cards["nutrition"]> }) {
 
 // ─── V2 detail view ──────────────────────────────────────────────────────────
 
-function CheckinDetailV2({ checkIn }: { checkIn: WeeklyCheckin }) {
+function CheckinDetailV2({ checkIn, liveGoals }: { checkIn: WeeklyCheckin; liveGoals?: LiveGoal[] }) {
   const payload = checkIn.payload as V2Payload;
   const cards = payload.cards;
   const weekRange = `${format(new Date(payload.weekStart), "d MMM")} – ${format(new Date(payload.weekEnd), "d MMM yyyy")}`;
@@ -360,7 +382,7 @@ function CheckinDetailV2({ checkIn }: { checkIn: WeeklyCheckin }) {
 
       {cards.howYouFelt && <HowYouFeltCard data={cards.howYouFelt} />}
       {cards.howYouMoved && <HowYouMovedCard data={cards.howYouMoved} />}
-      {cards.goals && <GoalsCard data={cards.goals} />}
+      {cards.goals && <GoalsCard data={cards.goals} liveGoals={liveGoals} />}
       {cards.habits && <HabitsCard data={cards.habits} />}
       {cards.lifestyle && <LifestyleCard data={cards.lifestyle} />}
       {cards.patterns && <PatternsCard data={cards.patterns} />}
@@ -606,6 +628,10 @@ export default function WeeklyCheckinPage() {
   const historyQuery = useQuery<WeeklyCheckin[]>({
     queryKey: ["/api/weekly-checkins"],
   });
+  // Live goals — used to override stale progressPct values baked into old payloads
+  const liveGoalsQuery = useQuery<LiveGoal[]>({
+    queryKey: ["/api/goals"],
+  });
 
   const checkIn = matchedDetail ? detailQuery.data : currentQuery.data;
   const isLoading = matchedDetail ? detailQuery.isLoading : currentQuery.isLoading;
@@ -645,7 +671,7 @@ export default function WeeklyCheckinPage() {
 
         {!isLoading && checkIn && (
           isV2(checkIn.payload) ? (
-            <CheckinDetailV2 checkIn={checkIn} />
+            <CheckinDetailV2 checkIn={checkIn} liveGoals={liveGoalsQuery.data} />
           ) : (
             <CheckinDetailLegacy checkIn={checkIn} />
           )

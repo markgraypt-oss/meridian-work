@@ -301,14 +301,45 @@ export async function aggregateWeekV2(userId: string, weekStart: Date): Promise<
   const nutritionDaysTracked = mealDaySet.size;
 
   // ---- Goals ----
-  const activeGoalItems = allGoals
+  // Compute live progress for each active goal:
+  //   • bodyweight goals → `goal.progress` is kept in sync by syncBodyweightGoals
+  //     on every weight log, so the stored value is reliable.
+  //   • template-based goals (steps, workouts, streaks, etc.) → call
+  //     getGoalProgress() which queries the actual data sources.
+  //   • custom goals with no templateId → no auto-computable progress, show null.
+  const eligibleGoals = allGoals
     .filter((g) => !g.isCompleted && g.type !== "nutrition")
-    .slice(0, 6)
-    .map((g) => ({
-      title: g.title,
-      progressPct: typeof g.progress === "number" ? g.progress : null,
-      isCompleted: g.isCompleted ?? false,
-    }));
+    .slice(0, 6);
+
+  const activeGoalItems = await Promise.all(
+    eligibleGoals.map(async (g) => {
+      let progressPct: number | null = null;
+
+      if (g.type === "bodyweight") {
+        // Kept in sync by syncBodyweightGoals; stored value is authoritative
+        progressPct = typeof g.progress === "number" ? g.progress : null;
+      } else if (g.templateId) {
+        try {
+          const result = await storage.getGoalProgress(g.id, userId);
+          if (result) {
+            progressPct = Math.round(result.percentage);
+            // Write back to keep the stored field in sync
+            await db.update(goalsSchema).set({ progress: progressPct }).where(eq(goalsSchema.id, g.id));
+          }
+        } catch {
+          // Non-fatal: fall back to stored value
+          progressPct = typeof g.progress === "number" ? g.progress : null;
+        }
+      }
+      // Custom goals without a templateId: progressPct stays null (no bar shown)
+
+      return {
+        title: g.title,
+        progressPct,
+        isCompleted: g.isCompleted ?? false,
+      };
+    })
+  );
 
   // ---- Habits ----
   // Count unique completion days per habit (user can accidentally tap twice on same day)

@@ -324,6 +324,11 @@ function ReasonsPanel({ inputs, sources }: { inputs: InputsMap; sources: Sources
                     {value!.toFixed(1)}
                     <span className="text-muted-foreground text-xs">/10</span>
                   </span>
+                  {source && (
+                    <span className="text-[10px] uppercase tracking-wide px-1.5 py-0.5 rounded bg-background border border-border text-muted-foreground ml-auto">
+                      {SOURCE_LABEL[source]}
+                    </span>
+                  )}
                 </>
               )}
             </li>

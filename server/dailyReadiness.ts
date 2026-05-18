@@ -325,10 +325,10 @@ export async function gatherInputsForDay(
     .limit(1);
   const yw = yWearRows[0];
 
-  // Step 1: WHOOP strain (0-21 → 0-10 stress)
+  // Step 1: WHOOP strain (stored 0-210 representing 0-21 real strain → 0-10 stress)
   let yesterdayStress: number | null = null;
   if (yw?.strainScore != null) {
-    yesterdayStress = clamp(yw.strainScore / 21, 0, 1) * 10;
+    yesterdayStress = clamp(yw.strainScore / 210, 0, 1) * 10;
     sources.trainingLoad = "wearable";
   }
 

@@ -46,7 +46,7 @@ export interface ReadinessInputs {
   pain: number | null;
   energy: number | null;
   nutrition: number | null;
-  movement: number | null;
+  trainingLoad: number | null;
   recovery: number | null;
 }
 
@@ -216,7 +216,7 @@ export async function gatherInputsForDay(
     pain: null,
     energy: null,
     nutrition: null,
-    movement: null,
+    trainingLoad: null,
     recovery: null,
   };
 
@@ -308,42 +308,148 @@ export async function gatherInputsForDay(
     sources.nutrition = "meal-log";
   }
 
-  // --- Movement ---
-  // Workout completed today ⇒ 10. Else steps (10k = 10). Wearable steps preferred.
-  let movement: number | null = null;
-  const woRows = await db
-    .select({ id: workoutLogs.id })
+  // --- Training Load (backward-looking) ---
+  // Computes a 0-10 score reflecting recent physical stress.
+  // High load = lower readiness score contribution (more rest needed).
+  // Low load after a period of high load = good recovery.
+  let trainingLoad: number | null = null;
+
+  // 1. Yesterday's data — strongest signal for today's readiness
+  const yesterdayKey = toDateKey(new Date(dayStart.getTime() - 24 * 60 * 60 * 1000));
+  const yesterdayWear = await db
+    .select()
+    .from(wearableMetricsDaily)
+    .where(and(eq(wearableMetricsDaily.userId, userId), eq(wearableMetricsDaily.date, yesterdayKey)))
+    .orderBy(desc(wearableMetricsDaily.updatedAt))
+    .limit(1);
+
+  // WHOOP strain score wins if available (0-210 stored = 0-21 * 10)
+  if (yesterdayWear[0]?.strainScore != null) {
+    trainingLoad = clamp(yesterdayWear[0].strainScore / 21, 0, 10);
+    sources.trainingLoad = "wearable";
+  }
+
+  // If no strain, use yesterday's steps + active minutes + calories burned
+  if (trainingLoad == null && yesterdayWear[0]) {
+    const yw = yesterdayWear[0];
+    const yFactors: number[] = [];
+    // Steps: 10k steps = 5/10 load (moderate baseline)
+    if (yw.steps != null) yFactors.push(clamp((yw.steps / 10000) * 5, 0, 10));
+    // Active minutes: 60 min = 5/10 load
+    if (yw.activeMinutes != null) yFactors.push(clamp((yw.activeMinutes / 60) * 5, 0, 10));
+    // Calories burned: 500 kcal = 5/10 load
+    if (yw.caloriesBurned != null) yFactors.push(clamp((yw.caloriesBurned / 500) * 5, 0, 10));
+
+    if (yFactors.length > 0) {
+      trainingLoad = clamp(yFactors.reduce((s, v) => s + v, 0) / yFactors.length, 0, 10);
+      sources.trainingLoad = "wearable";
+    }
+  }
+
+  // Yesterday's workout intensity boost (adds to wearable-based load)
+  const yesterdayWorkouts = await db
+    .select({ durationSeconds: workoutLogs.duration })
     .from(workoutLogs)
     .where(
       and(
         eq(workoutLogs.userId, userId),
-        gte(workoutLogs.completedAt, dayStart),
-        lt(workoutLogs.completedAt, dayEnd),
+        gte(workoutLogs.completedAt, new Date(dayStart.getTime() - 24 * 60 * 60 * 1000)),
+        lt(workoutLogs.completedAt, dayStart),
       ),
-    )
-    .limit(1);
-  if (woRows.length > 0) {
-    movement = 10;
-    sources.movement = "workout-log";
-  } else if (wear?.steps != null) {
-    movement = clamp((wear.steps / 10000) * 10, 0, 10);
-    sources.movement = "wearable";
-  } else {
+    );
+  if (yesterdayWorkouts.length > 0) {
+    const totalDuration = yesterdayWorkouts.reduce((s, w) => s + (w.durationSeconds || 0), 0);
+    const workoutBoost = clamp(totalDuration / 3600, 0, 3); // 0-3 boost based on hours
+    trainingLoad = clamp((trainingLoad || 0) + workoutBoost, 0, 10);
+  }
+
+  // 2. 7-day trend context — adjust load based on recent pattern
+  if (trainingLoad != null) {
+    const sevenDaysAgo = new Date(dayStart);
+    sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
+    const weekWear = await db
+      .select({
+        date: wearableMetricsDaily.date,
+        steps: wearableMetricsDaily.steps,
+        activeMinutes: wearableMetricsDaily.activeMinutes,
+        caloriesBurned: wearableMetricsDaily.caloriesBurned,
+      })
+      .from(wearableMetricsDaily)
+      .where(
+        and(
+          eq(wearableMetricsDaily.userId, userId),
+          gte(wearableMetricsDaily.date, toDateKey(sevenDaysAgo)),
+          lt(wearableMetricsDaily.date, dateKey),
+        ),
+      );
+
+    if (weekWear.length >= 3) {
+      const avgSteps = weekWear.reduce((s, w) => s + (w.steps || 0), 0) / weekWear.length;
+      const avgActiveMin = weekWear.reduce((s, w) => s + (w.activeMinutes || 0), 0) / weekWear.length;
+      const avgCalories = weekWear.reduce((s, w) => s + (w.caloriesBurned || 0), 0) / weekWear.length;
+
+      // 30-day baselines
+      const thirtyDaysAgo = new Date(dayStart);
+      thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
+      const baselineWear = await db
+        .select({
+          steps: wearableMetricsDaily.steps,
+          activeMinutes: wearableMetricsDaily.activeMinutes,
+          caloriesBurned: wearableMetricsDaily.caloriesBurned,
+        })
+        .from(wearableMetricsDaily)
+        .where(
+          and(
+            eq(wearableMetricsDaily.userId, userId),
+            gte(wearableMetricsDaily.date, toDateKey(thirtyDaysAgo)),
+            lt(wearableMetricsDaily.date, dateKey),
+          ),
+        );
+
+      const baselineSteps = baselineWear.length > 0
+        ? baselineWear.reduce((s, w) => s + (w.steps || 0), 0) / baselineWear.length
+        : 8000;
+      const baselineActiveMin = baselineWear.length > 0
+        ? baselineWear.reduce((s, w) => s + (w.activeMinutes || 0), 0) / baselineWear.length
+        : 30;
+      const baselineCalories = baselineWear.length > 0
+        ? baselineWear.reduce((s, w) => s + (w.caloriesBurned || 0), 0) / baselineWear.length
+        : 300;
+
+      // How much above/below baseline was the last 7 days?
+      const stepRatio = baselineSteps > 0 ? (avgSteps / baselineSteps) : 1;
+      const activeMinRatio = baselineActiveMin > 0 ? (avgActiveMin / baselineActiveMin) : 1;
+      const caloriesRatio = baselineCalories > 0 ? (avgCalories / baselineCalories) : 1;
+      const avgRatio = (stepRatio + activeMinRatio + caloriesRatio) / 3;
+
+      // Trend adjustment: if 7-day avg is >20% above baseline, bump load up.
+      // If >20% below baseline, pull load down (good recovery).
+      if (avgRatio > 1.2) {
+        trainingLoad = clamp(trainingLoad * 1.15, 0, 10);
+      } else if (avgRatio < 0.8) {
+        trainingLoad = clamp(trainingLoad * 0.85, 0, 10);
+      }
+    }
+  }
+
+  // 3. Fallback: manual step logs only
+  if (trainingLoad == null) {
     const stepRows = await db
       .select()
       .from(stepEntries)
       .where(
         and(
           eq(stepEntries.userId, userId),
-          gte(stepEntries.date, dayStart),
+          gte(stepEntries.date, new Date(dayStart.getTime() - 7 * 24 * 60 * 60 * 1000)),
           lt(stepEntries.date, dayEnd),
         ),
       )
-      .limit(1);
-    const se = stepRows[0];
-    if (se?.steps != null) {
-      movement = clamp((se.steps / 10000) * 10, 0, 10);
-      sources.movement = "step-log";
+      .orderBy(desc(stepEntries.date))
+      .limit(7);
+    if (stepRows.length > 0) {
+      const avgSteps = stepRows.reduce((s, r) => s + (r.steps || 0), 0) / stepRows.length;
+      trainingLoad = clamp((avgSteps / 10000) * 5, 0, 10);
+      sources.trainingLoad = "step-log";
     }
   }
 
@@ -369,7 +475,7 @@ export async function gatherInputsForDay(
     pain: pain == null ? null : Math.round(pain * 10) / 10,
     energy: energy == null ? null : Math.round(energy * 10) / 10,
     nutrition: nutrition == null ? null : Math.round(nutrition * 10) / 10,
-    movement: movement == null ? null : Math.round(movement * 10) / 10,
+    trainingLoad: trainingLoad == null ? null : Math.round(trainingLoad * 10) / 10,
     recovery: recovery == null ? null : Math.round(recovery * 10) / 10,
   };
   return { inputs, sources };

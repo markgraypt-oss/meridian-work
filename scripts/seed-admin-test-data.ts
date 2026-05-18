@@ -48,13 +48,19 @@ async function main() {
 
   const today = new Date();
 
-  // 1. Weekly check-ins (4 weeks, V2 payload — full shape so detail page renders)
+  // 1. Weekly check-ins (last 4 COMPLETED weeks — never seed the in-progress
+  // week; in production a weekly check-in row only exists after the week ends)
   const TRAJECTORIES = ["trending up", "holding steady", "declining"] as const;
   const wcValues = [];
-  for (let w = 0; w < 4; w++) {
-    const weekStart = new Date(today);
-    weekStart.setDate(weekStart.getDate() - w * 7);
-    weekStart.setHours(0, 0, 0, 0);
+  // Compute this week's Monday (local), then loop weeks 1..4 back from there
+  const thisMonday = new Date(today);
+  const dayIdx = thisMonday.getDay();
+  const mondayDiff = dayIdx === 0 ? -6 : 1 - dayIdx;
+  thisMonday.setDate(thisMonday.getDate() + mondayDiff);
+  thisMonday.setHours(0, 0, 0, 0);
+  for (let w = 1; w <= 4; w++) {
+    const weekStart = new Date(thisMonday);
+    weekStart.setDate(thisMonday.getDate() - w * 7);
     const weekEnd = new Date(weekStart);
     weekEnd.setDate(weekStart.getDate() + 6);
 

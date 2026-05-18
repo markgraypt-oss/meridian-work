@@ -242,17 +242,15 @@ export default function InsightCard() {
 
   const hero = buildHero({ hrv, rhr, sleep, energy });
 
-  // Find the weekly check-in for last completed week. Match by YYYY-MM-DD
-  // (string compare avoids UTC vs local-tz drift). Fall back to the most
-  // recent check-in row — by definition that's last week's, since "this"
-  // week's check-in isn't generated until later in the week.
-  const targetKey = range.start.toISOString().slice(0, 10);
-  const sorted = [...(checkins ?? [])].sort(
-    (a, b) => new Date(b.weekStart).getTime() - new Date(a.weekStart).getTime()
-  );
-  const targetCheckin =
-    sorted.find((c) => new Date(c.weekStart).toISOString().slice(0, 10) === targetKey) ??
-    sorted[0];
+  // Find the weekly check-in for last completed week. Only consider rows whose
+  // weekStart is strictly before this week's Monday (i.e. fully completed),
+  // then pick the most recent. This avoids landing on an in-progress current
+  // week if one was accidentally created.
+  const thisMonday = new Date(range.end.getTime() + 1); // = this week's Monday 00:00
+  const completed = (checkins ?? [])
+    .filter((c) => new Date(c.weekStart).getTime() < thisMonday.getTime())
+    .sort((a, b) => new Date(b.weekStart).getTime() - new Date(a.weekStart).getTime());
+  const targetCheckin = completed[0];
   const trendsUrl = targetCheckin ? `/weekly-checkin/${targetCheckin.id}` : null;
 
   const openCoach = () => {

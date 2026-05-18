@@ -83,7 +83,7 @@ export default function TrainingProgrammeOverview() {
   });
 
   // Check for active main programme enrollment
-  const { data: timeline } = useQuery({
+  const { data: timeline, isFetching: timelineFetching } = useQuery({
     queryKey: ["/api/my-programs/timeline"],
     enabled: isAuthenticated,
   });
@@ -677,9 +677,9 @@ export default function TrainingProgrammeOverview() {
             onClick={() => {
               // For main programmes, check if user already has an active main programme
               const isSupplementary = programme.programmeType === 'stretching' || programme.programmeType === 'corrective';
-              if (!isSupplementary && hasActiveMainProgramme) {
+              if (!isSupplementary && hasActiveMainProgramme && !timelineFetching) {
                 setShowConflictDialog(true);
-              } else {
+              } else if (!timelineFetching) {
                 setIsConfirmDialogOpen(true);
               }
             }}

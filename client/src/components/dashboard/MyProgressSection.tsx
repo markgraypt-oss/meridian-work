@@ -74,6 +74,18 @@ interface RestingHREntry {
   date: string;
 }
 
+interface HRVEntry {
+  id: number;
+  hrvMs: number;
+  date: string;
+}
+
+interface VO2MaxEntry {
+  id: number;
+  vo2MaxMlKgMin: number;
+  date: string;
+}
+
 interface ExerciseMinutesEntry {
   id: number;
   minutes: number;
@@ -100,7 +112,9 @@ interface HydrationEntry {
 
 type MetricKey = 
   | "steps" 
-  | "sleep" 
+  | "sleep"
+  | "hrv"
+  | "vo2max"
   | "bodyWeight" 
   | "bodyFat" 
   | "photos" 
@@ -181,6 +195,64 @@ const allMetricConfigs: MetricConfig[] = [
       if (!recent.length) return null;
       const avgScore = Math.round(recent.reduce((s, e) => s + (e.sleepScore || 0), 0) / recent.length);
       return { value: avgScore, max: 100, label: "Avg Score" };
+    },
+  },
+  {
+    key: "hrv",
+    label: "HRV",
+    icon: Heart,
+    unit: "ms",
+    endpoint: "/api/progress/hrv",
+    color: "#ef4444",
+    formatValue: (data: HRVEntry[]) => {
+      if (!data?.length) return "No data";
+      const latest = data[0];
+      return `${latest.hrvMs} ms`;
+    },
+    getProgressPercent: () => 0,
+    hideProgressBar: true,
+    showMiniGraph: true,
+    getGraphData: (data: HRVEntry[]) => {
+      if (!data?.length) return [];
+      const now = new Date();
+      const threeMonthsAgo = new Date(now.getFullYear(), now.getMonth() - 3, now.getDate());
+      const filtered = data.filter(entry => {
+        const entryDate = new Date(entry.date);
+        return entryDate >= threeMonthsAgo;
+      });
+      return filtered
+        .sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime())
+        .map(entry => ({ value: entry.hrvMs, timestamp: new Date(entry.date).getTime() }));
+    },
+  },
+  {
+    key: "vo2max",
+    label: "VO2 Max",
+    icon: Activity,
+    unit: "ml/kg/min",
+    endpoint: "/api/progress/vo2max",
+    color: "#f43f5e",
+    formatValue: (data: VO2MaxEntry[]) => {
+      if (!data?.length) return "No data";
+      const latest = data[0];
+      const val = latest.vo2MaxMlKgMin;
+      const label = val >= 55 ? "Excellent" : val >= 50 ? "Above Avg" : val >= 45 ? "Average" : val >= 40 ? "Below Avg" : "Poor";
+      return `${val} · ${label}`;
+    },
+    getProgressPercent: () => 0,
+    hideProgressBar: true,
+    showMiniGraph: true,
+    getGraphData: (data: VO2MaxEntry[]) => {
+      if (!data?.length) return [];
+      const now = new Date();
+      const threeMonthsAgo = new Date(now.getFullYear(), now.getMonth() - 3, now.getDate());
+      const filtered = data.filter(entry => {
+        const entryDate = new Date(entry.date);
+        return entryDate >= threeMonthsAgo;
+      });
+      return filtered
+        .sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime())
+        .map(entry => ({ value: entry.vo2MaxMlKgMin, timestamp: new Date(entry.date).getTime() }));
     },
   },
   {
@@ -403,7 +475,7 @@ const allMetricConfigs: MetricConfig[] = [
 ];
 
 const DEFAULT_VISIBLE_METRICS: MetricKey[] = [
-  "steps", "sleep", "bodyWeight", "bodyFat", "hydration", 
+  "steps", "sleep", "hrv", "vo2max", "bodyWeight", "bodyFat", "hydration", 
   "caloricIntake", "restingHR", "photos", "caloricBurn", "exerciseMinutes"
 ];
 

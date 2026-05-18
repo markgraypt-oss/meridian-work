@@ -9565,6 +9565,42 @@ export class DatabaseStorage implements IStorage {
   }
 
   // ============================================
+  // PROGRESS TRACKING - HRV
+  // ============================================
+
+  async getHRVEntries(userId: string): Promise<{ id: number; date: string; hrvMs: number }[]> {
+    const rows = await db
+      .select()
+      .from(wearableMetricsDaily)
+      .where(and(eq(wearableMetricsDaily.userId, userId), sql`${wearableMetricsDaily.hrvMs} IS NOT NULL`))
+      .orderBy(desc(wearableMetricsDaily.date));
+
+    return rows.map(r => ({
+      id: r.id,
+      date: r.date,
+      hrvMs: r.hrvMs ?? 0,
+    }));
+  }
+
+  // ============================================
+  // PROGRESS TRACKING - VO2 Max
+  // ============================================
+
+  async getVO2MaxEntries(userId: string): Promise<{ id: number; date: string; vo2MaxMlKgMin: number }[]> {
+    const rows = await db
+      .select()
+      .from(wearableMetricsDaily)
+      .where(and(eq(wearableMetricsDaily.userId, userId), sql`${wearableMetricsDaily.vo2MaxMlKgMin} IS NOT NULL`))
+      .orderBy(desc(wearableMetricsDaily.date));
+
+    return rows.map(r => ({
+      id: r.id,
+      date: r.date,
+      vo2MaxMlKgMin: r.vo2MaxMlKgMin ?? 0,
+    }));
+  }
+
+  // ============================================
   // PROGRESS TRACKING - Blood Pressure
   // ============================================
 

@@ -60,7 +60,9 @@ type MetricKey =
   | "bodyFat" 
   | "photos" 
   | "caloricIntake" 
-  | "restingHR" 
+  | "restingHR"
+  | "hrv"
+  | "vo2max"
   | "bloodPressure" 
   | "leanBodyMass" 
   | "caloricBurn"
@@ -92,6 +94,8 @@ interface MetricConfig {
 const metricConfigs: MetricConfig[] = [
   { key: "steps", label: "Steps", icon: Footprints, unit: "", endpoint: "/api/progress/steps", color: "#0cc9a9" },
   { key: "sleep", label: "Sleep", icon: Moon, unit: "hrs", endpoint: "/api/progress/sleep", color: "#a78bfa" },
+  { key: "hrv", label: "Heart Rate Variability", icon: Heart, unit: "ms", endpoint: "/api/progress/hrv", color: "#ef4444" },
+  { key: "vo2max", label: "VO2 Max", icon: Activity, unit: "ml/kg/min", endpoint: "/api/progress/vo2max", color: "#f43f5e" },
   { key: "bodyWeight", label: "Body Weight", icon: Scale, unit: "kg", endpoint: "/api/progress/bodyweight", color: "#22c55e" },
   { key: "bodyFat", label: "Body Fat %", icon: Percent, unit: "%", endpoint: "/api/progress/body-fat", color: "#f97316" },
   { key: "photos", label: "Photos", icon: Camera, unit: "", endpoint: "/api/progress/pictures", color: "#ec4899" },
@@ -125,7 +129,7 @@ interface MetricCategory {
 const metricCategories: MetricCategory[] = [
   {
     name: "Biometrics",
-    metrics: ["bodyWeight", "bodyFat", "leanBodyMass", "restingHR", "bloodPressure", "caloricBurn", "exerciseMinutes"],
+    metrics: ["bodyWeight", "bodyFat", "leanBodyMass", "restingHR", "hrv", "vo2max", "bloodPressure", "caloricBurn", "exerciseMinutes"],
   },
   {
     name: "Body Measurements",
@@ -288,6 +292,12 @@ const addEntrySchemas: Record<MetricKey, z.ZodObject<any>> = {
     date: z.string().min(1, "Date is required"),
     bpm: z.coerce.number().min(30).max(200, "BPM must be 30-200"),
   }),
+  hrv: z.object({
+    date: z.string().min(1, "Date is required"),
+  }),
+  vo2max: z.object({
+    date: z.string().min(1, "Date is required"),
+  }),
   bloodPressure: z.object({
     date: z.string().min(1, "Date is required"),
     systolic: z.coerce.number().min(50).max(250, "Systolic must be 50-250"),
@@ -374,6 +384,7 @@ function formatTooltipValue(value: number, metricKey: MetricKey): string {
   if (metricKey === "bodyWeight" || metricKey === "leanBodyMass" || metricKey === "bodyFat") {
     return Number.isInteger(value) ? String(value) : value.toFixed(1);
   }
+  if (metricKey === "vo2max") return value.toFixed(1);
   return String(value);
 }
 
@@ -391,6 +402,8 @@ function getValueFromEntry(entry: any, metricKey: MetricKey): number {
     case "photos": return 1;
     case "caloricIntake": return entry.calories;
     case "restingHR": return entry.bpm;
+    case "hrv": return entry.hrvMs;
+    case "vo2max": return entry.vo2MaxMlKgMin;
     case "bloodPressure": return entry.systolic;
     case "leanBodyMass": return entry.mass;
     case "caloricBurn": return entry.calories;
@@ -424,6 +437,8 @@ function formatEntryDisplay(entry: any, metricKey: MetricKey, weightUnit: "kg" |
     case "photos": return "Photo";
     case "caloricIntake": return `${entry.calories.toLocaleString()} kcal`;
     case "restingHR": return `${entry.bpm} bpm`;
+    case "hrv": return `${entry.hrvMs} ms`;
+    case "vo2max": return `${entry.vo2MaxMlKgMin.toFixed(1)} ml/kg/min`;
     case "bloodPressure": return `${entry.systolic}/${entry.diastolic} mmHg`;
     case "leanBodyMass": return `${convertWeight(entry.mass)} ${weightUnitLabel}`;
     case "caloricBurn": return `${entry.calories.toLocaleString()} kcal`;
@@ -1652,7 +1667,7 @@ export default function ProgressMetricDetail() {
                 <ChevronUp className={`w-4 h-4 text-foreground transition-transform ${showDropdown ? '' : 'rotate-180'}`} />
               </button>
             )}
-            {metricKey === "caloricIntake" || metricKey === "hydration" || metricKey === "sleep" || metricKey === "steps" || metricKey === "restingHR" || metricKey === "caloricBurn" || metricKey === "exerciseMinutes" ? (
+            {metricKey === "caloricIntake" || metricKey === "hydration" || metricKey === "sleep" || metricKey === "steps" || metricKey === "restingHR" || metricKey === "hrv" || metricKey === "vo2max" || metricKey === "caloricBurn" || metricKey === "exerciseMinutes" ? (
               <div style={{ width: '50px' }} />
             ) : (
               <Button
@@ -2361,6 +2376,95 @@ export default function ProgressMetricDetail() {
           );
         })()}
 
+        {/* HRV Summary Cards */}
+        {metricKey === "hrv" && filteredEntries.length > 0 && (() => {
+          const values = filteredEntries.map((e: any) => e.hrvMs);
+          const avg = Math.round(values.reduce((a: number, b: number) => a + b, 0) / values.length);
+          const highest = Math.max(...values);
+          const lowest = Math.min(...values);
+          return (
+            <div className="grid grid-cols-3 gap-3" data-testid="hrv-stats-cards">
+              <Card className="bg-card border-border p-4 text-center">
+                <Heart className="w-6 h-6 mx-auto text-[#ef4444] mb-2" />
+                <p className="text-xl font-bold text-foreground">{avg} <span className="text-sm font-normal text-muted-foreground">ms</span></p>
+                <p className="text-xs text-muted-foreground">Average</p>
+              </Card>
+              <Card className="bg-card border-border p-4 text-center">
+                <TrendingUp className="w-6 h-6 mx-auto text-green-500 mb-2" />
+                <p className="text-xl font-bold text-foreground">{highest} <span className="text-sm font-normal text-muted-foreground">ms</span></p>
+                <p className="text-xs text-muted-foreground">Highest</p>
+              </Card>
+              <Card className="bg-card border-border p-4 text-center">
+                <TrendingDown className="w-6 h-6 mx-auto text-orange-500 mb-2" />
+                <p className="text-xl font-bold text-foreground">{lowest} <span className="text-sm font-normal text-muted-foreground">ms</span></p>
+                <p className="text-xs text-muted-foreground">Lowest</p>
+              </Card>
+            </div>
+          );
+        })()}
+
+        {/* VO2 Max Summary Cards */}
+        {metricKey === "vo2max" && filteredEntries.length > 0 && (() => {
+          const values = filteredEntries.map((e: any) => e.vo2MaxMlKgMin);
+          const avg = Math.round(values.reduce((a: number, b: number) => a + b, 0) / values.length * 10) / 10;
+          const highest = Math.max(...values);
+          const lowest = Math.min(...values);
+          const getVO2Classification = (val: number) => {
+            if (val >= 55) return { label: "Excellent", color: "text-green-500" };
+            if (val >= 50) return { label: "Above Average", color: "text-blue-500" };
+            if (val >= 45) return { label: "Average", color: "text-[#0cc9a9]" };
+            if (val >= 40) return { label: "Below Average", color: "text-orange-500" };
+            return { label: "Poor", color: "text-red-500" };
+          };
+          const latestEntry = filteredEntries.reduce((a: any, b: any) => new Date(a.date) > new Date(b.date) ? a : b);
+          const classification = getVO2Classification(latestEntry.vo2MaxMlKgMin);
+          return (
+            <div className="space-y-3" data-testid="vo2max-stats-cards">
+              <div className="grid grid-cols-3 gap-3">
+                <Card className="bg-card border-border p-4 text-center">
+                  <Activity className="w-6 h-6 mx-auto text-[#f43f5e] mb-2" />
+                  <p className="text-xl font-bold text-foreground">{avg.toFixed(1)} <span className="text-sm font-normal text-muted-foreground">ml/kg/min</span></p>
+                  <p className="text-xs text-muted-foreground">Average</p>
+                </Card>
+                <Card className="bg-card border-border p-4 text-center">
+                  <TrendingUp className="w-6 h-6 mx-auto text-green-500 mb-2" />
+                  <p className="text-xl font-bold text-foreground">{highest.toFixed(1)}</p>
+                  <p className="text-xs text-muted-foreground">Highest</p>
+                </Card>
+                <Card className="bg-card border-border p-4 text-center">
+                  <TrendingDown className="w-6 h-6 mx-auto text-orange-500 mb-2" />
+                  <p className="text-xl font-bold text-foreground">{lowest.toFixed(1)}</p>
+                  <p className="text-xs text-muted-foreground">Lowest</p>
+                </Card>
+              </div>
+              <Card className="bg-card border-border p-4">
+                <div className="flex items-center justify-between">
+                  <span className="text-sm text-muted-foreground">Current Fitness Classification</span>
+                  <span className={`text-sm font-semibold ${classification.color}`}>{classification.label}</span>
+                </div>
+                <div className="mt-3 flex gap-1">
+                  {[
+                    { label: "Poor", threshold: 40, color: "bg-red-500" },
+                    { label: "Below Avg", threshold: 45, color: "bg-orange-500" },
+                    { label: "Average", threshold: 50, color: "bg-[#0cc9a9]" },
+                    { label: "Above Avg", threshold: 55, color: "bg-blue-500" },
+                    { label: "Excellent", threshold: Infinity, color: "bg-green-500" },
+                  ].map((band, i) => (
+                    <div key={i} className={`flex-1 h-2 rounded-full ${band.color} ${latestEntry.vo2MaxMlKgMin < band.threshold && (i === 0 || latestEntry.vo2MaxMlKgMin >= [0, 40, 45, 50, 55][i]) ? "opacity-100 ring-2 ring-white ring-offset-1" : "opacity-30"}`} />
+                  ))}
+                </div>
+                <div className="flex justify-between mt-1">
+                  <span className="text-[10px] text-muted-foreground">&lt;40</span>
+                  <span className="text-[10px] text-muted-foreground">40</span>
+                  <span className="text-[10px] text-muted-foreground">45</span>
+                  <span className="text-[10px] text-muted-foreground">50</span>
+                  <span className="text-[10px] text-muted-foreground">55+</span>
+                </div>
+              </Card>
+            </div>
+          );
+        })()}
+
         {/* Resting HR Summary Cards */}
         {metricKey === "restingHR" && filteredEntries.length > 0 && (() => {
           const values = filteredEntries.map(e => e.bpm);
@@ -2607,7 +2711,7 @@ export default function ProgressMetricDetail() {
                         const measurementMetrics = ["neck", "chest", "shoulder", "leftBicep", "rightBicep", "leftForearm", "rightForearm", "waist", "hips", "leftThigh", "rightThigh", "leftCalf", "rightCalf"];
                         const isMeasurement = measurementMetrics.includes(metricKey);
                         const hasDetailPage = metricKey === "bodyWeight" || metricKey === "bodyFat" || isMeasurement;
-                        const deviceSourcedMetrics: MetricKey[] = ["steps", "restingHR", "caloricBurn", "exerciseMinutes"];
+                        const deviceSourcedMetrics: MetricKey[] = ["steps", "restingHR", "hrv", "vo2max", "caloricBurn", "exerciseMinutes"];
                         const isDeviceSourced = deviceSourcedMetrics.includes(metricKey);
                         return (
                           <div

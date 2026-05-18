@@ -16,6 +16,7 @@ export interface NormalisedDailyMetrics {
   readinessScore?: number | null;
   strainScore?: number | null;
   workoutCount?: number | null;
+  vo2MaxMlKgMin?: number | null;
   raw?: any;
 }
 

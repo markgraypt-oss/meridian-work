@@ -2940,6 +2940,7 @@ export const wearableMetricsDaily = pgTable("wearable_metrics_daily", {
   readinessScore: integer("readiness_score"), // 0-100 (Oura) / recovery (Whoop)
   strainScore: integer("strain_score"), // Whoop strain 0-21 stored *10 -> 0-210
   workoutCount: integer("workout_count"),
+  vo2MaxMlKgMin: real("vo2_max_ml_kg_min"),
   raw: jsonb("raw"), // raw provider payload for audit
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow(),

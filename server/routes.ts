@@ -15308,6 +15308,36 @@ Keep your response concise, practical, and evidence-based. Do not use em dashes.
   // Note: manual POST/DELETE for resting-hr removed. Resting HR is device-sourced only.
 
   // ============================================
+  // PROGRESS TRACKING - HRV
+  // ============================================
+
+  app.get('/api/progress/hrv', isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = req.user.claims.sub;
+      const entries = await storage.getHRVEntries(userId);
+      res.json(entries);
+    } catch (error) {
+      console.error("Error fetching HRV entries:", error);
+      res.status(500).json({ message: "Failed to fetch HRV entries" });
+    }
+  });
+
+  // ============================================
+  // PROGRESS TRACKING - VO2 Max
+  // ============================================
+
+  app.get('/api/progress/vo2max', isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = req.user.claims.sub;
+      const entries = await storage.getVO2MaxEntries(userId);
+      res.json(entries);
+    } catch (error) {
+      console.error("Error fetching VO2 Max entries:", error);
+      res.status(500).json({ message: "Failed to fetch VO2 Max entries" });
+    }
+  });
+
+  // ============================================
   // PROGRESS TRACKING - Blood Pressure
   // ============================================
 

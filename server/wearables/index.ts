@@ -112,6 +112,7 @@ export async function upsertDailyMetrics(userId: string, provider: WearableProvi
       readinessScore: m.readinessScore ?? null,
       strainScore: m.strainScore ?? null,
       workoutCount: m.workoutCount ?? null,
+      vo2MaxMlKgMin: m.vo2MaxMlKgMin ?? null,
       raw: m.raw ?? null,
       updatedAt: new Date(),
     };
@@ -132,6 +133,7 @@ export async function upsertDailyMetrics(userId: string, provider: WearableProvi
         readinessScore: values.readinessScore,
         strainScore: values.strainScore,
         workoutCount: values.workoutCount,
+        vo2MaxMlKgMin: values.vo2MaxMlKgMin,
         raw: values.raw,
         updatedAt: new Date(),
       },

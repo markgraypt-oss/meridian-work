@@ -91,6 +91,9 @@ export function parseAppleHealthExport(zipBuffer: Buffer): NormalisedDailyMetric
       case "HKQuantityTypeIdentifierHeartRateVariabilitySDNN":
         d.hrvMs = Math.round(value);
         break;
+      case "HKQuantityTypeIdentifierVO2Max":
+        if (d.vo2MaxMlKgMin == null || value > d.vo2MaxMlKgMin) d.vo2MaxMlKgMin = Math.round(value * 10) / 10;
+        break;
       case "HKCategoryTypeIdentifierSleepAnalysis": {
         // value is a string state in Apple's case (asleep, inBed, etc), but we have parsed it as number which gives NaN.
         const state = attrs.value || "";

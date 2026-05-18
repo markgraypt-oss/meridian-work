@@ -1,12 +1,11 @@
 /**
  * Daily Readiness (Beta, User-Only)
  *
- * Personal 0-100 readiness score computed nightly per user from up to six
- * inputs (sleep, pain, energy, nutrition, movement, recovery). Equal-weighted
- * v1 algorithm — average of the available, non-null inputs (each on a 0-10
- * scale) multiplied by 10. Requires at least MIN_INPUTS_FOR_SCORE inputs
- * before a score is recorded; otherwise the row stores the inputs for later
- * recompute and leaves `score` null.
+ * Personal 0-100 readiness score computed nightly per user from up to five
+ * inputs (sleep, energy, trainingLoad, hrv, rhr). Weighted v2 algorithm —
+ * HRV 30%, RHR 20%, Sleep 20%, Training Load 20%, Energy 10%.
+ * Weights redistribute proportionally when inputs are null.
+ * Requires at least MIN_INPUTS_FOR_SCORE inputs before a score is recorded.
  *
  * STRICT CONTAINMENT: this score is shown only on the user's personal
  * dashboard. It is NEVER aggregated into admin reports, CSV exports, or
@@ -16,10 +15,8 @@
 import { and, asc, desc, eq, gte, lt, sql } from "drizzle-orm";
 import { db } from "./db";
 import {
-  bodyMapLogs,
   checkIns,
   dailyReadinessHistory,
-  mealLogs,
   pointsTransactions,
   sleepEntries,
   stepEntries,
@@ -30,8 +27,8 @@ import {
 import { awardPoints } from "./engagementEngine";
 import { notify } from "./notifications";
 
-export const MIN_INPUTS_FOR_SCORE = 3;
-export const ALGORITHM_VERSION = "v1";
+export const MIN_INPUTS_FOR_SCORE = 2;
+export const ALGORITHM_VERSION = "v2";
 export const HISTORY_DAYS_REQUIRED_FOR_BASELINE = 14;
 export const ROLLING_AVERAGE_DAYS = 30;
 export const WEEKLY_REWARD_DAYS_REQUIRED = 5;
@@ -43,24 +40,20 @@ export function isFeatureEnabled(): boolean {
 
 export interface ReadinessInputs {
   sleep: number | null;
-  pain: number | null;
   energy: number | null;
-  nutrition: number | null;
-  movement: number | null;
-  recovery: number | null;
+  trainingLoad: number | null;
+  hrv: number | null;
+  rhr: number | null;
 }
 
 /**
  * Per-input provenance — which underlying log produced the value. `null`
- * means the input was missing for the day. Surfaced to the dashboard so
- * users can see why their score looks the way it does and what to log next.
+ * means the input was missing for the day.
  */
 export type ReadinessInputSource =
   | "wearable"
   | "check-in"
-  | "body-map"
   | "sleep-log"
-  | "meal-log"
   | "workout-log"
   | "step-log";
 
@@ -82,19 +75,33 @@ function clamp(n: number, lo: number, hi: number): number {
 }
 
 /**
- * Pure equal-weighted v1: mean of the non-null inputs (each 0-10) * 10.
- * Returns null when fewer than MIN_INPUTS_FOR_SCORE signals are available.
+ * Weighted v2: HRV 30%, RHR 20%, Sleep 20%, Training Load 20%, Energy 10%.
+ * When inputs are null their weight is redistributed proportionally to
+ * available inputs. Returns null when fewer than MIN_INPUTS_FOR_SCORE
+ * signals are available.
  */
+const WEIGHTS: Record<keyof ReadinessInputs, number> = {
+  hrv: 0.30,
+  rhr: 0.20,
+  sleep: 0.20,
+  trainingLoad: 0.20,
+  energy: 0.10,
+};
+
 export function computeDailyReadinessV1(inputs: ReadinessInputs): ReadinessResult {
-  const values = (Object.values(inputs) as Array<number | null>).filter(
-    (v): v is number => typeof v === "number" && !Number.isNaN(v),
+  const available = (Object.keys(inputs) as Array<keyof ReadinessInputs>).filter(
+    (k) => typeof inputs[k] === "number" && !Number.isNaN(inputs[k]),
   );
-  const inputCount = values.length;
+  const inputCount = available.length;
   if (inputCount < MIN_INPUTS_FOR_SCORE) {
     return { inputs, inputCount, score: null };
   }
-  const mean = values.reduce((s, v) => s + v, 0) / inputCount;
-  const score = Math.round(clamp(mean * 10, 0, 100));
+  const totalWeight = available.reduce((s, k) => s + WEIGHTS[k], 0);
+  const weightedSum = available.reduce(
+    (s, k) => s + (inputs[k] as number) * (WEIGHTS[k] / totalWeight),
+    0,
+  );
+  const score = Math.round(clamp(weightedSum * 10, 0, 100));
   return { inputs, inputCount, score };
 }
 
@@ -178,8 +185,18 @@ function endOfLocalDay(dateKey: string): Date {
 }
 
 /**
- * Build the six readiness inputs for a single user on a single local day.
+ * Build the five readiness inputs for a single user on a single local day.
  * Each input is normalised to 0-10. Missing data => null (not zero).
+ *
+ * Inputs (v2):
+ *   sleep        — wearable sleepScore / sleep log / check-in
+ *   energy       — check-in energyScore
+ *   trainingLoad — INVERTED: high load yesterday → lower score today.
+ *                  Source priority: WHOOP strain > wearable steps+activeMinutes+calories
+ *                  + workout duration boost, adjusted by 7-day vs 30-day baseline.
+ *                  Fallback: manual step logs.
+ *   hrv          — wearable hrvMs normalised (20ms=0, 100ms=10)
+ *   rhr          — wearable restingHrBpm normalised inverted (40bpm=10, 100bpm=0)
  */
 export async function gatherInputsForDay(
   userId: string,
@@ -188,7 +205,7 @@ export async function gatherInputsForDay(
   const dayStart = startOfLocalDay(dateKey);
   const dayEnd = endOfLocalDay(dateKey);
 
-  // --- Check-in (1-5 sliders) for the day ---
+  // --- Check-in for the day ---
   const ciRows = await db
     .select()
     .from(checkIns)
@@ -203,7 +220,7 @@ export async function gatherInputsForDay(
     .limit(1);
   const ci = ciRows[0];
 
-  // --- Wearable daily (provider priority handled by picking newest) ---
+  // --- Today's wearable metrics ---
   const wearableRows = await db
     .select()
     .from(wearableMetricsDaily)
@@ -213,16 +230,16 @@ export async function gatherInputsForDay(
 
   const sources: ReadinessInputSources = {
     sleep: null,
-    pain: null,
     energy: null,
-    nutrition: null,
-    movement: null,
-    recovery: null,
+    trainingLoad: null,
+    hrv: null,
+    rhr: null,
   };
 
-  // --- Sleep ---
-  // Prefer wearable sleepScore (0-100 → /10); else manual sleepEntries duration
-  // (target 8h ⇒ score 10); else check-in sleepScore (1-5 → 2,4,6,8,10).
+  // -----------------------------------------------------------------------
+  // Sleep — wearable sleepScore (0-100 → /10) preferred; else sleep log;
+  //         else check-in sleepScore (1-5 → *2)
+  // -----------------------------------------------------------------------
   let sleep: number | null = null;
   if (wear?.sleepScore != null) {
     sleep = clamp(wear.sleepScore / 10, 0, 10);
@@ -241,9 +258,8 @@ export async function gatherInputsForDay(
       .limit(1);
     const se = sleepRows[0];
     if (se) {
-      const score = se.sleepScore;
-      if (score != null) {
-        sleep = clamp(score / 10, 0, 10);
+      if (se.sleepScore != null) {
+        sleep = clamp(se.sleepScore / 10, 0, 10);
         sources.sleep = "sleep-log";
       } else if (se.durationMinutes != null) {
         sleep = clamp((se.durationMinutes / 60 / 8) * 10, 0, 10);
@@ -256,121 +272,165 @@ export async function gatherInputsForDay(
     }
   }
 
-  // --- Pain (inverted) ---
-  // Body map severity is 1-10 (10 worst). Take worst log of the day; invert.
-  let pain: number | null = null;
-  const bmRows = await db
-    .select({ severity: bodyMapLogs.severity })
-    .from(bodyMapLogs)
-    .where(
-      and(
-        eq(bodyMapLogs.userId, userId),
-        gte(bodyMapLogs.createdAt, dayStart),
-        lt(bodyMapLogs.createdAt, dayEnd),
-      ),
-    );
-  if (bmRows.length > 0) {
-    const worst = Math.max(...bmRows.map((r) => r.severity || 0));
-    pain = clamp(10 - worst, 0, 10);
-    sources.pain = "body-map";
-  } else if (ci) {
-    // No body-map log: derive from check-in painOrInjury flag (10 if no pain).
-    pain = ci.painOrInjury ? 4 : 10;
-    sources.pain = "check-in";
-  }
-
-  // --- Energy ---
+  // -----------------------------------------------------------------------
+  // Energy — check-in energyScore (1-5 → *2)
+  // -----------------------------------------------------------------------
   let energy: number | null = null;
   if (ci?.energyScore != null) {
     energy = clamp(ci.energyScore * 2, 0, 10);
     sources.energy = "check-in";
   }
 
-  // --- Nutrition ---
-  // Count meals logged that day, cap at 3. 3 meals ⇒ 10.
-  let nutrition: number | null = null;
-  const mealRow = await db
-    .select({ c: sql<number>`count(*)` })
-    .from(mealLogs)
-    .where(
-      and(
-        eq(mealLogs.userId, userId),
-        // Use the user-attributed meal `date` (not `createdAt`) so meals
-        // logged retroactively for the day still count toward that day's
-        // nutrition input.
-        gte(mealLogs.date, dayStart),
-        lt(mealLogs.date, dayEnd),
-      ),
-    );
-  const mealCount = Number(mealRow[0]?.c || 0);
-  if (mealCount > 0) {
-    nutrition = clamp((Math.min(mealCount, 3) / 3) * 10, 0, 10);
-    sources.nutrition = "meal-log";
+  // -----------------------------------------------------------------------
+  // HRV — wearable hrvMs normalised: 20ms=0, 100ms=10 (linear).
+  // Individual variation is wide but this range covers 95 %+ of adults.
+  // -----------------------------------------------------------------------
+  let hrv: number | null = null;
+  if (wear?.hrvMs != null) {
+    hrv = clamp((wear.hrvMs - 20) / 80, 0, 1) * 10;
+    sources.hrv = "wearable";
   }
 
-  // --- Movement ---
-  // Workout completed today ⇒ 10. Else steps (10k = 10). Wearable steps preferred.
-  let movement: number | null = null;
-  const woRows = await db
-    .select({ id: workoutLogs.id })
+  // -----------------------------------------------------------------------
+  // RHR — wearable restingHrBpm, inverted: 40 bpm=10, 100 bpm=0.
+  // -----------------------------------------------------------------------
+  let rhr: number | null = null;
+  if (wear?.restingHrBpm != null) {
+    rhr = clamp((100 - wear.restingHrBpm) / 60, 0, 1) * 10;
+    sources.rhr = "wearable";
+  }
+
+  // -----------------------------------------------------------------------
+  // Training Load — backward-looking (yesterday's stress), then INVERTED
+  // so high load → lower readiness contribution.
+  //
+  // Priority:
+  //   1. WHOOP strain score (0-21 scale)
+  //   2. Wearable steps + activeMinutes + caloriesBurned (averaged)
+  //   3. Add workout duration boost from yesterday's logged workouts
+  //   4. Apply 7-day vs 30-day baseline trend adjustment
+  //   5. Fallback: manual step log yesterday
+  // -----------------------------------------------------------------------
+  let trainingLoad: number | null = null;
+
+  const yesterdayKey = toDateKey(new Date(dayStart.getTime() - 24 * 60 * 60 * 1000));
+  const yesterdayStart = startOfLocalDay(yesterdayKey);
+  const yesterdayEnd = endOfLocalDay(yesterdayKey);
+
+  const yWearRows = await db
+    .select()
+    .from(wearableMetricsDaily)
+    .where(and(eq(wearableMetricsDaily.userId, userId), eq(wearableMetricsDaily.date, yesterdayKey)))
+    .orderBy(desc(wearableMetricsDaily.updatedAt))
+    .limit(1);
+  const yw = yWearRows[0];
+
+  // Step 1: WHOOP strain (0-21 → 0-10 stress)
+  let yesterdayStress: number | null = null;
+  if (yw?.strainScore != null) {
+    yesterdayStress = clamp(yw.strainScore / 21, 0, 1) * 10;
+    sources.trainingLoad = "wearable";
+  }
+
+  // Step 2: Wearable steps + active minutes + calories burned (averaged)
+  if (yesterdayStress == null && yw) {
+    const factors: number[] = [];
+    if (yw.steps != null) factors.push(clamp(yw.steps / 15000, 0, 1) * 10);
+    if (yw.activeMinutes != null) factors.push(clamp(yw.activeMinutes / 120, 0, 1) * 10);
+    if (yw.caloriesBurned != null) factors.push(clamp(yw.caloriesBurned / 800, 0, 1) * 10);
+    if (factors.length > 0) {
+      yesterdayStress = factors.reduce((s, v) => s + v, 0) / factors.length;
+      sources.trainingLoad = "wearable";
+    }
+  }
+
+  // Step 3: Add workout duration boost from yesterday's logged workouts
+  const yWorkouts = await db
+    .select({ duration: workoutLogs.duration })
     .from(workoutLogs)
     .where(
       and(
         eq(workoutLogs.userId, userId),
-        gte(workoutLogs.completedAt, dayStart),
-        lt(workoutLogs.completedAt, dayEnd),
+        gte(workoutLogs.completedAt, yesterdayStart),
+        lt(workoutLogs.completedAt, yesterdayEnd),
       ),
-    )
-    .limit(1);
-  if (woRows.length > 0) {
-    movement = 10;
-    sources.movement = "workout-log";
-  } else if (wear?.steps != null) {
-    movement = clamp((wear.steps / 10000) * 10, 0, 10);
-    sources.movement = "wearable";
-  } else {
-    const stepRows = await db
+    );
+  if (yWorkouts.length > 0) {
+    const totalSeconds = yWorkouts.reduce((s, w) => s + (w.duration || 0), 0);
+    // 1 hour workout ≈ +2 stress points; cap boost at 3
+    const boost = clamp(totalSeconds / 3600 * 2, 0, 3);
+    yesterdayStress = clamp((yesterdayStress ?? 0) + boost, 0, 10);
+    if (sources.trainingLoad == null) sources.trainingLoad = "workout-log";
+  }
+
+  // Step 4: 7-day vs 30-day baseline trend adjustment (wearable data only)
+  if (yesterdayStress != null && sources.trainingLoad === "wearable") {
+    const sevenDaysAgo = new Date(dayStart);
+    sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
+    const thirtyDaysAgo = new Date(dayStart);
+    thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
+
+    const [weekRows, baselineRows] = await Promise.all([
+      db
+        .select({ steps: wearableMetricsDaily.steps, activeMinutes: wearableMetricsDaily.activeMinutes, caloriesBurned: wearableMetricsDaily.caloriesBurned })
+        .from(wearableMetricsDaily)
+        .where(and(eq(wearableMetricsDaily.userId, userId), gte(wearableMetricsDaily.date, toDateKey(sevenDaysAgo)), lt(wearableMetricsDaily.date, dateKey))),
+      db
+        .select({ steps: wearableMetricsDaily.steps, activeMinutes: wearableMetricsDaily.activeMinutes, caloriesBurned: wearableMetricsDaily.caloriesBurned })
+        .from(wearableMetricsDaily)
+        .where(and(eq(wearableMetricsDaily.userId, userId), gte(wearableMetricsDaily.date, toDateKey(thirtyDaysAgo)), lt(wearableMetricsDaily.date, dateKey))),
+    ]);
+
+    if (weekRows.length >= 3 && baselineRows.length >= 7) {
+      const avg = (rows: typeof weekRows, field: keyof typeof weekRows[0]) =>
+        rows.reduce((s, r) => s + (Number(r[field]) || 0), 0) / rows.length;
+
+      const weekSteps = avg(weekRows, "steps");
+      const weekActive = avg(weekRows, "activeMinutes");
+      const weekCals = avg(weekRows, "caloriesBurned");
+      const baseSteps = avg(baselineRows, "steps") || 8000;
+      const baseActive = avg(baselineRows, "activeMinutes") || 30;
+      const baseCals = avg(baselineRows, "caloriesBurned") || 300;
+
+      const ratio =
+        ((weekSteps / baseSteps) + (weekActive / baseActive) + (weekCals / baseCals)) / 3;
+
+      if (ratio > 1.2) yesterdayStress = clamp(yesterdayStress * 1.1, 0, 10);
+      else if (ratio < 0.8) yesterdayStress = clamp(yesterdayStress * 0.9, 0, 10);
+    }
+  }
+
+  // Step 5: Fallback — manual step log for yesterday
+  if (yesterdayStress == null) {
+    const yStepRows = await db
       .select()
       .from(stepEntries)
       .where(
         and(
           eq(stepEntries.userId, userId),
-          gte(stepEntries.date, dayStart),
-          lt(stepEntries.date, dayEnd),
+          gte(stepEntries.date, yesterdayStart),
+          lt(stepEntries.date, yesterdayEnd),
         ),
       )
       .limit(1);
-    const se = stepRows[0];
-    if (se?.steps != null) {
-      movement = clamp((se.steps / 10000) * 10, 0, 10);
-      sources.movement = "step-log";
+    if (yStepRows[0]?.steps != null) {
+      yesterdayStress = clamp(yStepRows[0].steps / 15000, 0, 1) * 10;
+      sources.trainingLoad = "step-log";
     }
   }
 
-  // --- Recovery ---
-  // Wearable readinessScore (0-100 → /10) wins; else mood + inverse-stress avg.
-  let recovery: number | null = null;
-  if (wear?.readinessScore != null) {
-    recovery = clamp(wear.readinessScore / 10, 0, 10);
-    sources.recovery = "wearable";
-  } else if (ci?.moodScore != null || ci?.stressScore != null) {
-    const parts: number[] = [];
-    if (ci.moodScore != null) parts.push(clamp(ci.moodScore * 2, 0, 10));
-    if (ci.stressScore != null) parts.push(clamp((6 - ci.stressScore) * 2, 0, 10));
-    if (ci.practicedMindfulness) parts.push(10);
-    if (parts.length > 0) {
-      recovery = parts.reduce((s, v) => s + v, 0) / parts.length;
-      sources.recovery = "check-in";
-    }
+  // Invert: high stress yesterday → lower readiness contribution
+  if (yesterdayStress != null) {
+    trainingLoad = clamp(10 - yesterdayStress, 0, 10);
   }
 
+  const r = (v: number | null) => (v == null ? null : Math.round(v * 10) / 10);
   const inputs: ReadinessInputs = {
-    sleep: sleep == null ? null : Math.round(sleep * 10) / 10,
-    pain: pain == null ? null : Math.round(pain * 10) / 10,
-    energy: energy == null ? null : Math.round(energy * 10) / 10,
-    nutrition: nutrition == null ? null : Math.round(nutrition * 10) / 10,
-    movement: movement == null ? null : Math.round(movement * 10) / 10,
-    recovery: recovery == null ? null : Math.round(recovery * 10) / 10,
+    sleep: r(sleep),
+    energy: r(energy),
+    trainingLoad: r(trainingLoad),
+    hrv: r(hrv),
+    rhr: r(rhr),
   };
   return { inputs, sources };
 }
@@ -388,11 +448,10 @@ export async function computeAndStoreForUserDay(
       userId,
       date: dateKey,
       sleepInput: inputs.sleep,
-      painInput: inputs.pain,
       energyInput: inputs.energy,
-      nutritionInput: inputs.nutrition,
-      movementInput: inputs.movement,
-      recoveryInput: inputs.recovery,
+      trainingLoadInput: inputs.trainingLoad,
+      hrvInput: inputs.hrv,
+      rhrInput: inputs.rhr,
       inputCount: result.inputCount,
       score: result.score,
       algorithmVersion: ALGORITHM_VERSION,
@@ -401,11 +460,10 @@ export async function computeAndStoreForUserDay(
       target: [dailyReadinessHistory.userId, dailyReadinessHistory.date],
       set: {
         sleepInput: inputs.sleep,
-        painInput: inputs.pain,
         energyInput: inputs.energy,
-        nutritionInput: inputs.nutrition,
-        movementInput: inputs.movement,
-        recoveryInput: inputs.recovery,
+        trainingLoadInput: inputs.trainingLoad,
+        hrvInput: inputs.hrv,
+        rhrInput: inputs.rhr,
         inputCount: result.inputCount,
         score: result.score,
         algorithmVersion: ALGORITHM_VERSION,

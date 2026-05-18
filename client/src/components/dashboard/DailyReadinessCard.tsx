@@ -7,29 +7,19 @@ import {
   ChevronUp,
   HelpCircle,
   Moon,
-  Activity,
   Zap,
-  Utensils,
   Footprints,
   HeartPulse,
+  Activity,
   ArrowUp,
   ArrowDown,
   Minus,
 } from "lucide-react";
 
-type InputKey = "sleep" | "pain" | "energy" | "nutrition" | "movement" | "recovery";
-
-type InputSource =
-  | "wearable"
-  | "check-in"
-  | "body-map"
-  | "sleep-log"
-  | "meal-log"
-  | "workout-log"
-  | "step-log";
+type InputKey = "sleep" | "energy" | "trainingLoad" | "hrv" | "rhr";
 
 type InputsMap = Record<InputKey, number | null>;
-type SourcesMap = Record<InputKey, InputSource | null>;
+type SourcesMap = Record<InputKey, string | null>;
 
 interface TodayResp {
   enabled: boolean;
@@ -53,24 +43,21 @@ const INPUT_META: Record<
   { label: string; Icon: typeof Moon; missingHint: string }
 > = {
   sleep: { label: "Sleep", Icon: Moon, missingHint: "Sync a wearable or log last night's sleep." },
-  pain: { label: "Pain", Icon: Activity, missingHint: "Mark pain on the body map to capture this." },
   energy: { label: "Energy", Icon: Zap, missingHint: "Complete today's check-in." },
-  nutrition: { label: "Nutrition", Icon: Utensils, missingHint: "Log a meal to count toward today." },
-  movement: { label: "Movement", Icon: Footprints, missingHint: "Log a workout or sync your steps." },
-  recovery: { label: "Recovery", Icon: HeartPulse, missingHint: "Check in with your mood and stress." },
+  trainingLoad: { label: "Training Load", Icon: Footprints, missingHint: "Sync your wearable or log yesterday's workout." },
+  hrv: { label: "HRV", Icon: Activity, missingHint: "Connect a wearable that tracks heart rate variability." },
+  rhr: { label: "Resting HR", Icon: HeartPulse, missingHint: "Connect a wearable that tracks resting heart rate." },
 };
 
-const SOURCE_LABEL: Record<InputSource, string> = {
-  "wearable": "Wearable",
-  "check-in": "Check-in",
-  "body-map": "Body map",
-  "sleep-log": "Sleep log",
-  "meal-log": "Meal log",
-  "workout-log": "Workout log",
-  "step-log": "Step log",
-};
+const INPUT_ORDER: InputKey[] = ["hrv", "rhr", "sleep", "trainingLoad", "energy"];
 
-const INPUT_ORDER: InputKey[] = ["sleep", "pain", "energy", "nutrition", "movement", "recovery"];
+const INPUT_WEIGHT: Record<InputKey, string> = {
+  hrv: "30%",
+  rhr: "20%",
+  sleep: "20%",
+  trainingLoad: "20%",
+  energy: "10%",
+};
 
 function scoreColor(score: number | null): string {
   if (score == null) return "#94a3b8";
@@ -105,7 +92,6 @@ function ScoreRing({ score, size = 168 }: { score: number | null; size?: number 
   return (
     <div className="relative" style={{ width: size, height: size }}>
       <svg width={size} height={size} className="-rotate-90">
-        {/* Full grey background ring — always shows the missing portion */}
         <circle
           cx={size / 2}
           cy={size / 2}
@@ -148,7 +134,7 @@ function ScoreRing({ score, size = 168 }: { score: number | null; size?: number 
             className="mt-2 text-[10px] font-bold uppercase tracking-[0.16em] px-2.5 py-0.5 rounded-full"
             style={{
               color,
-              backgroundColor: `${color}26`, // ~15% alpha tint of the score color
+              backgroundColor: `${color}26`,
             }}
             data-testid="badge-readiness-state"
           >
@@ -160,7 +146,7 @@ function ScoreRing({ score, size = 168 }: { score: number | null; size?: number 
   );
 }
 
-/** Full-width sparkline with area fill, dot on today, soft baseline. */
+/** Full-width sparkline with area fill. */
 function Sparkline({
   data,
   height = 56,
@@ -176,7 +162,6 @@ function Sparkline({
       </div>
     );
   }
-  // viewBox-based so the SVG scales to container width.
   const W = 300;
   const H = height;
   const padTop = 4;
@@ -210,7 +195,7 @@ function Sparkline({
   );
 }
 
-/** Single-row 30-day dot strip. Oldest left → today right, today ringed. */
+/** Single-row 30-day dot strip. */
 function DotStrip({
   history,
   todayKey,
@@ -218,7 +203,6 @@ function DotStrip({
   history: Array<{ date: string; score: number | null }>;
   todayKey: string;
 }) {
-  // Always render exactly 30 days ending today. Fill missing days with null.
   const byDate = new Map(history.map((d) => [d.date, d]));
   const today = new Date(todayKey + "T12:00:00Z");
   const cells: Array<{ key: string; score: number | null; isToday: boolean }> = [];
@@ -267,7 +251,7 @@ function DotStrip({
   );
 }
 
-function ReasonsPanel({ inputs, sources }: { inputs: InputsMap; sources: SourcesMap }) {
+function ReasonsPanel({ inputs }: { inputs: InputsMap }) {
   const missingCount = INPUT_ORDER.filter((k) => inputs[k] == null).length;
   return (
     <div
@@ -287,7 +271,6 @@ function ReasonsPanel({ inputs, sources }: { inputs: InputsMap; sources: Sources
       <ul className="space-y-1.5">
         {INPUT_ORDER.map((key) => {
           const value = inputs[key];
-          const source = sources[key];
           const meta = INPUT_META[key];
           const missing = value == null;
           const Icon = meta.Icon;
@@ -301,7 +284,7 @@ function ReasonsPanel({ inputs, sources }: { inputs: InputsMap; sources: Sources
                 className="h-4 w-4 shrink-0"
                 style={{ color: inputColor(value) }}
               />
-              <span className="font-medium text-foreground w-20">{meta.label}</span>
+              <span className="font-medium text-foreground w-24 shrink-0">{meta.label}</span>
               {missing ? (
                 <>
                   <span
@@ -315,7 +298,7 @@ function ReasonsPanel({ inputs, sources }: { inputs: InputsMap; sources: Sources
                   </span>
                 </>
               ) : (
-                <>
+                <div className="flex items-center gap-2 flex-1">
                   <span
                     className="font-mono text-sm tabular-nums"
                     style={{ color: inputColor(value) }}
@@ -324,12 +307,10 @@ function ReasonsPanel({ inputs, sources }: { inputs: InputsMap; sources: Sources
                     {value!.toFixed(1)}
                     <span className="text-muted-foreground text-xs">/10</span>
                   </span>
-                  {source && (
-                    <span className="text-[10px] uppercase tracking-wide px-1.5 py-0.5 rounded bg-background border border-border text-muted-foreground ml-auto">
-                      {SOURCE_LABEL[source]}
-                    </span>
-                  )}
-                </>
+                  <span className="text-[10px] text-muted-foreground ml-auto">
+                    {INPUT_WEIGHT[key]}
+                  </span>
+                </div>
               )}
             </li>
           );
@@ -350,8 +331,6 @@ export default function DailyReadinessCard() {
   const { data: today, isLoading } = useQuery<TodayResp>({
     queryKey: ["/api/daily-readiness/today"],
   });
-  // Always pull 30 days so the heatmap and the 7-day average have data
-  // available regardless of whether the heatmap is currently expanded.
   const { data: history } = useQuery<HistoryResp>({
     queryKey: ["/api/daily-readiness/history", 30],
     queryFn: async () => {
@@ -376,9 +355,8 @@ export default function DailyReadinessCard() {
 
   const stillBuilding = today.daysOfHistory < HISTORY_REQUIRED;
   const showScore = today.score != null && !stillBuilding;
-  const canShowReasons = !!today.inputs && !!today.sources;
+  const canShowReasons = !!today.inputs;
 
-  // Compute a vs-7-day-average delta for the trend pill.
   const histAll = history?.history ?? [];
   const last7 = histAll.slice(-8, -1).filter((d) => d.score != null) as Array<{ score: number }>;
   const avg7 =
@@ -453,7 +431,7 @@ export default function DailyReadinessCard() {
           <div className="flex flex-col items-center text-center py-2">
             <ScoreRing score={null} />
             <p className="text-sm text-muted-foreground mt-4 max-w-[280px]">
-              Not enough signals today. Log a check-in or sync a wearable to compute
+              Not enough signals today. Complete a check-in or sync your wearable to compute
               today's score.
             </p>
           </div>
@@ -483,7 +461,7 @@ export default function DailyReadinessCard() {
           </button>
         )}
         {showReasons && canShowReasons && (
-          <ReasonsPanel inputs={today.inputs} sources={today.sources} />
+          <ReasonsPanel inputs={today.inputs} />
         )}
 
         {/* 30-day heatmap toggle */}

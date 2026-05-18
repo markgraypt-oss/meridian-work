@@ -3345,11 +3345,14 @@ export const dailyReadinessHistory = pgTable("daily_readiness_history", {
   date: varchar("date").notNull(), // YYYY-MM-DD (local day)
   // Normalised 0-10 inputs. Null when no signal was available that day.
   sleepInput: real("sleep_input"),
-  painInput: real("pain_input"),       // inverted: 10 = no pain, 0 = severe
+  painInput: real("pain_input"),       // legacy — no longer written by v2 algorithm
   energyInput: real("energy_input"),
-  nutritionInput: real("nutrition_input"),
-  movementInput: real("movement_input"),
+  nutritionInput: real("nutrition_input"), // legacy — no longer written by v2 algorithm
+  movementInput: real("movement_input"),   // legacy — no longer written by v2 algorithm
   recoveryInput: real("recovery_input"),
+  trainingLoadInput: real("training_load_input"),  // v2: backward-looking load stress (inverted: high load = lower score)
+  hrvInput: real("hrv_input"),                     // v2: HRV normalised 0-10 (higher = better)
+  rhrInput: real("rhr_input"),                     // v2: RHR normalised 0-10 (lower bpm = higher score)
   inputCount: integer("input_count").notNull().default(0),
   // 0-100. Null when fewer than the minimum required inputs were available.
   score: integer("score"),

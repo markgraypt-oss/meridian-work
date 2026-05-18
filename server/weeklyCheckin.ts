@@ -164,6 +164,7 @@ export async function aggregateWeekV2(userId: string, weekStart: Date): Promise<
     stepData,
     weekMeals,
     scheduledThisWeek,
+    programmeThisWeek,
     wearable,
     allGoals,
     activeHabits,
@@ -182,6 +183,7 @@ export async function aggregateWeekV2(userId: string, weekStart: Date): Promise<
       lt(meals.date, weekEnd),
     )),
     storage.getScheduledWorkoutsInRange(userId, weekStart, new Date(weekEnd.getTime() - 1)),
+    storage.getProgrammeWorkoutsInRange(userId, weekStart, new Date(weekEnd.getTime() - 1)),
     wearableSafe,
     storage.getGoals(userId),
     storage.getHabits(userId),
@@ -243,8 +245,14 @@ export async function aggregateWeekV2(userId: string, weekStart: Date): Promise<
     (sum: number, w: any) => sum + Number(w.autoCalculatedVolume || 0),
     0,
   );
-  const sessionsPlanned = scheduledThisWeek.length;
-  const sessionsCompletedInPlan = scheduledThisWeek.filter((s) => s.isCompleted === true).length;
+  // Planned = ad-hoc scheduled workouts + programme enrollment workouts for the week
+  const sessionsPlanned = scheduledThisWeek.length + programmeThisWeek.length;
+  // Completed ad-hoc: rows explicitly marked isCompleted
+  const adHocCompleted = scheduledThisWeek.filter((s) => s.isCompleted === true).length;
+  // Completed programme: count workout logs for the week (each log = one programme session done)
+  // Cap at the number of programme workouts planned so we don't inflate the figure
+  const programmeCompleted = Math.min(completedThisWeek.length, programmeThisWeek.length);
+  const sessionsCompletedInPlan = adHocCompleted + programmeCompleted;
   const sessionsMissed = Math.max(0, sessionsPlanned - sessionsCompletedInPlan);
   const adherencePct = sessionsPlanned > 0 ? Math.round((sessionsCompletedInPlan / sessionsPlanned) * 100) : null;
 

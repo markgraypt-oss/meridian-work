@@ -48,29 +48,105 @@ async function main() {
 
   const today = new Date();
 
-  // 1. Weekly check-ins (4 weeks, V2 payload)
+  // 1. Weekly check-ins (4 weeks, V2 payload — full shape so detail page renders)
+  const TRAJECTORIES = ["trending up", "holding steady", "declining"] as const;
   const wcValues = [];
   for (let w = 0; w < 4; w++) {
     const weekStart = new Date(today);
     weekStart.setDate(weekStart.getDate() - w * 7);
     weekStart.setHours(0, 0, 0, 0);
-    const sessionsCompleted = rand(2, 5);
+    const weekEnd = new Date(weekStart);
+    weekEnd.setDate(weekStart.getDate() + 6);
+
+    const sessionsCompleted = rand(3, 5);
+    const sessionsPlanned = 5;
+    const adherencePct = Math.round((sessionsCompleted / sessionsPlanned) * 100);
+    const checkInCount = rand(5, 7);
+    const roughDaysCount = rand(0, 2);
+    const avgMood = rand(3, 5);
+    const avgEnergy = rand(3, 5);
+    const avgStress = rand(1, 3);
+    const avgSleepHours = Math.round((rand(390, 510) / 60) * 10) / 10;
+    const avgSteps = rand(8500, 12500);
+    const bestSteps = avgSteps + rand(1500, 4000);
+    const trajectoryLabel = w === 0 ? "trending up" : TRAJECTORIES[rand(0, 2)];
+
     wcValues.push({
       userId: USER_ID,
       weekStart,
       payload: {
         _v: 5,
         weekStart: toDateKey(weekStart),
+        weekEnd: toDateKey(weekEnd),
         hero:
           w === 0
-            ? "Your resting heart rate has dropped 4 bpm over 6 weeks. You completed 4 of 5 planned sessions. Sleep averaged 7h 12m — 30 min above last month."
-            : `Week summary ${w + 1}: consistent energy, ${sessionsCompleted} sessions completed.`,
-        trajectoryLabel: w === 0 ? "Improving" : "Steady",
+            ? `Strong recovery week. Resting HR trended down, you logged ${checkInCount} check-ins, completed ${sessionsCompleted} of ${sessionsPlanned} sessions, and averaged ${avgSleepHours}h sleep.`
+            : `Week of ${toDateKey(weekStart)}: ${sessionsCompleted}/${sessionsPlanned} sessions, ${avgSleepHours}h avg sleep, energy felt ${avgEnergy >= 4 ? "high" : "steady"}.`,
+        trajectoryLabel,
         cards: {
-          howYouFelt: { checkInCount: rand(5, 7) },
-          howYouMoved: { sessionsCompleted },
-          patterns: { isAI: true },
+          howYouFelt: {
+            checkInCount,
+            avgMood,
+            avgEnergy,
+            avgStress,
+            roughDaysCount,
+          },
+          howYouMoved: {
+            sessionsCompleted,
+            sessionsPlanned,
+            adherencePct,
+            steps: {
+              avg: avgSteps,
+              bestDay: { dayLabel: ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"][rand(0, 6)], steps: bestSteps },
+              source: "wearable" as const,
+            },
+          },
+          goals: {
+            items: [
+              { title: "Hit 10k steps 5×/week", progressPct: rand(60, 100), isCompleted: false },
+              { title: "Sleep ≥ 7h nightly", progressPct: rand(50, 95), isCompleted: false },
+            ],
+          },
+          habits: {
+            items: [
+              {
+                title: "Morning mobility",
+                completionsThisWeek: rand(3, 7),
+                targetDaysThisWeek: 7,
+                weekDays: Array.from({ length: 7 }, () => rand(0, 10) > 3),
+              },
+              {
+                title: "Hydration goal",
+                completionsThisWeek: rand(4, 7),
+                targetDaysThisWeek: 7,
+                weekDays: Array.from({ length: 7 }, () => rand(0, 10) > 2),
+              },
+            ],
+          },
+          lifestyle: {
+            avgSleepHours,
+            sleepSource: "wearable" as const,
+            roughDaysCount,
+          },
+          patterns: {
+            narrative:
+              w === 0
+                ? "Your recovery markers improved meaningfully this week. Resting HR trended down and sleep duration held above 7 hours on most nights. Training volume was consistent without spiking strain."
+                : "A steady week overall. Sleep was the main lever — nights above 7h coincided with your highest energy ratings the next day.",
+            bulletPoints: [
+              `Sleep averaged ${avgSleepHours}h — ${avgSleepHours >= 7.25 ? "above" : "near"} your target`,
+              `${sessionsCompleted} of ${sessionsPlanned} planned sessions completed (${adherencePct}% adherence)`,
+              `Energy averaged ${avgEnergy}/5 across ${checkInCount} check-ins`,
+            ],
+            isAI: true,
+            generatedAt: new Date().toISOString(),
+          },
+          nutrition: {
+            daysTracked: rand(4, 7),
+            mealsLogged: rand(12, 21),
+          },
         },
+        metrics: {},
       },
     });
   }

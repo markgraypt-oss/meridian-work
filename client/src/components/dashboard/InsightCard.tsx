@@ -195,7 +195,7 @@ export default function InsightCard() {
             variant="ghost"
             size="sm"
             className="flex items-center gap-1 text-xs h-8 text-muted-foreground hover:text-foreground"
-            onClick={() => navigate("/progress/workouts")}
+            onClick={() => navigate("/perform")}
           >
             View Trends
             <ChevronRight className="h-3 w-3" />

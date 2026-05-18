@@ -5,6 +5,7 @@
  * Run: npx tsx scripts/seed-admin-test-data.ts
  */
 import { db } from "../server/db";
+import { eq } from "drizzle-orm";
 import {
   weeklyCheckins,
   wearableMetricsDaily,
@@ -73,8 +74,10 @@ async function main() {
       },
     });
   }
-  await db.insert(weeklyCheckins).values(wcValues).onConflictDoNothing();
-  console.log(`  ✓ ${wcValues.length} weekly check-ins`);
+  // Delete existing rows for this user so seeded hero text always wins
+  await db.delete(weeklyCheckins).where(eq(weeklyCheckins.userId, USER_ID));
+  await db.insert(weeklyCheckins).values(wcValues);
+  console.log(`  ✓ ${wcValues.length} weekly check-ins (replaced)`);
 
   // 2. Wearable daily metrics (30 days, whoop provider)
   const wearValues = [];

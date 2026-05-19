@@ -209,6 +209,8 @@ export function registerWearableRoutes(app: Express) {
     activeEnergyKcal: z.number().nonnegative().optional().nullable(),
     exerciseMinutes: z.number().int().nonnegative().optional().nullable(),
     restingHeartRate: z.number().int().nonnegative().optional().nullable(),
+    hrvMs: z.number().int().nonnegative().optional().nullable(),
+    vo2MaxMlKgMin: z.number().nonnegative().optional().nullable(),
   });
 
   const mobileWorkoutSchema = z.object({
@@ -254,6 +256,8 @@ export function registerWearableRoutes(app: Express) {
         caloriesBurned: m.activeEnergyKcal != null ? Math.round(m.activeEnergyKcal) : null,
         activeMinutes: m.exerciseMinutes ?? null,
         restingHrBpm: m.restingHeartRate ?? null,
+        hrvMs: m.hrvMs ?? null,
+        vo2MaxMlKgMin: m.vo2MaxMlKgMin ?? null,
         workoutCount: null,
         raw: m,
       }));

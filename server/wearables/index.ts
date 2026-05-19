@@ -1,11 +1,11 @@
 import { db } from "../db";
-import { wearableConnections, wearableMetricsDaily, wearableSyncLogs, wearableWorkouts, type WearableConnection, type WearableMetricsDaily, type WearableWorkout } from "@shared/schema";
+import { wearableConnections, wearableMetricsDaily, wearableSyncLogs, wearableWorkouts, stepEntries, habits, habitCompletions, type WearableConnection, type WearableMetricsDaily, type WearableWorkout } from "@shared/schema";
 import type { NormalisedDailyMetrics, WearableAdapter, WearableProvider } from "./types";
 import { ouraAdapter } from "./oura";
 import { whoopAdapter } from "./whoop";
 import { googleFitAdapter } from "./googleFit";
 import { encryptToken, decryptToken } from "./encryption";
-import { eq, and, sql, desc } from "drizzle-orm";
+import { eq, and, sql, desc, gte, lte } from "drizzle-orm";
 
 export const ADAPTERS: Record<WearableProvider, WearableAdapter | null> = {
   oura: ouraAdapter,
@@ -140,7 +140,101 @@ export async function upsertDailyMetrics(userId: string, provider: WearableProvi
     });
     count++;
   }
+
+  // After persisting wearable metrics, sync step entries and auto-complete the step habit.
+  // Fire-and-forget: a failure here must never break the sync response.
+  syncStepGoalsAndHabits(userId, metrics).catch((e) =>
+    console.error("[wearables] syncStepGoalsAndHabits failed:", e?.message || e)
+  );
+
   return count;
+}
+
+/**
+ * For every day in `metrics` that carries a step count:
+ *  1. Upserts a row in step_entries (wearable value wins — objective source).
+ *  2. Auto-completes the user's "Hit Your Step Count" habit when the target is met,
+ *     but never un-completes a day and never creates duplicate completions.
+ *
+ * Called after every upsertDailyMetrics so all providers (Apple Health, WHOOP, Oura …)
+ * benefit automatically. Idempotent — safe to re-run for the same dates.
+ */
+async function syncStepGoalsAndHabits(userId: string, metrics: NormalisedDailyMetrics[]): Promise<void> {
+  const daysWithSteps = metrics.filter((m) => m.date && m.steps != null && m.steps > 0);
+  if (daysWithSteps.length === 0) return;
+
+  // ── 1. Upsert step_entries (wearable wins) ──────────────────────────────────
+  for (const m of daysWithSteps) {
+    const dayStart = new Date(`${m.date}T00:00:00.000Z`);
+    const dayEnd   = new Date(`${m.date}T23:59:59.999Z`);
+
+    const [existing] = await db
+      .select({ id: stepEntries.id })
+      .from(stepEntries)
+      .where(and(
+        eq(stepEntries.userId, userId),
+        gte(stepEntries.date, dayStart),
+        lte(stepEntries.date, dayEnd),
+      ))
+      .limit(1);
+
+    if (existing) {
+      await db
+        .update(stepEntries)
+        .set({ steps: m.steps! })
+        .where(eq(stepEntries.id, existing.id));
+    } else {
+      await db.insert(stepEntries).values({ userId, date: dayStart, steps: m.steps! });
+    }
+  }
+
+  // ── 2. Auto-complete "Hit Your Step Count" habit ─────────────────────────────
+  const [habit] = await db
+    .select()
+    .from(habits)
+    .where(and(eq(habits.userId, userId), eq(habits.title, "Hit Your Step Count")))
+    .orderBy(desc(habits.id))
+    .limit(1);
+
+  if (!habit) return;
+
+  const stepTarget: number = (habit.settings as any)?.stepTarget ?? 10000;
+  let anyNewCompletion = false;
+
+  for (const m of daysWithSteps) {
+    if ((m.steps ?? 0) < stepTarget) continue;
+
+    const dayStart = new Date(`${m.date}T00:00:00.000Z`);
+    const dayEnd   = new Date(`${m.date}T23:59:59.999Z`);
+
+    // Guard: skip if already completed for this date
+    const [alreadyDone] = await db
+      .select({ id: habitCompletions.id })
+      .from(habitCompletions)
+      .where(and(
+        eq(habitCompletions.habitId, habit.id),
+        eq(habitCompletions.userId, userId),
+        gte(habitCompletions.completedDate, dayStart),
+        lte(habitCompletions.completedDate, dayEnd),
+      ))
+      .limit(1);
+
+    if (alreadyDone) continue;
+
+    await db.insert(habitCompletions).values({
+      habitId: habit.id,
+      userId,
+      completedDate: dayStart,
+    });
+    anyNewCompletion = true;
+    console.log(`[wearables] auto-completed step habit for ${userId} on ${m.date} (${m.steps} steps >= ${stepTarget})`);
+  }
+
+  // Recalculate streak only when at least one new completion was added
+  if (anyNewCompletion) {
+    const { storage } = await import("../storage");
+    await storage.updateHabitStreak(habit.id);
+  }
 }
 
 async function refreshIfNeeded(conn: WearableConnection, adapter: WearableAdapter): Promise<string | null> {

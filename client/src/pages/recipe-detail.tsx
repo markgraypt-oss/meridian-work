@@ -181,28 +181,28 @@ export default function RecipeDetail() {
               <div className="w-9 h-9 rounded-full bg-orange-500/15 flex items-center justify-center mb-1">
                 <Flame className="h-4 w-4 text-orange-400" />
               </div>
-              <p className="text-sm font-semibold">{recipe.calories}</p>
+              <p className="text-sm font-semibold">{Math.round(recipe.calories / (recipe.servings || 1))}</p>
               <p className="text-[11px] text-muted-foreground mt-0.5">Calories</p>
             </div>
             <div className="flex-1 flex flex-col items-center">
               <div className="w-9 h-9 rounded-full bg-blue-500/15 flex items-center justify-center mb-1">
                 <span className="text-xs font-bold text-blue-400">P</span>
               </div>
-              <p className="text-sm font-semibold">{Math.round(recipe.protein)}g</p>
+              <p className="text-sm font-semibold">{Math.round(recipe.protein / (recipe.servings || 1))}g</p>
               <p className="text-[11px] text-muted-foreground mt-0.5">Protein</p>
             </div>
             <div className="flex-1 flex flex-col items-center">
               <div className="w-9 h-9 rounded-full bg-[#0cc9a9]/15 flex items-center justify-center mb-1">
                 <span className="text-xs font-bold text-[#0cc9a9]">C</span>
               </div>
-              <p className="text-sm font-semibold">{Math.round(recipe.carbs)}g</p>
+              <p className="text-sm font-semibold">{Math.round(recipe.carbs / (recipe.servings || 1))}g</p>
               <p className="text-[11px] text-muted-foreground mt-0.5">Carbs</p>
             </div>
             <div className="flex-1 flex flex-col items-center">
               <div className="w-9 h-9 rounded-full bg-green-500/15 flex items-center justify-center mb-1">
                 <span className="text-xs font-bold text-green-400">F</span>
               </div>
-              <p className="text-sm font-semibold">{Math.round(recipe.fat)}g</p>
+              <p className="text-sm font-semibold">{Math.round(recipe.fat / (recipe.servings || 1))}g</p>
               <p className="text-[11px] text-muted-foreground mt-0.5">Fat</p>
             </div>
           </div>

@@ -7,6 +7,7 @@ let hasRunProfileImages = false;
 let hasRunMeditationSeed = false;
 let hasRunSchemaSelfHeal = false;
 let hasRunBodyweightGoalUnitRepair = false;
+let hasRunRecipeMacrosNormalize = false;
 
 /**
  * Idempotent self-heal for schema columns that the app needs but that may not
@@ -484,5 +485,42 @@ export async function repairBodyweightGoalUnitsOnce(): Promise<void> {
     console.log(`[startup-migration] bodyweight-goal-repair: repaired=${repaired} skipped=${skipped}`);
   } catch (e: any) {
     console.error("[startup-migration] bodyweight-goal-repair failed:", e?.message || e);
+  }
+}
+
+/**
+ * Production-only, one-time fix: recipes whose macros were stored as totals
+ * instead of per-serving values.
+ *
+ * Guard: calories > 600 AND servings > 1 targets exactly the 70 affected rows
+ * confirmed in prod. After dividing, calories will be ≤ 600 per serving, so
+ * re-running this is a safe no-op. Dev recipes (already per-serving, ≤ 600)
+ * are unaffected even if this somehow runs there.
+ *
+ * Only runs when NODE_ENV === 'production' so it never touches the dev DB.
+ */
+export async function normalizeRecipeMacrosOnce(): Promise<void> {
+  if (hasRunRecipeMacrosNormalize) return;
+  hasRunRecipeMacrosNormalize = true;
+
+  if (process.env.NODE_ENV !== "production") {
+    console.log("[startup-migration] recipe-macros-normalize: skipped (not production)");
+    return;
+  }
+
+  try {
+    const result = await pool.query(`
+      UPDATE recipes
+      SET
+        calories = ROUND(calories::numeric / servings),
+        protein  = ROUND(protein::numeric  / servings),
+        carbs    = ROUND(carbs::numeric    / servings),
+        fat      = ROUND(fat::numeric      / servings)
+      WHERE servings > 1
+        AND calories > 600
+    `);
+    console.log(`[startup-migration] recipe-macros-normalize: updated ${result.rowCount} recipes`);
+  } catch (e: any) {
+    console.error("[startup-migration] recipe-macros-normalize failed:", e?.message || e);
   }
 }

@@ -5476,16 +5476,24 @@ export class DatabaseStorage implements IStorage {
       return dateB.getTime() - dateA.getTime();
     });
     
-    const latestWeight = sortedEntries[0].weight;
-    console.log(`Using latest weight by date: ${latestWeight}kg from ${sortedEntries[0].date}`);
+    // Bodyweight entries are always stored in kg
+    const latestWeightKg = sortedEntries[0].weight;
+    console.log(`Using latest weight by date: ${latestWeightKg}kg from ${sortedEntries[0].date}`);
     
     const activeGoals = await this.getActiveBodyweightGoals(userId);
     console.log(`Found ${activeGoals.length} active bodyweight goals for user`);
     
     for (const goal of activeGoals) {
-      console.log(`Processing goal ${goal.id}: target=${goal.targetValue}, current=${goal.currentValue}, starting=${goal.startingValue}`);
+      console.log(`Processing goal ${goal.id}: target=${goal.targetValue}, current=${goal.currentValue}, starting=${goal.startingValue}, unit=${goal.unit}`);
       if (goal.targetValue) {
-        // Calculate progress percentage based on starting value vs target
+        // Convert the kg entry into whatever unit the goal was created in.
+        // goal.unit is 'lbs', 'kg', or null (treat null as 'kg').
+        const goalUnit = (goal.unit || 'kg').toLowerCase();
+        const latestWeight = goalUnit === 'lbs'
+          ? Math.round(latestWeightKg * 2.20462 * 10) / 10
+          : latestWeightKg;
+
+        // All comparisons and writes use latestWeight (in goal's unit)
         const startWeight = goal.startingValue || goal.currentValue || latestWeight;
         const targetWeight = goal.targetValue;
         const totalDifference = Math.abs(startWeight - targetWeight);
@@ -5512,7 +5520,7 @@ export class DatabaseStorage implements IStorage {
         // Use the date of the bodyweight entry that triggered completion
         const latestEntryDate = new Date(sortedEntries[0].date);
         const updateData: any = { 
-          currentValue: latestWeight, 
+          currentValue: latestWeight,   // stored in goal's own unit
           progress,
           isCompleted,
           updatedAt: new Date() 
@@ -5529,7 +5537,7 @@ export class DatabaseStorage implements IStorage {
           .set(updateData)
           .where(eq(goals.id, goal.id));
 
-        // Check and auto-complete milestones
+        // Check and auto-complete milestones (milestone.targetValue is in goal's unit)
         const milestones = await this.getMilestones(goal.id);
         const isWeightLossGoal = startWeight > targetWeight;
         

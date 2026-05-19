@@ -6,6 +6,7 @@ import { randomUUID } from "crypto";
 let hasRunProfileImages = false;
 let hasRunMeditationSeed = false;
 let hasRunSchemaSelfHeal = false;
+let hasRunBodyweightGoalUnitRepair = false;
 
 /**
  * Idempotent self-heal for schema columns that the app needs but that may not
@@ -396,4 +397,92 @@ export async function runProfileImageMigrationOnce(): Promise<void> {
   );
   if (skipped.length) console.log("[startup-migration] skipped userIds:", skipped);
   if (errors.length) console.log("[startup-migration] errors:", errors);
+}
+
+/**
+ * One-time repair: bodyweight goals whose unit was not applied during sync.
+ * Before the fix, syncBodyweightGoals compared raw kg entries directly against
+ * goal values stored in lbs (or any other unit), producing wrong progress %,
+ * wrong currentValue, and false completions.
+ *
+ * This runs once on boot, repairs ALL bodyweight goals (including those already
+ * falsely marked isCompleted=true, which the normal sync skips), then sets the
+ * flag so it never runs again in this process lifetime.
+ */
+export async function repairBodyweightGoalUnitsOnce(): Promise<void> {
+  if (hasRunBodyweightGoalUnitRepair) return;
+  hasRunBodyweightGoalUnitRepair = true;
+
+  try {
+    // 1. Get all bodyweight goals (completed or not) across all users
+    const goalsRes = await pool.query(
+      `SELECT id, user_id, target_value, starting_value, current_value, unit, is_completed, progress
+       FROM goals
+       WHERE type = 'bodyweight' AND target_value IS NOT NULL`
+    );
+
+    if (goalsRes.rows.length === 0) {
+      console.log("[startup-migration] bodyweight-goal-repair: no goals found, skip");
+      return;
+    }
+
+    // 2. Fetch latest bodyweight entry per user in a single query (always in kg)
+    const weightsRes = await pool.query(
+      `SELECT DISTINCT ON (user_id) user_id, weight, date
+       FROM bodyweight_entries
+       ORDER BY user_id, date DESC`
+    );
+    const latestByUser = new Map<string, number>();
+    for (const row of weightsRes.rows) {
+      latestByUser.set(row.user_id, parseFloat(row.weight));
+    }
+
+    let repaired = 0;
+    let skipped = 0;
+
+    for (const goal of goalsRes.rows) {
+      const latestWeightKg = latestByUser.get(goal.user_id);
+      if (latestWeightKg === undefined) { skipped++; continue; }
+
+      const goalUnit = (goal.unit || "kg").toLowerCase();
+      const latestWeight = goalUnit === "lbs"
+        ? Math.round(latestWeightKg * 2.20462 * 10) / 10
+        : latestWeightKg;
+
+      const startWeight = parseFloat(goal.starting_value) || parseFloat(goal.current_value) || latestWeight;
+      const targetWeight = parseFloat(goal.target_value);
+      const totalDiff = Math.abs(startWeight - targetWeight);
+      const currentDiff = Math.abs(latestWeight - targetWeight);
+
+      let progress = 0;
+      if (totalDiff > 0) {
+        progress = Math.round(((totalDiff - currentDiff) / totalDiff) * 100);
+        progress = Math.max(0, Math.min(100, progress));
+      }
+
+      const isWeightLoss = startWeight > targetWeight;
+      const isCompleted = isWeightLoss ? latestWeight <= targetWeight : latestWeight >= targetWeight;
+
+      // Only update rows where something is actually wrong to avoid unnecessary writes
+      const currentValueWrong = Math.abs(parseFloat(goal.current_value) - latestWeight) > 0.05;
+      const progressWrong = parseInt(goal.progress) !== progress;
+      const completedWrong = !!goal.is_completed !== isCompleted;
+
+      if (!currentValueWrong && !progressWrong && !completedWrong) { skipped++; continue; }
+
+      await pool.query(
+        `UPDATE goals
+         SET current_value = $1, progress = $2, is_completed = $3,
+             completed_at = CASE WHEN $3 = false THEN NULL ELSE completed_at END,
+             updated_at = NOW()
+         WHERE id = $4`,
+        [latestWeight, progress, isCompleted, goal.id]
+      );
+      repaired++;
+    }
+
+    console.log(`[startup-migration] bodyweight-goal-repair: repaired=${repaired} skipped=${skipped}`);
+  } catch (e: any) {
+    console.error("[startup-migration] bodyweight-goal-repair failed:", e?.message || e);
+  }
 }

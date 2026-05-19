@@ -4,7 +4,7 @@ import rateLimit, { ipKeyGenerator } from "express-rate-limit";
 import { registerRoutes } from "./routes";
 import { setupVite, serveStatic, log } from "./vite";
 import { video } from "./mux";
-import { runProfileImageMigrationOnce, seedMeditationsOnce, runSchemaSelfHealOnce, seedAiPromptsOnce } from "./startupMigrations";
+import { runProfileImageMigrationOnce, seedMeditationsOnce, runSchemaSelfHealOnce, seedAiPromptsOnce, repairBodyweightGoalUnitsOnce } from "./startupMigrations";
 
 const app = express();
 
@@ -133,6 +133,9 @@ app.use((req, res, next) => {
         });
         seedAiPromptsOnce().catch((e) => {
           console.error("[startup-migration] ai-prompts failed:", e);
+        });
+        repairBodyweightGoalUnitsOnce().catch((e) => {
+          console.error("[startup-migration] bodyweight-goal-repair failed:", e);
         });
       });
     import("./aiGeneratorMigration").then(({ runAiGeneratorMigrationOnce }) => {

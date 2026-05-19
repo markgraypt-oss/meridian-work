@@ -232,12 +232,26 @@ export function registerWearableRoutes(app: Express) {
     try {
       const userId = req.user.claims.sub;
 
+      const rawFirstMetric = (req.body?.metrics?.[0]) ?? null;
+      console.log("HRVSYNC route version 2", {
+        userId,
+        rawKeys: rawFirstMetric ? Object.keys(rawFirstMetric) : [],
+        rawHrvMs: rawFirstMetric?.hrvMs,
+        rawVo2: rawFirstMetric?.vo2MaxMlKgMin,
+      });
+
       const parsed = mobileSyncBodySchema.safeParse(req.body);
       if (!parsed.success) {
         return res.status(400).json({ message: "Invalid sync payload", errors: parsed.error.flatten() });
       }
 
       const { metrics, workouts } = parsed.data;
+
+      console.log("HRVSYNC parsed metric[0]", {
+        parsedKeys: metrics[0] ? Object.keys(metrics[0]) : [],
+        parsedHrvMs: metrics[0]?.hrvMs,
+        parsedVo2: metrics[0]?.vo2MaxMlKgMin,
+      });
 
       // Mark connection as active
       await upsertConnection(userId, "apple_health", { status: "connected" });

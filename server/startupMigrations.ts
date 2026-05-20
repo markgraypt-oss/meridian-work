@@ -653,21 +653,22 @@ export async function seedBadgesV2Once(): Promise<void> {
   hasRunBadgesV2 = true;
 
   try {
-    // Check sentinel: if a v2 badge already exists, skip
+    // Sentinel: fully seeded when current collection has >= 90 active badges.
+    // Name-based checks are fragile (a stray legacy row can match); count is robust.
     const sentinel = await pool.query(
-      `SELECT id FROM badges WHERE name = 'Welcome Aboard' AND collection = 'current' LIMIT 1`
+      `SELECT COUNT(*)::int AS c FROM badges WHERE collection = 'current' AND is_active = true`
     );
-    if (sentinel.rows.length > 0) {
+    if (Number(sentinel.rows[0]?.c) >= 90) {
       console.log("[startup-migration] badges-v2: already seeded, skipping");
       return;
     }
 
-    // Retire all current active badges to legacy (preserves user_badges FK references)
+    // Retire all active current badges to legacy (preserves user_badges FK references)
     await pool.query(
       `UPDATE badges SET is_active = false, collection = 'legacy' WHERE collection = 'current' AND is_active = true`
     );
 
-    // Insert all 103 v2 badges
+    // Insert all v2 badges
     for (const b of BADGES_V2) {
       await pool.query(
         `INSERT INTO badges (name, description, category, tier, icon, requirement, collection, sort_order, is_active)

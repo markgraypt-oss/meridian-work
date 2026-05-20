@@ -169,6 +169,30 @@ const SELF_HEAL_DDL: string[] = [
      ADD COLUMN IF NOT EXISTS equipment_level text,
      ADD COLUMN IF NOT EXISTS categories text[],
      ADD COLUMN IF NOT EXISTS target_areas text[]`,
+
+  // Badge system v2: food_logs source tracking for barcode scan badge
+  `ALTER TABLE food_logs ADD COLUMN IF NOT EXISTS source text DEFAULT 'manual'`,
+
+  // Badge system v2: workday break log tracker (desk break streak badges)
+  `CREATE TABLE IF NOT EXISTS workday_break_logs (
+     id serial PRIMARY KEY,
+     user_id varchar NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+     break_type text NOT NULL DEFAULT 'reminder',
+     logged_at timestamp DEFAULT now(),
+     created_at timestamp DEFAULT now()
+   )`,
+  `CREATE INDEX IF NOT EXISTS idx_workday_break_logs_user ON workday_break_logs (user_id)`,
+
+  // Badge system v2: AI insight read tracker
+  `CREATE TABLE IF NOT EXISTS ai_insight_reads (
+     id serial PRIMARY KEY,
+     user_id varchar NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+     insight_type text NOT NULL,
+     insight_key text,
+     read_at timestamp DEFAULT now(),
+     created_at timestamp DEFAULT now()
+   )`,
+  `CREATE INDEX IF NOT EXISTS idx_ai_insight_reads_user ON ai_insight_reads (user_id)`,
 ];
 
 export async function runSchemaSelfHealOnce(): Promise<void> {
@@ -499,6 +523,167 @@ export async function repairBodyweightGoalUnitsOnce(): Promise<void> {
  *
  * Only runs when NODE_ENV === 'production' so it never touches the dev DB.
  */
+let hasRunBadgesV2 = false;
+
+const BADGES_V2 = [
+  // ONBOARDING (4)
+  { name: "Welcome Aboard", description: "Complete your onboarding setup", category: "onboarding", tier: "bronze", icon: "🎉", requirement: JSON.stringify({ type: "achievement", metric: "onboarding_done", target: 1 }), sortOrder: 1 },
+  { name: "First Check-In", description: "Complete your first daily check-in", category: "onboarding", tier: "bronze", icon: "✅", requirement: JSON.stringify({ type: "count", metric: "check_ins_total", target: 1 }), sortOrder: 2 },
+  { name: "Profile Set", description: "Complete your profile with a photo and name", category: "onboarding", tier: "bronze", icon: "👤", requirement: JSON.stringify({ type: "achievement", metric: "profile_complete", target: 1 }), sortOrder: 3 },
+  { name: "All Systems Go", description: "Set up a goal, a habit, and a supplement", category: "onboarding", tier: "silver", icon: "🚀", requirement: JSON.stringify({ type: "achievement", metric: "all_systems_go", target: 1 }), sortOrder: 4 },
+  // BREATHWORK (9)
+  { name: "First Breath", description: "Complete your first breathwork session", category: "breathwork", tier: "bronze", icon: "💨", requirement: JSON.stringify({ type: "count", metric: "breathwork_sessions", target: 1 }), sortOrder: 10 },
+  { name: "Breath Seeker", description: "Complete 5 breathwork sessions", category: "breathwork", tier: "bronze", icon: "🌬️", requirement: JSON.stringify({ type: "count", metric: "breathwork_sessions", target: 5 }), sortOrder: 11 },
+  { name: "Breath Warrior", description: "Complete 12 breathwork sessions", category: "breathwork", tier: "silver", icon: "💪", requirement: JSON.stringify({ type: "count", metric: "breathwork_sessions", target: 12 }), sortOrder: 12 },
+  { name: "Breath Master", description: "Complete 25 breathwork sessions", category: "breathwork", tier: "gold", icon: "🔥", requirement: JSON.stringify({ type: "count", metric: "breathwork_sessions", target: 25 }), sortOrder: 13 },
+  { name: "Breath Legend", description: "Complete 50 breathwork sessions", category: "breathwork", tier: "platinum", icon: "⚡", requirement: JSON.stringify({ type: "count", metric: "breathwork_sessions", target: 50 }), sortOrder: 14 },
+  { name: "30 Mins Breathed", description: "Accumulate 30 minutes of breathwork", category: "breathwork", tier: "bronze", icon: "⏱️", requirement: JSON.stringify({ type: "duration", metric: "breathwork_minutes", target: 30 }), sortOrder: 15 },
+  { name: "5 Hours Breathed", description: "Accumulate 5 hours of breathwork", category: "breathwork", tier: "silver", icon: "⌛", requirement: JSON.stringify({ type: "duration", metric: "breathwork_minutes", target: 300 }), sortOrder: 16 },
+  { name: "25 Hours Breathed", description: "Accumulate 25 hours of breathwork", category: "breathwork", tier: "gold", icon: "🌟", requirement: JSON.stringify({ type: "duration", metric: "breathwork_minutes", target: 1500 }), sortOrder: 17 },
+  { name: "50 Hours Breathed", description: "Accumulate 50 hours of breathwork", category: "breathwork", tier: "platinum", icon: "💎", requirement: JSON.stringify({ type: "duration", metric: "breathwork_minutes", target: 3000 }), sortOrder: 18 },
+  // WORKOUT (9)
+  { name: "First Workout", description: "Complete your first workout", category: "workout", tier: "bronze", icon: "🏋️", requirement: JSON.stringify({ type: "count", metric: "workouts", target: 1 }), sortOrder: 20 },
+  { name: "Getting Started", description: "Complete 10 workouts", category: "workout", tier: "bronze", icon: "🏃", requirement: JSON.stringify({ type: "count", metric: "workouts", target: 10 }), sortOrder: 21 },
+  { name: "Dedicated", description: "Complete 25 workouts", category: "workout", tier: "silver", icon: "💪", requirement: JSON.stringify({ type: "count", metric: "workouts", target: 25 }), sortOrder: 22 },
+  { name: "Committed", description: "Complete 50 workouts", category: "workout", tier: "silver", icon: "🎯", requirement: JSON.stringify({ type: "count", metric: "workouts", target: 50 }), sortOrder: 23 },
+  { name: "Century Club", description: "Complete 100 workouts", category: "workout", tier: "gold", icon: "💯", requirement: JSON.stringify({ type: "count", metric: "workouts", target: 100 }), sortOrder: 24 },
+  { name: "Iron Will", description: "Complete 200 workouts", category: "workout", tier: "gold", icon: "🔩", requirement: JSON.stringify({ type: "count", metric: "workouts", target: 200 }), sortOrder: 25 },
+  { name: "Unstoppable", description: "Complete 300 workouts", category: "workout", tier: "platinum", icon: "⚡", requirement: JSON.stringify({ type: "count", metric: "workouts", target: 300 }), sortOrder: 26 },
+  { name: "Legendary", description: "Complete 400 workouts", category: "workout", tier: "platinum", icon: "🏆", requirement: JSON.stringify({ type: "count", metric: "workouts", target: 400 }), sortOrder: 27 },
+  { name: "Elite Status", description: "Complete 500 workouts", category: "workout", tier: "platinum", icon: "💎", requirement: JSON.stringify({ type: "count", metric: "workouts", target: 500 }), sortOrder: 28 },
+  // STRETCHING (5)
+  { name: "First Stretch", description: "Complete your first stretching session", category: "stretching", tier: "bronze", icon: "🧘", requirement: JSON.stringify({ type: "count", metric: "stretching_workouts", target: 1 }), sortOrder: 30 },
+  { name: "Flexibility Seeker", description: "Complete 5 stretching sessions", category: "stretching", tier: "bronze", icon: "🤸", requirement: JSON.stringify({ type: "count", metric: "stretching_workouts", target: 5 }), sortOrder: 31 },
+  { name: "Limber Up", description: "Complete 10 stretching sessions", category: "stretching", tier: "silver", icon: "🌀", requirement: JSON.stringify({ type: "count", metric: "stretching_workouts", target: 10 }), sortOrder: 32 },
+  { name: "Flexible", description: "Complete 20 stretching sessions", category: "stretching", tier: "gold", icon: "✨", requirement: JSON.stringify({ type: "count", metric: "stretching_workouts", target: 20 }), sortOrder: 33 },
+  { name: "Mobility Master", description: "Complete 50 stretching sessions", category: "stretching", tier: "platinum", icon: "🏅", requirement: JSON.stringify({ type: "count", metric: "stretching_workouts", target: 50 }), sortOrder: 34 },
+  // YOGA (5)
+  { name: "First Flow", description: "Complete your first yoga session", category: "yoga", tier: "bronze", icon: "🧘", requirement: JSON.stringify({ type: "count", metric: "yoga_workouts", target: 1 }), sortOrder: 40 },
+  { name: "Yoga Beginner", description: "Complete 5 yoga sessions", category: "yoga", tier: "bronze", icon: "🌿", requirement: JSON.stringify({ type: "count", metric: "yoga_workouts", target: 5 }), sortOrder: 41 },
+  { name: "Yoga Regular", description: "Complete 15 yoga sessions", category: "yoga", tier: "silver", icon: "🌸", requirement: JSON.stringify({ type: "count", metric: "yoga_workouts", target: 15 }), sortOrder: 42 },
+  { name: "Yoga Devotee", description: "Complete 30 yoga sessions", category: "yoga", tier: "gold", icon: "🌺", requirement: JSON.stringify({ type: "count", metric: "yoga_workouts", target: 30 }), sortOrder: 43 },
+  { name: "Yoga Master", description: "Complete 60 yoga sessions", category: "yoga", tier: "platinum", icon: "💎", requirement: JSON.stringify({ type: "count", metric: "yoga_workouts", target: 60 }), sortOrder: 44 },
+  // MEDITATION (5)
+  { name: "First Sit", description: "Complete your first meditation session", category: "meditation", tier: "bronze", icon: "🕯️", requirement: JSON.stringify({ type: "count", metric: "meditation_sessions", target: 1 }), sortOrder: 50 },
+  { name: "Mindful Start", description: "Complete 5 meditation sessions", category: "meditation", tier: "bronze", icon: "🌙", requirement: JSON.stringify({ type: "count", metric: "meditation_sessions", target: 5 }), sortOrder: 51 },
+  { name: "Present Mind", description: "Complete 15 meditation sessions", category: "meditation", tier: "silver", icon: "☯️", requirement: JSON.stringify({ type: "count", metric: "meditation_sessions", target: 15 }), sortOrder: 52 },
+  { name: "Deep Practice", description: "Complete 30 meditation sessions", category: "meditation", tier: "gold", icon: "🔮", requirement: JSON.stringify({ type: "count", metric: "meditation_sessions", target: 30 }), sortOrder: 53 },
+  { name: "Meditation Master", description: "Complete 60 meditation sessions", category: "meditation", tier: "platinum", icon: "💎", requirement: JSON.stringify({ type: "count", metric: "meditation_sessions", target: 60 }), sortOrder: 54 },
+  // NUTRITION (8)
+  { name: "First Meal Logged", description: "Log your first meal", category: "nutrition", tier: "bronze", icon: "🥗", requirement: JSON.stringify({ type: "count", metric: "food_logs_total", target: 1 }), sortOrder: 60 },
+  { name: "First Scan", description: "Log a food item via barcode scan", category: "nutrition", tier: "bronze", icon: "📷", requirement: JSON.stringify({ type: "count", metric: "barcode_scans", target: 1 }), sortOrder: 61 },
+  { name: "Macro Tracker", description: "Log food for 7 consecutive days", category: "nutrition", tier: "silver", icon: "📊", requirement: JSON.stringify({ type: "streak", metric: "nutrition_log_streak", target: 7 }), sortOrder: 62 },
+  { name: "Nutrition Devotee", description: "Log food for 30 consecutive days", category: "nutrition", tier: "gold", icon: "🌱", requirement: JSON.stringify({ type: "streak", metric: "nutrition_log_streak", target: 30 }), sortOrder: 63 },
+  { name: "Protein Hitter", description: "Hit your protein target 7 days in a row", category: "nutrition", tier: "silver", icon: "💪", requirement: JSON.stringify({ type: "streak", metric: "protein_target_streak", target: 7 }), sortOrder: 64 },
+  { name: "Hydration Habit", description: "Hit your hydration goal 7 days in a row", category: "nutrition", tier: "silver", icon: "💧", requirement: JSON.stringify({ type: "streak", metric: "hydration_streak", target: 7 }), sortOrder: 65 },
+  { name: "Stay Hydrated", description: "Hit your hydration goal 30 days in a row", category: "nutrition", tier: "gold", icon: "🌊", requirement: JSON.stringify({ type: "streak", metric: "hydration_streak", target: 30 }), sortOrder: 66 },
+  { name: "Recipe Saver", description: "Save your first recipe", category: "nutrition", tier: "bronze", icon: "📌", requirement: JSON.stringify({ type: "count", metric: "recipes_saved", target: 1 }), sortOrder: 67 },
+  // SLEEP (4)
+  { name: "Rested", description: "Average 7+ hours of sleep over 7 days", category: "sleep", tier: "silver", icon: "😴", requirement: JSON.stringify({ type: "achievement", metric: "sleep_avg_7day_hours_7", target: 1 }), sortOrder: 70 },
+  { name: "Sleep Champion", description: "Average 7+ hours of sleep over 30 days", category: "sleep", tier: "gold", icon: "🛌", requirement: JSON.stringify({ type: "achievement", metric: "sleep_avg_30day_hours_7", target: 1 }), sortOrder: 71 },
+  { name: "Quality Sleeper", description: "Achieve a sleep score of 80+ for 5 nights in a row", category: "sleep", tier: "silver", icon: "⭐", requirement: JSON.stringify({ type: "streak", metric: "sleep_score_streak_80", target: 5 }), sortOrder: 72 },
+  { name: "Sleep Pro", description: "Achieve a sleep score of 80+ for 30 nights in a row", category: "sleep", tier: "gold", icon: "🌙", requirement: JSON.stringify({ type: "streak", metric: "sleep_score_streak_80", target: 30 }), sortOrder: 73 },
+  // HABITS (5)
+  { name: "First Habit", description: "Start your first habit", category: "habits", tier: "bronze", icon: "📋", requirement: JSON.stringify({ type: "count", metric: "habits_total", target: 1 }), sortOrder: 80 },
+  { name: "Habit Builder", description: "Complete a 21-day habit cycle", category: "habits", tier: "silver", icon: "🔨", requirement: JSON.stringify({ type: "count", metric: "habit_cycles_21", target: 1 }), sortOrder: 81 },
+  { name: "Habit Master", description: "Complete a 60-day habit cycle", category: "habits", tier: "gold", icon: "🎯", requirement: JSON.stringify({ type: "count", metric: "habit_cycles_60", target: 1 }), sortOrder: 82 },
+  { name: "Multi-Tasker", description: "Maintain 3+ habits for 7 consecutive days", category: "habits", tier: "silver", icon: "⚙️", requirement: JSON.stringify({ type: "achievement", metric: "habits_concurrent_3_7days", target: 7 }), sortOrder: 83 },
+  { name: "Habit Hero", description: "Complete 5 total habit cycles", category: "habits", tier: "gold", icon: "🦸", requirement: JSON.stringify({ type: "count", metric: "habit_cycles_total", target: 5 }), sortOrder: 84 },
+  // CHECK-IN (5)
+  { name: "Week Strong", description: "Check in for 7 consecutive days", category: "checkin", tier: "bronze", icon: "📅", requirement: JSON.stringify({ type: "streak", metric: "check_in_streak", target: 7 }), sortOrder: 90 },
+  { name: "Two Weeks Solid", description: "Check in for 14 consecutive days", category: "checkin", tier: "silver", icon: "🗓️", requirement: JSON.stringify({ type: "streak", metric: "check_in_streak", target: 14 }), sortOrder: 91 },
+  { name: "Month In", description: "Check in for 30 consecutive days", category: "checkin", tier: "gold", icon: "📆", requirement: JSON.stringify({ type: "streak", metric: "check_in_streak", target: 30 }), sortOrder: 92 },
+  { name: "100 Days Aware", description: "Check in for 100 consecutive days", category: "checkin", tier: "platinum", icon: "🔮", requirement: JSON.stringify({ type: "streak", metric: "check_in_streak", target: 100 }), sortOrder: 93 },
+  { name: "Year of Awareness", description: "Check in for 365 consecutive days", category: "checkin", tier: "platinum", icon: "💎", requirement: JSON.stringify({ type: "streak", metric: "check_in_streak", target: 365 }), sortOrder: 94 },
+  // PROGRAMME (5)
+  { name: "First Enrollment", description: "Enrol in your first programme", category: "programme", tier: "bronze", icon: "📝", requirement: JSON.stringify({ type: "count", metric: "programme_enrollments", target: 1 }), sortOrder: 100 },
+  { name: "Programme Graduate", description: "Complete your first programme", category: "programme", tier: "silver", icon: "🎓", requirement: JSON.stringify({ type: "count", metric: "programmes_completed", target: 1 }), sortOrder: 101 },
+  { name: "Serial Finisher", description: "Complete 5 programmes", category: "programme", tier: "gold", icon: "🏅", requirement: JSON.stringify({ type: "count", metric: "programmes_completed", target: 5 }), sortOrder: 102 },
+  { name: "Perfect Record", description: "Complete every programme you've enrolled in (minimum 3)", category: "programme", tier: "platinum", icon: "💫", requirement: JSON.stringify({ type: "achievement", metric: "programme_perfect_record", target: 1 }), sortOrder: 103 },
+  { name: "Programme Legend", description: "Complete 10 programmes", category: "programme", tier: "platinum", icon: "🏆", requirement: JSON.stringify({ type: "count", metric: "programmes_completed", target: 10 }), sortOrder: 104 },
+  // LEARNING (7)
+  { name: "First Lesson", description: "Watch your first educational video", category: "learning", tier: "bronze", icon: "📚", requirement: JSON.stringify({ type: "count", metric: "videos_watched", target: 1 }), sortOrder: 110 },
+  { name: "Curious Mind", description: "Watch 5 educational videos", category: "learning", tier: "bronze", icon: "🔍", requirement: JSON.stringify({ type: "count", metric: "videos_watched", target: 5 }), sortOrder: 111 },
+  { name: "Knowledge Seeker", description: "Watch 15 educational videos", category: "learning", tier: "silver", icon: "🧠", requirement: JSON.stringify({ type: "count", metric: "videos_watched", target: 15 }), sortOrder: 112 },
+  { name: "Scholar", description: "Watch 30 educational videos", category: "learning", tier: "gold", icon: "🎓", requirement: JSON.stringify({ type: "count", metric: "videos_watched", target: 30 }), sortOrder: 113 },
+  { name: "Path Finder", description: "Complete your first learning path", category: "learning", tier: "silver", icon: "🗺️", requirement: JSON.stringify({ type: "count", metric: "learning_paths_completed", target: 1 }), sortOrder: 114 },
+  { name: "Path Master", description: "Complete 5 learning paths", category: "learning", tier: "gold", icon: "🌐", requirement: JSON.stringify({ type: "count", metric: "learning_paths_completed", target: 5 }), sortOrder: 115 },
+  { name: "Bookmark Collector", description: "Save 10 bookmarks", category: "learning", tier: "bronze", icon: "🔖", requirement: JSON.stringify({ type: "count", metric: "bookmarks_count", target: 10 }), sortOrder: 116 },
+  // GOALS (6)
+  { name: "Goal Getter", description: "Achieve a bodyweight or custom goal", category: "goals", tier: "silver", icon: "🎯", requirement: JSON.stringify({ type: "achievement", metric: "bodyweight_goal_achieved", target: 1 }), sortOrder: 120 },
+  { name: "Clean Slate", description: "Log 30 consecutive alcohol-free days", category: "goals", tier: "gold", icon: "🥂", requirement: JSON.stringify({ type: "streak", metric: "alcohol_free_streak", target: 30 }), sortOrder: 121 },
+  { name: "Big Picture", description: "Complete your first goal", category: "goals", tier: "gold", icon: "🖼️", requirement: JSON.stringify({ type: "count", metric: "goals_completed", target: 1 }), sortOrder: 122 },
+  { name: "Nutrition Goal", description: "Log food for 14 consecutive days", category: "goals", tier: "gold", icon: "🥦", requirement: JSON.stringify({ type: "streak", metric: "nutrition_log_streak", target: 14 }), sortOrder: 123 },
+  { name: "Well Rested", description: "Average 7+ hours of sleep over 42 days", category: "goals", tier: "platinum", icon: "🌙", requirement: JSON.stringify({ type: "achievement", metric: "sleep_avg_42day_hours_7", target: 1 }), sortOrder: 124 },
+  { name: "Consistent Effort", description: "Complete 3 goals", category: "goals", tier: "silver", icon: "✅", requirement: JSON.stringify({ type: "count", metric: "goals_completed", target: 3 }), sortOrder: 125 },
+  // DESK HEALTH (4)
+  { name: "Desk Detective", description: "Complete your first desk scan", category: "desk", tier: "bronze", icon: "🖥️", requirement: JSON.stringify({ type: "count", metric: "desk_scans", target: 1 }), sortOrder: 130 },
+  { name: "Schedule Set", description: "Set up your workday profile", category: "desk", tier: "bronze", icon: "⏰", requirement: JSON.stringify({ type: "achievement", metric: "workday_setup_done", target: 1 }), sortOrder: 131 },
+  { name: "Stand Up", description: "Use break reminders for 7 consecutive days", category: "desk", tier: "silver", icon: "🧍", requirement: JSON.stringify({ type: "streak", metric: "desk_break_streak", target: 7 }), sortOrder: 132 },
+  { name: "Movement Marshal", description: "Use break reminders for 30 consecutive days", category: "desk", tier: "gold", icon: "🚶", requirement: JSON.stringify({ type: "streak", metric: "desk_break_streak", target: 30 }), sortOrder: 133 },
+  // BODY MAP (5)
+  { name: "First Assessment", description: "Log your first body map entry", category: "bodymap", tier: "bronze", icon: "🗺️", requirement: JSON.stringify({ type: "count", metric: "body_map_assessments", target: 1 }), sortOrder: 140 },
+  { name: "Body Aware", description: "Log 5 body map entries", category: "bodymap", tier: "silver", icon: "👁️", requirement: JSON.stringify({ type: "count", metric: "body_map_assessments", target: 5 }), sortOrder: 141 },
+  { name: "Recovery Champion", description: "Accept your first recovery plan", category: "bodymap", tier: "silver", icon: "🏥", requirement: JSON.stringify({ type: "count", metric: "recovery_plans_completed", target: 1 }), sortOrder: 142 },
+  { name: "On the Mend", description: "Reduce pain severity in a logged area", category: "bodymap", tier: "gold", icon: "💚", requirement: JSON.stringify({ type: "achievement", metric: "pain_score_reduced", target: 1 }), sortOrder: 143 },
+  { name: "Recovery Master", description: "Accept 5 recovery plans", category: "bodymap", tier: "gold", icon: "🔬", requirement: JSON.stringify({ type: "count", metric: "recovery_plans_completed", target: 5 }), sortOrder: 144 },
+  // BURNOUT (4)
+  { name: "Self-Aware", description: "Generate your first burnout score", category: "burnout", tier: "bronze", icon: "🧩", requirement: JSON.stringify({ type: "count", metric: "burnout_scores_count", target: 1 }), sortOrder: 150 },
+  { name: "In the Green", description: "Maintain a low burnout score for 14 days", category: "burnout", tier: "silver", icon: "🌿", requirement: JSON.stringify({ type: "streak", metric: "burnout_lowest_tier_days", target: 14 }), sortOrder: 151 },
+  { name: "Bounce Back", description: "Recover from a high burnout score to low", category: "burnout", tier: "gold", icon: "🌅", requirement: JSON.stringify({ type: "achievement", metric: "burnout_bounced_back", target: 1 }), sortOrder: 152 },
+  { name: "Steady State", description: "Maintain a low burnout score for 60 days", category: "burnout", tier: "platinum", icon: "🏔️", requirement: JSON.stringify({ type: "streak", metric: "burnout_lowest_tier_days", target: 60 }), sortOrder: 153 },
+  // STREAK (3)
+  { name: "Week Warrior", description: "Maintain a 7-day activity streak", category: "streak", tier: "bronze", icon: "⚔️", requirement: JSON.stringify({ type: "streak", metric: "activity_streak", target: 7 }), sortOrder: 160 },
+  { name: "Monthly Marvel", description: "Maintain a 30-day activity streak", category: "streak", tier: "gold", icon: "🌟", requirement: JSON.stringify({ type: "streak", metric: "activity_streak", target: 30 }), sortOrder: 161 },
+  { name: "Century Streak", description: "Maintain a 100-day activity streak", category: "streak", tier: "platinum", icon: "💯", requirement: JSON.stringify({ type: "streak", metric: "activity_streak", target: 100 }), sortOrder: 162 },
+  // SUPPLEMENT (4)
+  { name: "First Stack", description: "Add your first supplement", category: "supplement", tier: "bronze", icon: "💊", requirement: JSON.stringify({ type: "count", metric: "supplements_total", target: 1 }), sortOrder: 170 },
+  { name: "Supplement Starter", description: "Take supplements for 7 consecutive days", category: "supplement", tier: "bronze", icon: "🌿", requirement: JSON.stringify({ type: "streak", metric: "supplement_streak", target: 7 }), sortOrder: 171 },
+  { name: "Supplement Devotee", description: "Take supplements for 14 consecutive days", category: "supplement", tier: "silver", icon: "🔬", requirement: JSON.stringify({ type: "streak", metric: "supplement_streak", target: 14 }), sortOrder: 172 },
+  { name: "Supplement Master", description: "Take supplements for 30 consecutive days", category: "supplement", tier: "gold", icon: "💉", requirement: JSON.stringify({ type: "streak", metric: "supplement_streak", target: 30 }), sortOrder: 173 },
+  // AI (6)
+  { name: "AI Curious", description: "Send your first message to the AI coach", category: "ai", tier: "bronze", icon: "🤖", requirement: JSON.stringify({ type: "count", metric: "ai_coach_messages", target: 1 }), sortOrder: 180 },
+  { name: "AI Regular", description: "Send 10 messages to the AI coach", category: "ai", tier: "silver", icon: "💬", requirement: JSON.stringify({ type: "count", metric: "ai_coach_messages", target: 10 }), sortOrder: 181 },
+  { name: "AI Power User", description: "Send 50 messages to the AI coach", category: "ai", tier: "gold", icon: "⚡", requirement: JSON.stringify({ type: "count", metric: "ai_coach_messages", target: 50 }), sortOrder: 182 },
+  { name: "First AI Recipe", description: "Generate your first AI recipe", category: "ai", tier: "bronze", icon: "🍽️", requirement: JSON.stringify({ type: "count", metric: "ai_recipes_created", target: 1 }), sortOrder: 183 },
+  { name: "Recipe Inventor", description: "Generate 10 AI recipes", category: "ai", tier: "silver", icon: "👨‍🍳", requirement: JSON.stringify({ type: "count", metric: "ai_recipes_created", target: 10 }), sortOrder: 184 },
+  { name: "AI Insights", description: "Read 5 AI-generated insights", category: "ai", tier: "bronze", icon: "💡", requirement: JSON.stringify({ type: "count", metric: "ai_insight_reads", target: 5 }), sortOrder: 185 },
+];
+
+export async function seedBadgesV2Once(): Promise<void> {
+  if (hasRunBadgesV2) return;
+  hasRunBadgesV2 = true;
+
+  try {
+    // Check sentinel: if a v2 badge already exists, skip
+    const sentinel = await pool.query(
+      `SELECT id FROM badges WHERE name = 'Welcome Aboard' AND collection = 'current' LIMIT 1`
+    );
+    if (sentinel.rows.length > 0) {
+      console.log("[startup-migration] badges-v2: already seeded, skipping");
+      return;
+    }
+
+    // Retire all current active badges to legacy (preserves user_badges FK references)
+    await pool.query(
+      `UPDATE badges SET is_active = false, collection = 'legacy' WHERE collection = 'current' AND is_active = true`
+    );
+
+    // Insert all 103 v2 badges
+    for (const b of BADGES_V2) {
+      await pool.query(
+        `INSERT INTO badges (name, description, category, tier, icon, requirement, collection, sort_order, is_active)
+         VALUES ($1, $2, $3, $4, $5, $6, 'current', $7, true)`,
+        [b.name, b.description, b.category, b.tier, b.icon, b.requirement, b.sortOrder]
+      );
+    }
+
+    console.log(`[startup-migration] badges-v2: seeded ${BADGES_V2.length} badges`);
+  } catch (e: any) {
+    console.error("[startup-migration] badges-v2 failed:", e?.message || e);
+  }
+}
+
 export async function normalizeRecipeMacrosOnce(): Promise<void> {
   if (hasRunRecipeMacrosNormalize) return;
   hasRunRecipeMacrosNormalize = true;

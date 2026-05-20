@@ -4,7 +4,7 @@ import rateLimit, { ipKeyGenerator } from "express-rate-limit";
 import { registerRoutes } from "./routes";
 import { setupVite, serveStatic, log } from "./vite";
 import { video } from "./mux";
-import { runProfileImageMigrationOnce, seedMeditationsOnce, runSchemaSelfHealOnce, seedAiPromptsOnce, repairBodyweightGoalUnitsOnce, normalizeRecipeMacrosOnce } from "./startupMigrations";
+import { runProfileImageMigrationOnce, seedMeditationsOnce, runSchemaSelfHealOnce, seedAiPromptsOnce, repairBodyweightGoalUnitsOnce, normalizeRecipeMacrosOnce, seedBadgesV2Once } from "./startupMigrations";
 
 const app = express();
 
@@ -139,6 +139,9 @@ app.use((req, res, next) => {
         });
         normalizeRecipeMacrosOnce().catch((e) => {
           console.error("[startup-migration] recipe-macros-normalize failed:", e);
+        });
+        seedBadgesV2Once().catch((e) => {
+          console.error("[startup-migration] badges-v2 failed:", e);
         });
       });
     import("./aiGeneratorMigration").then(({ runAiGeneratorMigrationOnce }) => {

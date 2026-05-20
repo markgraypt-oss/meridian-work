@@ -402,8 +402,10 @@ import {
   aiPrompts,
   type AiPrompt,
   type InsertAiPrompt,
+  workdayBreakLogs,
+  aiInsightReads,
 } from "@shared/schema";
-import { db } from "./db";
+import { db, pool } from "./db";
 import { eq, ne, desc, and, ilike, or, gte, lte, inArray, lt, asc, sql, isNull, isNotNull, aliasedTable, type SQL } from "drizzle-orm";
 
 export interface IStorage {
@@ -11748,99 +11750,331 @@ export class DatabaseStorage implements IStorage {
     return newlyEligible;
   }
 
+  private async computeStreak(datesSql: string, params: any[]): Promise<number> {
+    const result = await pool.query(`
+      WITH days AS (${datesSql}),
+      grp AS (
+        SELECT d::date,
+          d::date - ROW_NUMBER() OVER (ORDER BY d ASC)::integer AS grp_date
+        FROM days
+      ),
+      latest AS (SELECT grp_date FROM grp ORDER BY d DESC LIMIT 1)
+      SELECT CASE
+        WHEN (SELECT MAX(d) FROM days) >= CURRENT_DATE - 1
+        THEN (SELECT COUNT(*)::integer FROM grp WHERE grp_date = (SELECT grp_date FROM latest))
+        ELSE 0
+      END AS streak
+    `, params);
+    return Number(result.rows[0]?.streak || 0);
+  }
+
   private async getUserBadgeStats(userId: string): Promise<Record<string, number>> {
     const stats: Record<string, number> = {};
-    
-    // Workout count - use workout_logs (completed) as the primary workout tracking table
-    const [workoutCount] = await db
-      .select({ count: sql<number>`count(*)` })
-      .from(workoutLogs)
+
+    // ---- WORKOUTS ----
+    const [workoutCount] = await db.select({ count: sql<number>`count(*)` }).from(workoutLogs)
       .where(and(eq(workoutLogs.userId, userId), eq(workoutLogs.status, 'completed')));
     stats.workouts = Number(workoutCount?.count || 0);
-    
-    // Video workout count (check workoutStyle = 'video')
-    const [videoWorkoutCount] = await db
-      .select({ count: sql<number>`count(*)` })
-      .from(workoutLogs)
-      .where(and(
-        eq(workoutLogs.userId, userId), 
-        eq(workoutLogs.status, 'completed'),
-        eq(workoutLogs.workoutStyle, 'video')
-      ));
+
+    const [videoWorkoutCount] = await db.select({ count: sql<number>`count(*)` }).from(workoutLogs)
+      .where(and(eq(workoutLogs.userId, userId), eq(workoutLogs.status, 'completed'), eq(workoutLogs.workoutStyle, 'video')));
     stats.video_workouts = Number(videoWorkoutCount?.count || 0);
-    
-    // Stretching workout count (check workoutName for stretching keywords)
-    const [stretchingCount] = await db
-      .select({ count: sql<number>`count(*)` })
-      .from(workoutLogs)
-      .where(and(
-        eq(workoutLogs.userId, userId),
-        eq(workoutLogs.status, 'completed'),
-        sql`${workoutLogs.workoutName} ILIKE '%stretch%' OR ${workoutLogs.workoutName} ILIKE '%mobility%'`
-      ));
+
+    const [stretchingCount] = await db.select({ count: sql<number>`count(*)` }).from(workoutLogs)
+      .where(and(eq(workoutLogs.userId, userId), eq(workoutLogs.status, 'completed'),
+        sql`${workoutLogs.workoutName} ILIKE '%stretch%' OR ${workoutLogs.workoutName} ILIKE '%mobility%'`));
     stats.stretching_workouts = Number(stretchingCount?.count || 0);
-    
-    // Breathwork sessions count
-    const [breathworkCount] = await db
-      .select({ count: sql<number>`count(*)` })
-      .from(breathWorkSessionLogs)
+
+    const [yogaCount] = await db.select({ count: sql<number>`count(*)` }).from(workoutLogs)
+      .where(and(eq(workoutLogs.userId, userId), eq(workoutLogs.status, 'completed'),
+        sql`${workoutLogs.workoutName} ILIKE '%yoga%'`));
+    stats.yoga_workouts = Number(yogaCount?.count || 0);
+
+    // ---- BREATHWORK ----
+    const [breathworkCount] = await db.select({ count: sql<number>`count(*)` }).from(breathWorkSessionLogs)
       .where(eq(breathWorkSessionLogs.userId, userId));
     stats.breathwork_sessions = Number(breathworkCount?.count || 0);
-    
-    // Breathwork total minutes
-    const [breathworkMinutes] = await db
-      .select({ total: sql<number>`COALESCE(SUM(duration_seconds), 0) / 60` })
-      .from(breathWorkSessionLogs)
-      .where(eq(breathWorkSessionLogs.userId, userId));
+
+    const [breathworkMinutes] = await db.select({ total: sql<number>`COALESCE(SUM(duration_seconds), 0) / 60` })
+      .from(breathWorkSessionLogs).where(eq(breathWorkSessionLogs.userId, userId));
     stats.breathwork_minutes = Number(breathworkMinutes?.total || 0);
-    
-    // Programme enrollments
-    const [enrollmentCount] = await db
-      .select({ count: sql<number>`count(*)` })
-      .from(userProgramEnrollments)
+
+    // ---- MEDITATION ----
+    const [meditationCount] = await db.select({ count: sql<number>`count(*)` }).from(meditationSessionLogs)
+      .where(eq(meditationSessionLogs.userId, userId));
+    stats.meditation_sessions = Number(meditationCount?.count || 0);
+
+    // ---- PROGRAMMES ----
+    const [enrollmentCount] = await db.select({ count: sql<number>`count(*)` }).from(userProgramEnrollments)
       .where(eq(userProgramEnrollments.userId, userId));
     stats.programme_enrollments = Number(enrollmentCount?.count || 0);
-    
-    // Completed programmes
-    const [completedCount] = await db
-      .select({ count: sql<number>`count(*)` })
-      .from(userProgramEnrollments)
+
+    const [completedProgCount] = await db.select({ count: sql<number>`count(*)` }).from(userProgramEnrollments)
       .where(and(eq(userProgramEnrollments.userId, userId), eq(userProgramEnrollments.status, 'completed')));
-    stats.programmes_completed = Number(completedCount?.count || 0);
-    
-    // Programme completion rate
+    stats.programmes_completed = Number(completedProgCount?.count || 0);
+
     const totalEnrollments = Number(enrollmentCount?.count || 0);
-    const completed = Number(completedCount?.count || 0);
-    stats.programme_completion_rate = totalEnrollments > 0 ? (completed / totalEnrollments) * 100 : 0;
-    
-    // Videos watched (learning)
-    const [videosWatched] = await db
-      .select({ count: sql<number>`count(*)` })
-      .from(userContentProgress)
+    const completedProgs = Number(completedProgCount?.count || 0);
+    stats.programme_completion_rate = totalEnrollments > 0 ? (completedProgs / totalEnrollments) * 100 : 0;
+    stats.programme_perfect_record = (totalEnrollments >= 3 && stats.programme_completion_rate >= 100) ? 1 : 0;
+
+    // ---- LEARNING ----
+    const [videosWatched] = await db.select({ count: sql<number>`count(*)` }).from(userContentProgress)
       .where(and(eq(userContentProgress.userId, userId), eq(userContentProgress.completed, true)));
     stats.videos_watched = Number(videosWatched?.count || 0);
-    
-    // Learning paths completed (check completedDate is not null)
-    const [pathsCompleted] = await db
-      .select({ count: sql<number>`count(*)` })
-      .from(userPathAssignments)
+
+    const [pathsCompleted] = await db.select({ count: sql<number>`count(*)` }).from(userPathAssignments)
       .where(and(eq(userPathAssignments.userId, userId), sql`${userPathAssignments.completedDate} IS NOT NULL`));
     stats.learning_paths_completed = Number(pathsCompleted?.count || 0);
-    
-    // Desk scans
-    const [deskScans] = await db
-      .select({ count: sql<number>`count(*)` })
-      .from(workdayDeskScans)
+
+    // ---- BOOKMARKS & RECIPES ----
+    const [bookmarksCount] = await db.select({ count: sql<number>`count(*)` }).from(bookmarks)
+      .where(eq(bookmarks.userId, userId));
+    stats.bookmarks_count = Number(bookmarksCount?.count || 0);
+
+    const [recipesSaved] = await db.select({ count: sql<number>`count(*)` }).from(bookmarks)
+      .where(and(eq(bookmarks.userId, userId), eq(bookmarks.contentType, 'recipe')));
+    stats.recipes_saved = Number(recipesSaved?.count || 0);
+
+    // ---- DESK ----
+    const [deskScans] = await db.select({ count: sql<number>`count(*)` }).from(workdayDeskScans)
       .where(eq(workdayDeskScans.userId, userId));
     stats.desk_scans = Number(deskScans?.count || 0);
-    
-    // Body map assessments
-    const [bodyMapCount] = await db
-      .select({ count: sql<number>`count(*)` })
-      .from(bodyMapLogs)
+
+    const workdayProfile = await db.select({ id: workdayUserProfiles.id }).from(workdayUserProfiles)
+      .where(eq(workdayUserProfiles.userId, userId)).limit(1);
+    stats.workday_setup_done = workdayProfile.length > 0 ? 1 : 0;
+
+    // ---- BODY MAP ----
+    const [bodyMapCount] = await db.select({ count: sql<number>`count(*)` }).from(bodyMapLogs)
       .where(eq(bodyMapLogs.userId, userId));
     stats.body_map_assessments = Number(bodyMapCount?.count || 0);
-    
+
+    const [recoveryPlansCount] = await db.select({ count: sql<number>`count(*)` }).from(recoveryPlanSuggestions)
+      .where(and(eq(recoveryPlanSuggestions.userId, userId), eq(recoveryPlanSuggestions.status, 'accepted')));
+    stats.recovery_plans_completed = Number(recoveryPlansCount?.count || 0);
+
+    // Pain score reduced: any body_part where latest severity < earliest severity
+    const painReduced = await pool.query(`
+      SELECT CASE WHEN COUNT(*) > 0 THEN 1 ELSE 0 END::integer AS reduced
+      FROM (
+        SELECT body_part,
+          FIRST_VALUE(severity) OVER (PARTITION BY body_part ORDER BY created_at ASC) AS first_sev,
+          FIRST_VALUE(severity) OVER (PARTITION BY body_part ORDER BY created_at DESC) AS last_sev
+        FROM body_map_logs WHERE user_id = $1
+      ) t WHERE last_sev < first_sev - 1
+    `, [userId]);
+    stats.pain_score_reduced = Number(painReduced.rows[0]?.reduced || 0);
+
+    // ---- ONBOARDING ----
+    const userRow = await db.select({
+      onboarding: users.onboardingCompleted,
+      profileImg: users.profileImageUrl,
+      firstName: users.firstName,
+      currentStreak: users.currentStreak,
+    }).from(users).where(eq(users.id, userId)).limit(1);
+    const u = userRow[0];
+    stats.onboarding_done = u?.onboarding ? 1 : 0;
+    stats.profile_complete = (u?.profileImg && u?.firstName) ? 1 : 0;
+    stats.activity_streak = Number(u?.currentStreak || 0);
+
+    // All Systems Go: has at least one goal, one habit, one supplement
+    const [goalExists] = await db.select({ count: sql<number>`count(*)` }).from(goals).where(eq(goals.userId, userId));
+    const [habitExists] = await db.select({ count: sql<number>`count(*)` }).from(habits).where(eq(habits.userId, userId));
+    const [suppExists] = await db.select({ count: sql<number>`count(*)` }).from(supplements)
+      .where(and(eq(supplements.userId, userId), eq(supplements.isActive, true)));
+    stats.all_systems_go = (Number(goalExists?.count) > 0 && Number(habitExists?.count) > 0 && Number(suppExists?.count) > 0) ? 1 : 0;
+
+    // ---- FOOD / NUTRITION ----
+    const [foodLogsTotal] = await db.select({ count: sql<number>`count(*)` }).from(foodLogs)
+      .where(eq(foodLogs.userId, userId));
+    stats.food_logs_total = Number(foodLogsTotal?.count || 0);
+
+    const [barcodeScans] = await db.select({ count: sql<number>`count(*)` }).from(foodLogs)
+      .where(and(eq(foodLogs.userId, userId), eq(foodLogs.source, 'barcode')));
+    stats.barcode_scans = Number(barcodeScans?.count || 0);
+
+    // Check-ins total
+    const [checkInTotal] = await db.select({ count: sql<number>`count(*)` }).from(checkIns)
+      .where(and(eq(checkIns.userId, userId), eq(checkIns.completed, true)));
+    stats.check_ins_total = Number(checkInTotal?.count || 0);
+
+    // ---- GOALS ----
+    const [goalsCompleted] = await db.select({ count: sql<number>`count(*)` }).from(goals)
+      .where(and(eq(goals.userId, userId), eq(goals.isCompleted, true)));
+    stats.goals_completed = Number(goalsCompleted?.count || 0);
+
+    const [bwGoal] = await db.select({ count: sql<number>`count(*)` }).from(goals)
+      .where(and(eq(goals.userId, userId), eq(goals.isCompleted, true),
+        sql`${goals.type} IN ('bodyweight', 'custom')`));
+    stats.bodyweight_goal_achieved = Number(bwGoal?.count || 0) > 0 ? 1 : 0;
+
+    // ---- HABITS ----
+    const [habitsTotal] = await db.select({ count: sql<number>`count(*)` }).from(habits)
+      .where(eq(habits.userId, userId));
+    stats.habits_total = Number(habitsTotal?.count || 0);
+
+    // habit cycle = a habit where longest_streak >= 21 or 60 days
+    const [habitCycles21] = await db.select({ count: sql<number>`count(*)` }).from(habits)
+      .where(and(eq(habits.userId, userId), sql`${habits.longestStreak} >= 21`));
+    stats.habit_cycles_21 = Number(habitCycles21?.count || 0);
+
+    const [habitCycles60] = await db.select({ count: sql<number>`count(*)` }).from(habits)
+      .where(and(eq(habits.userId, userId), sql`${habits.longestStreak} >= 60`));
+    stats.habit_cycles_60 = Number(habitCycles60?.count || 0);
+
+    // total cycles = habits where longest_streak >= duration_in_days (duration col is in weeks)
+    const [habitCyclesTotal] = await db.select({ count: sql<number>`count(*)` }).from(habits)
+      .where(and(eq(habits.userId, userId), sql`${habits.longestStreak} >= ${habits.duration} * 7`));
+    stats.habit_cycles_total = Number(habitCyclesTotal?.count || 0);
+
+    // Concurrent 3+ habits for max consecutive days
+    const concurrentRes = await pool.query(`
+      WITH daily AS (
+        SELECT date_trunc('day', completed_date)::date AS d,
+          COUNT(DISTINCT habit_id) AS cnt
+        FROM habit_completions WHERE user_id = $1
+        GROUP BY 1 HAVING COUNT(DISTINCT habit_id) >= 3
+      ),
+      grp AS (
+        SELECT d, d - ROW_NUMBER() OVER (ORDER BY d ASC)::integer AS gd FROM daily
+      ),
+      lens AS (SELECT COUNT(*)::integer AS len FROM grp GROUP BY gd)
+      SELECT COALESCE(MAX(len), 0)::integer AS max_streak FROM lens
+    `, [userId]);
+    stats.habits_concurrent_3_7days = Number(concurrentRes.rows[0]?.max_streak || 0);
+
+    // ---- SUPPLEMENTS ----
+    const [supplementsTotal] = await db.select({ count: sql<number>`count(*)` }).from(supplements)
+      .where(and(eq(supplements.userId, userId), eq(supplements.isActive, true)));
+    stats.supplements_total = Number(supplementsTotal?.count || 0);
+
+    // ---- BURNOUT ----
+    const [burnoutCount] = await db.select({ count: sql<number>`count(*)` }).from(burnoutScores)
+      .where(eq(burnoutScores.userId, userId));
+    stats.burnout_scores_count = Number(burnoutCount?.count || 0);
+
+    const bouncedBackRes = await pool.query(`
+      SELECT CASE WHEN COUNT(*) > 0 THEN 1 ELSE 0 END::integer AS bounced
+      FROM burnout_scores b_low
+      WHERE b_low.user_id = $1 AND b_low.score <= 33
+        AND EXISTS (
+          SELECT 1 FROM burnout_scores b_high
+          WHERE b_high.user_id = $1 AND b_high.score >= 67
+            AND b_high.computed_date < b_low.computed_date
+        )
+    `, [userId]);
+    stats.burnout_bounced_back = Number(bouncedBackRes.rows[0]?.bounced || 0);
+
+    // ---- AI ----
+    const aiMsgRes = await pool.query(`
+      SELECT COALESCE(SUM(jsonb_array_length(messages)), 0)::integer AS total
+      FROM coach_conversations WHERE user_id = $1
+    `, [userId]);
+    stats.ai_coach_messages = Number(aiMsgRes.rows[0]?.total || 0);
+
+    const [aiRecipes] = await db.select({ count: sql<number>`count(*)` }).from(recipes)
+      .where(and(eq(recipes.userId, userId),
+        sql`(${recipes.aiGenerated} = true OR ${recipes.aiDraftedFromPhoto} = true)`));
+    stats.ai_recipes_created = Number(aiRecipes?.count || 0);
+
+    const [aiInsightCount] = await db.select({ count: sql<number>`count(*)` }).from(aiInsightReads)
+      .where(eq(aiInsightReads.userId, userId));
+    stats.ai_insight_reads = Number(aiInsightCount?.count || 0);
+
+    // ---- SLEEP ----
+    const sleepAvgRes = await pool.query(`
+      SELECT
+        COALESCE(AVG(CASE WHEN date >= CURRENT_DATE - 7  THEN duration_minutes END), 0) AS avg7,
+        COALESCE(AVG(CASE WHEN date >= CURRENT_DATE - 30 THEN duration_minutes END), 0) AS avg30,
+        COALESCE(AVG(CASE WHEN date >= CURRENT_DATE - 42 THEN duration_minutes END), 0) AS avg42
+      FROM sleep_entries WHERE user_id = $1
+    `, [userId]);
+    const s = sleepAvgRes.rows[0];
+    stats.sleep_avg_7day_hours_7  = Number(s?.avg7  || 0) >= 420 ? 1 : 0;
+    stats.sleep_avg_30day_hours_7 = Number(s?.avg30 || 0) >= 420 ? 1 : 0;
+    stats.sleep_avg_42day_hours_7 = Number(s?.avg42 || 0) >= 420 ? 1 : 0;
+
+    // ---- STREAKS (gap-and-island via computeStreak) ----
+    stats.check_in_streak = await this.computeStreak(
+      `SELECT DISTINCT date_trunc('day', check_in_date)::date AS d FROM check_ins WHERE user_id = $1 AND completed = true`,
+      [userId]
+    );
+
+    stats.nutrition_log_streak = await this.computeStreak(
+      `SELECT DISTINCT date_trunc('day', date)::date AS d FROM food_logs WHERE user_id = $1`,
+      [userId]
+    );
+
+    stats.supplement_streak = await this.computeStreak(
+      `SELECT DISTINCT date_trunc('day', date)::date AS d FROM supplement_logs WHERE user_id = $1 AND taken = true`,
+      [userId]
+    );
+
+    stats.desk_break_streak = await this.computeStreak(
+      `SELECT DISTINCT date_trunc('day', logged_at)::date AS d FROM workday_break_logs WHERE user_id = $1`,
+      [userId]
+    );
+
+    stats.sleep_score_streak_80 = await this.computeStreak(
+      `SELECT DISTINCT date_trunc('day', date)::date AS d FROM sleep_entries WHERE user_id = $1 AND sleep_score >= 80`,
+      [userId]
+    );
+
+    stats.burnout_lowest_tier_days = await this.computeStreak(
+      `SELECT DISTINCT date_trunc('day', computed_date)::date AS d FROM burnout_scores WHERE user_id = $1 AND score <= 33`,
+      [userId]
+    );
+
+    stats.alcohol_free_streak = await this.computeStreak(
+      `SELECT DISTINCT date_trunc('day', check_in_date)::date AS d FROM check_ins WHERE user_id = $1 AND completed = true AND (alcohol = false OR alcohol IS NULL)`,
+      [userId]
+    );
+
+    // Protein target streak: days where food_logs protein >= nutrition goal target
+    const proteinStreakRes = await pool.query(`
+      WITH goal AS (
+        SELECT protein_target FROM nutrition_goals WHERE user_id = $1 AND is_active = true ORDER BY created_at DESC LIMIT 1
+      ),
+      daily_p AS (
+        SELECT date_trunc('day', date)::date AS d, SUM(protein) AS p
+        FROM food_logs WHERE user_id = $1 GROUP BY 1
+        HAVING SUM(protein) >= COALESCE((SELECT protein_target FROM goal), 999999)
+      ),
+      grp AS (
+        SELECT d, d - ROW_NUMBER() OVER (ORDER BY d ASC)::integer AS gd FROM daily_p
+      ),
+      latest AS (SELECT gd FROM grp ORDER BY d DESC LIMIT 1)
+      SELECT CASE
+        WHEN (SELECT MAX(d) FROM daily_p) >= CURRENT_DATE - 1
+        THEN (SELECT COUNT(*)::integer FROM grp WHERE gd = (SELECT gd FROM latest))
+        ELSE 0
+      END AS streak
+    `, [userId]);
+    stats.protein_target_streak = Number(proteinStreakRes.rows[0]?.streak || 0);
+
+    // Hydration streak: days where daily hydration >= goal (hydration_goals has no is_active col)
+    const hydrationStreakRes = await pool.query(`
+      WITH goal AS (
+        SELECT goal_ml FROM hydration_goals WHERE user_id = $1 ORDER BY created_at DESC LIMIT 1
+      ),
+      daily_h AS (
+        SELECT date_trunc('day', date)::date AS d, SUM(amount_ml) AS ml
+        FROM hydration_logs WHERE user_id = $1 GROUP BY 1
+        HAVING SUM(amount_ml) >= COALESCE((SELECT goal_ml FROM goal), 999999)
+      ),
+      grp AS (
+        SELECT d, d - ROW_NUMBER() OVER (ORDER BY d ASC)::integer AS gd FROM daily_h
+      ),
+      latest AS (SELECT gd FROM grp ORDER BY d DESC LIMIT 1)
+      SELECT CASE
+        WHEN (SELECT MAX(d) FROM daily_h) >= CURRENT_DATE - 1
+        THEN (SELECT COUNT(*)::integer FROM grp WHERE gd = (SELECT gd FROM latest))
+        ELSE 0
+      END AS streak
+    `, [userId]);
+    stats.hydration_streak = Number(hydrationStreakRes.rows[0]?.streak || 0);
+
     return stats;
   }
 

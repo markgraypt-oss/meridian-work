@@ -306,7 +306,7 @@ const uploadDoc = multer({
 
 import { computeBurnoutScore } from './burnoutEngine';
 import { trackCalibrationEvent, trackRecoveryModeActivation, generateCalibrationReport } from './burnoutCalibration';
-import { burnoutScores, insertCompanySchema, insertCompanyBenefitSchema, checkIns, bodyMapLogs, departments, companyInvites, usageAlerts, insertAiPromptSchema } from "@shared/schema";
+import { burnoutScores, insertCompanySchema, insertCompanyBenefitSchema, checkIns, bodyMapLogs, departments, companyInvites, usageAlerts, insertAiPromptSchema, workdayBreakLogs, aiInsightReads } from "@shared/schema";
 
 import {
   insertExerciseLibraryItemSchema,
@@ -13073,7 +13073,7 @@ Rules:
   app.post('/api/nutrition/food', isAuthenticated, async (req: any, res) => {
     try {
       const userId = req.user.claims.sub;
-      const { mealCategory, foodName, calories, protein, carbs, fat, notes } = req.body;
+      const { mealCategory, foodName, calories, protein, carbs, fat, notes, source } = req.body;
 
       const today = new Date();
       today.setHours(0, 0, 0, 0);
@@ -13088,6 +13088,7 @@ Rules:
         carbs: carbs || 0,
         fat: fat || 0,
         notes: notes || null,
+        source: source || 'manual',
       });
 
       const log = await storage.createFoodLog(validated);
@@ -17686,6 +17687,22 @@ Keep your response concise, practical, and evidence-based. Do not use em dashes.
     }
   });
 
+  // Workday Break Reminder Used — mobile calls this when user acts on a break reminder
+  app.post('/api/workday/break-reminder-used', isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = req.user.claims.sub;
+      const { breakType } = req.body;
+      const [row] = await db.insert(workdayBreakLogs).values({
+        userId,
+        breakType: breakType || 'reminder',
+      }).returning();
+      res.status(201).json(row);
+    } catch (error) {
+      console.error("Error logging break reminder:", error);
+      res.status(500).json({ message: "Failed to log break reminder" });
+    }
+  });
+
   // AI Coaching Settings CRUD routes (admin only)
   app.get('/api/admin/ai-coaching-settings', isAuthenticated, async (req: any, res) => {
     try {
@@ -19076,6 +19093,24 @@ Generate the opening message now. Remember: 1-3 sentences, specific, mandatory t
     } catch (error) {
       console.error("Error deleting conversation:", error);
       res.status(500).json({ message: "Failed to delete conversation" });
+    }
+  });
+
+  // AI Insight Read — mobile calls this when user opens an AI-generated insight
+  app.post('/api/ai/insight-read', isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = req.user.claims.sub;
+      const { insightType, insightKey } = req.body;
+      if (!insightType) return res.status(400).json({ message: "insightType is required" });
+      const [row] = await db.insert(aiInsightReads).values({
+        userId,
+        insightType,
+        insightKey: insightKey || null,
+      }).returning();
+      res.status(201).json(row);
+    } catch (error) {
+      console.error("Error logging insight read:", error);
+      res.status(500).json({ message: "Failed to log insight read" });
     }
   });
 

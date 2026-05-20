@@ -1559,6 +1559,7 @@ export const foodLogs = pgTable("food_logs", {
   servingSizeUnit: text("serving_size_unit"), // 'serving', 'g', 'oz', etc.
   servingQuantity: real("serving_quantity"), // number of portions
   notes: text("notes"),
+  source: text("source").default("manual"), // 'manual', 'barcode', 'history', 'recipe'
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow(),
 });
@@ -3444,6 +3445,31 @@ export const legacyProgramExercises = pgTable("program_exercises", {
   notes: text("notes"),
   createdAt: timestamp("created_at").defaultNow(),
 });
+
+// Workday Break Logs - tracks when users respond to break/movement reminders
+export const workdayBreakLogs = pgTable("workday_break_logs", {
+  id: serial("id").primaryKey(),
+  userId: varchar("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+  breakType: text("break_type").notNull().default("reminder"), // 'reminder', 'manual', 'rotation'
+  loggedAt: timestamp("logged_at").defaultNow(),
+  createdAt: timestamp("created_at").defaultNow(),
+});
+export type WorkdayBreakLog = typeof workdayBreakLogs.$inferSelect;
+export type InsertWorkdayBreakLog = typeof workdayBreakLogs.$inferInsert;
+export const insertWorkdayBreakLogSchema = createInsertSchema(workdayBreakLogs).omit({ id: true, createdAt: true });
+
+// AI Insight Reads - tracks when users open/read AI-generated insights
+export const aiInsightReads = pgTable("ai_insight_reads", {
+  id: serial("id").primaryKey(),
+  userId: varchar("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+  insightType: text("insight_type").notNull(), // 'nutrition', 'recovery', 'burnout', 'workout'
+  insightKey: text("insight_key"), // optional dedup key
+  readAt: timestamp("read_at").defaultNow(),
+  createdAt: timestamp("created_at").defaultNow(),
+});
+export type AiInsightRead = typeof aiInsightReads.$inferSelect;
+export type InsertAiInsightRead = typeof aiInsightReads.$inferInsert;
+export const insertAiInsightReadSchema = createInsertSchema(aiInsightReads).omit({ id: true, createdAt: true });
 
 // Chat models for AI conversations
 export * from "./models/chat";

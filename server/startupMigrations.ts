@@ -619,8 +619,6 @@ const BADGES_V2 = [
   // DESK HEALTH (4)
   { name: "Desk Detective", description: "Complete your first desk scan", category: "desk", tier: "bronze", icon: "🖥️", requirement: JSON.stringify({ type: "count", metric: "desk_scans", target: 1 }), sortOrder: 130 },
   { name: "Schedule Set", description: "Set up your workday profile", category: "desk", tier: "bronze", icon: "⏰", requirement: JSON.stringify({ type: "achievement", metric: "workday_setup_done", target: 1 }), sortOrder: 131 },
-  { name: "Stand Up", description: "Use break reminders for 7 consecutive days", category: "desk", tier: "silver", icon: "🧍", requirement: JSON.stringify({ type: "streak", metric: "desk_break_streak", target: 7 }), sortOrder: 132 },
-  { name: "Movement Marshal", description: "Use break reminders for 30 consecutive days", category: "desk", tier: "gold", icon: "🚶", requirement: JSON.stringify({ type: "streak", metric: "desk_break_streak", target: 30 }), sortOrder: 133 },
   // BODY MAP (5)
   { name: "First Assessment", description: "Log your first body map entry", category: "bodymap", tier: "bronze", icon: "🗺️", requirement: JSON.stringify({ type: "count", metric: "body_map_assessments", target: 1 }), sortOrder: 140 },
   { name: "Body Aware", description: "Log 5 body map entries", category: "bodymap", tier: "silver", icon: "👁️", requirement: JSON.stringify({ type: "count", metric: "body_map_assessments", target: 5 }), sortOrder: 141 },
@@ -681,6 +679,27 @@ export async function seedBadgesV2Once(): Promise<void> {
     console.log(`[startup-migration] badges-v2: seeded ${BADGES_V2.length} badges`);
   } catch (e: any) {
     console.error("[startup-migration] badges-v2 failed:", e?.message || e);
+  }
+}
+
+// One-shot retirement of dropped desk badges (Stand Up, Movement Marshal).
+// Idempotent — safe to leave in place. Retires to legacy collection so any
+// existing user_badges FK references are preserved.
+let hasRunRetireDeskBadges = false;
+export async function retireDroppedDeskBadgesOnce(): Promise<void> {
+  if (hasRunRetireDeskBadges) return;
+  hasRunRetireDeskBadges = true;
+  try {
+    const result = await pool.query(
+      `UPDATE badges SET is_active = false, collection = 'legacy'
+       WHERE name IN ('Stand Up', 'Movement Marshal')
+         AND collection = 'current'`
+    );
+    if (result.rowCount && result.rowCount > 0) {
+      console.log(`[startup-migration] retire-desk-badges: retired ${result.rowCount} badges`);
+    }
+  } catch (e: any) {
+    console.error("[startup-migration] retire-desk-badges failed:", e?.message || e);
   }
 }
 

@@ -18286,6 +18286,23 @@ Keep your response concise, practical, and evidence-based. Do not use em dashes.
     }
   });
 
+  // Admin-only: reset a specific user_badge row back to notified=false (for testing celebration modals)
+  app.post('/api/admin/user-badges/:id/unnotify', isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = req.user.claims.sub;
+      const me = await storage.getUser(userId);
+      if (!me?.isAdmin) return res.status(403).json({ message: "Admin only" });
+      const userBadgeId = parseInt(req.params.id);
+      if (isNaN(userBadgeId)) return res.status(400).json({ message: "Invalid badge id" });
+      const row = await storage.resetBadgeNotified(userBadgeId);
+      if (!row) return res.status(404).json({ message: "Badge not found" });
+      res.json(row);
+    } catch (error) {
+      console.error("Error resetting badge notified:", error);
+      res.status(500).json({ message: "Failed to reset badge notified" });
+    }
+  });
+
   app.post('/api/user/badges/mark-all-notified', isAuthenticated, async (req: any, res) => {
     try {
       const userId = req.user.claims.sub;

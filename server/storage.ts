@@ -1111,6 +1111,7 @@ export interface IStorage {
   getUserUnnotifiedBadges(userId: string): Promise<(UserBadge & { badge: Badge })[]>;
   awardBadge(userId: string, badgeId: number): Promise<UserBadge | null>;
   markBadgeNotified(userBadgeId: number): Promise<void>;
+  resetBadgeNotified(userBadgeId: number): Promise<UserBadge | null>;
   markAllBadgesNotified(userId: string): Promise<void>;
   checkUserBadgeEligibility(userId: string): Promise<Badge[]>;
 
@@ -11720,6 +11721,11 @@ export class DatabaseStorage implements IStorage {
 
   async markBadgeNotified(userBadgeId: number): Promise<void> {
     await db.update(userBadges).set({ notified: true }).where(eq(userBadges.id, userBadgeId));
+  }
+
+  async resetBadgeNotified(userBadgeId: number): Promise<UserBadge | null> {
+    const [row] = await db.update(userBadges).set({ notified: false }).where(eq(userBadges.id, userBadgeId)).returning();
+    return row ?? null;
   }
 
   async markAllBadgesNotified(userId: string): Promise<void> {

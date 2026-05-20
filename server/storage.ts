@@ -355,6 +355,8 @@ import {
   pushSubscriptions,
   type PushSubscription,
   type InsertPushSubscription,
+  userPushTokens,
+  type UserPushToken,
   coachConversations,
   type CoachConversation,
   coachBriefings,
@@ -439,10 +441,15 @@ export interface IStorage {
   markNotificationRead(id: number, userId: string): Promise<void>;
   markAllNotificationsRead(userId: string): Promise<void>;
 
-  // Push subscriptions
+  // Push subscriptions (web)
   upsertPushSubscription(data: InsertPushSubscription): Promise<PushSubscription>;
   deletePushSubscriptionByEndpoint(userId: string, endpoint: string): Promise<void>;
   listPushSubscriptions(userId: string): Promise<PushSubscription[]>;
+
+  // Expo push tokens (mobile)
+  upsertExpoPushToken(userId: string, token: string, platform: "ios" | "android"): Promise<UserPushToken>;
+  deleteExpoPushToken(userId: string, token: string): Promise<void>;
+  listExpoPushTokens(userId: string): Promise<UserPushToken[]>;
 
   // Exercise Library operations
   getExercises(filters?: {
@@ -1713,6 +1720,37 @@ export class DatabaseStorage implements IStorage {
 
   async listPushSubscriptions(userId: string): Promise<PushSubscription[]> {
     return await db.select().from(pushSubscriptions).where(eq(pushSubscriptions.userId, userId));
+  }
+
+  async upsertExpoPushToken(userId: string, token: string, platform: "ios" | "android"): Promise<UserPushToken> {
+    const existing = await db
+      .select()
+      .from(userPushTokens)
+      .where(and(eq(userPushTokens.userId, userId), eq(userPushTokens.token, token)))
+      .limit(1);
+    if (existing.length > 0) {
+      const [updated] = await db
+        .update(userPushTokens)
+        .set({ lastSeenAt: new Date() })
+        .where(eq(userPushTokens.id, existing[0].id))
+        .returning();
+      return updated;
+    }
+    const [created] = await db
+      .insert(userPushTokens)
+      .values({ userId, token, platform })
+      .returning();
+    return created;
+  }
+
+  async deleteExpoPushToken(userId: string, token: string): Promise<void> {
+    await db
+      .delete(userPushTokens)
+      .where(and(eq(userPushTokens.userId, userId), eq(userPushTokens.token, token)));
+  }
+
+  async listExpoPushTokens(userId: string): Promise<UserPushToken[]> {
+    return await db.select().from(userPushTokens).where(eq(userPushTokens.userId, userId));
   }
 
   // Exercise Library operations

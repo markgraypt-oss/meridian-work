@@ -3086,6 +3086,27 @@ export const insertPushSubscriptionSchema = createInsertSchema(pushSubscriptions
   id: true,
   createdAt: true,
 });
+
+// Expo push tokens (mobile)
+export const userPushTokens = pgTable("user_push_tokens", {
+  id: serial("id").primaryKey(),
+  userId: varchar("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+  token: text("token").notNull(),
+  platform: varchar("platform", { length: 10 }).notNull().$type<"ios" | "android">(),
+  createdAt: timestamp("created_at").defaultNow(),
+  lastSeenAt: timestamp("last_seen_at").defaultNow(),
+}, (t) => ({
+  uniqUserToken: uniqueIndex("idx_user_push_token_unique").on(t.userId, t.token),
+}));
+
+export type UserPushToken = typeof userPushTokens.$inferSelect;
+export type InsertUserPushToken = typeof userPushTokens.$inferInsert;
+export const insertUserPushTokenSchema = createInsertSchema(userPushTokens).omit({
+  id: true,
+  createdAt: true,
+  lastSeenAt: true,
+});
+
 // AI Call Logs - records every routed AI call for observability and cost tracking
 export const aiCallLogs = pgTable("ai_call_logs", {
   id: serial("id").primaryKey(),

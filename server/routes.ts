@@ -18264,6 +18264,35 @@ Keep your response concise, practical, and evidence-based. Do not use em dashes.
     }
   });
 
+  // Expo push token registration (mobile)
+  app.post('/api/user/push-token', isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = req.user.claims.sub;
+      const { token, platform } = req.body;
+      if (!token || !platform || !["ios", "android"].includes(platform)) {
+        return res.status(400).json({ message: "token and platform (ios|android) required" });
+      }
+      const row = await storage.upsertExpoPushToken(userId, token, platform);
+      res.json(row);
+    } catch (error) {
+      console.error("Error upserting push token:", error);
+      res.status(500).json({ message: "Failed to register push token" });
+    }
+  });
+
+  app.delete('/api/user/push-token', isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = req.user.claims.sub;
+      const { token } = req.body;
+      if (!token) return res.status(400).json({ message: "token required" });
+      await storage.deleteExpoPushToken(userId, token);
+      res.json({ success: true });
+    } catch (error) {
+      console.error("Error deleting push token:", error);
+      res.status(500).json({ message: "Failed to remove push token" });
+    }
+  });
+
   app.post('/api/user/badges/check', isAuthenticated, async (req: any, res) => {
     try {
       const userId = req.user.claims.sub;

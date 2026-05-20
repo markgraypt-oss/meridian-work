@@ -6,6 +6,7 @@ import { storage } from "./storage";
 import {
   notifications,
   pushSubscriptions,
+  userPushTokens,
   users,
   type NotificationCategory,
   type Notification,
@@ -120,7 +121,7 @@ export async function notify(opts: NotifyOptions): Promise<NotifyResult> {
     }
   }
 
-  // 5. Web push fan-out.
+  // 5. Web push fan-out (VAPID/browser).
   const wantPush = force || (channelToggles.push && !inQuiet && !overCap);
   if (wantPush && vapidConfigured) {
     const subs = await db
@@ -165,6 +166,67 @@ export async function notify(opts: NotifyOptions): Promise<NotifyResult> {
             .set({ pushDeliveredAt: new Date() })
             .where(eq(notifications.id, result.notification.id));
         } catch {}
+      }
+    }
+  }
+
+  // 6. Expo push fan-out (mobile).
+  if (wantPush) {
+    const expoTokens = await db
+      .select()
+      .from(userPushTokens)
+      .where(eq(userPushTokens.userId, userId));
+
+    if (expoTokens.length > 0) {
+      const messages = expoTokens.map((t) => ({
+        to: t.token,
+        title,
+        body,
+        sound: "default" as const,
+        data: { ...(data ?? {}), category, notificationId: result.notification?.id ?? null },
+      }));
+
+      try {
+        const expoRes = await fetch("https://exp.host/--/api/v2/push/send", {
+          method: "POST",
+          headers: { "Content-Type": "application/json", Accept: "application/json" },
+          body: JSON.stringify(messages),
+        });
+        const expoBody = (await expoRes.json()) as { data?: { status: string; details?: { error?: string } }[] };
+        const statuses = expoBody.data ?? [];
+        let anyExpoDelivered = false;
+        await Promise.all(
+          statuses.map(async (s, i) => {
+            if (s.status === "ok") {
+              anyExpoDelivered = true;
+            } else if (
+              s.details?.error === "DeviceNotRegistered" ||
+              s.details?.error === "InvalidCredentials"
+            ) {
+              // Stale token — remove it.
+              try {
+                await db
+                  .delete(userPushTokens)
+                  .where(eq(userPushTokens.id, expoTokens[i].id));
+              } catch {}
+            } else {
+              console.error("[notify] expo push error:", s.details?.error, expoTokens[i]?.token);
+            }
+          }),
+        );
+        if (anyExpoDelivered) {
+          result.channels.push = true;
+          if (result.notification) {
+            try {
+              await db
+                .update(notifications)
+                .set({ pushDeliveredAt: new Date() })
+                .where(eq(notifications.id, result.notification.id));
+            } catch {}
+          }
+        }
+      } catch (err) {
+        console.error("[notify] expo push request failed:", err);
       }
     }
   }

@@ -483,6 +483,29 @@ export default function AdminEngagement() {
               onSaved={handleSaved}
               render={(v, set) => <TrackActivitiesEditor value={v} onChange={set} />}
             />
+            <Card className="border-dashed border-orange-300 dark:border-orange-700">
+              <CardHeader>
+                <CardTitle className="text-sm flex items-center gap-2"><Trophy className="w-4 h-4 text-orange-500" /> Badge Testing</CardTitle>
+                <CardDescription>Reset a badge notification so the celebration modal fires again on mobile.</CardDescription>
+              </CardHeader>
+              <CardContent>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={async () => {
+                    try {
+                      const res = await apiRequest("POST", "/api/admin/user-badges/11/unnotify");
+                      const data = await res.json();
+                      toast({ title: "Badge reset", description: `Row ${data.id} → notified: ${data.notified}` });
+                    } catch (e) {
+                      toast({ title: "Failed", description: String(e), variant: "destructive" });
+                    }
+                  }}
+                >
+                  Reset "Flexibility Seeker" (row 11) → unnotified
+                </Button>
+              </CardContent>
+            </Card>
           </>
         )}
       </div>

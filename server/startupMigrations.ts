@@ -668,6 +668,11 @@ export async function seedBadgesV2Once(): Promise<void> {
       `UPDATE badges SET is_active = false, collection = 'legacy' WHERE collection = 'current' AND is_active = true`
     );
 
+    // Sync the serial sequence to avoid PK collisions with existing legacy rows
+    await pool.query(
+      `SELECT setval('badges_id_seq', COALESCE((SELECT MAX(id) FROM badges), 0))`
+    );
+
     // Insert all v2 badges
     for (const b of BADGES_V2) {
       await pool.query(

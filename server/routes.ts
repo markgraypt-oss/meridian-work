@@ -13277,8 +13277,14 @@ Rules:
   app.post('/api/nutrition/meals/food', isAuthenticated, async (req: any, res) => {
     try {
       const userId = req.user.claims.sub;
-      const { mealName, foodName, brand, servingSize, servingSizeUnit, servingQuantity, calories, protein, carbs, fat, date: dateParam } = req.body;
-      
+      const { mealName, foodName, brand, servingSize, servingSizeUnit, servingQuantity, calories, protein, carbs, fat, date: dateParam, source, sourceType: bodySourceType } = req.body;
+
+      const ALLOWED_SOURCES = ['manual', 'barcode', 'history', 'recipe', 'saved_meal'] as const;
+      const rawSource = (source ?? bodySourceType) as string | undefined;
+      const sourceType = (rawSource && (ALLOWED_SOURCES as readonly string[]).includes(rawSource))
+        ? rawSource
+        : 'manual';
+
       const date = dateParam ? new Date(dateParam) : new Date();
       
       // Get or create the meal log
@@ -13297,7 +13303,7 @@ Rules:
         protein: protein || 0,
         carbs: carbs || 0,
         fat: fat || 0,
-        sourceType: 'manual',
+        sourceType,
       });
       
       // Update user streak after food tracking (non-blocking)

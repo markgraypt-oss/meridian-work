@@ -11885,13 +11885,13 @@ export class DatabaseStorage implements IStorage {
       .where(and(eq(supplements.userId, userId), eq(supplements.isActive, true)));
     stats.all_systems_go = (Number(goalExists?.count) > 0 && Number(habitExists?.count) > 0 && Number(suppExists?.count) > 0) ? 1 : 0;
 
-    // ---- FOOD / NUTRITION ----
-    const [foodLogsTotal] = await db.select({ count: sql<number>`count(*)` }).from(foodLogs)
-      .where(eq(foodLogs.userId, userId));
+    // ---- FOOD / NUTRITION ---- (mobile writes go to meal_food_entries, not food_logs)
+    const [foodLogsTotal] = await db.select({ count: sql<number>`count(*)` }).from(mealFoodEntries)
+      .where(eq(mealFoodEntries.userId, userId));
     stats.food_logs_total = Number(foodLogsTotal?.count || 0);
 
-    const [barcodeScans] = await db.select({ count: sql<number>`count(*)` }).from(foodLogs)
-      .where(and(eq(foodLogs.userId, userId), eq(foodLogs.source, 'barcode')));
+    const [barcodeScans] = await db.select({ count: sql<number>`count(*)` }).from(mealFoodEntries)
+      .where(and(eq(mealFoodEntries.userId, userId), eq(mealFoodEntries.sourceType, 'barcode')));
     stats.barcode_scans = Number(barcodeScans?.count || 0);
 
     // Check-ins total
@@ -12002,7 +12002,10 @@ export class DatabaseStorage implements IStorage {
     );
 
     stats.nutrition_log_streak = await this.computeStreak(
-      `SELECT DISTINCT date_trunc('day', date)::date AS d FROM food_logs WHERE user_id = $1`,
+      `SELECT DISTINCT date_trunc('day', ml.date)::date AS d
+       FROM meal_food_entries mfe
+       JOIN meal_logs ml ON ml.id = mfe.meal_log_id
+       WHERE mfe.user_id = $1`,
       [userId]
     );
 
@@ -12031,15 +12034,18 @@ export class DatabaseStorage implements IStorage {
       [userId]
     );
 
-    // Protein target streak: days where food_logs protein >= nutrition goal target
+    // Protein target streak: days where meal_food_entries protein sum >= nutrition goal target
     const proteinStreakRes = await pool.query(`
       WITH goal AS (
         SELECT protein_target FROM nutrition_goals WHERE user_id = $1 AND is_active = true ORDER BY created_at DESC LIMIT 1
       ),
       daily_p AS (
-        SELECT date_trunc('day', date)::date AS d, SUM(protein) AS p
-        FROM food_logs WHERE user_id = $1 GROUP BY 1
-        HAVING SUM(protein) >= COALESCE((SELECT protein_target FROM goal), 999999)
+        SELECT date_trunc('day', ml.date)::date AS d, SUM(mfe.protein) AS p
+        FROM meal_food_entries mfe
+        JOIN meal_logs ml ON ml.id = mfe.meal_log_id
+        WHERE mfe.user_id = $1
+        GROUP BY 1
+        HAVING SUM(mfe.protein) >= COALESCE((SELECT protein_target FROM goal), 999999)
       ),
       grp AS (
         SELECT d, d - ROW_NUMBER() OVER (ORDER BY d ASC)::integer AS gd FROM daily_p

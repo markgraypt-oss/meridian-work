@@ -18620,12 +18620,28 @@ Respond as the coach. Be personalised, reference their actual data and specific 
   app.get('/api/coach/briefing/today', isAuthenticated, async (req: any, res) => {
     try {
       const userId = req.user.claims.sub;
-      const requested = typeof req.query.type === 'string' ? req.query.type : null;
       const hour = new Date().getHours();
-      // Auto-pick: morning before 8pm local server time, evening after.
-      const type = (requested === 'morning' || requested === 'evening')
-        ? requested as 'morning' | 'evening'
-        : (hour < 20 ? 'morning' : 'evening');
+      // Two windows only (local server time):
+      //   Morning Briefing — 06:00 to 11:59
+      //   Evening Debrief  — 20:00 onwards
+      // Outside these windows we return 204 so the dashboard hides the
+      // card entirely (no afternoon briefing, no stale "Morning Briefing"
+      // label). The window gate applies even when an explicit
+      // ?type=morning|evening is passed — the contract is "no briefing
+      // shown outside the two windows", full stop.
+      let windowType: 'morning' | 'evening' | null;
+      if (hour >= 6 && hour < 12) windowType = 'morning';
+      else if (hour >= 20) windowType = 'evening';
+      else windowType = null;
+      if (!windowType) return res.status(204).end();
+
+      const requested = typeof req.query.type === 'string' ? req.query.type : null;
+      // An explicit ?type override is only honored if it matches the
+      // current window (e.g. prevents asking for "evening" at 9am).
+      const type: 'morning' | 'evening' =
+        (requested === 'morning' || requested === 'evening') && requested === windowType
+          ? requested
+          : windowType;
 
       const { getOrGenerateBriefing } = await import('./coach/briefings');
       const briefing = await getOrGenerateBriefing(userId, type);

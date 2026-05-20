@@ -187,13 +187,14 @@ async function dispatchForUser(u: BriefingUser, tz: string | null): Promise<void
 async function sweepCoachBriefings(userIds: string[]): Promise<void> {
   if (userIds.length === 0) return;
   const hour = new Date().getHours();
-  // Generate morning briefings during the morning window (07:00-12:00) and
+  // Generate morning briefings during the morning window (06:00-11:59) and
   // evening briefings from 20:00 onward (most people are done with work and
   // training by 8pm, so the recap reflects a full day). Outside these
   // windows we leave the on-demand path to handle requests so we don't spend
-  // tokens on users who are unlikely to open the app.
+  // tokens on users who are unlikely to open the app. These windows must
+  // stay aligned with the /api/coach/briefing/today route.
   const type: "morning" | "evening" | null =
-    hour >= 7 && hour < 12 ? "morning" : hour >= 20 ? "evening" : null;
+    hour >= 6 && hour < 12 ? "morning" : hour >= 20 ? "evening" : null;
   if (!type) return;
 
   let mod: typeof import("./coach/briefings");

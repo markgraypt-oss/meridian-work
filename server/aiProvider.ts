@@ -554,14 +554,24 @@ export async function getUserDataContext(userId: string, feature: string): Promi
     const bestWearableDays = Array.from(wearableByDate.values()).sort((a, b) => b.date.localeCompare(a.date));
 
     if (domains.includes('sleep')) {
+      // Format sleep durations as "Xh Ym" (e.g. "6h 54m") — never decimal
+      // hours. The briefing prompt instructs the AI to quote these exactly
+      // as given, so any change to this format propagates into user-visible
+      // copy.
+      const formatHM = (mins: number): string => {
+        const total = Math.max(0, Math.round(mins));
+        const h = Math.floor(total / 60);
+        const m = total % 60;
+        return `${h}h ${m}m`;
+      };
       const wSleep = bestWearableDays.filter((d) => d.sleepMinutes != null);
       if (wSleep.length > 0) {
         const avgDuration = wSleep.reduce((s, e) => s + (e.sleepMinutes || 0), 0) / wSleep.length;
         const latest = wSleep[0];
         const src = PROVIDER_LABEL[latest.provider] || latest.provider;
         context += `\n\n--- Sleep (last ${wSleep.length} days, from ${src}) ---`;
-        context += `\nAvg duration: ${(avgDuration / 60).toFixed(1)} hours`;
-        context += `\nMost recent (${latest.date}, from ${PROVIDER_LABEL[latest.provider] || latest.provider}): ${(latest.sleepMinutes / 60).toFixed(1)} hours${latest.sleepScore ? `, score ${latest.sleepScore}/100` : ''}${latest.sleepDeepMinutes ? `, deep ${Math.round(latest.sleepDeepMinutes)}min` : ''}${latest.sleepRemMinutes ? `, REM ${Math.round(latest.sleepRemMinutes)}min` : ''}`;
+        context += `\nAvg duration: ${formatHM(avgDuration)}`;
+        context += `\nMost recent (${latest.date}, from ${PROVIDER_LABEL[latest.provider] || latest.provider}): ${formatHM(latest.sleepMinutes)}${latest.sleepScore ? `, score ${latest.sleepScore}/100` : ''}${latest.sleepDeepMinutes ? `, deep ${Math.round(latest.sleepDeepMinutes)}min` : ''}${latest.sleepRemMinutes ? `, REM ${Math.round(latest.sleepRemMinutes)}min` : ''}`;
         if (latest.hrvMs) context += `, HRV ${Math.round(latest.hrvMs)}ms`;
       } else {
         const sleepEntries = await storage.getSleepEntries(userId, 14);
@@ -569,10 +579,10 @@ export async function getUserDataContext(userId: string, feature: string): Promi
           context += '\n\n--- Sleep Tracking (last 14 entries, self-reported) ---';
           const avgDuration = sleepEntries.reduce((s, e) => s + (e.durationMinutes || 0), 0) / sleepEntries.length;
           const avgQuality = sleepEntries.filter(e => e.quality).reduce((s, e) => s + (e.quality || 0), 0) / (sleepEntries.filter(e => e.quality).length || 1);
-          context += `\nAvg duration: ${(avgDuration / 60).toFixed(1)} hours, Avg quality: ${avgQuality.toFixed(1)}/10`;
+          context += `\nAvg duration: ${formatHM(avgDuration)}, Avg quality: ${avgQuality.toFixed(1)}/10`;
           const latest = sleepEntries[0];
           if (latest) {
-            context += `\nMost recent: ${(latest.durationMinutes / 60).toFixed(1)} hours${latest.quality ? `, quality ${latest.quality}/10` : ''}${latest.bedTime ? `, bed: ${latest.bedTime}` : ''}${latest.wakeTime ? `, wake: ${latest.wakeTime}` : ''}`;
+            context += `\nMost recent: ${formatHM(latest.durationMinutes || 0)}${latest.quality ? `, quality ${latest.quality}/10` : ''}${latest.bedTime ? `, bed: ${latest.bedTime}` : ''}${latest.wakeTime ? `, wake: ${latest.wakeTime}` : ''}`;
           }
         }
       }

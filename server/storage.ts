@@ -1125,6 +1125,13 @@ export interface IStorage {
   getCoachBriefingForDay(userId: string, briefingDate: string, type: string): Promise<CoachBriefing | undefined>;
   getCoachBriefingById(id: number, userId: string): Promise<CoachBriefing | undefined>;
   createCoachBriefing(briefing: InsertCoachBriefing): Promise<CoachBriefing>;
+  replaceCoachBriefing(
+    userId: string,
+    briefingDate: string,
+    type: string,
+    content: any,
+    contextSnapshot: any,
+  ): Promise<CoachBriefing | undefined>;
   listCoachBriefings(userId: string, limit?: number): Promise<CoachBriefing[]>;
   markCoachBriefingRead(id: number, userId: string): Promise<CoachBriefing | undefined>;
   markCoachBriefingDismissed(id: number, userId: string): Promise<CoachBriefing | undefined>;
@@ -12182,6 +12189,34 @@ export class DatabaseStorage implements IStorage {
     );
     if (!existing) throw new Error("Failed to create or fetch coach briefing");
     return existing;
+  }
+
+  async replaceCoachBriefing(
+    userId: string,
+    briefingDate: string,
+    type: string,
+    content: any,
+    contextSnapshot: any,
+  ): Promise<CoachBriefing | undefined> {
+    // Unconditional overwrite used when the underlying wearable data has
+    // drifted and we must regenerate the briefing. Resets read/dismissed
+    // state so the user sees the fresh card.
+    const [row] = await db.update(coachBriefings)
+      .set({
+        content: content as any,
+        contextSnapshot: contextSnapshot as any,
+        source: "ai" as any,
+        readAt: null,
+        dismissedAt: null,
+        createdAt: new Date(),
+      })
+      .where(and(
+        eq(coachBriefings.userId, userId),
+        eq(coachBriefings.briefingDate, briefingDate),
+        eq(coachBriefings.type, type),
+      ))
+      .returning();
+    return row;
   }
 
   async listCoachBriefings(userId: string, limit: number = 30): Promise<CoachBriefing[]> {

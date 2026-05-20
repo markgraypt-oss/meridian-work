@@ -95,16 +95,29 @@ export async function getOrGenerateBriefing(
 ) {
   const dateKey = todayKeyForUser(date);
   const existing = await storage.getCoachBriefingForDay(userId, dateKey, type);
-  // Treat legacy fallback rows as "not yet generated" so a real AI briefing
-  // can replace them on the next attempt.
-  if (existing && (existing as any).source !== "fallback") return existing;
+
+  // Drift contract: a stored briefing is only served if the wearable
+  // snapshot it was generated from still matches the current wearable
+  // snapshot exactly. If anything has changed (e.g. Apple Health backfilled
+  // additional steps for "yesterday" after the briefing was first
+  // generated) we regenerate so the numbers quoted in the briefing always
+  // match the underlying wearable source. Do NOT relax this comparison —
+  // the whole point of this check is to prevent user-visible drift like
+  // "13,289 steps yesterday" while the wearable now reads 13,307.
+  if (existing && (existing as any).source !== "fallback") {
+    const stored = (existing.contextSnapshot as BriefingContextSnapshot | null)?.wearable;
+    const fresh = await buildWearableSnapshot(userId);
+    if (wearableSnapshotsEqual(stored, fresh)) return existing;
+    // Fall through to regeneration. The lock below covers concurrent
+    // dashboard requests so we only regenerate once.
+  }
 
   const lockKey = `${userId}:${dateKey}:${type}`;
   if (inflight.has(lockKey)) return inflight.get(lockKey)!;
 
   const work = (async () => {
     try {
-      return await generateAndStoreBriefing(userId, type, dateKey);
+      return await generateAndStoreBriefing(userId, type, dateKey, !!existing);
     } finally {
       inflight.delete(lockKey);
     }
@@ -128,6 +141,26 @@ async function buildRecentBriefingsText(userId: string): Promise<string> {
   }
 }
 
+// Every wearable field that can be surfaced in the briefing prompt (see
+// server/aiProvider.ts sleep/steps/resting_hr sections) must be captured
+// here. If a new wearable field is ever piped into the briefing context,
+// add it here too — otherwise drift in that field will not trigger
+// regeneration and the briefing copy will silently lag the wearable.
+interface WearableDaySnapshot {
+  date: string;
+  provider: string;
+  steps: number | null;
+  sleepMinutes: number | null;
+  sleepDeepMinutes: number | null;
+  sleepRemMinutes: number | null;
+  sleepScore: number | null;
+  activeMinutes: number | null;
+  caloriesBurned: number | null;
+  restingHrBpm: number | null;
+  hrvMs: number | null;
+  readinessScore: number | null;
+}
+
 interface BriefingContextSnapshot {
   lastCheckIn?: {
     date: Date | string | null;
@@ -142,11 +175,74 @@ interface BriefingContextSnapshot {
     trajectory: string | null;
     date: Date | string | null;
   };
+  // Wearable metrics the briefing was generated from. Used to detect drift:
+  // if any value here differs from the current wearable snapshot when the
+  // briefing is re-requested, we regenerate so the user-visible numbers
+  // (steps, sleep, HR, etc.) always match the underlying wearable source
+  // exactly. Do not relax this — drift between briefing copy and the
+  // wearable data is the bug this guards against.
+  wearable?: WearableDaySnapshot[];
+}
+
+async function buildWearableSnapshot(userId: string): Promise<WearableDaySnapshot[]> {
+  try {
+    const { getRecentWearableMetrics } = await import("../wearables");
+    const { rows } = await getRecentWearableMetrics(userId, 14);
+    const PRIORITY: Record<string, number> = { oura: 4, whoop: 3, apple_health: 2, google_fit: 1 };
+    const byDate = new Map<string, any>();
+    for (const r of rows) {
+      const cur = byDate.get(r.date);
+      if (!cur || (PRIORITY[r.provider] || 0) > (PRIORITY[cur.provider] || 0)) {
+        byDate.set(r.date, r);
+      }
+    }
+    return Array.from(byDate.values())
+      .sort((a, b) => b.date.localeCompare(a.date))
+      .map((r) => ({
+        date: r.date,
+        provider: r.provider,
+        steps: r.steps ?? null,
+        sleepMinutes: r.sleepMinutes ?? null,
+        sleepDeepMinutes: r.sleepDeepMinutes != null ? Math.round(r.sleepDeepMinutes) : null,
+        sleepRemMinutes: r.sleepRemMinutes != null ? Math.round(r.sleepRemMinutes) : null,
+        sleepScore: r.sleepScore ?? null,
+        activeMinutes: r.activeMinutes ?? null,
+        caloriesBurned: r.caloriesBurned ?? null,
+        restingHrBpm: r.restingHrBpm ?? null,
+        hrvMs: r.hrvMs != null ? Math.round(r.hrvMs) : null,
+        readinessScore: r.readinessScore ?? null,
+      }));
+  } catch (e) {
+    console.error("[coach-briefing] wearable snapshot failed:", e);
+    return [];
+  }
+}
+
+function wearableSnapshotsEqual(
+  a: WearableDaySnapshot[] | undefined | null,
+  b: WearableDaySnapshot[] | undefined | null,
+): boolean {
+  const aa = a || [];
+  const bb = b || [];
+  if (aa.length !== bb.length) return false;
+  const key = (d: WearableDaySnapshot) =>
+    [
+      d.date, d.provider,
+      d.steps, d.sleepMinutes, d.sleepDeepMinutes, d.sleepRemMinutes, d.sleepScore,
+      d.activeMinutes, d.caloriesBurned,
+      d.restingHrBpm, d.hrvMs, d.readinessScore,
+    ].join("|");
+  const sa = aa.map(key).sort();
+  const sb = bb.map(key).sort();
+  for (let i = 0; i < sa.length; i++) if (sa[i] !== sb[i]) return false;
+  return true;
 }
 
 async function buildContextSnapshot(userId: string): Promise<BriefingContextSnapshot | null> {
-  // Best-effort small snapshot used for auditability and debugging.
+  // Snapshot of inputs used to generate the briefing. The `wearable` field
+  // is also the drift-detection source of truth — see wearableSnapshotsEqual.
   const snap: BriefingContextSnapshot = {};
+  snap.wearable = await buildWearableSnapshot(userId);
   try {
     const checkIns = await storage.getUserCheckIns(userId, 1);
     const c = checkIns?.[0];
@@ -178,11 +274,18 @@ async function buildContextSnapshot(userId: string): Promise<BriefingContextSnap
   return Object.keys(snap).length ? snap : null;
 }
 
-async function generateAndStoreBriefing(userId: string, type: BriefingType, dateKey: string) {
+async function generateAndStoreBriefing(
+  userId: string,
+  type: BriefingType,
+  dateKey: string,
+  forceRegenerate = false,
+) {
   // Re-check after acquiring the lock to avoid a race. Skip legacy fallback
-  // rows so they get replaced on a successful generation.
+  // rows so they get replaced on a successful generation. When forceRegenerate
+  // is true (drift detected by getOrGenerateBriefing) we bypass this short
+  // circuit and always rebuild from fresh data.
   const existing = await storage.getCoachBriefingForDay(userId, dateKey, type);
-  if (existing && (existing as any).source !== "fallback") return existing;
+  if (!forceRegenerate && existing && (existing as any).source !== "fallback") return existing;
 
   const user = await storage.getUser(userId);
   const userName = user?.firstName?.trim() || "there";
@@ -223,6 +326,7 @@ RULES:
 - Never give medical advice or diagnose. Recommend professional input where appropriate.
 - Be warm, direct, and concise. No em dashes.
 - Do not invent data. If a metric is missing, do not pretend you know it.
+- Quote every duration and metric exactly as it appears in the data snapshot (e.g. "6h 54m", "13,307 steps"). Never round, summarise, or convert sleep durations to decimal hours like "6.9 hours".
 - Build on the recent briefings below — vary the focus items so the user gets fresh, progressive guidance, not the same suggestions repeated.
 - Do not include any prose outside the JSON.
 
@@ -266,14 +370,23 @@ Return only the JSON object now.`;
   // ignored the system prompt rules.
   content = sanitizeBriefingContent(content);
 
-  const briefing = await storage.createCoachBriefing({
-    userId,
-    briefingDate: dateKey,
-    type,
-    content,
-    contextSnapshot,
-    source,
-  });
+  // If a real AI briefing already exists (drift regeneration) we must
+  // unconditionally overwrite it — createCoachBriefing's onConflict guard
+  // only updates rows where source='fallback'. Use replaceCoachBriefing for
+  // the regen path so the fresh wearable numbers actually land.
+  let briefing;
+  if (forceRegenerate && existing && (existing as any).source !== "fallback") {
+    briefing = await storage.replaceCoachBriefing(userId, dateKey, type, content, contextSnapshot);
+    if (!briefing) {
+      briefing = await storage.createCoachBriefing({
+        userId, briefingDate: dateKey, type, content, contextSnapshot, source,
+      });
+    }
+  } else {
+    briefing = await storage.createCoachBriefing({
+      userId, briefingDate: dateKey, type, content, contextSnapshot, source,
+    });
+  }
 
   // Fire a push / in-app notification for fresh morning briefings so the
   // coach feels proactive even if the user has not opened the dashboard

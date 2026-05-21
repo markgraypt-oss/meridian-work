@@ -18293,6 +18293,26 @@ Keep your response concise, practical, and evidence-based. Do not use em dashes.
     }
   });
 
+  app.post('/api/admin/test-push', isAuthenticated, async (req: any, res) => {
+    try {
+      const me = await storage.getUser(req.user.claims.sub);
+      if (!me?.isAdmin) return res.status(403).json({ message: "Forbidden" });
+      const result = await notify({
+        userId: req.user.claims.sub,
+        category: "coach",
+        title: "Morning briefing ready",
+        body: "Time to start your day",
+        data: { route: "/coach-briefings" },
+        force: true,
+        disableEmail: true,
+      });
+      res.json(result);
+    } catch (error) {
+      console.error("Error sending test push:", error);
+      res.status(500).json({ message: "Failed to send test push" });
+    }
+  });
+
   app.post('/api/user/badges/check', isAuthenticated, async (req: any, res) => {
     try {
       const userId = req.user.claims.sub;

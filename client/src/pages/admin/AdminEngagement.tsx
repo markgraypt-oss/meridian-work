@@ -8,7 +8,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Separator } from "@/components/ui/separator";
-import { Trophy, Save, RotateCcw, AlertTriangle } from "lucide-react";
+import { Trophy, Save, RotateCcw, AlertTriangle, Bell } from "lucide-react";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 
@@ -503,6 +503,29 @@ export default function AdminEngagement() {
                   }}
                 >
                   Reset "Flexibility Seeker" (row 11) → unnotified
+                </Button>
+              </CardContent>
+            </Card>
+            <Card className="border-dashed border-blue-300 dark:border-blue-700">
+              <CardHeader>
+                <CardTitle className="text-sm flex items-center gap-2"><Bell className="w-4 h-4 text-blue-500" /> Push Notification Testing</CardTitle>
+                <CardDescription>Send a test push to your device to verify Expo delivery and deep-link routing.</CardDescription>
+              </CardHeader>
+              <CardContent>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={async () => {
+                    try {
+                      const res = await apiRequest("POST", "/api/admin/test-push");
+                      const data = await res.json();
+                      toast({ title: "Push sent", description: `channels: ${JSON.stringify(data.channels)}` });
+                    } catch (e) {
+                      toast({ title: "Failed", description: String(e), variant: "destructive" });
+                    }
+                  }}
+                >
+                  Send test push → "Morning briefing ready"
                 </Button>
               </CardContent>
             </Card>

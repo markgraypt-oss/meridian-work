@@ -9771,7 +9771,7 @@ Rules:
           const w = s.actualWeight || 0;
           const r = s.actualReps || 0;
           const vol = w * r;
-          if (s.isCompleted) {
+          if (r > 0) {
             totalSets++;
             totalVolume += vol;
             workoutVolumeMap.set(el.workoutLogId, (workoutVolumeMap.get(el.workoutLogId) || 0) + vol);

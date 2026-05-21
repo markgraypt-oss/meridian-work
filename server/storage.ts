@@ -9800,17 +9800,47 @@ export class DatabaseStorage implements IStorage {
   // PROGRESS TRACKING - Caloric Burn
   // ============================================
 
-  async getCaloricBurnEntries(userId: string, limit?: number): Promise<CaloricBurnEntry[]> {
-    const query = db
+  async getCaloricBurnEntries(userId: string, limit?: number): Promise<any[]> {
+    const manual = await db
       .select()
       .from(caloricBurnEntries)
       .where(eq(caloricBurnEntries.userId, userId))
       .orderBy(desc(caloricBurnEntries.date));
-    
-    if (limit) {
-      return query.limit(limit);
+
+    const wearRows = await db
+      .select()
+      .from(wearableMetricsDaily)
+      .where(and(eq(wearableMetricsDaily.userId, userId), sql`${wearableMetricsDaily.activeEnergyKcal} IS NOT NULL`))
+      .orderBy(desc(wearableMetricsDaily.date));
+
+    const byDate = new Map<string, any>();
+
+    for (const w of wearRows) {
+      const d = w.date;
+      byDate.set(d, {
+        id: 0,
+        userId: w.userId,
+        date: new Date(`${d}T00:00:00Z`),
+        calories: w.activeEnergyKcal ?? 0,
+        notes: null,
+        createdAt: w.createdAt,
+        source: "wearable",
+      });
     }
-    return query;
+
+    for (const m of manual) {
+      const d = m.date.toISOString().slice(0, 10);
+      if (!byDate.has(d)) {
+        byDate.set(d, { ...m, source: "manual" });
+      }
+    }
+
+    const merged = Array.from(byDate.values()).sort((a, b) =>
+      new Date(b.date).getTime() - new Date(a.date).getTime()
+    );
+
+    if (limit) return merged.slice(0, limit);
+    return merged;
   }
 
   async createCaloricBurnEntry(entry: InsertCaloricBurnEntry): Promise<CaloricBurnEntry> {

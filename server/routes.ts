@@ -5882,15 +5882,6 @@ Rules:
         userId,
       });
       const checkIn = await storage.createCheckIn(checkInData);
-      // Coach acknowledgement notification on check-in completion.
-      notify({
-        userId,
-        category: "coach",
-        title: "Check-in saved",
-        body: "Thanks for checking in. Your coach will use this to tailor today's guidance.",
-        data: { url: "/check-in" },
-        disableEmail: true,
-      }).catch(err => console.error("[check-in] notify failed:", err));
       res.json(checkIn);
     } catch (error) {
       console.error("Error creating check-in:", error);
@@ -14074,16 +14065,6 @@ Keep your response concise, practical, and evidence-based. Do not use em dashes.
       recordEngagementActivity(userId, "daily_checkin", { checkInId: checkIn.id }).catch(err =>
         console.error(`[ENGAGEMENT] daily_checkin failed:`, err?.message),
       );
-
-      // Coach acknowledgement notification on check-in completion.
-      notify({
-        userId,
-        category: "coach",
-        title: "Check-in saved",
-        body: "Thanks for checking in. Your coach will use this to tailor today's guidance.",
-        data: { url: "/check-in" },
-        disableEmail: true,
-      }).catch(err => console.error("[check-in] notify failed:", err));
 
       // Auto-complete the "Complete Your Check-In" habit (templateId 31) if the user has it
       try {

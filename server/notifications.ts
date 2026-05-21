@@ -193,6 +193,7 @@ export async function notify(opts: NotifyOptions): Promise<NotifyResult> {
           body: JSON.stringify(messages),
         });
         const expoBody = (await expoRes.json()) as { data?: { status: string; details?: { error?: string } }[] };
+        console.log("[notify] expo push response:", JSON.stringify(expoBody));
         const statuses = expoBody.data ?? [];
         let anyExpoDelivered = false;
         await Promise.all(

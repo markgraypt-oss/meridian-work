@@ -16,6 +16,45 @@ type ConfigKey = "activities" | "weeklyCaps" | "streakBonuses" | "levels" | "tra
 
 type StreakTrack = "checkin" | "movement" | "recovery" | "nutrition";
 
+function PushTestCard() {
+  const [status, setStatus] = useState<string | null>(null);
+  const [loading, setLoading] = useState(false);
+
+  async function send() {
+    setLoading(true);
+    setStatus(null);
+    try {
+      const res = await apiRequest("POST", "/api/admin/test-push");
+      const data = await res.json();
+      const ch = data.channels ?? {};
+      setStatus(`inApp:${ch.inApp} | email:${ch.email} | push:${ch.push}`);
+    } catch (e) {
+      setStatus(`Error: ${String(e)}`);
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  return (
+    <Card className="border-dashed border-blue-300 dark:border-blue-700">
+      <CardHeader>
+        <CardTitle className="text-sm flex items-center gap-2">
+          <Bell className="w-4 h-4 text-blue-500" /> Push Notification Testing
+        </CardTitle>
+        <CardDescription>Send a test push to your device to verify Expo delivery and deep-link routing.</CardDescription>
+      </CardHeader>
+      <CardContent className="space-y-2">
+        <Button variant="outline" size="sm" disabled={loading} onClick={send}>
+          {loading ? "Sending…" : `Send test push → "Morning briefing ready"`}
+        </Button>
+        {status && (
+          <p className="text-xs font-mono text-muted-foreground">{status}</p>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
+
 type ActivityRule = {
   basePoints: number;
   dailyCap?: number;
@@ -506,29 +545,7 @@ export default function AdminEngagement() {
                 </Button>
               </CardContent>
             </Card>
-            <Card className="border-dashed border-blue-300 dark:border-blue-700">
-              <CardHeader>
-                <CardTitle className="text-sm flex items-center gap-2"><Bell className="w-4 h-4 text-blue-500" /> Push Notification Testing</CardTitle>
-                <CardDescription>Send a test push to your device to verify Expo delivery and deep-link routing.</CardDescription>
-              </CardHeader>
-              <CardContent>
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={async () => {
-                    try {
-                      const res = await apiRequest("POST", "/api/admin/test-push");
-                      const data = await res.json();
-                      toast({ title: "Push sent", description: `channels: ${JSON.stringify(data.channels)}` });
-                    } catch (e) {
-                      toast({ title: "Failed", description: String(e), variant: "destructive" });
-                    }
-                  }}
-                >
-                  Send test push → "Morning briefing ready"
-                </Button>
-              </CardContent>
-            </Card>
+            <PushTestCard />
           </>
         )}
       </div>

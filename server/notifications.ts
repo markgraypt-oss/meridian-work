@@ -200,10 +200,7 @@ export async function notify(opts: NotifyOptions): Promise<NotifyResult> {
           statuses.map(async (s, i) => {
             if (s.status === "ok") {
               anyExpoDelivered = true;
-            } else if (
-              s.details?.error === "DeviceNotRegistered" ||
-              s.details?.error === "InvalidCredentials"
-            ) {
+            } else if (s.details?.error === "DeviceNotRegistered") {
               // Stale token — remove it.
               try {
                 await db
@@ -211,7 +208,9 @@ export async function notify(opts: NotifyOptions): Promise<NotifyResult> {
                   .where(eq(userPushTokens.id, expoTokens[i].id));
               } catch {}
             } else {
-              console.error("[notify] expo push error:", s.details?.error, expoTokens[i]?.token);
+              // InvalidCredentials / MessageTooBig / MessageRateExceeded / etc.
+              // are NOT token-level problems — keep the row, just log.
+              console.error("[notify] expo push error:", s.details?.error, s.message);
             }
           }),
         );

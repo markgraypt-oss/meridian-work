@@ -5968,6 +5968,22 @@ Rules:
     }
   });
 
+  // Dismiss a reassessment reminder (preserves row for reporting)
+  app.post('/api/reassessment-reminders/:id/dismiss', isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = req.user.claims.sub;
+      const reminderId = parseInt(req.params.id);
+      if (isNaN(reminderId)) return res.status(400).json({ message: "Invalid reminder id" });
+      const reason: string | undefined = req.body?.reason;
+      const updated = await storage.dismissReassessmentReminder(reminderId, userId, reason);
+      if (!updated) return res.status(403).json({ message: "Reminder not found or does not belong to you" });
+      res.json(updated);
+    } catch (error) {
+      console.error("Error dismissing reassessment reminder:", error);
+      res.status(500).json({ message: "Failed to dismiss reminder" });
+    }
+  });
+
   // Check if user has an active Body Map issue with Programme Impact
   // Used for post-enrolment safety check
   app.get('/api/body-map/active-issue', isAuthenticated, async (req: any, res) => {

@@ -1137,6 +1137,8 @@ export const reassessmentReminders = pgTable("reassessment_reminders", {
   status: text("status").notNull().default("scheduled"), // 'scheduled', 'due', 'completed'
   completedAt: timestamp("completed_at"), // When the reminder was completed (new assessment done)
   completedByLogId: integer("completed_by_log_id").references(() => bodyMapLogs.id, { onDelete: "set null" }), // The new assessment that completed this reminder
+  dismissedAt: timestamp("dismissed_at"), // When the user dismissed the reminder
+  dismissedReason: text("dismissed_reason"), // Optional reason for analytics
   createdAt: timestamp("created_at").defaultNow(),
 });
 

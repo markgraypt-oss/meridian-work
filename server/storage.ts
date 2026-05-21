@@ -4041,6 +4041,7 @@ export class DatabaseStorage implements IStorage {
       .where(
         and(
           eq(reassessmentReminders.userId, userId),
+          isNull(reassessmentReminders.dismissedAt),
           or(
             eq(reassessmentReminders.status, 'due'),
             and(
@@ -4059,13 +4060,14 @@ export class DatabaseStorage implements IStorage {
     const endOfDay = new Date(date);
     endOfDay.setHours(23, 59, 59, 999);
     const now = new Date();
-    
+
     return await db
       .select()
       .from(reassessmentReminders)
       .where(
         and(
           eq(reassessmentReminders.userId, userId),
+          isNull(reassessmentReminders.dismissedAt),
           or(
             // Reminders that are due on this specific date
             and(
@@ -4113,6 +4115,7 @@ export class DatabaseStorage implements IStorage {
       .where(
         and(
           eq(reassessmentReminders.userId, userId),
+          isNull(reassessmentReminders.dismissedAt),
           or(
             eq(reassessmentReminders.status, 'scheduled'),
             eq(reassessmentReminders.status, 'due')
@@ -4120,6 +4123,23 @@ export class DatabaseStorage implements IStorage {
         )
       )
       .orderBy(asc(reassessmentReminders.dueAt));
+  }
+
+  async dismissReassessmentReminder(reminderId: number, userId: string, reason?: string): Promise<ReassessmentReminder | null> {
+    const [updated] = await db
+      .update(reassessmentReminders)
+      .set({
+        dismissedAt: new Date(),
+        dismissedReason: reason ?? null,
+      })
+      .where(
+        and(
+          eq(reassessmentReminders.id, reminderId),
+          eq(reassessmentReminders.userId, userId)
+        )
+      )
+      .returning();
+    return updated ?? null;
   }
 
   // Bookmark operations (favorites)

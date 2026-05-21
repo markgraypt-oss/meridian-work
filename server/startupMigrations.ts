@@ -735,20 +735,3 @@ export async function normalizeRecipeMacrosOnce(): Promise<void> {
   }
 }
 
-// TEMPORARY — remove after badge celebration modal is verified on mobile.
-// Resets user_badges row 11 to notified=false so the modal fires on next open.
-let hasRunResetBadge11 = false;
-export async function resetBadge11ForTestingOnce(): Promise<void> {
-  if (hasRunResetBadge11) return;
-  hasRunResetBadge11 = true;
-  try {
-    const result = await pool.query(
-      `UPDATE user_badges SET notified = false WHERE id = 11 AND notified = true`
-    );
-    if (result.rowCount && result.rowCount > 0) {
-      console.log("[startup-migration] badge-11-reset: notified set to false for testing");
-    }
-  } catch (e: any) {
-    console.error("[startup-migration] badge-11-reset failed:", e?.message || e);
-  }
-}

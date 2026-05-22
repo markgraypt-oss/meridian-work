@@ -394,8 +394,10 @@ Return only the JSON object now.`;
   // by notify(). Only fire when the briefing is for *today* — skip any
   // historical backfill so users aren't pinged about old days.
   const todayKey = todayKeyForUser(new Date());
-  if (type === "morning" && briefing.briefingDate === todayKey) {
-    const headline = (content.greeting || `Morning briefing ready`).trim();
+  if (briefing.briefingDate === todayKey) {
+    const isEvening = type === "evening";
+    const defaultTitle = isEvening ? "Evening briefing ready" : "Morning briefing ready";
+    const headline = (content.greeting || defaultTitle).trim();
     const firstFocus = (content.focus?.[0] || content.summary || "").trim();
     notify({
       userId,
@@ -404,6 +406,7 @@ Return only the JSON object now.`;
       body: firstFocus,
       data: { url: `/?coach=1&briefing=${briefing.id}`, briefingId: briefing.id, type, route: "/coach-briefings" },
       disableEmail: true,
+      ...(isEvening ? { prefKey: "eveningBriefing" } : {}),
     }).catch((err) => console.error("[coach-briefing] notify failed:", err));
   }
 

@@ -167,5 +167,9 @@ app.use((req, res, next) => {
     import("./weeklyCheckinScheduler").then(({ startWeeklyCheckinScheduler }) => {
       startWeeklyCheckinScheduler();
     }).catch((e) => console.error("[startup] weekly check-in scheduler failed:", e));
+    // Start push notification scheduler (habit reminders, body map, inactivity nudges)
+    import("./pushNotificationScheduler").then(({ startPushNotificationScheduler }) => {
+      startPushNotificationScheduler();
+    }).catch((e) => console.error("[startup] push notification scheduler failed:", e));
   });
 })();

@@ -118,6 +118,7 @@ async function dispatchForUser(
       body,
       data,
       disableEmail: true,
+      prefKey: "weeklyCheckinAvailable",
     });
     const delivered =
       result.channels.inApp || result.channels.email || result.channels.push;

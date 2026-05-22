@@ -11799,6 +11799,7 @@ export class DatabaseStorage implements IStorage {
           body: b.description || `You earned the ${b.name} badge.`,
           data: { url: "/badges", badgeId },
           disableEmail: true,
+          prefKey: "badgeAlerts",
         }).catch(err => console.error("[awardBadge] notify failed:", err));
       }
     } catch (err) {

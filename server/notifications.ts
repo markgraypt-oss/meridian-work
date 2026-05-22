@@ -53,6 +53,11 @@ export interface NotifyOptions {
   force?: boolean;
   // Schedulers set this to true — automated sends never email, only in-app + push
   disableEmail?: boolean;
+  // Per-type toggle key from notification_preferences (e.g. 'habitReminders',
+  // 'badgeAlerts'). When set, the toggle is checked as the authoritative gate
+  // before any channel logic runs. null/undefined pref value = default on.
+  // force=true bypasses this gate.
+  prefKey?: string;
 }
 
 export interface NotifyResult {
@@ -83,6 +88,15 @@ export async function notify(opts: NotifyOptions): Promise<NotifyResult> {
   let prefs = await storage.getNotificationPreferences(userId);
   if (!prefs) {
     prefs = await storage.upsertNotificationPreferences(userId, {});
+  }
+
+  // Per-type toggle gate — authoritative opt-out. Only bypassed by force=true.
+  // A null/undefined column value means the default (on) applies.
+  if (!force && opts.prefKey !== undefined) {
+    const val = (prefs as any)[opts.prefKey];
+    if (val === false) {
+      return { ...result, reason: 'pref_disabled' };
+    }
   }
 
   const channelToggles = getChannelToggles(prefs, category);

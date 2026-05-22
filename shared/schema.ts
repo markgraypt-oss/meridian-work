@@ -46,6 +46,7 @@ export const users = pgTable("users", {
   currentStreak: integer("current_streak").default(0),
   longestStreak: integer("longest_streak").default(0),
   lastStreakActivityDate: varchar("last_streak_activity_date"),
+  lastActiveAt: timestamp("last_active_at"), // updated on every app open via GET /api/auth/user
   weightUnit: varchar("weight_unit").default("kg"),
   distanceUnit: varchar("distance_unit").default("km"),
   timeFormat: varchar("time_format").default("24h"),
@@ -85,11 +86,15 @@ export const notificationPreferences = pgTable("notification_preferences", {
   id: serial("id").primaryKey(),
   userId: varchar("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
   // Push notification toggles
+  // @deprecated — no scheduler; column kept to avoid DROP COLUMN on existing DBs
   workoutReminders: boolean("workout_reminders").default(true),
   habitReminders: boolean("habit_reminders").default(true),
+  // @deprecated — no scheduler; column kept to avoid DROP COLUMN on existing DBs
   dailyCheckInPrompts: boolean("daily_check_in_prompts").default(true),
   badgeAlerts: boolean("badge_alerts").default(true),
+  // @deprecated — no scheduler; column kept to avoid DROP COLUMN on existing DBs
   programUpdates: boolean("program_updates").default(true),
+  // @deprecated — no scheduler; column kept to avoid DROP COLUMN on existing DBs
   hydrationReminders: boolean("hydration_reminders").default(true),
   supplementReminders: boolean("supplement_reminders").default(false),
   supplementTime: varchar("supplement_time").default("08:00"),
@@ -103,7 +108,13 @@ export const notificationPreferences = pgTable("notification_preferences", {
   bodyMapFrequencyDays: integer("body_map_frequency_days").default(14),
   positionRotation: boolean("position_rotation").default(false),
   positionRotationMinutes: integer("position_rotation_minutes").default(30),
-  // Email notification preferences
+  // Schedulable notification toggles — each maps to a prefKey used by notify()
+  eveningBriefing: boolean("evening_briefing").default(true),
+  weeklyCheckinAvailable: boolean("weekly_checkin_available").default(true),
+  burnoutTierChange: boolean("burnout_tier_change").default(true),
+  inactivityNudge: boolean("inactivity_nudge").default(true),
+  // Email notification preferences (sending is permanently disabled; columns kept
+  // so the mobile UI can remove them in a coordinated pass without a DB drop)
   emailWorkoutSummary: boolean("email_workout_summary").default(true),
   emailWeeklyProgress: boolean("email_weekly_progress").default(true),
   emailProgramReminders: boolean("email_program_reminders").default(true),
@@ -1236,6 +1247,7 @@ export const habits = pgTable("habits", {
   daysOfWeek: text("days_of_week").default("everyday"), // 'everyday' or comma-separated days
   // Settings for habit-specific configuration (e.g., portion guide settings, number of meals)
   settings: jsonb("settings"), // Flexible JSON for habit-specific settings
+  reminderTime: varchar("reminder_time"), // HH:MM local time for push reminder, null = default 09:00
   // Tracking fields
   isCustom: boolean("is_custom").default(false),
   isActive: boolean("is_active").default(true),

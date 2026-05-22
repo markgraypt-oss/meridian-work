@@ -603,28 +603,6 @@ export async function maybeAwardWeeklyBaseline(userId: string, weekStartKey: str
     aboveBaselineDays: aboveBaseline,
   });
 
-  try {
-    await notify({
-      userId,
-      category: "coach",
-      title: "Weekly readiness reward earned",
-      body: `You hit ${WEEKLY_REWARD_DAYS_REQUIRED}+ above-baseline days last week — +${WEEKLY_REWARD_POINTS} pts.`,
-      data: {
-        kind: "readiness_weekly_baseline",
-        weekStart: weekStartKey,
-        weekEnd: weekEndKey,
-        aboveBaselineDays: aboveBaseline,
-        points: WEEKLY_REWARD_POINTS,
-      },
-      disableEmail: true,
-    });
-  } catch (err: any) {
-    console.error(
-      `[daily-readiness] weekly reward notify failed user=${userId}:`,
-      err?.message,
-    );
-  }
-
   return true;
 }
 

@@ -305,7 +305,7 @@ const uploadDoc = multer({
 });
 
 import { computeBurnoutScore } from './burnoutEngine';
-import { trackCalibrationEvent, trackRecoveryModeActivation, generateCalibrationReport } from './burnoutCalibration';
+import { trackCalibrationEvent, trackRecoveryModeActivation, generateCalibrationReport, getLevel as getBurnoutLevel } from './burnoutCalibration';
 import { burnoutScores, insertCompanySchema, insertCompanyBenefitSchema, checkIns, bodyMapLogs, departments, companyInvites, usageAlerts, insertAiPromptSchema, workdayBreakLogs, aiInsightReads } from "@shared/schema";
 
 import {
@@ -1146,6 +1146,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
           (user as any).profileImageUrl = null;
         }
       }
+      // Track last app open for inactivity nudge scheduler. Fire-and-forget.
+      storage.updateUser(userId, { lastActiveAt: new Date() }).catch(() => {});
       res.json(user);
     } catch (error) {
       console.error("Error fetching user:", error);
@@ -1594,27 +1596,6 @@ export async function registerRoutes(app: Express): Promise<Server> {
         completionPercent,
         enrollmentId,
       });
-      // Surface programme-level recommendation events to the user as a
-      // coach notification. Skipped events are silent (would be noisy).
-      if (eventType === 'enrolled') {
-        notify({
-          userId,
-          category: 'coach',
-          title: 'New programme recommendation accepted',
-          body: 'You enrolled in a recommended programme. Open it to see this week\'s sessions.',
-          data: { url: '/programs', programId },
-          disableEmail: true,
-        }).catch(err => console.error('[recommendations.enrolled] notify failed:', err));
-      } else if (eventType === 'completed') {
-        notify({
-          userId,
-          category: 'coach',
-          title: 'Programme completed',
-          body: 'Great work — your recommended programme is complete. Check the next suggestion.',
-          data: { url: '/programs', programId },
-          disableEmail: true,
-        }).catch(err => console.error('[recommendations.completed] notify failed:', err));
-      }
       res.json(event);
     } catch (error) {
       console.error("Error logging recommendation event:", error);
@@ -2678,13 +2659,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Update notification preferences
   const timeRegex = /^([01]\d|2[0-3]):([0-5]\d)$/;
   const updateNotificationPreferencesSchema = z.object({
-    // Push notifications
-    workoutReminders: z.boolean().optional(),
+    // Active per-type toggles
     habitReminders: z.boolean().optional(),
-    dailyCheckInPrompts: z.boolean().optional(),
     badgeAlerts: z.boolean().optional(),
-    programUpdates: z.boolean().optional(),
-    hydrationReminders: z.boolean().optional(),
     supplementReminders: z.boolean().optional(),
     supplementTime: z.string().regex(timeRegex, "Invalid time format").optional(),
     supplementMorningEnabled: z.boolean().optional(),
@@ -2697,10 +2674,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
     bodyMapFrequencyDays: z.number().refine(val => [7, 14, 21, 30].includes(val), "Invalid frequency").optional(),
     positionRotation: z.boolean().optional(),
     positionRotationMinutes: z.number().refine(val => [15, 20, 30, 45, 60].includes(val), "Invalid interval").optional(),
-    // Email preferences
-    emailWorkoutSummary: z.boolean().optional(),
-    emailWeeklyProgress: z.boolean().optional(),
-    emailProgramReminders: z.boolean().optional(),
+    eveningBriefing: z.boolean().optional(),
+    weeklyCheckinAvailable: z.boolean().optional(),
+    burnoutTierChange: z.boolean().optional(),
+    inactivityNudge: z.boolean().optional(),
     // Quiet hours
     quietHoursEnabled: z.boolean().optional(),
     quietHoursStart: z.string().regex(timeRegex, "Invalid time format").optional(),
@@ -2725,13 +2702,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
       
       const updates: Record<string, any> = {};
       const data = parsed.data;
-      if (data.workoutReminders !== undefined) updates.workoutReminders = data.workoutReminders;
       if (data.habitReminders !== undefined) updates.habitReminders = data.habitReminders;
-      if (data.dailyCheckInPrompts !== undefined) updates.dailyCheckInPrompts = data.dailyCheckInPrompts;
       if (data.badgeAlerts !== undefined) updates.badgeAlerts = data.badgeAlerts;
-      if (data.programUpdates !== undefined) updates.programUpdates = data.programUpdates;
-      if (data.hydrationReminders !== undefined) updates.hydrationReminders = data.hydrationReminders;
       if (data.supplementReminders !== undefined) updates.supplementReminders = data.supplementReminders;
+      if (data.eveningBriefing !== undefined) updates.eveningBriefing = data.eveningBriefing;
+      if (data.weeklyCheckinAvailable !== undefined) updates.weeklyCheckinAvailable = data.weeklyCheckinAvailable;
+      if (data.burnoutTierChange !== undefined) updates.burnoutTierChange = data.burnoutTierChange;
+      if (data.inactivityNudge !== undefined) updates.inactivityNudge = data.inactivityNudge;
       if (data.supplementTime !== undefined) updates.supplementTime = data.supplementTime;
       if (data.supplementMorningEnabled !== undefined) updates.supplementMorningEnabled = data.supplementMorningEnabled;
       if (data.supplementMorningTime !== undefined) updates.supplementMorningTime = data.supplementMorningTime;
@@ -2743,9 +2720,6 @@ export async function registerRoutes(app: Express): Promise<Server> {
       if (data.bodyMapFrequencyDays !== undefined) updates.bodyMapFrequencyDays = data.bodyMapFrequencyDays;
       if (data.positionRotation !== undefined) updates.positionRotation = data.positionRotation;
       if (data.positionRotationMinutes !== undefined) updates.positionRotationMinutes = data.positionRotationMinutes;
-      if (data.emailWorkoutSummary !== undefined) updates.emailWorkoutSummary = data.emailWorkoutSummary;
-      if (data.emailWeeklyProgress !== undefined) updates.emailWeeklyProgress = data.emailWeeklyProgress;
-      if (data.emailProgramReminders !== undefined) updates.emailProgramReminders = data.emailProgramReminders;
       if (data.quietHoursEnabled !== undefined) updates.quietHoursEnabled = data.quietHoursEnabled;
       if (data.quietHoursStart !== undefined) updates.quietHoursStart = data.quietHoursStart;
       if (data.quietHoursEnd !== undefined) updates.quietHoursEnd = data.quietHoursEnd;
@@ -20080,6 +20054,16 @@ Respond as the Recovery Coach. Reference their specific assessment data and prov
         wearableSafe,
       ]);
 
+      // Capture the most recent burnout tier BEFORE inserting the new score so
+      // we can detect a tier change and fire a push notification.
+      const [prevScoreRow] = await db
+        .select({ score: burnoutScores.score })
+        .from(burnoutScores)
+        .where(eq(burnoutScores.userId, userId))
+        .orderBy(desc(burnoutScores.computedDate))
+        .limit(1);
+      const previousTier = prevScoreRow ? getBurnoutLevel(prevScoreRow.score) : null;
+
       const result = computeBurnoutScore({
         checkIns: checkInData,
         workoutLogs: workoutLogData,
@@ -20102,6 +20086,29 @@ Respond as the Recovery Coach. Reference their specific assessment data and prov
       });
 
       trackCalibrationEvent(userId, result.score, result.trajectory, result.dataSourceCount).catch(() => {});
+
+      // Fire a burnout tier change notification when the user moves between tiers.
+      const newTier = getBurnoutLevel(result.score);
+      if (previousTier !== null && previousTier !== newTier) {
+        const tierLabels: Record<string, string> = {
+          optimal: 'Optimal', balanced: 'Balanced', strained: 'Strained',
+          overloaded: 'Overloaded', sustained_overload: 'Sustained Overload',
+        };
+        const tierOrder = ['optimal', 'balanced', 'strained', 'overloaded', 'sustained_overload'];
+        const worsening = tierOrder.indexOf(newTier) > tierOrder.indexOf(previousTier);
+        const label = tierLabels[newTier] || newTier;
+        notify({
+          userId,
+          category: 'coach',
+          title: worsening ? `Burnout index: ${label}` : 'Burnout index improving',
+          body: worsening
+            ? `Your burnout index has moved to the ${label} zone. Consider reviewing your load and recovery.`
+            : `Your burnout index has moved to the ${label} zone. Keep it up.`,
+          data: { url: '/burnout', burnoutTierChange: true, from: previousTier, to: newTier },
+          disableEmail: true,
+          prefKey: 'burnoutTierChange',
+        }).catch(() => {});
+      }
 
       res.json(saved);
     } catch (error) {

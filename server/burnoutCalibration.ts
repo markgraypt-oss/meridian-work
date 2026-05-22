@@ -2,7 +2,7 @@ import { db } from "./db";
 import { burnoutCalibrationEvents, burnoutScores } from "@shared/schema";
 import { eq, desc, and, gte, count } from "drizzle-orm";
 
-function getLevel(score: number): string {
+export function getLevel(score: number): string {
   if (score <= 20) return 'optimal';
   if (score <= 40) return 'balanced';
   if (score <= 60) return 'strained';

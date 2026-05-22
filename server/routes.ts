@@ -15521,7 +15521,7 @@ Keep your response concise, practical, and evidence-based. Do not use em dashes.
       const entries = await storage.getCaloricBurnEntries(userId);
       res.json(entries);
     } catch (error) {
-      console.error("Error fetching caloric burn entries:", error);
+      console.error("Error fetching caloric burn entries:", error, (error as any)?.stack);
       res.status(500).json({ message: "Failed to fetch caloric burn entries" });
     }
   });

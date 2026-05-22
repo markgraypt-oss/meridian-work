@@ -51,6 +51,7 @@ const CATEGORY_LABELS: Record<string, { label: string; icon: any }> = {
   body_map: { label: "Body Map", icon: Award },
   streak: { label: "Streaks", icon: Flame },
   supplement: { label: "Supplements", icon: Star },
+  readiness: { label: "Daily Readiness", icon: Sparkles },
 };
 
 const triggerHaptic = (pattern: "light" | "medium" | "heavy" | "success") => {

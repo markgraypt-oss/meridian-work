@@ -406,6 +406,7 @@ import {
   type InsertAiPrompt,
   workdayBreakLogs,
   aiInsightReads,
+  dailyReadinessHistory,
 } from "@shared/schema";
 import { db, pool } from "./db";
 import { eq, ne, desc, and, ilike, or, gte, lte, inArray, lt, asc, sql, isNull, isNotNull, aliasedTable, type SQL } from "drizzle-orm";
@@ -12181,6 +12182,42 @@ export class DatabaseStorage implements IStorage {
       END AS streak
     `, [userId]);
     stats.hydration_streak = Number(hydrationStreakRes.rows[0]?.streak || 0);
+
+    // ---- DAILY READINESS ----
+    // Fetch all scored days (non-null score) ordered chronologically.
+    // Streak: only broken by a scored day with score < 85; days with no score are absent
+    // from this table and do not break the streak.
+    const readinessRows = await db
+      .select({ score: dailyReadinessHistory.score })
+      .from(dailyReadinessHistory)
+      .where(and(
+        eq(dailyReadinessHistory.userId, userId),
+        isNotNull(dailyReadinessHistory.score),
+      ))
+      .orderBy(asc(dailyReadinessHistory.date));
+
+    let readinessPeakStreak = 0;
+    let readinessCurrentStreak = 0;
+    let readinessPeakDays = 0;
+    let readinessPerfectDays = 0;
+
+    for (const row of readinessRows) {
+      const s = row.score ?? 0;
+      if (s >= 85) {
+        readinessCurrentStreak++;
+        if (readinessCurrentStreak > readinessPeakStreak) {
+          readinessPeakStreak = readinessCurrentStreak;
+        }
+        readinessPeakDays++;
+      } else {
+        readinessCurrentStreak = 0;
+      }
+      if (s === 100) readinessPerfectDays++;
+    }
+
+    stats.readiness_peak_streak = readinessPeakStreak;
+    stats.readiness_peak_days = readinessPeakDays;
+    stats.readiness_perfect_days = readinessPerfectDays;
 
     return stats;
   }

@@ -646,6 +646,14 @@ const BADGES_V2 = [
   { name: "First AI Recipe", description: "Generate your first AI recipe", category: "ai", tier: "bronze", icon: "🍽️", requirement: JSON.stringify({ type: "count", metric: "ai_recipes_created", target: 1 }), sortOrder: 183 },
   { name: "Recipe Inventor", description: "Generate 10 AI recipes", category: "ai", tier: "silver", icon: "👨‍🍳", requirement: JSON.stringify({ type: "count", metric: "ai_recipes_created", target: 10 }), sortOrder: 184 },
   { name: "AI Insights", description: "Read 5 AI-generated insights", category: "ai", tier: "bronze", icon: "💡", requirement: JSON.stringify({ type: "count", metric: "ai_insight_reads", target: 5 }), sortOrder: 185 },
+  // DAILY READINESS (7)
+  { name: "Peak State", description: "Hit Peak (85+) readiness for 3 days in a row", category: "readiness", tier: "bronze", icon: "⚡", requirement: JSON.stringify({ type: "streak", metric: "readiness_peak_streak", target: 3 }), sortOrder: 190 },
+  { name: "Locked In", description: "7 days in a row at Peak readiness", category: "readiness", tier: "silver", icon: "🔥", requirement: JSON.stringify({ type: "streak", metric: "readiness_peak_streak", target: 7 }), sortOrder: 191 },
+  { name: "In the Zone", description: "14 days in a row at Peak readiness", category: "readiness", tier: "gold", icon: "🚀", requirement: JSON.stringify({ type: "streak", metric: "readiness_peak_streak", target: 14 }), sortOrder: 192 },
+  { name: "Untouchable", description: "30 days in a row at Peak readiness", category: "readiness", tier: "platinum", icon: "👑", requirement: JSON.stringify({ type: "streak", metric: "readiness_peak_streak", target: 30 }), sortOrder: 193 },
+  { name: "Peak Performer", description: "Reached Peak readiness 10 times", category: "readiness", tier: "bronze", icon: "⭐", requirement: JSON.stringify({ type: "count", metric: "readiness_peak_days", target: 10 }), sortOrder: 194 },
+  { name: "Pillar of Health", description: "Reached Peak readiness 50 times", category: "readiness", tier: "gold", icon: "💎", requirement: JSON.stringify({ type: "count", metric: "readiness_peak_days", target: 50 }), sortOrder: 195 },
+  { name: "Perfect Day", description: "Scored a perfect 100 on Daily Readiness", category: "readiness", tier: "platinum", icon: "💯", requirement: JSON.stringify({ type: "count", metric: "readiness_perfect_days", target: 1 }), sortOrder: 196 },
 ];
 
 export async function seedBadgesV2Once(): Promise<void> {
@@ -653,12 +661,12 @@ export async function seedBadgesV2Once(): Promise<void> {
   hasRunBadgesV2 = true;
 
   try {
-    // Sentinel: fully seeded when current collection has >= 90 active badges.
+    // Sentinel: fully seeded when current collection has >= 97 active badges.
     // Name-based checks are fragile (a stray legacy row can match); count is robust.
     const sentinel = await pool.query(
       `SELECT COUNT(*)::int AS c FROM badges WHERE collection = 'current' AND is_active = true`
     );
-    if (Number(sentinel.rows[0]?.c) >= 90) {
+    if (Number(sentinel.rows[0]?.c) >= 97) {
       console.log("[startup-migration] badges-v2: already seeded, skipping");
       return;
     }
@@ -706,6 +714,35 @@ export async function retireDroppedDeskBadgesOnce(): Promise<void> {
     }
   } catch (e: any) {
     console.error("[startup-migration] retire-desk-badges failed:", e?.message || e);
+  }
+}
+
+let hasRunReadinessBadges = false;
+export async function seedReadinessBadgesOnce(): Promise<void> {
+  if (hasRunReadinessBadges) return;
+  hasRunReadinessBadges = true;
+
+  try {
+    const existing = await pool.query(
+      `SELECT COUNT(*)::int AS c FROM badges WHERE category = 'readiness' AND collection = 'current' AND is_active = true`
+    );
+    if (Number(existing.rows[0]?.c) >= 7) {
+      console.log("[startup-migration] readiness-badges: already seeded, skipping");
+      return;
+    }
+
+    const readinessBadges = BADGES_V2.filter(b => b.category === 'readiness');
+    for (const b of readinessBadges) {
+      await pool.query(
+        `INSERT INTO badges (name, description, category, tier, icon, requirement, collection, sort_order, is_active)
+         VALUES ($1, $2, $3, $4, $5, $6, 'current', $7, true)
+         ON CONFLICT DO NOTHING`,
+        [b.name, b.description, b.category, b.tier, b.icon, b.requirement, b.sortOrder]
+      );
+    }
+    console.log(`[startup-migration] readiness-badges: seeded ${readinessBadges.length} badges`);
+  } catch (e: any) {
+    console.error("[startup-migration] readiness-badges failed:", e?.message || e);
   }
 }
 

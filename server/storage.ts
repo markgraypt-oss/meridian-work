@@ -9810,7 +9810,7 @@ export class DatabaseStorage implements IStorage {
     const wearRows = await db
       .select()
       .from(wearableMetricsDaily)
-      .where(and(eq(wearableMetricsDaily.userId, userId), sql`${wearableMetricsDaily.activeEnergyKcal} IS NOT NULL`))
+      .where(and(eq(wearableMetricsDaily.userId, userId), sql`${wearableMetricsDaily.caloriesBurned} IS NOT NULL`))
       .orderBy(desc(wearableMetricsDaily.date));
 
     const byDate = new Map<string, any>();
@@ -9821,7 +9821,7 @@ export class DatabaseStorage implements IStorage {
         id: 0,
         userId: w.userId,
         date: new Date(`${d}T00:00:00Z`),
-        calories: w.activeEnergyKcal ?? 0,
+        calories: w.caloriesBurned ?? 0,
         notes: null,
         createdAt: w.createdAt,
         source: "wearable",

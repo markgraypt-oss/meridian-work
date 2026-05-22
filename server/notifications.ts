@@ -106,8 +106,11 @@ export async function notify(opts: NotifyOptions): Promise<NotifyResult> {
     }
   }
 
-  // 4. Email fan-out — never fires for scheduled/automated sends (disableEmail).
-  const wantEmail = !disableEmail && (force || (channelToggles.email && !inQuiet && !overCap));
+  // 4. Email fan-out — permanently disabled.
+  // The emailWorkoutSummary / emailWeeklyProgress / emailProgramReminders toggles
+  // are no longer active and are treated as false. Auth emails (reset, invite)
+  // from replitAuth.ts are unaffected.
+  const wantEmail = false;
   if (wantEmail && user.email && resend) {
     const ok = await sendCategoryEmail(user.email, user.firstName ?? null, category, title, body, data);
     result.channels.email = ok;

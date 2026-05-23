@@ -116,27 +116,31 @@ export async function upsertDailyMetrics(userId: string, provider: WearableProvi
       raw: m.raw ?? null,
       updatedAt: new Date(),
     };
+    // Build update set that only overwrites fields when the new value is non-null.
+    // This prevents a re-sync that happens to return empty for one metric (e.g. an
+    // HRV query that slices through a chunk boundary) from destroying previously
+    // collected data for that day.
+    const updateSet: any = { updatedAt: new Date() };
+    if (values.sleepMinutes !== null) updateSet.sleepMinutes = values.sleepMinutes;
+    if (values.sleepDeepMinutes !== null) updateSet.sleepDeepMinutes = values.sleepDeepMinutes;
+    if (values.sleepRemMinutes !== null) updateSet.sleepRemMinutes = values.sleepRemMinutes;
+    if (values.sleepLightMinutes !== null) updateSet.sleepLightMinutes = values.sleepLightMinutes;
+    if (values.sleepAwakeMinutes !== null) updateSet.sleepAwakeMinutes = values.sleepAwakeMinutes;
+    if (values.sleepScore !== null) updateSet.sleepScore = values.sleepScore;
+    if (values.hrvMs !== null) updateSet.hrvMs = values.hrvMs;
+    if (values.restingHrBpm !== null) updateSet.restingHrBpm = values.restingHrBpm;
+    if (values.steps !== null) updateSet.steps = values.steps;
+    if (values.activeMinutes !== null) updateSet.activeMinutes = values.activeMinutes;
+    if (values.caloriesBurned !== null) updateSet.caloriesBurned = values.caloriesBurned;
+    if (values.readinessScore !== null) updateSet.readinessScore = values.readinessScore;
+    if (values.strainScore !== null) updateSet.strainScore = values.strainScore;
+    if (values.workoutCount !== null) updateSet.workoutCount = values.workoutCount;
+    if (values.vo2MaxMlKgMin !== null) updateSet.vo2MaxMlKgMin = values.vo2MaxMlKgMin;
+    if (values.raw !== null) updateSet.raw = values.raw;
+
     await db.insert(wearableMetricsDaily).values(values).onConflictDoUpdate({
       target: [wearableMetricsDaily.userId, wearableMetricsDaily.date, wearableMetricsDaily.provider],
-      set: {
-        sleepMinutes: values.sleepMinutes,
-        sleepDeepMinutes: values.sleepDeepMinutes,
-        sleepRemMinutes: values.sleepRemMinutes,
-        sleepLightMinutes: values.sleepLightMinutes,
-        sleepAwakeMinutes: values.sleepAwakeMinutes,
-        sleepScore: values.sleepScore,
-        hrvMs: values.hrvMs,
-        restingHrBpm: values.restingHrBpm,
-        steps: values.steps,
-        activeMinutes: values.activeMinutes,
-        caloriesBurned: values.caloriesBurned,
-        readinessScore: values.readinessScore,
-        strainScore: values.strainScore,
-        workoutCount: values.workoutCount,
-        vo2MaxMlKgMin: values.vo2MaxMlKgMin,
-        raw: values.raw,
-        updatedAt: new Date(),
-      },
+      set: updateSet,
     });
     count++;
   }

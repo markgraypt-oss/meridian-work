@@ -109,6 +109,7 @@ export const notificationPreferences = pgTable("notification_preferences", {
   positionRotation: boolean("position_rotation").default(false),
   positionRotationMinutes: integer("position_rotation_minutes").default(30),
   // Schedulable notification toggles — each maps to a prefKey used by notify()
+  morningBriefing: boolean("morning_briefing").default(true),
   eveningBriefing: boolean("evening_briefing").default(true),
   weeklyCheckinAvailable: boolean("weekly_checkin_available").default(true),
   burnoutTierChange: boolean("burnout_tier_change").default(true),

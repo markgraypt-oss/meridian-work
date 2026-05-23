@@ -406,7 +406,7 @@ Return only the JSON object now.`;
       body: firstFocus,
       data: { url: `/?coach=1&briefing=${briefing.id}`, briefingId: briefing.id, type, route: "/coach-briefings" },
       disableEmail: true,
-      ...(isEvening ? { prefKey: "eveningBriefing" } : {}),
+      prefKey: isEvening ? "eveningBriefing" : "morningBriefing",
     }).catch((err) => console.error("[coach-briefing] notify failed:", err));
   }
 

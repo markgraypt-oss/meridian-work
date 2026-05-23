@@ -2640,16 +2640,41 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Get notification preferences
+  // Keys whose DB columns are kept (no DROP) but must never appear in API
+  // responses, and must be silently ignored on PATCH input so GET→modify→PATCH
+  // round-trips don't 400.
+  const DEPRECATED_NOTIFICATION_KEYS = [
+    'workoutReminders',
+    'dailyCheckInPrompts',
+    'programUpdates',
+    'hydrationReminders',
+    'emailWorkoutSummary',
+    'emailWeeklyProgress',
+    'emailProgramReminders',
+  ] as const;
+  // Server-managed meta fields returned by GET but not updatable via PATCH.
+  // Stripped from PATCH input so round-tripping the GET object is safe.
+  const META_NOTIFICATION_KEYS = ['id', 'userId', 'createdAt', 'updatedAt'] as const;
+  const STRIPPED_PATCH_KEYS = new Set<string>([
+    ...DEPRECATED_NOTIFICATION_KEYS,
+    ...META_NOTIFICATION_KEYS,
+  ]);
+  const serializeNotificationPrefs = (prefs: any) => {
+    const out: any = { ...prefs };
+    for (const k of DEPRECATED_NOTIFICATION_KEYS) delete out[k];
+    return out;
+  };
+
   app.get('/api/user/notifications', isAuthenticated, async (req: any, res) => {
     try {
       const userId = req.user.claims.sub;
       let prefs = await storage.getNotificationPreferences(userId);
-      
+
       if (!prefs) {
         prefs = await storage.upsertNotificationPreferences(userId, {});
       }
-      
-      res.json(prefs);
+
+      res.json(serializeNotificationPrefs(prefs));
     } catch (error) {
       console.error("Get notification preferences error:", error);
       res.status(500).json({ message: "Failed to get notification preferences" });
@@ -2674,6 +2699,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     bodyMapFrequencyDays: z.number().refine(val => [7, 14, 21, 30].includes(val), "Invalid frequency").optional(),
     positionRotation: z.boolean().optional(),
     positionRotationMinutes: z.number().refine(val => [15, 20, 30, 45, 60].includes(val), "Invalid interval").optional(),
+    morningBriefing: z.boolean().optional(),
     eveningBriefing: z.boolean().optional(),
     weeklyCheckinAvailable: z.boolean().optional(),
     burnoutTierChange: z.boolean().optional(),
@@ -2689,13 +2715,21 @@ export async function registerRoutes(app: Express): Promise<Server> {
     inAppNutrition: z.boolean().optional(), emailNutrition: z.boolean().optional(), pushNutrition: z.boolean().optional(),
     inAppCoach: z.boolean().optional(), emailCoach: z.boolean().optional(), pushCoach: z.boolean().optional(),
     inAppAdmin: z.boolean().optional(), emailAdmin: z.boolean().optional(), pushAdmin: z.boolean().optional(),
-  }).passthrough();
+  }).strict();
 
   app.patch('/api/user/notifications', isAuthenticated, async (req: any, res) => {
     try {
       const userId = req.user.claims.sub;
-      const parsed = updateNotificationPreferencesSchema.safeParse(req.body);
-      
+      // Strip deprecated + server-managed meta keys before strict validation
+      // so a client doing GET→modify→PATCH with the returned object isn't
+      // rejected for harmless extras. Truly unknown keys still 400.
+      const rawBody = (req.body && typeof req.body === 'object') ? req.body : {};
+      const cleanBody: Record<string, unknown> = {};
+      for (const [k, v] of Object.entries(rawBody)) {
+        if (!STRIPPED_PATCH_KEYS.has(k)) cleanBody[k] = v;
+      }
+      const parsed = updateNotificationPreferencesSchema.safeParse(cleanBody);
+
       if (!parsed.success) {
         return res.status(400).json({ message: "Invalid data", errors: parsed.error.flatten() });
       }
@@ -2705,6 +2739,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       if (data.habitReminders !== undefined) updates.habitReminders = data.habitReminders;
       if (data.badgeAlerts !== undefined) updates.badgeAlerts = data.badgeAlerts;
       if (data.supplementReminders !== undefined) updates.supplementReminders = data.supplementReminders;
+      if (data.morningBriefing !== undefined) updates.morningBriefing = data.morningBriefing;
       if (data.eveningBriefing !== undefined) updates.eveningBriefing = data.eveningBriefing;
       if (data.weeklyCheckinAvailable !== undefined) updates.weeklyCheckinAvailable = data.weeklyCheckinAvailable;
       if (data.burnoutTierChange !== undefined) updates.burnoutTierChange = data.burnoutTierChange;
@@ -2747,7 +2782,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
       
       const prefs = await storage.upsertNotificationPreferences(userId, updates);
-      res.json(prefs);
+      res.json(serializeNotificationPrefs(prefs));
     } catch (error) {
       console.error("Update notification preferences error:", error);
       res.status(500).json({ message: "Failed to update notification preferences" });

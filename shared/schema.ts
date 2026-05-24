@@ -3395,6 +3395,8 @@ export const dailyReadinessHistory = pgTable("daily_readiness_history", {
   // 0-100. Null when fewer than the minimum required inputs were available.
   score: integer("score"),
   algorithmVersion: varchar("algorithm_version").notNull().default("v1"),
+  locked: boolean("locked").notNull().default(false),
+  lockedAt: timestamp("locked_at"),
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow(),
 }, (t) => [

@@ -14561,6 +14561,7 @@ Keep your response concise, practical, and evidence-based. Do not use em dashes.
         .select({
           actualReps: workoutSetLogs.actualReps,
           actualWeight: workoutSetLogs.actualWeight,
+          setNumber: workoutSetLogs.setNumber,
           completedAt: workoutLogs.completedAt,
         })
         .from(workoutSetLogs)
@@ -14581,6 +14582,17 @@ Keep your response concise, practical, and evidence-based. Do not use em dashes.
       let fiveRepMax: number | null = null;
       let tenRepMax: number | null = null;
 
+      // NEW: every rep count ever logged + actual-rep-max flags
+      const allSetReps: number[] = [];
+      let hasActual1Rep = false;
+      let hasActual5Rep = false;
+      let hasActual10Rep = false;
+
+      // NEW: track most recent session (date with sets) for lastSession block
+      let lastSessionDate: string | null = null;
+      let lastSessionISO: string | null = null;
+      const lastSessionSetsByDate: Record<string, Array<{ weight: number; reps: number; setNumber: number }>> = {};
+
       // Group by date for volume and history
       const dateData: Record<string, {
         maxWeight: number | null;
@@ -14594,7 +14606,32 @@ Keep your response concise, practical, and evidence-based. Do not use em dashes.
       for (const log of setLogs) {
         const reps = log.actualReps || 0;
         const weight = log.actualWeight || 0;
-        const dateKey = log.completedAt?.toISOString().split('T')[0] || '';
+        const iso = log.completedAt?.toISOString() || '';
+        const dateKey = iso.split('T')[0] || '';
+
+        // Collect every rep count (a "set logged" = reps recorded > 0)
+        if (reps > 0) {
+          allSetReps.push(reps);
+          if (reps === 1 && weight > 0) hasActual1Rep = true;
+          if (reps === 5 && weight > 0) hasActual5Rep = true;
+          if (reps === 10 && weight > 0) hasActual10Rep = true;
+        }
+
+        // Track sets per date for lastSession; advance "most recent" pointer
+        if (dateKey) {
+          if (!lastSessionSetsByDate[dateKey]) lastSessionSetsByDate[dateKey] = [];
+          lastSessionSetsByDate[dateKey].push({
+            weight,
+            reps,
+            setNumber: log.setNumber ?? 0,
+          });
+          if (lastSessionDate === null || dateKey > lastSessionDate) {
+            lastSessionDate = dateKey;
+            lastSessionISO = iso;
+          } else if (dateKey === lastSessionDate && iso > (lastSessionISO || '')) {
+            lastSessionISO = iso;
+          }
+        }
 
         if (!dateData[dateKey]) {
           dateData[dateKey] = {
@@ -14665,6 +14702,19 @@ Keep your response concise, practical, and evidence-based. Do not use em dashes.
         tenRepMax: data.tenRepMax,
       })).sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
 
+      // Build lastSession block: all sets from the most recent date
+      let lastSession: { date: string; sets: Array<{ weight: number; reps: number }> } | null = null;
+      if (lastSessionDate) {
+        const sets = (lastSessionSetsByDate[lastSessionDate] || [])
+          .slice()
+          .sort((a, b) => a.setNumber - b.setNumber)
+          .map(s => ({ weight: s.weight, reps: s.reps }));
+        lastSession = {
+          date: lastSessionISO || `${lastSessionDate}T00:00:00.000Z`,
+          sets,
+        };
+      }
+
       res.json({
         id: exercise.id,
         name: exercise.name,
@@ -14676,6 +14726,11 @@ Keep your response concise, practical, and evidence-based. Do not use em dashes.
         fiveRepMax,
         tenRepMax,
         history,
+        lastSession,
+        allSetReps,
+        hasActual1Rep,
+        hasActual5Rep,
+        hasActual10Rep,
       });
     } catch (error) {
       console.error("Error fetching exercise PR detail:", error);

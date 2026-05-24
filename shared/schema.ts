@@ -3397,6 +3397,7 @@ export const dailyReadinessHistory = pgTable("daily_readiness_history", {
   algorithmVersion: varchar("algorithm_version").notNull().default("v1"),
   locked: boolean("locked").notNull().default(false),
   lockedAt: timestamp("locked_at"),
+  sourcesSnapshot: jsonb("sources_snapshot"), // frozen source labels at lock time
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow(),
 }, (t) => [

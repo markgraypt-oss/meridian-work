@@ -244,8 +244,12 @@ export async function gatherInputsForDay(
   //         else check-in sleepScore (1-5 → *2)
   // -----------------------------------------------------------------------
   let sleep: number | null = null;
+  // Priority: wearable score → wearable duration → sleep log → check-in
   if (wear?.sleepScore != null) {
     sleep = clamp(wear.sleepScore / 10, 0, 10);
+    sources.sleep = "wearable";
+  } else if (wear?.sleepMinutes != null) {
+    sleep = clamp((wear.sleepMinutes / 60 / 8) * 10, 0, 10);
     sources.sleep = "wearable";
   } else {
     const sleepRows = await db
@@ -438,13 +442,99 @@ export async function gatherInputsForDay(
   return { inputs, sources };
 }
 
-/** Compute and upsert a single user/day row. Returns the result. */
+/**
+ * Compute and upsert a single user/day row. Returns the result.
+ *
+ * Locking rules (today's date only):
+ *   - No check-in for today  → score returns null (gamification gate).
+ *   - Locked row exists      → no recompute, returns stored values.
+ *   - All inputs complete    → compute, store, and lock the row.
+ *   - Partial inputs         → compute & store but leave unlocked, so
+ *                              late wearable syncs can update once.
+ *
+ * Historic dates (not today) always recompute and never lock — used by
+ * the nightly job and backfills.
+ */
 export async function computeAndStoreForUserDay(
   userId: string,
   dateKey: string,
 ): Promise<ReadinessResult> {
-  const { inputs } = await gatherInputsForDay(userId, dateKey);
+  const isToday = dateKey === todayKey();
+
+  // If today's row is already locked, return it as-is. No recompute.
+  if (isToday) {
+    const [existing] = await db
+      .select()
+      .from(dailyReadinessHistory)
+      .where(
+        and(
+          eq(dailyReadinessHistory.userId, userId),
+          eq(dailyReadinessHistory.date, dateKey),
+        ),
+      )
+      .limit(1);
+    if (existing?.locked) {
+      return {
+        inputs: {
+          sleep: existing.sleepInput ?? null,
+          energy: existing.energyInput ?? null,
+          trainingLoad: existing.trainingLoadInput ?? null,
+          hrv: existing.hrvInput ?? null,
+          rhr: existing.rhrInput ?? null,
+        },
+        inputCount: existing.inputCount ?? 0,
+        score: existing.score ?? null,
+      };
+    }
+  }
+
+  const { inputs, sources } = await gatherInputsForDay(userId, dateKey);
+
+  // Gamification gate: no check-in today → no score today.
+  // (Historic dates skip this — nightly job backfills regardless.)
+  const hasCheckInToday =
+    sources.energy === "check-in" || sources.sleep === "check-in";
+  if (isToday && !hasCheckInToday) {
+    await db
+      .insert(dailyReadinessHistory)
+      .values({
+        userId,
+        date: dateKey,
+        sleepInput: inputs.sleep,
+        energyInput: inputs.energy,
+        trainingLoadInput: inputs.trainingLoad,
+        hrvInput: inputs.hrv,
+        rhrInput: inputs.rhr,
+        inputCount: 0,
+        score: null,
+        algorithmVersion: ALGORITHM_VERSION,
+        locked: false,
+      })
+      .onConflictDoUpdate({
+        target: [dailyReadinessHistory.userId, dailyReadinessHistory.date],
+        set: {
+          sleepInput: inputs.sleep,
+          energyInput: inputs.energy,
+          trainingLoadInput: inputs.trainingLoad,
+          hrvInput: inputs.hrv,
+          rhrInput: inputs.rhr,
+          inputCount: 0,
+          score: null,
+          algorithmVersion: ALGORITHM_VERSION,
+          updatedAt: new Date(),
+        },
+      });
+    return { inputs, inputCount: 0, score: null };
+  }
+
   const result = computeDailyReadinessV1(inputs);
+
+  // Lock condition: check-in done AND all three wearable inputs present.
+  // Only applies to today.
+  const allWearableReady =
+    inputs.hrv != null && inputs.rhr != null && inputs.sleep != null;
+  const shouldLock = isToday && hasCheckInToday && allWearableReady;
+
   await db
     .insert(dailyReadinessHistory)
     .values({
@@ -458,6 +548,9 @@ export async function computeAndStoreForUserDay(
       inputCount: result.inputCount,
       score: result.score,
       algorithmVersion: ALGORITHM_VERSION,
+      locked: shouldLock,
+      lockedAt: shouldLock ? new Date() : null,
+      sourcesSnapshot: shouldLock ? sources : null,
     })
     .onConflictDoUpdate({
       target: [dailyReadinessHistory.userId, dailyReadinessHistory.date],
@@ -470,9 +563,13 @@ export async function computeAndStoreForUserDay(
         inputCount: result.inputCount,
         score: result.score,
         algorithmVersion: ALGORITHM_VERSION,
+        locked: shouldLock,
+        lockedAt: shouldLock ? new Date() : null,
+        sourcesSnapshot: shouldLock ? sources : null,
         updatedAt: new Date(),
       },
     });
+
   return result;
 }
 
@@ -522,10 +619,35 @@ export async function getTodayForUser(userId: string): Promise<{
     .select({ c: sql<number>`count(*)` })
     .from(dailyReadinessHistory)
     .where(and(eq(dailyReadinessHistory.userId, userId), sql`${dailyReadinessHistory.score} IS NOT NULL`));
-  // Re-derive sources for today's inputs. The persisted row only stores
-  // the numeric values, not their provenance, so we re-run the gather to
-  // attach a source label per input. Cheap (same query the route just ran)
-  // and keeps the storage schema unchanged.
+
+  // When the row is locked, return the frozen inputs and sources directly
+  // from the stored row — nothing about today's score can change once locked.
+  // When unlocked, re-derive sources fresh from current data so late wearable
+  // syncs can flip a label from "check-in" to "wearable" before lock.
+  if (row?.locked) {
+    const frozenSources: ReadinessInputSources = (row.sourcesSnapshot as ReadinessInputSources | null) ?? {
+      sleep: null,
+      energy: null,
+      trainingLoad: null,
+      hrv: null,
+      rhr: null,
+    };
+    return {
+      date: today,
+      score: row.score ?? null,
+      inputCount: row.inputCount ?? 0,
+      daysOfHistory: Number(total[0]?.c || 0),
+      inputs: {
+        sleep: row.sleepInput ?? null,
+        energy: row.energyInput ?? null,
+        trainingLoad: row.trainingLoadInput ?? null,
+        hrv: row.hrvInput ?? null,
+        rhr: row.rhrInput ?? null,
+      },
+      sources: frozenSources,
+    };
+  }
+
   const { inputs, sources } = await gatherInputsForDay(userId, today);
   return {
     date: today,

@@ -57,6 +57,16 @@ interface V2Payload {
   metrics: any;
 }
 
+function getCurrentIsoWeekStartMs(): number {
+  const now = new Date();
+  const d = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()));
+  const day = d.getUTCDay();
+  const diff = day === 0 ? -6 : 1 - day;
+  d.setUTCDate(d.getUTCDate() + diff);
+  d.setUTCHours(0, 0, 0, 0);
+  return d.getTime();
+}
+
 function isV2(payload: any): payload is V2Payload {
   return payload?._v === 5;
 }
@@ -641,7 +651,18 @@ export default function WeeklyCheckinPage() {
 
   const history = useMemo(() => {
     const list = historyQuery.data || [];
-    return list.filter((h) => h.id !== checkIn?.id);
+    // "Past check-ins" must never include the current ISO week, regardless of
+    // whether the current-week row matches checkIn.id (filtering by id alone
+    // failed when duplicate rows existed for the same week, and also when
+    // viewing a past detail where checkIn comes from detailQuery).
+    const currentWeekStart = getCurrentIsoWeekStartMs();
+    return list.filter((h) => {
+      if (h.id === checkIn?.id) return false;
+      const p = h.payload as any;
+      const ws = p?.weekStart ? new Date(p.weekStart).getTime() : null;
+      if (ws !== null && ws >= currentWeekStart) return false;
+      return true;
+    });
   }, [historyQuery.data, checkIn?.id]);
 
   const allCheckIns = useMemo(() => {

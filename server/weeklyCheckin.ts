@@ -748,6 +748,21 @@ export async function getOrCreateCurrentWeeklyCheckinV2(userId: string): Promise
       const updated = await storage.updateWeeklyCheckinPayload(existing.id, newPayload);
       return updated;
     }
+    // For the CURRENT week, regenerate if the payload is older than 15 minutes
+    // so newly-logged check-ins / workouts / habits / meals show up without
+    // requiring the user to wait for the next scheduler tick. Past weeks are
+    // immutable snapshots and are never re-aggregated here.
+    const STALE_AFTER_MS = 15 * 60 * 1000;
+    const generatedAt = existing.generatedAt ? new Date(existing.generatedAt).getTime() : 0;
+    if (Date.now() - generatedAt > STALE_AFTER_MS) {
+      console.log(
+        `[weekly-checkin-v2] refreshing current-week row ${existing.id} for user ${userId} ` +
+          `(age=${Math.round((Date.now() - generatedAt) / 1000)}s)`,
+      );
+      const newPayload = await generateWeeklyCheckinPayloadV2(userId, weekStart);
+      const updated = await storage.updateWeeklyCheckinPayload(existing.id, newPayload);
+      return updated;
+    }
     return existing;
   }
 

@@ -175,12 +175,13 @@ const SELF_HEAL_DDL: string[] = [
 
   // Weekly check-ins: dedupe any (user_id, week_start) duplicates created by
   // race conditions in getOrCreateCurrentWeeklyCheckinV2, then enforce
-  // uniqueness so it can't recur. Keeps the lowest id per (user, week).
+  // uniqueness so it can't recur. Keeps the HIGHEST id per (user, week) —
+  // the most recently generated payload (most up-to-date data).
   `DELETE FROM weekly_checkins w
      USING weekly_checkins w2
      WHERE w.user_id = w2.user_id
        AND w.week_start = w2.week_start
-       AND w.id > w2.id`,
+       AND w.id < w2.id`,
   `CREATE UNIQUE INDEX IF NOT EXISTS idx_weekly_checkins_user_week_unique
      ON weekly_checkins (user_id, week_start)`,
 

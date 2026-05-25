@@ -697,13 +697,28 @@ export function isWeeklyCheckinPayloadStale(payload: any): boolean {
  * past weeks are historical snapshots and should not be touched.
  */
 export async function upgradeWeeklyCheckinIfStale(row: WeeklyCheckin): Promise<WeeklyCheckin> {
-  if (!isWeeklyCheckinPayloadStale(row.payload)) return row;
-  const currentWeekStart = getIsoWeekStart();
   const rowWeekStart = new Date(row.weekStart);
-  if (rowWeekStart.getTime() !== currentWeekStart.getTime()) return row;
+  const weekEndMs = rowWeekStart.getTime() + 7 * 24 * 60 * 60 * 1000;
+  const generatedAtMs = row.generatedAt ? new Date(row.generatedAt).getTime() : 0;
+  const isCurrentWeek = Date.now() < weekEndMs;
+  const STALE_AFTER_MS = 15 * 60 * 1000;
+  const wasGeneratedBeforeWeekEnded = generatedAtMs < weekEndMs;
+
+  // Regenerate when:
+  //  • Payload schema version is out of date, OR
+  //  • Snapshot was taken BEFORE the week actually ended (past weeks created by
+  //    a Monday-morning scheduler that ran on the week-just-started), OR
+  //  • Current week and snapshot is older than 15 min (newly logged data).
+  const schemaStale = isWeeklyCheckinPayloadStale(row.payload);
+  const pastWeekIncomplete = !isCurrentWeek && wasGeneratedBeforeWeekEnded;
+  const currentWeekAged = isCurrentWeek && Date.now() - generatedAtMs > STALE_AFTER_MS;
+
+  if (!schemaStale && !pastWeekIncomplete && !currentWeekAged) return row;
+
   console.log(
-    `[weekly-checkin-v2] upgrading stale payload row ${row.id} for user ${row.userId} ` +
-      `(v=${(row.payload as any)?._v})`,
+    `[weekly-checkin-v2] regenerating row ${row.id} user ${row.userId} ` +
+      `weekStart=${rowWeekStart.toISOString().slice(0, 10)} ` +
+      `(schemaStale=${schemaStale}, pastWeekIncomplete=${pastWeekIncomplete}, currentWeekAged=${currentWeekAged})`,
   );
   const newPayload = await generateWeeklyCheckinPayloadV2(row.userId, rowWeekStart);
   return await storage.updateWeeklyCheckinPayload(row.id, newPayload);

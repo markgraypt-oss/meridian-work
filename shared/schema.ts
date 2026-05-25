@@ -2778,13 +2778,12 @@ export const weeklyCheckins = pgTable("weekly_checkins", {
   dismissedSuggestions: text("dismissed_suggestions").array().notNull().default(sql`ARRAY[]::text[]`),
   pointsAwardedAt: timestamp("points_awarded_at"),
   generatedAt: timestamp("generated_at").defaultNow().notNull(),
-}, (t) => ({
-  // Index name must match the one created by startup migrations
-  // (idx_weekly_checkins_user_week_unique) so drizzle-kit detects it and
-  // doesn't try to create a second one. Use uniqueIndex() rather than a raw
-  // sql template — drizzle-kit can't reliably reconcile arbitrary SQL.
-  userWeekUnique: uniqueIndex("idx_weekly_checkins_user_week_unique").on(t.userId, t.weekStart),
-}));
+});
+// The unique constraint on (user_id, week_start) is created and maintained by
+// `runSchemaSelfHealOnce` in server/startupMigrations.ts — it dedupes any
+// existing rows before creating the index, which drizzle-kit cannot do on its
+// own (db:push fails outright when duplicates exist). Keeping the constraint
+// out of the schema declaration prevents drizzle-kit from trying to manage it.
 
 export type WeeklyCheckin = typeof weeklyCheckins.$inferSelect;
 export type InsertWeeklyCheckin = typeof weeklyCheckins.$inferInsert;

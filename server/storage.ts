@@ -7492,6 +7492,16 @@ export class DatabaseStorage implements IStorage {
   }
 
   async deleteWorkoutBlocksByWorkoutId(workoutId: number): Promise<void> {
+    // Explicitly delete block exercises first so we don't rely on DB-level cascade,
+    // which may not exist in production (sequence desync would cause pk conflicts).
+    const blocks = await db
+      .select({ id: workoutBlocks.id })
+      .from(workoutBlocks)
+      .where(eq(workoutBlocks.workoutId, workoutId));
+    if (blocks.length > 0) {
+      const blockIds = blocks.map(b => b.id);
+      await db.delete(blockExercises).where(inArray(blockExercises.blockId, blockIds));
+    }
     await db.delete(workoutBlocks).where(eq(workoutBlocks.workoutId, workoutId));
   }
 

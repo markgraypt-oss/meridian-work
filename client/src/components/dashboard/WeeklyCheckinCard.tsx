@@ -28,7 +28,7 @@ interface V1Payload {
 }
 
 function isV2(p: any): p is V2Payload {
-  return p?._v === 4;
+  return p?._v === 5 || p?._v === 6;
 }
 
 
@@ -38,6 +38,8 @@ export default function WeeklyCheckinCard() {
   const { toast } = useToast();
   const { data, isLoading } = useQuery<WeeklyCheckin[]>({
     queryKey: ["/api/weekly-checkins"],
+    staleTime: 0,
+    refetchOnMount: "always",
   });
 
   const dismissMutation = useMutation({

@@ -219,6 +219,8 @@ export default function InsightCard() {
 
   const { data: checkins } = useQuery<WeeklyCheckin[]>({
     queryKey: ["/api/weekly-checkins"],
+    staleTime: 0,
+    refetchOnMount: "always",
   });
   const { data: hrvEntries } = useQuery<HRVEntry[]>({
     queryKey: ["/api/progress/hrv"],

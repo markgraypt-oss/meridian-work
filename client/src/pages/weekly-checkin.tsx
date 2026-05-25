@@ -691,6 +691,8 @@ export default function WeeklyCheckinPage() {
   const detailQuery = useQuery<WeeklyCheckin>({
     queryKey: [`/api/weekly-checkins/${targetId}`],
     enabled: !!matchedDetail && Number.isFinite(targetId),
+    staleTime: 0,
+    retry: false,
   });
   const historyQuery = useQuery<WeeklyCheckin[]>({
     queryKey: ["/api/weekly-checkins"],
@@ -702,6 +704,7 @@ export default function WeeklyCheckinPage() {
 
   const checkIn = matchedDetail ? detailQuery.data : currentQuery.data;
   const isLoading = matchedDetail ? detailQuery.isLoading : currentQuery.isLoading;
+  const hasError = matchedDetail ? detailQuery.isError : currentQuery.isError;
 
   const history = useMemo(() => {
     const list = historyQuery.data || [];
@@ -755,7 +758,18 @@ export default function WeeklyCheckinPage() {
           )
         )}
 
-        {!isLoading && !checkIn && (
+        {!isLoading && hasError && (
+          <Card>
+            <CardContent className="p-6 text-center space-y-3">
+              <p className="text-muted-foreground">This weekly check-in has been refreshed. Please go back and tap it again.</p>
+              <Button variant="outline" size="sm" onClick={() => navigate("/")}>
+                Back to Dashboard
+              </Button>
+            </CardContent>
+          </Card>
+        )}
+
+        {!isLoading && !hasError && !checkIn && (
           <Card>
             <CardContent className="p-6 text-center text-muted-foreground">
               We couldn't generate a summary. Please try again later.

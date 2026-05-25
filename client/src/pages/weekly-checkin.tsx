@@ -42,13 +42,26 @@ interface V2Cards {
   };
   goals?: { items: Array<{ title: string; progressPct: number | null; isCompleted: boolean }> };
   habits?: { items: Array<{ title: string; completionsThisWeek: number; targetDaysThisWeek: number; weekDays: boolean[] }> };
-  lifestyle?: { avgSleepHours: number | null; sleepSource: "wearable" | "manual" | null; roughDaysCount: number };
+  lifestyle?: {
+    avgSleepHours: number | null;
+    sleepSource: "wearable" | "manual" | null;
+    roughDaysCount: number;
+    avgStepsPerDay?: number | null;
+    stepsSource?: "wearable" | "manual" | null;
+    avgActiveMinutesPerDay?: number | null;
+    activeMinutesSource?: "wearable" | "manual" | null;
+    avgRestingHr?: number | null;
+    avgHrvMs?: number | null;
+    avgCaloriesBurned?: number | null;
+    avgReadinessScore?: number | null;
+    avgStrainScore?: number | null;
+  };
   patterns?: { narrative: string; bulletPoints: string[]; isAI: boolean; generatedAt: string };
   nutrition?: { daysTracked: number; mealsLogged: number };
 }
 
 interface V2Payload {
-  _v: 5;
+  _v: 5 | 6;
   weekStart: string;
   weekEnd: string;
   hero: string;
@@ -68,7 +81,7 @@ function getCurrentIsoWeekStartMs(): number {
 }
 
 function isV2(payload: any): payload is V2Payload {
-  return payload?._v === 5;
+  return payload?._v === 5 || payload?._v === 6;
 }
 
 // ─── Trajectory pill ──────────────────────────────────────────────────────────
@@ -313,6 +326,47 @@ function LifestyleCard({ data }: { data: NonNullable<V2Cards["lifestyle"]> }) {
             <span className="font-semibold text-amber-600 dark:text-amber-400">
               {data.roughDaysCount} day{data.roughDaysCount !== 1 ? "s" : ""}
             </span>
+          </div>
+        )}
+        {data.avgActiveMinutesPerDay != null && (
+          <div className="flex items-center justify-between text-sm">
+            <span className="text-muted-foreground">Avg active minutes</span>
+            <span className="font-semibold">
+              {data.avgActiveMinutesPerDay} min/day
+              {data.activeMinutesSource && (
+                <span className="ml-1.5 text-xs text-muted-foreground font-normal">via {data.activeMinutesSource}</span>
+              )}
+            </span>
+          </div>
+        )}
+        {data.avgRestingHr != null && (
+          <div className="flex items-center justify-between text-sm">
+            <span className="text-muted-foreground">Resting heart rate</span>
+            <span className="font-semibold">{data.avgRestingHr} bpm</span>
+          </div>
+        )}
+        {data.avgHrvMs != null && (
+          <div className="flex items-center justify-between text-sm">
+            <span className="text-muted-foreground">Avg HRV</span>
+            <span className="font-semibold">{data.avgHrvMs} ms</span>
+          </div>
+        )}
+        {data.avgCaloriesBurned != null && (
+          <div className="flex items-center justify-between text-sm">
+            <span className="text-muted-foreground">Avg energy burned</span>
+            <span className="font-semibold">{data.avgCaloriesBurned.toLocaleString()} kcal</span>
+          </div>
+        )}
+        {data.avgReadinessScore != null && (
+          <div className="flex items-center justify-between text-sm">
+            <span className="text-muted-foreground">Avg readiness</span>
+            <span className="font-semibold">{data.avgReadinessScore} / 100</span>
+          </div>
+        )}
+        {data.avgStrainScore != null && (
+          <div className="flex items-center justify-between text-sm">
+            <span className="text-muted-foreground">Avg strain</span>
+            <span className="font-semibold">{data.avgStrainScore} / 21</span>
           </div>
         )}
       </CardContent>

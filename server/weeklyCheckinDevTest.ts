@@ -32,13 +32,29 @@ interface PromptData {
   sessionsCompleted: number;
   sessionsPlanned: number;
   adherencePct: number | null;
+  totalVolumeKg: number;
+  prevTotalVolumeKg: number;
   avgSleepHours: number | null;
   sleepSource: "wearable" | "manual" | null;
+  avgStepsPerDay: number | null;
+  avgActiveMinutesPerDay: number | null;
+  avgRestingHr: number | null;
+  avgHrvMs: number | null;
+  avgCaloriesBurned: number | null;
+  avgReadinessScore: number | null;
+  avgStrainScore: number | null;
+  wearableProviders: string[];
   nutritionDaysTracked: number;
   goalsOnTrackCount: number;
   goalsTotalCount: number;
   habitsWithCompletions: number;
+  burnoutScore: number | null;
   burnoutTrajectory: string | null;
+  bodyAreasActive: string[];
+  bodyAreasChronic: string[];
+  coachConversationsThisWeek: number;
+  coachUserMessagesThisWeek: number;
+  coachRecentTopics: string[];
 }
 
 // ── Fixtures ──────────────────────────────────────────────────────────────────
@@ -59,13 +75,29 @@ const FIXTURES: Record<DevScenario, {
       sessionsCompleted: 3,
       sessionsPlanned: 4,
       adherencePct: 75,
+      totalVolumeKg: 4200,
+      prevTotalVolumeKg: 3800,
       avgSleepHours: 7.2,
       sleepSource: "wearable",
+      avgStepsPerDay: 8400,
+      avgActiveMinutesPerDay: 42,
+      avgRestingHr: 58,
+      avgHrvMs: 65,
+      avgCaloriesBurned: 2380,
+      avgReadinessScore: 78,
+      avgStrainScore: 12.4,
+      wearableProviders: ["oura"],
       nutritionDaysTracked: 5,
       goalsOnTrackCount: 2,
       goalsTotalCount: 3,
       habitsWithCompletions: 2,
+      burnoutScore: 42,
       burnoutTrajectory: "slight improvement",
+      bodyAreasActive: [],
+      bodyAreasChronic: ["Lower back"],
+      coachConversationsThisWeek: 2,
+      coachUserMessagesThisWeek: 8,
+      coachRecentTopics: ["Lower back pain", "Sleep timing"],
     },
     cards: {
       howYouFelt: { checkInCount: 5, avgMood: 3.8, avgEnergy: 3.2, avgStress: 2.9, roughDaysCount: 1 },
@@ -79,16 +111,18 @@ const FIXTURES: Record<DevScenario, {
       },
       habits: {
         items: [
-          { title: "Morning stretch", completionsThisWeek: 4, targetDaysThisWeek: 5 },
-          { title: "Phone-free first hour", completionsThisWeek: 3, targetDaysThisWeek: 7 },
+          { title: "Morning stretch", completionsThisWeek: 4, targetDaysThisWeek: 5, weekDays: [true, true, false, true, true, false, false] },
+          { title: "Phone-free first hour", completionsThisWeek: 3, targetDaysThisWeek: 7, weekDays: [true, false, true, false, true, false, false] },
         ],
       },
-      lifestyle: { avgSleepHours: 7.2, sleepSource: "wearable", roughDaysCount: 1 },
-      bodyStatus: {
-        areas: [
-          { bodyPart: "Lower back", status: "chronic" },
-        ],
+      lifestyle: {
+        avgSleepHours: 7.2, sleepSource: "wearable", roughDaysCount: 1,
+        avgStepsPerDay: 8400, stepsSource: "wearable",
+        avgActiveMinutesPerDay: 42, activeMinutesSource: "wearable",
+        avgRestingHr: 58, avgHrvMs: 65, avgCaloriesBurned: 2380,
+        avgReadinessScore: 78, avgStrainScore: 12.4,
       },
+      // body areas moved to promptData in v6
       nutrition: { daysTracked: 5, mealsLogged: 13 },
     },
     metrics: {
@@ -111,18 +145,40 @@ const FIXTURES: Record<DevScenario, {
       sessionsCompleted: 2,
       sessionsPlanned: 0,
       adherencePct: null,
+      totalVolumeKg: 1800,
+      prevTotalVolumeKg: 0,
       avgSleepHours: 6.8,
       sleepSource: "manual",
+      avgStepsPerDay: null,
+      avgActiveMinutesPerDay: null,
+      avgRestingHr: null,
+      avgHrvMs: null,
+      avgCaloriesBurned: null,
+      avgReadinessScore: null,
+      avgStrainScore: null,
+      wearableProviders: [],
       nutritionDaysTracked: 1,
       goalsOnTrackCount: 0,
       goalsTotalCount: 0,
       habitsWithCompletions: 0,
+      burnoutScore: null,
       burnoutTrajectory: null,
+      bodyAreasActive: [],
+      bodyAreasChronic: [],
+      coachConversationsThisWeek: 0,
+      coachUserMessagesThisWeek: 0,
+      coachRecentTopics: [],
     },
     cards: {
       howYouFelt: { checkInCount: 3, avgMood: 3.5, avgEnergy: 3.0, avgStress: 2.5, roughDaysCount: 0 },
       howYouMoved: { sessionsCompleted: 2, sessionsPlanned: 0, adherencePct: null },
-      lifestyle: { avgSleepHours: 6.8, sleepSource: "manual", roughDaysCount: 0 },
+      lifestyle: {
+        avgSleepHours: 6.8, sleepSource: "manual", roughDaysCount: 0,
+        avgStepsPerDay: null, stepsSource: null,
+        avgActiveMinutesPerDay: null, activeMinutesSource: null,
+        avgRestingHr: null, avgHrvMs: null, avgCaloriesBurned: null,
+        avgReadinessScore: null, avgStrainScore: null,
+      },
       // no goals, habits, bodyStatus, nutrition (< 3 days tracked)
     },
     metrics: {
@@ -145,13 +201,29 @@ const FIXTURES: Record<DevScenario, {
       sessionsCompleted: 0,
       sessionsPlanned: 0,
       adherencePct: null,
+      totalVolumeKg: 0,
+      prevTotalVolumeKg: 0,
       avgSleepHours: null,
       sleepSource: null,
+      avgStepsPerDay: null,
+      avgActiveMinutesPerDay: null,
+      avgRestingHr: null,
+      avgHrvMs: null,
+      avgCaloriesBurned: null,
+      avgReadinessScore: null,
+      avgStrainScore: null,
+      wearableProviders: [],
       nutritionDaysTracked: 0,
       goalsOnTrackCount: 0,
       goalsTotalCount: 0,
       habitsWithCompletions: 0,
+      burnoutScore: null,
       burnoutTrajectory: null,
+      bodyAreasActive: [],
+      bodyAreasChronic: [],
+      coachConversationsThisWeek: 0,
+      coachUserMessagesThisWeek: 0,
+      coachRecentTopics: [],
     },
     cards: {
       // All cards absent — only patterns will render
@@ -177,13 +249,29 @@ const FIXTURES: Record<DevScenario, {
       sessionsCompleted: 3,
       sessionsPlanned: 4,
       adherencePct: 75,
+      totalVolumeKg: 4200,
+      prevTotalVolumeKg: 3800,
       avgSleepHours: 7.2,
       sleepSource: "wearable",
+      avgStepsPerDay: 8400,
+      avgActiveMinutesPerDay: 42,
+      avgRestingHr: 58,
+      avgHrvMs: 65,
+      avgCaloriesBurned: 2380,
+      avgReadinessScore: 78,
+      avgStrainScore: 12.4,
+      wearableProviders: ["oura"],
       nutritionDaysTracked: 5,
       goalsOnTrackCount: 2,
       goalsTotalCount: 3,
       habitsWithCompletions: 2,
+      burnoutScore: 42,
       burnoutTrajectory: "slight improvement",
+      bodyAreasActive: [],
+      bodyAreasChronic: ["Lower back"],
+      coachConversationsThisWeek: 2,
+      coachUserMessagesThisWeek: 8,
+      coachRecentTopics: ["Lower back pain", "Sleep timing"],
     },
     cards: {
       howYouFelt: { checkInCount: 5, avgMood: 3.8, avgEnergy: 3.2, avgStress: 2.9, roughDaysCount: 1 },
@@ -197,16 +285,18 @@ const FIXTURES: Record<DevScenario, {
       },
       habits: {
         items: [
-          { title: "Morning stretch", completionsThisWeek: 4, targetDaysThisWeek: 5 },
-          { title: "Phone-free first hour", completionsThisWeek: 3, targetDaysThisWeek: 7 },
+          { title: "Morning stretch", completionsThisWeek: 4, targetDaysThisWeek: 5, weekDays: [true, true, false, true, true, false, false] },
+          { title: "Phone-free first hour", completionsThisWeek: 3, targetDaysThisWeek: 7, weekDays: [true, false, true, false, true, false, false] },
         ],
       },
-      lifestyle: { avgSleepHours: 7.2, sleepSource: "wearable", roughDaysCount: 1 },
-      bodyStatus: {
-        areas: [
-          { bodyPart: "Lower back", status: "chronic" },
-        ],
+      lifestyle: {
+        avgSleepHours: 7.2, sleepSource: "wearable", roughDaysCount: 1,
+        avgStepsPerDay: 8400, stepsSource: "wearable",
+        avgActiveMinutesPerDay: 42, activeMinutesSource: "wearable",
+        avgRestingHr: 58, avgHrvMs: 65, avgCaloriesBurned: 2380,
+        avgReadinessScore: 78, avgStrainScore: 12.4,
       },
+      // body areas moved to promptData in v6
       nutrition: { daysTracked: 5, mealsLogged: 13 },
     },
     metrics: {
@@ -271,7 +361,7 @@ export async function buildSyntheticPayloadV2(
   }
 
   return {
-    _v: 5,
+    _v: 6,
     weekStart: weekStart.toISOString(),
     weekEnd: weekEnd.toISOString(),
     hero,
@@ -323,7 +413,7 @@ export async function runRetryIntegrationTest(): Promise<RetryTestReport> {
 
     // ── 3. Plant fallback payload (isAI: false) ──────────────────────────────
     const fallbackPayload: WeeklyCheckinPayloadV2 = {
-      _v: 5,
+      _v: 6,
       weekStart: sentinelWeek.toISOString(),
       weekEnd: sentinelWeekEnd.toISOString(),
       hero: "Fallback static text.",
@@ -364,7 +454,7 @@ export async function runRetryIntegrationTest(): Promise<RetryTestReport> {
       const existing = await storage.getWeeklyCheckin(userId, sentinelWeek);
       if (existing) {
         const p = existing.payload as any;
-        if (p?._v === 5 && p.cards?.patterns?.isAI === false) {
+        if (( p?._v === 5 || p?._v === 6 ) && p.cards?.patterns?.isAI === false) {
           const agg = await aggregateWeekV2(userId, sentinelWeek);
           const result = await generatePatternsNarrative(
             agg.promptData, sentinelWeek, agg.weekEnd, userId,
@@ -404,7 +494,7 @@ export async function runRetryIntegrationTest(): Promise<RetryTestReport> {
       const existing = await storage.getWeeklyCheckin(userId, sentinelWeek);
       if (existing) {
         const p = existing.payload as any;
-        if (p?._v === 5 && p.cards?.patterns?.isAI === false) {
+        if (( p?._v === 5 || p?._v === 6 ) && p.cards?.patterns?.isAI === false) {
           // Should NOT enter here if Call 1 succeeded
           const agg = await aggregateWeekV2(userId, sentinelWeek);
           const result = await generatePatternsNarrative(

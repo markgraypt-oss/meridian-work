@@ -8,6 +8,7 @@ import {
   habitCompletions as hcTable,
   goals as goalsSchema,
   wearableMetricsDaily as wmdTable,
+  coachConversations,
 } from "@shared/schema";
 import { and, eq, gte, lt } from "drizzle-orm";
 import type { WeeklyCheckin } from "@shared/schema";
@@ -20,7 +21,7 @@ import type { WeeklyCheckin } from "@shared/schema";
 export type TrajectoryLabel = "holding steady" | "trending up" | "declining" | "not enough data";
 
 export interface WeeklyCheckinPayloadV2 {
-  _v: 5;
+  _v: 6;
   weekStart: string;
   weekEnd: string;
   hero: string;
@@ -58,6 +59,10 @@ export interface WeeklyCheckinPayloadV2 {
       avgActiveMinutesPerDay: number | null;
       activeMinutesSource: "wearable" | "manual" | null;
       avgRestingHr: number | null;
+      avgHrvMs: number | null;
+      avgCaloriesBurned: number | null;
+      avgReadinessScore: number | null;
+      avgStrainScore: number | null;
     };
     patterns?: {
       narrative: string;
@@ -135,13 +140,29 @@ interface V2AggData {
     sessionsCompleted: number;
     sessionsPlanned: number;
     adherencePct: number | null;
+    totalVolumeKg: number;
+    prevTotalVolumeKg: number;
     avgSleepHours: number | null;
     sleepSource: "wearable" | "manual" | null;
+    avgStepsPerDay: number | null;
+    avgActiveMinutesPerDay: number | null;
+    avgRestingHr: number | null;
+    avgHrvMs: number | null;
+    avgCaloriesBurned: number | null;
+    avgReadinessScore: number | null;
+    avgStrainScore: number | null;
+    wearableProviders: string[];
     nutritionDaysTracked: number;
     goalsOnTrackCount: number;
     goalsTotalCount: number;
     habitsWithCompletions: number;
+    burnoutScore: number | null;
     burnoutTrajectory: string | null;
+    bodyAreasActive: string[];
+    bodyAreasChronic: string[];
+    coachConversationsThisWeek: number;
+    coachUserMessagesThisWeek: number;
+    coachRecentTopics: string[];
   };
 }
 
@@ -171,6 +192,7 @@ export async function aggregateWeekV2(userId: string, weekStart: Date): Promise<
     weekHabitCompletions,
     activeMinutesData,
     restingHrData,
+    weekCoachConversations,
   ] = await Promise.all([
     storage.getCheckInsInRange(userId, weekStart, weekEnd),
     storage.getUserWorkoutLogs(userId, 200),
@@ -194,6 +216,11 @@ export async function aggregateWeekV2(userId: string, weekStart: Date): Promise<
     )),
     storage.getExerciseMinutesEntries(userId, 60),
     storage.getRestingHREntries(userId, 60),
+    db.select().from(coachConversations).where(and(
+      eq(coachConversations.userId, userId),
+      gte(coachConversations.updatedAt, weekStart),
+      lt(coachConversations.updatedAt, weekEnd),
+    )).catch(() => [] as any[]),
   ]);
 
   // ---- Burnout (for legacy metrics / trajectoryLabel fallback) ----
@@ -300,6 +327,77 @@ export async function aggregateWeekV2(userId: string, weekStart: Date): Promise<
     const totalBpm = weekHrEntries.reduce((sum: number, e: any) => sum + Number(e.bpm || 0), 0);
     avgRestingHr = Math.round(totalBpm / weekHrEntries.length);
   }
+
+  // ---- Wearable-only daily metrics (HRV, calories burned, readiness, strain) ----
+  // wearable.rows = rows from wearable_metrics_daily across all connected providers.
+  // For each day we keep the BEST (non-null) value across providers; for averages
+  // we average across days (one value per day, not per provider/day).
+  const weekWearableRows = (wearable.rows as any[]).filter((r: any) => {
+    if (!r?.date) return false;
+    const d = new Date(`${r.date}T00:00:00Z`);
+    return d >= weekStart && d < weekEnd;
+  });
+
+  // Prefer the row from the highest-priority provider for each date
+  // (oura > whoop > apple_health > google_fit). If that row has no value
+  // for the requested metric, fall back to any other provider's value.
+  const bestProviderByDate = wearable.bestProviderByDate as Map<string, string>;
+  const bestByDay = <T,>(extract: (r: any) => T | null | undefined): T[] => {
+    const byDate = new Map<string, any[]>();
+    for (const r of weekWearableRows) {
+      const arr = byDate.get(r.date) ?? [];
+      arr.push(r);
+      byDate.set(r.date, arr);
+    }
+    const out: T[] = [];
+    for (const [date, rows] of byDate) {
+      const preferred = bestProviderByDate.get(date);
+      const ordered = rows.slice().sort((a, b) => {
+        if (a.provider === preferred && b.provider !== preferred) return -1;
+        if (b.provider === preferred && a.provider !== preferred) return 1;
+        return 0;
+      });
+      for (const r of ordered) {
+        const v = extract(r);
+        if (v === null || v === undefined) continue;
+        if (typeof v === "number" && !Number.isFinite(v)) continue;
+        out.push(v);
+        break;
+      }
+    }
+    return out;
+  };
+  const avgIntArr = (arr: number[]): number | null =>
+    arr.length === 0 ? null : Math.round(arr.reduce((s, v) => s + v, 0) / arr.length);
+
+  const hrvVals = bestByDay<number>((r) => r.hrvMs);
+  const caloriesVals = bestByDay<number>((r) => r.caloriesBurned);
+  const readinessVals = bestByDay<number>((r) => r.readinessScore);
+  const strainVals = bestByDay<number>((r) => r.strainScore);
+  const avgHrvMs = avgIntArr(hrvVals);
+  const avgCaloriesBurned = avgIntArr(caloriesVals);
+  const avgReadinessScore = avgIntArr(readinessVals);
+  // Strain stored *10 (0-210); convert back to 0-21 for display
+  const avgStrainScoreRaw = avgIntArr(strainVals);
+  const avgStrainScore =
+    avgStrainScoreRaw === null ? null : Math.round((avgStrainScoreRaw / 10) * 10) / 10;
+  const wearableProviders = Array.from(new Set(weekWearableRows.map((r) => r.provider))).sort();
+
+  // ---- AI coach conversations (engagement signal only — counts, no titles/content) ----
+  // We intentionally do NOT pass conversation titles or message text into the AI
+  // prompt: titles are free-form and frequently contain personal/health details
+  // (PII). Counts alone are enough to reason about engagement intensity.
+  // NOTE: `coachUserMessagesThisWeek` counts user messages across all conversations
+  // that were *updated* this week — a thread touched once this week may still
+  // contribute older messages. Treated as an upper-bound engagement signal.
+  let coachUserMessagesThisWeek = 0;
+  for (const conv of weekCoachConversations as any[]) {
+    const msgs = Array.isArray(conv.messages) ? conv.messages : [];
+    for (const m of msgs) {
+      if (m?.role === "user" && typeof m?.content === "string") coachUserMessagesThisWeek++;
+    }
+  }
+  const coachRecentTopics: string[] = [];
 
   // ---- Nutrition ----
   const mealDaySet = new Set<string>();
@@ -488,7 +586,17 @@ export async function aggregateWeekV2(userId: string, weekStart: Date): Promise<
   const avgStepsPerDay: number | null = stepsBlock ? stepsBlock.avg : null;
   const stepsSource: "wearable" | "manual" | null = stepsBlock ? stepsBlock.source : null;
 
-  if (avgSleepHours !== null || roughDaysCount > 0 || avgStepsPerDay !== null || avgActiveMinutesPerDay !== null || avgRestingHr !== null) {
+  if (
+    avgSleepHours !== null ||
+    roughDaysCount > 0 ||
+    avgStepsPerDay !== null ||
+    avgActiveMinutesPerDay !== null ||
+    avgRestingHr !== null ||
+    avgHrvMs !== null ||
+    avgCaloriesBurned !== null ||
+    avgReadinessScore !== null ||
+    avgStrainScore !== null
+  ) {
     cards.lifestyle = {
       avgSleepHours,
       sleepSource,
@@ -498,6 +606,10 @@ export async function aggregateWeekV2(userId: string, weekStart: Date): Promise<
       avgActiveMinutesPerDay,
       activeMinutesSource,
       avgRestingHr,
+      avgHrvMs,
+      avgCaloriesBurned,
+      avgReadinessScore,
+      avgStrainScore,
     };
   }
 
@@ -524,13 +636,29 @@ export async function aggregateWeekV2(userId: string, weekStart: Date): Promise<
       sessionsCompleted: completedThisWeek.length,
       sessionsPlanned,
       adherencePct,
+      totalVolumeKg: Math.round(totalVolumeKg),
+      prevTotalVolumeKg: prevVolumeKg,
       avgSleepHours,
       sleepSource,
+      avgStepsPerDay,
+      avgActiveMinutesPerDay,
+      avgRestingHr,
+      avgHrvMs,
+      avgCaloriesBurned,
+      avgReadinessScore,
+      avgStrainScore,
+      wearableProviders,
       nutritionDaysTracked,
       goalsOnTrackCount: activeGoalItems.filter(g => (g.progressPct ?? 0) >= 50).length,
       goalsTotalCount: activeGoalItems.length,
       habitsWithCompletions: habitItems.length,
+      burnoutScore,
       burnoutTrajectory: burnoutTrajRaw,
+      bodyAreasActive: bodyAreas.filter(b => b.status === "active").map(b => b.bodyPart),
+      bodyAreasChronic: bodyAreas.filter(b => b.status === "chronic").map(b => b.bodyPart),
+      coachConversationsThisWeek: (weekCoachConversations as any[]).length,
+      coachUserMessagesThisWeek,
+      coachRecentTopics,
     },
   };
 }
@@ -554,8 +682,24 @@ function buildPatternsPrompt(promptData: V2AggData["promptData"], weekStart: Dat
 
 Week: ${fmt(weekStart)} to ${fmt(inclusiveEnd)}
 
-User data for this week:
+User data for this week (every available stream — subjective check-ins, training,
+wearable physiology, lifestyle, nutrition, body map, goals, habits, and AI coach
+engagement):
 ${JSON.stringify(promptData, null, 2)}
+
+Field guide:
+- check-ins: avgMood/avgEnergy/avgStress are 1-5 scales; roughDaysCount counts days flagged with headache/sick/fatigue/anxious/overwhelmed.
+- training: sessionsCompleted vs sessionsPlanned, adherencePct, totalVolumeKg vs prevTotalVolumeKg for week-over-week load.
+- wearable physiology (only present if a device is connected; values null otherwise):
+    avgSleepHours, avgStepsPerDay, avgActiveMinutesPerDay, avgRestingHr (bpm),
+    avgHrvMs (ms — higher generally better), avgCaloriesBurned (kcal/day total energy),
+    avgReadinessScore (0-100, Oura), avgStrainScore (0-21, Whoop).
+    wearableProviders lists the active sources.
+- body map: bodyAreasActive (acute), bodyAreasChronic (>2 weeks).
+- goals/habits: goalsOnTrackCount/goalsTotalCount, habitsWithCompletions.
+- AI coach engagement: coachConversationsThisWeek, coachUserMessagesThisWeek
+  — counts only (no titles/topics for privacy). Use as an intensity signal,
+  e.g. "high coach engagement (12 messages) alongside elevated stress".
 
 Your task — output raw JSON only, no prose, no code fences:
 {
@@ -567,7 +711,12 @@ Your task — output raw JSON only, no prose, no code fences:
 Rules:
 - "hero": specific to this person's actual numbers. Not generic. Max 2 sentences.
 - "trajectoryLabel": based on the overall wellbeing picture across all streams. Use "not enough data" only if fewer than 2 streams have data.
-- "patterns": 2-3 specific observations that connect two or more data streams (e.g. "Your three lowest-mood days all followed nights with under 6 h sleep"). If fewer than 2 genuine cross-stream patterns exist, return an empty array.
+- "patterns": 2-3 specific observations that connect two or more data streams
+  (e.g. "Your three lowest-mood days all followed nights with under 6 h sleep",
+  "HRV dropped 12 ms on the two days you completed back-to-back strength sessions",
+  "Coach engagement spiked (12 messages) on the same two days stress peaked at 4.5/5").
+  If fewer than 2 genuine cross-stream patterns exist, return an empty array.
+- Treat null values as "not tracked this week" — never invent numbers.
 - Tone: warm, honest, non-prescriptive. Never diagnose. Reference actual numbers.
 `;
 }
@@ -584,8 +733,23 @@ function buildFallbackNarrative(promptData: V2AggData["promptData"]): { narrativ
   if (promptData.avgSleepHours !== null) {
     parts.push(`avg ${promptData.avgSleepHours}h sleep per night`);
   }
+  if (promptData.avgActiveMinutesPerDay !== null) {
+    parts.push(`${promptData.avgActiveMinutesPerDay} active min/day`);
+  }
+  if (promptData.avgRestingHr !== null) {
+    parts.push(`resting HR ${promptData.avgRestingHr} bpm`);
+  }
+  if (promptData.avgHrvMs !== null) {
+    parts.push(`HRV ${promptData.avgHrvMs} ms`);
+  }
+  if (promptData.avgCaloriesBurned !== null) {
+    parts.push(`avg ${promptData.avgCaloriesBurned.toLocaleString()} kcal/day burned`);
+  }
   if (promptData.nutritionDaysTracked > 0) {
     parts.push(`nutrition tracked ${promptData.nutritionDaysTracked} day${promptData.nutritionDaysTracked !== 1 ? "s" : ""}`);
+  }
+  if (promptData.coachUserMessagesThisWeek > 0) {
+    parts.push(`${promptData.coachUserMessagesThisWeek} message${promptData.coachUserMessagesThisWeek !== 1 ? "s" : ""} with the AI coach`);
   }
 
   const narrative =
@@ -660,7 +824,7 @@ export async function generateWeeklyCheckinPayloadV2(userId: string, weekStart: 
   const hero = isAI ? narrative : narrative;
 
   return {
-    _v: 5,
+    _v: 6,
     weekStart: weekStart.toISOString(),
     weekEnd: agg.weekEnd.toISOString(),
     hero,
@@ -688,7 +852,7 @@ export function isWeeklyCheckinPayloadStale(payload: any): boolean {
     (h) => !Array.isArray(h?.weekDays) || h.weekDays.length !== 7,
   );
   const hasRemovedBodyStatus = payload?.cards?.bodyStatus !== undefined;
-  return payload?._v !== 5 || habitsMissingWeekDays || hasRemovedBodyStatus;
+  return payload?._v !== 6 || habitsMissingWeekDays || hasRemovedBodyStatus;
 }
 
 /**

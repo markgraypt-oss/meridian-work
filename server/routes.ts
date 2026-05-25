@@ -20751,7 +20751,7 @@ RULES:
           db.select({ completedAt: workoutLogs.completedAt, autoCalculatedVolume: workoutLogs.autoCalculatedVolume })
             .from(workoutLogs)
             .where(and(eq(workoutLogs.userId, userId), eq(workoutLogs.status, "completed"), gte(workoutLogs.completedAt, windowStart), lt(workoutLogs.completedAt, windowEnd))),
-          db.select({ date: wearableMetricsDaily.date, steps: wearableMetricsDaily.steps, activeMinutes: wearableMetricsDaily.activeMinutes, restingHrBpm: wearableMetricsDaily.restingHrBpm })
+          db.select({ date: wearableMetricsDaily.date, steps: wearableMetricsDaily.steps, activeMinutes: wearableMetricsDaily.activeMinutes, restingHrBpm: wearableMetricsDaily.restingHrBpm, hrvMs: wearableMetricsDaily.hrvMs })
             .from(wearableMetricsDaily)
             .where(and(eq(wearableMetricsDaily.userId, userId), gte(wearableMetricsDaily.date, windowStartStr), lt(wearableMetricsDaily.date, windowEndStr))),
           db.select({ date: restingHREntries.date, bpm: restingHREntries.bpm })
@@ -20841,6 +20841,12 @@ RULES:
           const hrVals = Array.from(hrByDay.values());
           const avgRestingHr = hrVals.length ? Math.round(hrVals.reduce((a, v) => a + v, 0) / hrVals.length) : null;
 
+          // HRV: wearable only (there is no manual HRV table)
+          const hrvVals = (wearableDaily as any[])
+            .filter((w) => w.date >= bStartStr && w.date < bEndStr && w.hrvMs != null)
+            .map((w) => Number(w.hrvMs));
+          const avgHrvMs = hrvVals.length ? Math.round(hrvVals.reduce((a, v) => a + v, 0) / hrvVals.length) : null;
+
           const weekWeights = weights.filter((w: any) => inBucket(new Date(w.date), b));
           const latestWeightKg = weekWeights.length ? Number(weekWeights[weekWeights.length - 1].weight) : null;
 
@@ -20863,6 +20869,7 @@ RULES:
             avgActiveMinutes,
             totalExerciseMinutes,
             avgRestingHr,
+            avgHrvMs,
             bodyWeightKg: latestWeightKg,
           };
         });

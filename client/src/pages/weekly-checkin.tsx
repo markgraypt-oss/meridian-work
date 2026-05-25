@@ -492,6 +492,8 @@ interface TrendWeek {
   sessionsCompleted: number | null;
   avgSteps: number | null;
   totalExerciseMinutes: number | null;
+  avgRestingHr: number | null;
+  avgHrvMs: number | null;
   bodyWeightKg: number | null;
 }
 
@@ -510,6 +512,8 @@ interface MetricDef {
 const METRICS: MetricDef[] = [
   { key: "burnoutScore", title: "Burnout score", unit: "/10", icon: AlertCircle, format: (v) => v.toFixed(1), inverse: true },
   { key: "avgSleepHours", title: "Sleep", unit: "hrs/night", icon: Moon, format: (v) => v.toFixed(1) },
+  { key: "avgRestingHr", title: "Resting HR", unit: "bpm", icon: Heart, format: (v) => String(Math.round(v)), inverse: true },
+  { key: "avgHrvMs", title: "HRV", unit: "ms", icon: Activity, format: (v) => String(Math.round(v)) },
   { key: "avgSteps", title: "Steps", unit: "/day", icon: Activity, format: (v) => v >= 1000 ? `${(v / 1000).toFixed(1)}k` : String(Math.round(v)) },
   { key: "totalExerciseMinutes", title: "Exercise", unit: "min/week", icon: Activity, format: (v) => String(Math.round(v)) },
   { key: "trainingVolumeKg", title: "Training volume", unit: "kg/week", icon: Dumbbell, format: (v) => v >= 1000 ? `${(v / 1000).toFixed(1)}k` : String(Math.round(v)) },

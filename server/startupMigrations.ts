@@ -185,6 +185,16 @@ const SELF_HEAL_DDL: string[] = [
   `CREATE UNIQUE INDEX IF NOT EXISTS idx_weekly_checkins_user_week_unique
      ON weekly_checkins (user_id, week_start)`,
 
+  // One-time cleanup: delete any past-week snapshots whose payload was
+  // generated BEFORE the week actually ended (Monday-morning scheduler bug).
+  // They contained zero/partial data. Deleting forces a fresh aggregation on
+  // the next view via getOrCreateCurrentWeeklyCheckinV2 / upgradeWeeklyCheckinIfStale.
+  // Safe to run repeatedly: only matches rows where generated_at < week_end
+  // (week_end = week_start + 7 days) AND the week is no longer current.
+  `DELETE FROM weekly_checkins
+     WHERE generated_at < (week_start + interval '7 days')
+       AND (week_start + interval '7 days') <= now()`,
+
   // Badge system v2: workday break log tracker (desk break streak badges)
   `CREATE TABLE IF NOT EXISTS workday_break_logs (
      id serial PRIMARY KEY,

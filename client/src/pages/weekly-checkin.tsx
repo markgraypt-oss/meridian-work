@@ -368,7 +368,7 @@ function NutritionCard({ data }: { data: NonNullable<V2Cards["nutrition"]> }) {
 function CheckinDetailV2({ checkIn, liveGoals }: { checkIn: WeeklyCheckin; liveGoals?: LiveGoal[] }) {
   const payload = checkIn.payload as V2Payload;
   const cards = payload.cards;
-  const weekRange = `${format(new Date(payload.weekStart), "d MMM")} – ${format(new Date(payload.weekEnd), "d MMM yyyy")}`;
+  const weekRange = `${format(new Date(payload.weekStart), "d MMM")} – ${format(new Date(new Date(payload.weekEnd).getTime() - 24 * 60 * 60 * 1000), "d MMM yyyy")}`;
 
   return (
     <div className="space-y-4">
@@ -395,7 +395,7 @@ function CheckinDetailV2({ checkIn, liveGoals }: { checkIn: WeeklyCheckin; liveG
 
 function CheckinDetailLegacy({ checkIn }: { checkIn: WeeklyCheckin }) {
   const p = checkIn.payload as any;
-  const weekRange = `${format(new Date(p.weekStart), "d MMM")} – ${format(new Date(p.weekEnd), "d MMM yyyy")}`;
+  const weekRange = `${format(new Date(p.weekStart), "d MMM")} – ${format(new Date(new Date(p.weekEnd).getTime() - 24 * 60 * 60 * 1000), "d MMM yyyy")}`;
   return (
     <div className="space-y-4">
       <div className="py-2">
@@ -578,7 +578,10 @@ function HistoryList({ history, onOpen }: { history: WeeklyCheckin[]; onOpen: (i
           const p = h.payload as any;
           const v2 = isV2(p);
           const weekStart = p.weekStart as string;
-          const weekEnd = p.weekEnd as string;
+          // weekEnd is stored as the exclusive end (next Monday 00:00 UTC) — subtract
+          // 1 day so the displayed range ends on the inclusive Sunday.
+          const weekEndExclusive = new Date(p.weekEnd as string);
+          const weekEnd = new Date(weekEndExclusive.getTime() - 24 * 60 * 60 * 1000).toISOString();
           const subtitle = v2 ? (p as V2Payload).hero : (p.summary?.burnoutTrajectory ?? "");
           const label = v2 ? (
             <TrajectoryPill label={(p as V2Payload).trajectoryLabel} />

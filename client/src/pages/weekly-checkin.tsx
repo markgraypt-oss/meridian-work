@@ -682,7 +682,9 @@ function HistoryList({ history, onOpen }: { history: WeeklyCheckin[]; onOpen: (i
 export default function WeeklyCheckinPage() {
   const [, navigate] = useLocation();
   const [matchedDetail, params] = useRoute<{ id: string }>("/weekly-checkin/:id");
-  const targetId = matchedDetail ? Number(params!.id) : null;
+  const rawParam = matchedDetail ? params!.id : null;
+  const isLastRoute = rawParam === "last";
+  const targetId = matchedDetail && !isLastRoute ? Number(rawParam) : null;
 
   const currentQuery = useQuery<WeeklyCheckin>({
     queryKey: ["/api/weekly-checkins/current"],
@@ -690,7 +692,14 @@ export default function WeeklyCheckinPage() {
   });
   const detailQuery = useQuery<WeeklyCheckin>({
     queryKey: [`/api/weekly-checkins/${targetId}`],
-    enabled: !!matchedDetail && Number.isFinite(targetId),
+    enabled: !!matchedDetail && !isLastRoute && Number.isFinite(targetId),
+    staleTime: 0,
+    retry: false,
+  });
+  // Resolves to the previous ISO week's check-in (server creates the row on demand)
+  const lastCompletedQuery = useQuery<WeeklyCheckin>({
+    queryKey: ["/api/weekly-checkins/last-completed"],
+    enabled: isLastRoute,
     staleTime: 0,
     retry: false,
   });
@@ -702,9 +711,15 @@ export default function WeeklyCheckinPage() {
     queryKey: ["/api/goals"],
   });
 
-  const checkIn = matchedDetail ? detailQuery.data : currentQuery.data;
-  const isLoading = matchedDetail ? detailQuery.isLoading : currentQuery.isLoading;
-  const hasError = matchedDetail ? detailQuery.isError : currentQuery.isError;
+  const checkIn = matchedDetail
+    ? (isLastRoute ? lastCompletedQuery.data : detailQuery.data)
+    : currentQuery.data;
+  const isLoading = matchedDetail
+    ? (isLastRoute ? lastCompletedQuery.isLoading : detailQuery.isLoading)
+    : currentQuery.isLoading;
+  const hasError = matchedDetail
+    ? (isLastRoute ? lastCompletedQuery.isError : detailQuery.isError)
+    : currentQuery.isError;
 
   const history = useMemo(() => {
     const list = historyQuery.data || [];

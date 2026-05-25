@@ -222,13 +222,6 @@ export default function InsightCard() {
     staleTime: 0,
     refetchOnMount: "always",
   });
-  // Auto-create the last completed week's check-in on demand so the
-  // "View Full Week" button always has a valid row to navigate to.
-  const { data: lastCompleted } = useQuery<WeeklyCheckin>({
-    queryKey: ["/api/weekly-checkins/last-completed"],
-    staleTime: 0,
-    refetchOnMount: "always",
-  });
   const { data: hrvEntries } = useQuery<HRVEntry[]>({
     queryKey: ["/api/progress/hrv"],
   });
@@ -251,18 +244,10 @@ export default function InsightCard() {
 
   const hero = buildHero({ hrv, rhr, sleep, energy });
 
-  // Find the weekly check-in for last completed week. Only consider rows whose
-  // weekStart is strictly before this week's Monday (i.e. fully completed),
-  // then pick the most recent. This avoids landing on an in-progress current
-  // week if one was accidentally created.
-  const thisMonday = new Date(range.end.getTime() + 1); // = this week's Monday 00:00
-  const completed = (checkins ?? [])
-    .filter((c) => new Date(c.weekStart).getTime() < thisMonday.getTime())
-    .sort((a, b) => new Date(b.weekStart).getTime() - new Date(a.weekStart).getTime());
-  // Fall back to the auto-created last-completed row when the list is empty
-  // (e.g. after the startup migration deleted past-week snapshots).
-  const targetCheckin = completed[0] ?? lastCompleted ?? null;
-  const trendsUrl = targetCheckin ? `/weekly-checkin/${targetCheckin.id}` : null;
+  // Always navigate to the previous week's check-in via a stable route.
+  // The detail page resolves "last" by fetching /api/weekly-checkins/last-completed,
+  // which creates the row on demand if it was pruned by the startup migration.
+  const trendsUrl = "/weekly-checkin/last";
 
   const openCoach = () => {
     window.dispatchEvent(new Event("open-coach"));

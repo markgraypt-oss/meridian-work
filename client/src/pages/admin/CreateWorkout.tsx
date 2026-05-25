@@ -114,6 +114,12 @@ export default function CreateWorkoutPage() {
         } else if (!data.blocks) {
           data.blocks = [];
         }
+        // Defensive defaults so older sessionStorage shapes don't crash the form
+        if (!Array.isArray(data.categories)) data.categories = [];
+        if (!Array.isArray(data.targetAreas)) data.targetAreas = [];
+        if (!Array.isArray(data.equipment)) data.equipment = [];
+        if (!data.goal) data.goal = data.category || "strength";
+        if (!data.equipmentLevel) data.equipmentLevel = "full_gym";
         setFormData(data);
         // Set initial form state for dirty tracking AFTER loading from session storage
         initialFormRef.current = JSON.stringify(data);

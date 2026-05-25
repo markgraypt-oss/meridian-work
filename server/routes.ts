@@ -20722,11 +20722,14 @@ RULES:
         const userId = req.user.claims.sub;
         const weeks = Math.min(Math.max(Number(req.query.weeks) || 12, 1), 26);
 
-        // Build N week buckets ending with current ISO week
+        // Build N week buckets ending with the last COMPLETED ISO week.
+        // The in-progress current week is excluded because partial-week data
+        // made every metric look like it had crashed (e.g. Monday morning
+        // showed 1/7 of the week's steps).
         const { getIsoWeekStart, getPreviousIsoWeekStart } = await import("./weeklyCheckin");
         const currentWeekStart = getIsoWeekStart(new Date());
         const buckets: { weekStart: Date; weekEnd: Date }[] = [];
-        let cur = currentWeekStart;
+        let cur = getPreviousIsoWeekStart(currentWeekStart);
         for (let i = 0; i < weeks; i++) {
           const end = new Date(cur); end.setUTCDate(end.getUTCDate() + 7);
           buckets.unshift({ weekStart: new Date(cur), weekEnd: end });
@@ -20805,7 +20808,7 @@ RULES:
             }
           }
           const stepVals = Array.from(stepsByDay.values());
-          const avgSteps = stepVals.length ? Math.round(stepVals.reduce((a, v) => a + v, 0) / 7) : null;
+          const avgSteps = stepVals.length ? Math.round(stepVals.reduce((a, v) => a + v, 0) / stepVals.length) : null;
 
           // Active minutes: merge wearable + manual, prefer wearable per day
           const activeByDay = new Map<string, number>();

@@ -706,8 +706,11 @@ export async function upgradeWeeklyCheckinIfStale(row: WeeklyCheckin): Promise<W
   return await storage.updateWeeklyCheckinPayload(row.id, newPayload);
 }
 
-export async function getOrCreateCurrentWeeklyCheckinV2(userId: string): Promise<WeeklyCheckin> {
-  const weekStart = getIsoWeekStart();
+export async function getOrCreateCurrentWeeklyCheckinV2(
+  userId: string,
+  weekStartOverride?: Date,
+): Promise<WeeklyCheckin> {
+  const weekStart = weekStartOverride ?? getIsoWeekStart();
   const existing = await storage.getWeeklyCheckin(userId, weekStart);
 
   if (existing) {
@@ -748,16 +751,22 @@ export async function getOrCreateCurrentWeeklyCheckinV2(userId: string): Promise
       const updated = await storage.updateWeeklyCheckinPayload(existing.id, newPayload);
       return updated;
     }
-    // For the CURRENT week, regenerate if the payload is older than 15 minutes
-    // so newly-logged check-ins / workouts / habits / meals show up without
-    // requiring the user to wait for the next scheduler tick. Past weeks are
-    // immutable snapshots and are never re-aggregated here.
+    // Regenerate when the snapshot was taken BEFORE the week actually ended
+    // (e.g. Monday-morning scheduler runs on the week that just started and
+    // captures zero data). Also covers the current week — its weekEnd is in
+    // the future so every fetch older than 15 min refreshes.
+    const weekEndMs = weekStart.getTime() + 7 * 24 * 60 * 60 * 1000;
+    const generatedAtMs = existing.generatedAt ? new Date(existing.generatedAt).getTime() : 0;
+    const isCurrentWeek = Date.now() < weekEndMs;
     const STALE_AFTER_MS = 15 * 60 * 1000;
-    const generatedAt = existing.generatedAt ? new Date(existing.generatedAt).getTime() : 0;
-    if (Date.now() - generatedAt > STALE_AFTER_MS) {
+    const wasGeneratedBeforeWeekEnded = generatedAtMs < weekEndMs;
+    const isAgedCurrentWeek = isCurrentWeek && Date.now() - generatedAtMs > STALE_AFTER_MS;
+    if (wasGeneratedBeforeWeekEnded && (!isCurrentWeek || isAgedCurrentWeek)) {
       console.log(
-        `[weekly-checkin-v2] refreshing current-week row ${existing.id} for user ${userId} ` +
-          `(age=${Math.round((Date.now() - generatedAt) / 1000)}s)`,
+        `[weekly-checkin-v2] refreshing row ${existing.id} for user ${userId} ` +
+          `weekStart=${weekStart.toISOString().slice(0, 10)} ` +
+          `(current=${isCurrentWeek}, age=${Math.round((Date.now() - generatedAtMs) / 1000)}s, ` +
+          `genBeforeWeekEnd=${wasGeneratedBeforeWeekEnded})`,
       );
       const newPayload = await generateWeeklyCheckinPayloadV2(userId, weekStart);
       const updated = await storage.updateWeeklyCheckinPayload(existing.id, newPayload);

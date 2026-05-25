@@ -96,7 +96,7 @@ async function dispatchForUser(
 
   let payload: any;
   try {
-    const checkin = await getOrCreateCurrentWeeklyCheckinV2(userId);
+    const checkin = await getOrCreateCurrentWeeklyCheckinV2(userId, weekStart);
     payload = checkin.payload;
   } catch (e) {
     console.error(`[weekly-checkin-scheduler] generate failed for ${userId}:`, e);
@@ -157,7 +157,11 @@ async function tick(): Promise<void> {
     const hour = now.getHours();
     if (hour < SEND_HOUR_START || hour >= SEND_HOUR_END) return;
 
-    const weekStart = getIsoWeekStart(now);
+    // Monday morning: summarise the week that JUST ENDED (last Mon–Sun), not
+    // the new week that started ~7 hours ago with zero data.
+    const currentWeekStart = getIsoWeekStart(now);
+    const weekStart = new Date(currentWeekStart);
+    weekStart.setUTCDate(weekStart.getUTCDate() - 7);
 
     const rows = await db
       .select({ id: users.id, firstName: users.firstName })
@@ -198,6 +202,9 @@ export function startWeeklyCheckinScheduler(): void {
 export async function runWeeklyCheckinForUserNow(userId: string): Promise<void> {
   const user = await storage.getUser(userId);
   if (!user) return;
-  const weekStart = getIsoWeekStart();
+  // Run against the week that just ended, matching the scheduler.
+  const currentWeekStart = getIsoWeekStart();
+  const weekStart = new Date(currentWeekStart);
+  weekStart.setUTCDate(weekStart.getUTCDate() - 7);
   await dispatchForUser(userId, user.firstName ?? null, weekStart);
 }

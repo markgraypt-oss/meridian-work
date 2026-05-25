@@ -20660,6 +20660,7 @@ RULES:
     const {
       generateWeeklyCheckinPayloadV2,
       getIsoWeekStart,
+      getPreviousIsoWeekStart,
       getOrCreateCurrentWeeklyCheckinV2,
       upgradeWeeklyCheckinIfStale,
     } = await import("./weeklyCheckin");
@@ -20683,6 +20684,19 @@ RULES:
         res.json(weekly);
       } catch (error: any) {
         console.error("Error fetching current weekly check-in:", error?.message);
+        res.status(500).json({ message: "Failed to load weekly check-in" });
+      }
+    });
+
+    app.get("/api/weekly-checkins/last-completed", isAuthenticated, async (req: any, res) => {
+      try {
+        const userId = req.user.claims.sub;
+        const currentWeekStart = getIsoWeekStart();
+        const lastWeekStart = getPreviousIsoWeekStart(currentWeekStart);
+        const row = await getOrCreateCurrentWeeklyCheckinV2(userId, lastWeekStart);
+        res.json(row);
+      } catch (error: any) {
+        console.error("Error fetching last completed weekly check-in:", error?.message);
         res.status(500).json({ message: "Failed to load weekly check-in" });
       }
     });

@@ -222,6 +222,13 @@ export default function InsightCard() {
     staleTime: 0,
     refetchOnMount: "always",
   });
+  // Auto-create the last completed week's check-in on demand so the
+  // "View Full Week" button always has a valid row to navigate to.
+  const { data: lastCompleted } = useQuery<WeeklyCheckin>({
+    queryKey: ["/api/weekly-checkins/last-completed"],
+    staleTime: 0,
+    refetchOnMount: "always",
+  });
   const { data: hrvEntries } = useQuery<HRVEntry[]>({
     queryKey: ["/api/progress/hrv"],
   });
@@ -252,7 +259,9 @@ export default function InsightCard() {
   const completed = (checkins ?? [])
     .filter((c) => new Date(c.weekStart).getTime() < thisMonday.getTime())
     .sort((a, b) => new Date(b.weekStart).getTime() - new Date(a.weekStart).getTime());
-  const targetCheckin = completed[0];
+  // Fall back to the auto-created last-completed row when the list is empty
+  // (e.g. after the startup migration deleted past-week snapshots).
+  const targetCheckin = completed[0] ?? lastCompleted ?? null;
   const trendsUrl = targetCheckin ? `/weekly-checkin/${targetCheckin.id}` : null;
 
   const openCoach = () => {

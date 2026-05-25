@@ -547,9 +547,12 @@ const patternsAiSchema = z.object({
 
 function buildPatternsPrompt(promptData: V2AggData["promptData"], weekStart: Date, weekEnd: Date): string {
   const fmt = (d: Date) => d.toISOString().slice(0, 10);
+  // weekEnd is the exclusive Monday after the week; use the inclusive Sunday
+  // so any date referenced in the AI's hero/patterns text reads correctly.
+  const inclusiveEnd = new Date(weekEnd.getTime() - 24 * 60 * 60 * 1000);
   return `You are a workplace wellbeing coach writing the "Patterns this week" section of a weekly check-in for a corporate wellness app.
 
-Week: ${fmt(weekStart)} to ${fmt(weekEnd)}
+Week: ${fmt(weekStart)} to ${fmt(inclusiveEnd)}
 
 User data for this week:
 ${JSON.stringify(promptData, null, 2)}

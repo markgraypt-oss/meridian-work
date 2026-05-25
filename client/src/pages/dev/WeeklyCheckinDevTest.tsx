@@ -107,7 +107,7 @@ const statusConfig: Record<"active" | "chronic" | "resolved", { color: string; l
 
 function CheckinDetailV2({ payload }: { payload: V2Payload }) {
   const cards = payload.cards;
-  const weekRange = `${format(new Date(payload.weekStart), "d MMM")} – ${format(new Date(payload.weekEnd), "d MMM yyyy")}`;
+  const weekRange = `${format(new Date(payload.weekStart), "d MMM")} – ${format(new Date(new Date(payload.weekEnd).getTime() - 24 * 60 * 60 * 1000), "d MMM yyyy")}`;
 
   return (
     <div className="space-y-4">

@@ -20135,13 +20135,21 @@ Respond as the Recovery Coach. Reference their specific assessment data and prov
         console.warn('[burnout] wearable fetch failed, continuing without it:', e?.message || e);
         return { rows: [], bestProviderByDate: new Map<string, string>() };
       });
-      const [checkInData, workoutLogData, bodyMapData, sleepData, stepData, wearable] = await Promise.all([
+      // Resilient baseline fetch: same pattern as wearables — if the baseline
+      // table is missing or the user has no baseline yet, fall back to null
+      // rather than failing the score computation.
+      const baselineSafe = storage.getUserPhysiologicalBaselines(userId).catch((e: any) => {
+        console.warn('[burnout] baseline fetch failed, continuing without it:', e?.message || e);
+        return null;
+      });
+      const [checkInData, workoutLogData, bodyMapData, sleepData, stepData, wearable, baselines] = await Promise.all([
         storage.getCheckInsInRange(userId, startDate, endDate),
         storage.getUserWorkoutLogs(userId, 100),
         storage.getBodyMapLogs(userId),
         storage.getSleepEntries(userId, 60),
         storage.getStepEntries(userId, 60),
         wearableSafe,
+        baselineSafe,
       ]);
 
       // Capture the most recent burnout tier BEFORE inserting the new score so
@@ -20161,6 +20169,7 @@ Respond as the Recovery Coach. Reference their specific assessment data and prov
         sleepEntries: sleepData,
         stepEntries: stepData,
         wearableMetrics: wearable.rows,
+        baselines: baselines ?? null,
       });
 
       const saved = await storage.createBurnoutScore({

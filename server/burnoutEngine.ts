@@ -1,4 +1,4 @@
-import type { CheckIn, BodyMapLog, WorkoutLog, SleepEntry, StepEntry, WearableMetricsDaily } from "@shared/schema";
+import type { CheckIn, BodyMapLog, WorkoutLog, SleepEntry, StepEntry, WearableMetricsDaily, UserPhysiologicalBaselines } from "@shared/schema";
 
 interface BurnoutDriver {
   key: string;
@@ -26,6 +26,12 @@ interface BurnoutDataSources {
   // Wearable-sourced daily metrics. When present we PREFER these over the
   // self-reported sleep/step entries because they are objective measurements.
   wearableMetrics?: WearableMetricsDaily[];
+  // User's personal physiological baselines (HRV, RHR, sleep duration).
+  // Computed nightly by the baseline scheduler from rolling windows.
+  // Required for the physiological readiness source to contribute to the score.
+  // When null or uncalibrated, that source contributes nothing and its
+  // weight is redistributed across active sources via existing logic.
+  baselines?: UserPhysiologicalBaselines | null;
 }
 
 // Convert wearable_metrics_daily rows into the SleepEntry/StepEntry shapes
@@ -322,6 +328,178 @@ function computeActivityScore(stepEntries: StepEntry[], windowDays: number): num
   return 85;
 }
 
+// --- PHYSIOLOGICAL READINESS SCORE ---
+// The most powerful new signal in the engine. Combines three approaches:
+//
+//   1. PROVIDER COMPOSITE (Oura readiness / Whoop recovery):
+//      Use this directly when present. These scores are the result of
+//      millions of dollars of R&D and combine HRV, RHR, body temp deviation,
+//      sleep quality, prior strain, and more. Better than anything we'd
+//      compute from raw fields. Average the last 7 days, EWMA-weighted
+//      toward recent data.
+//
+//   2. RAW HRV/RHR COMPOSITE (Apple Health and other providers):
+//      When no readiness score is available, compute our own from raw HRV
+//      and RHR vs the user's personal baselines. HRV suppression and RHR
+//      elevation both signal autonomic stress.
+//
+//   3. CALIBRATION GATE:
+//      Returns null until the baseline has 14+ samples per metric. Until
+//      then, this source doesn't contribute to the score — the dynamic
+//      weight redistribution gives that 12% back to check-ins.
+//
+// Output: 0 (excellent recovery) -> 100 (severe physiological stress).
+function computePhysiologicalReadinessScore(
+  metrics: WearableMetricsDaily[] | undefined,
+  baselines: UserPhysiologicalBaselines | null | undefined,
+): number | null {
+  if (!metrics || metrics.length === 0) return null;
+  if (!baselines || !baselines.isCalibrated) return null;
+
+  // Look at the last 7 days only — readiness is a recent-recovery metric,
+  // not a long-term trend. Older data dilutes the signal.
+  const sevenDaysAgo = new Date();
+  sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
+  const cutoffStr = sevenDaysAgo.toISOString().slice(0, 10);
+  const recentMetrics = metrics.filter(m => m.date >= cutoffStr);
+  if (recentMetrics.length === 0) return null;
+
+  // Dedupe by provider priority (same logic as elsewhere in the engine)
+  const byDate = new Map<string, WearableMetricsDaily>();
+  for (const m of recentMetrics) {
+    const cur = byDate.get(m.date);
+    if (!cur || (WEARABLE_PRIORITY[m.provider] || 0) > (WEARABLE_PRIORITY[cur.provider] || 0)) {
+      byDate.set(m.date, m);
+    }
+  }
+  const dedupedMetrics = Array.from(byDate.values())
+    .sort((a, b) => b.date.localeCompare(a.date)); // most recent first
+
+  // EWMA weighting: most recent day has full weight, decays by ~14% per day.
+  // Same decay factor as the check-in EWMA for consistency.
+  const decayFactor = 0.15;
+
+  // --- APPROACH 1: Provider composite (Oura readiness / Whoop recovery) ---
+  // Both Oura and Whoop store their composite score in readinessScore (0-100).
+  // Higher = better recovery, so we invert for burnout contribution.
+  const readinessRows = dedupedMetrics.filter(m => m.readinessScore != null);
+  if (readinessRows.length >= 3) {
+    let weightedSum = 0;
+    let weightTotal = 0;
+    for (let i = 0; i < readinessRows.length; i++) {
+      const weight = Math.exp(-decayFactor * i);
+      const readiness = readinessRows[i].readinessScore as number;
+      weightedSum += (100 - readiness) * weight; // invert: 100 readiness -> 0 burnout
+      weightTotal += weight;
+    }
+    return Math.max(0, Math.min(100, weightedSum / weightTotal));
+  }
+
+  // --- APPROACH 2: Raw HRV + RHR composite vs personal baseline ---
+  // Compute z-scores: how many standard deviations from baseline is each metric?
+  // Negative HRV z-score (below baseline) = bad. Positive RHR z-score (above baseline) = bad.
+  const hrvBaseline = baselines.hrvBaselineMs;
+  const hrvSd = baselines.hrvStdDevMs;
+  const rhrBaseline = baselines.rhrBaselineBpm;
+  const rhrSd = baselines.rhrStdDevBpm;
+
+  if (!hrvBaseline || !hrvSd || !rhrBaseline || !rhrSd) return null;
+
+  // Recent HRV values, EWMA-weighted
+  const hrvRows = dedupedMetrics.filter(m => m.hrvMs != null);
+  const rhrRows = dedupedMetrics.filter(m => m.restingHrBpm != null);
+
+  // Need at least 3 days of each to compute a meaningful recent average
+  if (hrvRows.length < 3 || rhrRows.length < 3) return null;
+
+  const ewmaAvg = (rows: WearableMetricsDaily[], field: 'hrvMs' | 'restingHrBpm'): number => {
+    let weightedSum = 0;
+    let weightTotal = 0;
+    for (let i = 0; i < rows.length; i++) {
+      const weight = Math.exp(-decayFactor * i);
+      weightedSum += (rows[i][field] as number) * weight;
+      weightTotal += weight;
+    }
+    return weightedSum / weightTotal;
+  };
+
+  const recentHrv = ewmaAvg(hrvRows, 'hrvMs');
+  const recentRhr = ewmaAvg(rhrRows, 'restingHrBpm');
+
+  // Z-scores. Floor of 1 on stdev to prevent division-by-near-zero noise
+  // for users with very stable baselines (small stdev).
+  const hrvZ = (recentHrv - hrvBaseline) / Math.max(1, hrvSd);
+  const rhrZ = (recentRhr - rhrBaseline) / Math.max(1, rhrSd);
+
+  // Burnout contributions:
+  //   HRV: every standard deviation BELOW baseline = 25 points of burnout
+  //   RHR: every standard deviation ABOVE baseline = 25 points of burnout
+  // Caps at 100 so a single catastrophic week doesn't dominate.
+  const hrvContribution = Math.max(0, -hrvZ) * 25;
+  const rhrContribution = Math.max(0, rhrZ) * 25;
+
+  // Weighted blend: HRV is more sensitive (60%), RHR is more robust (40%).
+  // When both move the same direction, score is high; when they diverge,
+  // we average and the signal is appropriately moderated.
+  const combined = (hrvContribution * 0.6) + (rhrContribution * 0.4);
+
+  return Math.max(0, Math.min(100, combined));
+}
+
+// --- STRAIN:RECOVERY BALANCE SCORE ---
+// Detects the classic overtraining / compulsive coping pattern: someone
+// repeatedly hammering high training strain on days when their body is
+// signalling low recovery. This is a Whoop-specific input — Whoop stores
+// strain (0-21, scaled x10 in the DB so 0-210) alongside recovery (0-100,
+// stored in the readinessScore field for Whoop). Oura doesn't have a strain
+// equivalent, and Apple Health doesn't provide either, so this returns null
+// for non-Whoop users.
+//
+// Why this matters for the fitness audience: this is the literal pattern
+// behind every "I trained through it and got injured" story. Catching it
+// proactively is a meaningful intervention point.
+//
+// Output: 0 (good balance) -> 100 (sustained overreaching).
+function computeStrainRecoveryBalanceScore(metrics: WearableMetricsDaily[] | undefined): number | null {
+  if (!metrics || metrics.length === 0) return null;
+
+  // Only consider Whoop data — Oura readinessScore exists but has no strain
+  // counterpart, so we can't compute a balance for Oura.
+  const whoopMetrics = metrics.filter(m => m.provider === 'whoop' && m.strainScore != null && m.readinessScore != null);
+
+  // Need at least 7 days of paired Whoop data to detect a sustained pattern.
+  // Fewer days = could be a one-off hard week, not an overtraining pattern.
+  if (whoopMetrics.length < 7) return null;
+
+  // Sort most recent first, take last 14 days max
+  const sorted = whoopMetrics
+    .sort((a, b) => b.date.localeCompare(a.date))
+    .slice(0, 14);
+
+  // Imbalance score per day: high strain (>14 on 0-21 scale, i.e. >140 in DB)
+  // combined with low recovery (<50) is the danger zone.
+  // Strain is stored x10 in the DB so we divide back.
+  let imbalanceDays = 0;
+  let totalDays = sorted.length;
+
+  for (const day of sorted) {
+    const strain = (day.strainScore as number) / 10; // back to 0-21 scale
+    const recovery = day.readinessScore as number;
+    // Classic Whoop "in the red" pattern: strain > 14 AND recovery < 50
+    if (strain > 14 && recovery < 50) {
+      imbalanceDays++;
+    }
+  }
+
+  // Convert to 0-100 burnout contribution
+  const imbalanceRatio = imbalanceDays / totalDays;
+
+  // 0 imbalance days  -> score 0
+  // 50% imbalance days -> score 60 (concerning pattern)
+  // 100% imbalance days -> score 100 (sustained red zone — major flag)
+  return Math.max(0, Math.min(100, imbalanceRatio * 100 + (imbalanceDays > 0 ? 10 : 0)));
+}
+
 // --- Trend computation ---
 function computeTrend(recent: number[], baseline: number[]): 'up' | 'down' | 'stable' {
   // Rule 1 & 3: Require at least 3 data points in each window (minimum data gate + rolling 3 vs 3)
@@ -349,6 +527,8 @@ function getDriverExplanation(key: string, value: number): string {
     painLoad: (v) => v > 60 ? 'Active pain or injuries are significantly impacting your score' : v > 30 ? 'Some pain or injury areas are present' : 'Pain and injury load is minimal',
     sleepTracking: (v) => v > 60 ? 'Sleep duration and quality are poor -- a key burnout accelerator' : v > 30 ? 'Sleep patterns have room for improvement' : 'Sleep patterns are healthy',
     activity: (v) => v > 60 ? 'Daily movement is well below recommended levels' : v > 30 ? 'Daily movement could be higher' : 'Daily movement levels are good',
+    physiologicalReadiness: (v) => v > 60 ? 'Your physiology is showing significant strain — HRV suppressed and recovery scores low' : v > 30 ? 'Physiological recovery is below your personal baseline' : 'Physiological recovery is solid — your body is handling current load well',
+    strainRecoveryBalance: (v) => v > 60 ? 'High training strain repeatedly hitting low recovery — classic overreaching pattern' : v > 30 ? 'Some days of high strain on low recovery — watch the trend' : 'Training strain and recovery are well balanced',
   };
   return (explanations[key] || (() => ''))(value);
 }
@@ -364,6 +544,8 @@ const DRIVER_LABELS: Record<string, string> = {
   painLoad: 'Pain & Injury Load',
   sleepTracking: 'Sleep Patterns',
   activity: 'Daily Activity',
+  physiologicalReadiness: 'Physiological Readiness',
+  strainRecoveryBalance: 'Strain vs Recovery Balance',
 };
 
 const BASE_CHECKIN_KEYS = ['sleep', 'stress', 'energy', 'mood', 'clarity', 'booleans'];
@@ -373,43 +555,67 @@ const BASE_CHECKIN_KEYS = ['sleep', 'stress', 'energy', 'mood', 'clarity', 'bool
 // ====================================================================
 // OVERALL SOURCE WEIGHTS (research rationale):
 //
-//   Check-ins: 60%
+//   Check-ins: 50%
 //     The subjective self-report IS the burnout measure. The Maslach Burnout
 //     Inventory is entirely self-reported. Our check-in captures the core
 //     dimensions: emotional exhaustion (stress), depletion (energy),
 //     depersonalisation (mood), cognitive impairment (clarity), and
-//     behavioural signals (booleans). This must dominate.
+//     behavioural signals (booleans). This must dominate. Reduced from 60%
+//     to 50% to make room for objective physiological signals, but still
+//     the largest single source — burnout remains primarily psychological.
 //
-//   Sleep tracking: 20%
-//     Sleep disruption is the strongest physiological marker of burnout.
-//     Meta-analyses show a robust bidirectional relationship: poor sleep
-//     causes burnout AND burnout causes poor sleep. It is both an early
-//     warning system and an accelerant. Second-highest weight.
+//   Physiological readiness: 18%
+//     The single biggest objective signal we have. Uses provider composite
+//     scores (Oura readiness / Whoop recovery) directly when present —
+//     these algorithms incorporate HRV, RHR, body temp, sleep, and prior
+//     strain in ways we couldn't easily replicate. For users without a
+//     provider composite (Apple Health), we compute our own from raw HRV
+//     and RHR vs the user's personal baseline. Gated by 14-sample
+//     calibration; contributes nothing until the baseline is established.
+//     This is a LEADING indicator — physiological stress often precedes
+//     subjective awareness by days to weeks.
 //
-//   Workout consistency: 10%
+//   Sleep tracking: 17%
+//     Sleep disruption is the strongest established physiological marker
+//     of burnout. Meta-analyses show a robust bidirectional relationship.
+//     Slight reduction from 20% to make room for physiological readiness;
+//     the two are partially overlapping signals (Oura's readiness already
+//     factors sleep) so this avoids double-counting.
+//
+//   Workout consistency: 7%
 //     Exercise is a protective factor (resource in Conservation of Resources
-//     theory). A sudden drop in training consistency signals withdrawal, a
-//     key burnout behaviour. Overtraining signals compulsive coping.
-//     Important but not as diagnostically powerful as sleep.
+//     theory). Sudden drop = withdrawal, overtraining = compulsive coping.
+//     Reduced from 10% because physiological signals now catch overtraining
+//     more directly via HRV/RHR.
 //
-//   Body map pain: 5%
-//     Somatic/musculoskeletal complaints can accompany burnout, but pain is
-//     far from universal — someone can be severely burned out with no injury.
-//     Reduced to 5% to avoid over-rewarding a clean body map.
+//   Body map pain: 4%
+//     Somatic complaints accompany burnout but pain is far from universal.
+//     Slight reduction from 5% as part of overall rebalancing.
 //
-//   Daily activity (steps): 5%
-//     General movement is a weak but useful supporting indicator. Low step
-//     counts correlate with burnout but have many confounding factors
-//     (desk work, travel, weather). Lowest weight.
+//   Daily activity (steps): 2%
+//     Weak signal with many confounders (desk work, weather, travel).
+//     Significantly reduced from 5% — raw step counts are noisy compared
+//     to HRV/RHR/readiness data when available.
 //
+//   Strain:recovery balance: 2%
+//     Whoop-only. Catches the overtraining/compulsive coping pattern when
+//     high strain consistently coincides with low recovery. Small weight
+//     because it only applies to Whoop users, but high diagnostic value
+//     when it fires for the fitness audience.
+//
+// Total: 100%. Dynamic redistribution handles users with fewer sources.
+// A user with only check-ins gets check-ins at effectively 100%, exactly
+// the same as today's check-in-only experience.
 // ====================================================================
 
 const SOURCE_WEIGHTS = {
-  checkIn: 0.60,
-  sleepTracking: 0.20,
-  workoutConsistency: 0.10,
-  painLoad: 0.05,
-  activity: 0.05,
+  checkIn: 0.50,
+  physiologicalReadiness: 0.18,
+  sleepTracking: 0.17,
+  workoutConsistency: 0.07,
+  painLoad: 0.04,
+  activity: 0.02,
+  strainRecoveryBalance: 0.02,
 };
 
 export function computeBurnoutScore(data: BurnoutDataSources): BurnoutResult {
@@ -463,6 +669,16 @@ export function computeBurnoutScore(data: BurnoutDataSources): BurnoutResult {
   const sleepTrackingScore = hasSleep ? computeSleepTrackingScore(sleepEntries!, windowDays) : null;
   const activityScore = hasSteps ? computeActivityScore(stepEntries!, windowDays) : null;
 
+  // NEW SOURCES — physiological readiness (HRV/RHR/provider composite) and
+  // strain:recovery balance. Both return null when calibration or data is
+  // insufficient; the dynamic weight redistribution will then exclude them.
+  const physiologicalReadinessScore = computePhysiologicalReadinessScore(data.wearableMetrics, data.baselines);
+  const strainRecoveryBalanceScore = computeStrainRecoveryBalanceScore(data.wearableMetrics);
+
+  // Increment dataSourceCount for new sources that contributed
+  if (physiologicalReadinessScore !== null) dataSourceCount++;
+  if (strainRecoveryBalanceScore !== null) dataSourceCount++;
+
   // --- EWMA over recent 7 check-ins (exponential decay = 0.15) ---
   const sorted = [...checkIns].sort((a, b) => {
     const dateA = new Date(a.checkInDate).getTime();
@@ -505,10 +721,12 @@ export function computeBurnoutScore(data: BurnoutDataSources): BurnoutResult {
   let totalActiveWeight = 0;
 
   if (hasCheckIns) { activeWeights['checkIn'] = SOURCE_WEIGHTS.checkIn; totalActiveWeight += SOURCE_WEIGHTS.checkIn; }
+  if (physiologicalReadinessScore !== null) { activeWeights['physiologicalReadiness'] = SOURCE_WEIGHTS.physiologicalReadiness; totalActiveWeight += SOURCE_WEIGHTS.physiologicalReadiness; }
   if (sleepTrackingScore !== null) { activeWeights['sleepTracking'] = SOURCE_WEIGHTS.sleepTracking; totalActiveWeight += SOURCE_WEIGHTS.sleepTracking; }
   if (workoutScore !== null) { activeWeights['workoutConsistency'] = SOURCE_WEIGHTS.workoutConsistency; totalActiveWeight += SOURCE_WEIGHTS.workoutConsistency; }
   if (painScore !== null) { activeWeights['painLoad'] = SOURCE_WEIGHTS.painLoad; totalActiveWeight += SOURCE_WEIGHTS.painLoad; }
   if (activityScore !== null) { activeWeights['activity'] = SOURCE_WEIGHTS.activity; totalActiveWeight += SOURCE_WEIGHTS.activity; }
+  if (strainRecoveryBalanceScore !== null) { activeWeights['strainRecoveryBalance'] = SOURCE_WEIGHTS.strainRecoveryBalance; totalActiveWeight += SOURCE_WEIGHTS.strainRecoveryBalance; }
 
   if (totalActiveWeight > 0) {
     const scale = 1 / totalActiveWeight;
@@ -520,22 +738,27 @@ export function computeBurnoutScore(data: BurnoutDataSources): BurnoutResult {
   // --- Weighted final score ---
   let finalScore = 0;
   if (hasCheckIns) finalScore += checkInWeightedScore * (activeWeights['checkIn'] || 0);
+  if (physiologicalReadinessScore !== null) finalScore += physiologicalReadinessScore * (activeWeights['physiologicalReadiness'] || 0);
   if (sleepTrackingScore !== null) finalScore += sleepTrackingScore * (activeWeights['sleepTracking'] || 0);
   if (workoutScore !== null) finalScore += workoutScore * (activeWeights['workoutConsistency'] || 0);
   if (painScore !== null) finalScore += painScore * (activeWeights['painLoad'] || 0);
   if (activityScore !== null) finalScore += activityScore * (activeWeights['activity'] || 0);
+  if (strainRecoveryBalanceScore !== null) finalScore += strainRecoveryBalanceScore * (activeWeights['strainRecoveryBalance'] || 0);
 
   finalScore = Math.round(Math.max(0, Math.min(100, finalScore)));
 
   // --- Debug logging ---
   console.log('[Burnout Engine] Source scores:', {
     checkIn: hasCheckIns ? Math.round(checkInWeightedScore) : 'N/A',
+    physiologicalReadiness: physiologicalReadinessScore !== null ? Math.round(physiologicalReadinessScore) : 'N/A',
     sleepTracking: sleepTrackingScore !== null ? Math.round(sleepTrackingScore) : 'N/A',
     workout: workoutScore !== null ? Math.round(workoutScore) : 'N/A',
     pain: painScore !== null ? Math.round(painScore) : 'N/A',
     activity: activityScore !== null ? Math.round(activityScore) : 'N/A',
+    strainRecoveryBalance: strainRecoveryBalanceScore !== null ? Math.round(strainRecoveryBalanceScore) : 'N/A',
     finalScore,
     dataSourceCount,
+    baselineCalibrated: data.baselines?.isCalibrated ?? false,
     weights: activeWeights,
   });
 
@@ -551,6 +774,10 @@ export function computeBurnoutScore(data: BurnoutDataSources): BurnoutResult {
     }
   }
 
+  if (physiologicalReadinessScore !== null) {
+    allDriverComponents['physiologicalReadiness'] = physiologicalReadinessScore;
+    allDriverWeights['physiologicalReadiness'] = activeWeights['physiologicalReadiness'] || 0;
+  }
   if (sleepTrackingScore !== null) {
     allDriverComponents['sleepTracking'] = sleepTrackingScore;
     allDriverWeights['sleepTracking'] = activeWeights['sleepTracking'] || 0;
@@ -566,6 +793,10 @@ export function computeBurnoutScore(data: BurnoutDataSources): BurnoutResult {
   if (activityScore !== null) {
     allDriverComponents['activity'] = activityScore;
     allDriverWeights['activity'] = activeWeights['activity'] || 0;
+  }
+  if (strainRecoveryBalanceScore !== null) {
+    allDriverComponents['strainRecoveryBalance'] = strainRecoveryBalanceScore;
+    allDriverWeights['strainRecoveryBalance'] = activeWeights['strainRecoveryBalance'] || 0;
   }
 
   // --- Trajectory (based on check-in trend: recent 7 vs baseline 8+) ---

@@ -152,7 +152,7 @@ function parseIdParam(s: string | undefined): number | null {
   return Number.isFinite(n) && n > 0 ? n : null;
 }
 import { eq, and, like, inArray, desc, or, isNull, asc, gte, lte, lt, sql } from "drizzle-orm";
-import { users, userProgramEnrollments, programWeeks, programDays, programmeWorkouts, programmeWorkoutBlocks, pathContentItems, topicContentItems, learningPaths, programmeModificationRecords, exerciseSubstitutionMappings, programmeBlockExercises, enrollmentWorkouts, enrollmentWorkoutBlocks, enrollmentBlockExercises, programs, userExtraWorkoutSessions, scheduledWorkouts, workoutLogs, learnContentLibrary, learnContentDocuments, exerciseLibrary, workoutExerciseLogs, workoutSetLogs, aiFeedback, workouts, workoutBlocks, blockExercises, stepEntries, sleepEntries, bodyweightEntries, bodyFatEntries, restingHREntries, caloricBurnEntries, exerciseMinutesEntries, bloodPressureEntries, leanBodyMassEntries, caloricIntakeEntries, hydrationLogs, habitCompletions, habits, wearableMetricsDaily } from "@shared/schema";
+import { users, userProgramEnrollments, programWeeks, programDays, programmeWorkouts, programmeWorkoutBlocks, pathContentItems, topicContentItems, learningPaths, programmeModificationRecords, exerciseSubstitutionMappings, programmeBlockExercises, enrollmentWorkouts, enrollmentWorkoutBlocks, enrollmentBlockExercises, programs, userExtraWorkoutSessions, scheduledWorkouts, workoutLogs, learnContentLibrary, exerciseLibrary, workoutExerciseLogs, workoutSetLogs, aiFeedback, workouts, workoutBlocks, blockExercises, stepEntries, sleepEntries, bodyweightEntries, bodyFatEntries, restingHREntries, caloricBurnEntries, exerciseMinutesEntries, bloodPressureEntries, leanBodyMassEntries, caloricIntakeEntries, hydrationLogs, habitCompletions, habits, wearableMetricsDaily } from "@shared/schema";
 import { calculateProgramEquipment, updateProgramEquipmentAuto } from "./equipmentDetection";
 import multer from "multer";
 import path from "path";
@@ -12149,8 +12149,8 @@ Rules:
     
     // If there's a file, handle multipart form data
     if (req.get('content-type')?.includes('multipart/form-data')) {
-      // Frontend edit modal always sends PDFs via FormData (video uses muxPlaybackId in JSON path)
-      uploadPdf.single('file')(req, res, async (err) => {
+      const upload = req.body?.content_type === 'pdf' ? uploadPdf.single('file') : uploadVideo.single('file');
+      upload(req, res, async (err) => {
         try {
           if (err) {
             return res.status(400).json({ message: err.message });
@@ -12234,139 +12234,47 @@ Rules:
   });
 
   // Update content library item (for topic content)
-  app.patch('/api/content-library/:id', isAuthenticated, (req, res) => {
-    const id = parseInt(req.params.id);
-
-    // If there's a file, handle multipart form data (PDF upload from edit modal)
-    if (req.get('content-type')?.includes('multipart/form-data')) {
-      uploadPdf.single('file')(req, res, async (err) => {
-        try {
-          if (err) {
-            return res.status(400).json({ message: err.message });
-          }
-
-          const { title, description } = req.body;
-          const updateData: any = {};
-          if (title !== undefined) updateData.title = title;
-          if (description !== undefined) updateData.description = description;
-          if (req.file) {
-            updateData.contentUrl = `/uploads/pdfs/${req.file.filename}`;
-            updateData.contentType = 'pdf';
-          }
-
-          const result = await db
-            .update(learnContentLibrary)
-            .set(updateData)
-            .where(eq(learnContentLibrary.id, id))
-            .returning();
-
-          if (result.length === 0) {
-            return res.status(404).json({ message: "Content item not found" });
-          }
-
-          res.json(result[0]);
-        } catch (error) {
-          console.error("Error updating content library item:", error);
-          res.status(500).json({ message: "Failed to update content" });
-        }
-      });
-    } else {
-      // No file, just update metadata (title, description, muxPlaybackId)
-      (async () => {
-        try {
-          const { title, description, muxPlaybackId } = req.body;
-
-          const updateData: any = {};
-          if (title !== undefined) updateData.title = title;
-          if (description !== undefined) updateData.description = description;
-          if (muxPlaybackId !== undefined) {
-            updateData.muxPlaybackId = muxPlaybackId;
-            updateData.contentUrl = `mux:${muxPlaybackId}`;
-
-            // Fetch duration from Mux
-            try {
-              const { video } = await import('./mux');
-              const assets = await video.assets.list();
-              const asset = assets.data?.find(a =>
-                a.playback_ids?.some(p => p.id === muxPlaybackId)
-              );
-              if (asset && asset.duration) {
-                updateData.duration = Math.round(asset.duration);
-              }
-            } catch (muxError) {
-              console.error("Could not fetch duration from Mux:", muxError);
-            }
-          }
-
-          const result = await db
-            .update(learnContentLibrary)
-            .set(updateData)
-            .where(eq(learnContentLibrary.id, id))
-            .returning();
-
-          if (result.length === 0) {
-            return res.status(404).json({ message: "Content item not found" });
-          }
-
-          res.json(result[0]);
-        } catch (error) {
-          console.error("Error updating content library item:", error);
-          res.status(500).json({ message: "Failed to update content" });
-        }
-      })();
-    }
-  });
-
-  // --- Content Library Documents (multi-PDF support) ---
-
-  // List documents attached to a content item
-  app.get('/api/content-library/:id/documents', isAuthenticated, async (req, res) => {
+  app.patch('/api/content-library/:id', isAuthenticated, async (req: any, res) => {
     try {
       const id = parseInt(req.params.id);
-      const docs = await db
-        .select()
-        .from(learnContentDocuments)
-        .where(eq(learnContentDocuments.contentLibraryItemId, id))
-        .orderBy(asc(learnContentDocuments.createdAt));
-      res.json(docs);
-    } catch (error) {
-      console.error("Error fetching content documents:", error);
-      res.status(500).json({ message: "Failed to fetch documents" });
-    }
-  });
-
-  // Upload a PDF document and attach it to a content item
-  app.post('/api/content-library/:id/documents', isAuthenticated, (req, res) => {
-    const id = parseInt(req.params.id);
-    uploadPdf.single('file')(req, res, async (err) => {
-      try {
-        if (err) return res.status(400).json({ message: err.message });
-        if (!req.file) return res.status(400).json({ message: "No file provided" });
-
-        const title = req.body.title || req.file.originalname.replace(/\.pdf$/i, '');
-        const fileUrl = `/uploads/pdfs/${req.file.filename}`;
-
-        const [doc] = await db
-          .insert(learnContentDocuments)
-          .values({ contentLibraryItemId: id, title, fileUrl })
-          .returning();
-        res.json(doc);
-      } catch (error) {
-        console.error("Error uploading content document:", error);
-        res.status(500).json({ message: "Failed to upload document" });
+      const { title, description, muxPlaybackId } = req.body;
+      
+      const updateData: any = {};
+      if (title !== undefined) updateData.title = title;
+      if (description !== undefined) updateData.description = description;
+      if (muxPlaybackId !== undefined) {
+        updateData.muxPlaybackId = muxPlaybackId;
+        updateData.contentUrl = `mux:${muxPlaybackId}`;
+        
+        // Fetch duration from Mux
+        try {
+          const { video } = await import('./mux');
+          const assets = await video.assets.list();
+          const asset = assets.data?.find(a => 
+            a.playback_ids?.some(p => p.id === muxPlaybackId)
+          );
+          if (asset && asset.duration) {
+            updateData.duration = Math.round(asset.duration);
+          }
+        } catch (muxError) {
+          console.error("Could not fetch duration from Mux:", muxError);
+        }
       }
-    });
-  });
 
-  // Delete a document
-  app.delete('/api/content-library/documents/:docId', isAuthenticated, async (req, res) => {
-    try {
-      const docId = parseInt(req.params.docId);
-      await db.delete(learnContentDocuments).where(eq(learnContentDocuments.id, docId));
-      res.status(204).send();
+      const result = await db
+        .update(learnContentLibrary)
+        .set(updateData)
+        .where(eq(learnContentLibrary.id, id))
+        .returning();
+
+      if (result.length === 0) {
+        return res.status(404).json({ message: "Content item not found" });
+      }
+
+      res.json(result[0]);
     } catch (error) {
-      console.error("Error deleting content document:", error);
-      res.status(500).json({ message: "Failed to delete document" });
+      console.error("Error updating content library item:", error);
+      res.status(500).json({ message: "Failed to update content" });
     }
   });
 
@@ -20227,13 +20135,21 @@ Respond as the Recovery Coach. Reference their specific assessment data and prov
         console.warn('[burnout] wearable fetch failed, continuing without it:', e?.message || e);
         return { rows: [], bestProviderByDate: new Map<string, string>() };
       });
-      const [checkInData, workoutLogData, bodyMapData, sleepData, stepData, wearable] = await Promise.all([
+      // Resilient baseline fetch: same pattern as wearables — if the baseline
+      // table is missing or the user has no baseline yet, fall back to null
+      // rather than failing the score computation.
+      const baselineSafe = storage.getUserPhysiologicalBaselines(userId).catch((e: any) => {
+        console.warn('[burnout] baseline fetch failed, continuing without it:', e?.message || e);
+        return null;
+      });
+      const [checkInData, workoutLogData, bodyMapData, sleepData, stepData, wearable, baselines] = await Promise.all([
         storage.getCheckInsInRange(userId, startDate, endDate),
         storage.getUserWorkoutLogs(userId, 100),
         storage.getBodyMapLogs(userId),
         storage.getSleepEntries(userId, 60),
         storage.getStepEntries(userId, 60),
         wearableSafe,
+        baselineSafe,
       ]);
 
       // Capture the most recent burnout tier BEFORE inserting the new score so
@@ -20253,6 +20169,7 @@ Respond as the Recovery Coach. Reference their specific assessment data and prov
         sleepEntries: sleepData,
         stepEntries: stepData,
         wearableMetrics: wearable.rows,
+        baselines: baselines ?? null,
       });
 
       const saved = await storage.createBurnoutScore({
@@ -20814,12 +20731,12 @@ RULES:
         const userId = req.user.claims.sub;
         const weeks = Math.min(Math.max(Number(req.query.weeks) || 12, 1), 26);
 
-        // Build N week buckets ending with the last COMPLETED ISO week.
-        // The in-progress current week is excluded because partial-week data
-        // made every metric look like it had crashed (e.g. Monday morning
-        // showed 1/7 of the week's steps).
+        // Build N week buckets ending with current ISO week
         const { getIsoWeekStart, getPreviousIsoWeekStart } = await import("./weeklyCheckin");
         const currentWeekStart = getIsoWeekStart(new Date());
+        // Trends show only COMPLETED weeks. The in-progress current week is
+        // excluded because partial-week data made every metric look like it
+        // had crashed (e.g. Monday morning shows 1/7 of the week's steps).
         const buckets: { weekStart: Date; weekEnd: Date }[] = [];
         let cur = getPreviousIsoWeekStart(currentWeekStart);
         for (let i = 0; i < weeks; i++) {

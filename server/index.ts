@@ -4,7 +4,7 @@ import rateLimit, { ipKeyGenerator } from "express-rate-limit";
 import { registerRoutes } from "./routes";
 import { setupVite, serveStatic, log } from "./vite";
 import { video } from "./mux";
-import { runProfileImageMigrationOnce, seedMeditationsOnce, runSchemaSelfHealOnce, seedAiPromptsOnce, repairBodyweightGoalUnitsOnce, normalizeRecipeMacrosOnce, seedBadgesV2Once, retireDroppedDeskBadgesOnce, seedReadinessBadgesOnce } from "./startupMigrations";
+import { runProfileImageMigrationOnce, seedMeditationsOnce, runSchemaSelfHealOnce, seedAiPromptsOnce, repairBodyweightGoalUnitsOnce, normalizeRecipeMacrosOnce, seedBadgesV2Once, retireDroppedDeskBadgesOnce, seedReadinessBadgesOnce, fixHabitTemplateDescriptionsOnce } from "./startupMigrations";
 
 const app = express();
 
@@ -145,6 +145,9 @@ app.use((req, res, next) => {
         });
         retireDroppedDeskBadgesOnce().catch((e) => {
           console.error("[startup-migration] retire-desk-badges failed:", e);
+        });
+        fixHabitTemplateDescriptionsOnce().catch((e) => {
+          console.error("[startup-migration] habit-template-descriptions failed:", e);
         });
         seedReadinessBadgesOnce().catch((e) => {
           console.error("[startup-migration] readiness-badges failed:", e);

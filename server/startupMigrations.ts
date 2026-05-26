@@ -768,6 +768,38 @@ export async function seedReadinessBadgesOnce(): Promise<void> {
   }
 }
 
+export async function fixHabitTemplateDescriptionsOnce(): Promise<void> {
+  try {
+    // "Hit Your Step Count" (id=2)
+    await pool.query(`
+      UPDATE habit_templates SET
+        description = $1,
+        short_description = $2
+      WHERE id = 2
+        AND (description IS DISTINCT FROM $1 OR short_description IS DISTINCT FROM $2)
+    `, [
+      `Steps are the foundation of what is known as NEAT, or non-exercise activity thermogenesis. This is the energy your body burns through everything you do outside of formal training, and for most people it accounts for more daily calorie expenditure than their workouts.\n\n  Beyond fat loss, consistent walking improves cardiovascular health, regulates blood sugar, supports recovery, and meaningfully reduces all-cause mortality.\n\n  For anyone with a desk-bound role, it is one of the highest-leverage habits available. You set your own daily target based on your lifestyle and goals, and the benefits come from consistency over weeks and months.`,
+      `Daily steps are one of the most effective and accessible levers for cardiovascular health, body composition, and sustained energy.`,
+    ]);
+
+    // "Stay Hydrated" (id=36)
+    await pool.query(`
+      UPDATE habit_templates SET
+        description = $1,
+        short_description = $2
+      WHERE id = 36
+        AND (description IS DISTINCT FROM $1 OR short_description IS DISTINCT FROM $2)
+    `, [
+      `Hydration is one of the simplest performance levers available, and one of the most consistently neglected. By the time you feel thirsty, your body is already mildly dehydrated, and at that level cognitive function, focus, mood, and physical output are already measurably reduced.\n\n  Adequate intake supports circulation, temperature regulation, digestion, and brain function. It also reduces the headaches and afternoon energy dips that many people attribute to workload or stress.\n\n  For most adults, two to three litres a day is a sensible baseline, with more needed in hot weather, during hard training, or after travel. You set your own daily target in the app and track your intake against it.`,
+      `Even mild dehydration impairs cognitive function, focus, and physical performance, often before you feel thirsty.`,
+    ]);
+
+    console.log("[startup-migration] habit-template-descriptions: updated");
+  } catch (e: any) {
+    console.error("[startup-migration] habit-template-descriptions failed:", e?.message || e);
+  }
+}
+
 export async function normalizeRecipeMacrosOnce(): Promise<void> {
   if (hasRunRecipeMacrosNormalize) return;
   hasRunRecipeMacrosNormalize = true;

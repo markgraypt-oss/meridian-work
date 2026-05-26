@@ -2780,6 +2780,60 @@ export const burnoutSettings = pgTable("burnout_settings", {
 export type BurnoutSettings = typeof burnoutSettings.$inferSelect;
 export type InsertBurnoutSettings = typeof burnoutSettings.$inferInsert;
 
+// ====================================================================
+// USER PHYSIOLOGICAL BASELINES
+// ====================================================================
+// Rolling personal baselines for HRV, RHR, and sleep duration.
+// Recomputed nightly by background job. Used by the burnout engine to score
+// deviations from personal normal rather than absolute thresholds — because
+// HRV/RHR/sleep needs are highly individual and absolute numbers are meaningless.
+//
+// Windows:
+//   HRV          - 60-day rolling median (noisy day-to-day, needs longer to stabilise)
+//   RHR          - 28-day rolling median (more stable, adapts faster to fitness changes)
+//   Sleep duration - 28-day rolling median (habits shift, captures current pattern)
+//
+// Minimum 14 samples required before a baseline is considered calibrated and
+// can contribute to the burnout score. Users still calibrating get the
+// existing check-in-only experience plus a UI message about calibration progress.
+export const userPhysiologicalBaselines = pgTable("user_physiological_baselines", {
+  id: serial("id").primaryKey(),
+  userId: varchar("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+
+  // HRV baseline (60-day rolling median + standard deviation, in milliseconds)
+  hrvBaselineMs: real("hrv_baseline_ms"),
+  hrvStdDevMs: real("hrv_std_dev_ms"),
+  hrvSampleCount: integer("hrv_sample_count").notNull().default(0),
+
+  // Resting HR baseline (28-day rolling median + standard deviation, in bpm)
+  rhrBaselineBpm: real("rhr_baseline_bpm"),
+  rhrStdDevBpm: real("rhr_std_dev_bpm"),
+  rhrSampleCount: integer("rhr_sample_count").notNull().default(0),
+
+  // Sleep duration baseline (28-day rolling median + standard deviation, in minutes)
+  sleepDurationBaselineMinutes: real("sleep_duration_baseline_minutes"),
+  sleepDurationStdDevMinutes: real("sleep_duration_std_dev_minutes"),
+  sleepDurationSampleCount: integer("sleep_duration_sample_count").notNull().default(0),
+
+  // Calibration state - gates whether physiological readiness contributes to score
+  isCalibrated: boolean("is_calibrated").notNull().default(false),
+  calibrationStartedAt: timestamp("calibration_started_at"),
+  calibrationCompletedAt: timestamp("calibration_completed_at"),
+  daysUntilCalibrated: integer("days_until_calibrated"),
+
+  // Audit
+  lastComputedAt: timestamp("last_computed_at").defaultNow(),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+}, (t) => ({
+  userIdx: uniqueIndex("user_physiological_baselines_user_idx").on(t.userId),
+}));
+
+export type UserPhysiologicalBaselines = typeof userPhysiologicalBaselines.$inferSelect;
+export type InsertUserPhysiologicalBaselines = typeof userPhysiologicalBaselines.$inferInsert;
+export const insertUserPhysiologicalBaselinesSchema = createInsertSchema(userPhysiologicalBaselines).omit({ id: true, createdAt: true, updatedAt: true });
+
+
 // Weekly AI Check-in - generated weekly summary per user (idempotent per ISO week)
 export const weeklyCheckins = pgTable("weekly_checkins", {
   id: serial("id").primaryKey(),

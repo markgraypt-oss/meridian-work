@@ -372,12 +372,15 @@ import {
   burnoutSettings,
   weeklyCheckins,
   healthIntegrations,
+  userPhysiologicalBaselines,
   type BurnoutScore,
   type InsertBurnoutScore,
   type BurnoutSettings,
   type InsertBurnoutSettings,
   type WeeklyCheckin,
   type InsertWeeklyCheckin,
+  type UserPhysiologicalBaselines,
+  type InsertUserPhysiologicalBaselines,
   type HealthIntegration,
   type InsertHealthIntegration,
   companies,
@@ -1184,6 +1187,10 @@ export interface IStorage {
   // Burnout settings (recovery mode)
   getBurnoutSettings(userId: string): Promise<BurnoutSettings | undefined>;
   upsertBurnoutSettings(userId: string, data: Partial<InsertBurnoutSettings>): Promise<BurnoutSettings>;
+
+  // User physiological baselines
+  getUserPhysiologicalBaselines(userId: string): Promise<UserPhysiologicalBaselines | undefined>;
+  upsertUserPhysiologicalBaselines(userId: string, data: Partial<InsertUserPhysiologicalBaselines>): Promise<UserPhysiologicalBaselines>;
 
   // Health integrations
   getHealthIntegrations(userId: string): Promise<HealthIntegration[]>;
@@ -12679,6 +12686,27 @@ export class DatabaseStorage implements IStorage {
       return updated;
     }
     const [created] = await db.insert(burnoutSettings)
+      .values({ userId, ...data })
+      .returning();
+    return created;
+  }
+
+  async getUserPhysiologicalBaselines(userId: string): Promise<UserPhysiologicalBaselines | undefined> {
+    const [baseline] = await db.select().from(userPhysiologicalBaselines)
+      .where(eq(userPhysiologicalBaselines.userId, userId));
+    return baseline;
+  }
+
+  async upsertUserPhysiologicalBaselines(userId: string, data: Partial<InsertUserPhysiologicalBaselines>): Promise<UserPhysiologicalBaselines> {
+    const existing = await this.getUserPhysiologicalBaselines(userId);
+    if (existing) {
+      const [updated] = await db.update(userPhysiologicalBaselines)
+        .set({ ...data, updatedAt: new Date() })
+        .where(eq(userPhysiologicalBaselines.userId, userId))
+        .returning();
+      return updated;
+    }
+    const [created] = await db.insert(userPhysiologicalBaselines)
       .values({ userId, ...data })
       .returning();
     return created;

@@ -1333,6 +1333,18 @@ export const learnContentLibrary = pgTable("learn_content_library", {
   createdAt: timestamp("created_at").defaultNow(),
 });
 
+// Documents attached to a content library item (supports multiple PDFs per video)
+export const learnContentDocuments = pgTable("learn_content_documents", {
+  id: serial("id").primaryKey(),
+  contentLibraryItemId: integer("content_library_item_id").notNull().references(() => learnContentLibrary.id, { onDelete: "cascade" }),
+  title: text("title").notNull(),
+  fileUrl: text("file_url").notNull(),
+  createdAt: timestamp("created_at").defaultNow(),
+});
+
+export type LearnContentDocument = typeof learnContentDocuments.$inferSelect;
+export type InsertLearnContentDocument = typeof learnContentDocuments.$inferInsert;
+
 // Learning Paths - curated educational content paths
 export const learningPaths = pgTable("learning_paths", {
   id: serial("id").primaryKey(),

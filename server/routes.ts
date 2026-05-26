@@ -152,7 +152,7 @@ function parseIdParam(s: string | undefined): number | null {
   return Number.isFinite(n) && n > 0 ? n : null;
 }
 import { eq, and, like, inArray, desc, or, isNull, asc, gte, lte, lt, sql } from "drizzle-orm";
-import { users, userProgramEnrollments, programWeeks, programDays, programmeWorkouts, programmeWorkoutBlocks, pathContentItems, topicContentItems, learningPaths, programmeModificationRecords, exerciseSubstitutionMappings, programmeBlockExercises, enrollmentWorkouts, enrollmentWorkoutBlocks, enrollmentBlockExercises, programs, userExtraWorkoutSessions, scheduledWorkouts, workoutLogs, learnContentLibrary, exerciseLibrary, workoutExerciseLogs, workoutSetLogs, aiFeedback, workouts, workoutBlocks, blockExercises, stepEntries, sleepEntries, bodyweightEntries, bodyFatEntries, restingHREntries, caloricBurnEntries, exerciseMinutesEntries, bloodPressureEntries, leanBodyMassEntries, caloricIntakeEntries, hydrationLogs, habitCompletions, habits, wearableMetricsDaily } from "@shared/schema";
+import { users, userProgramEnrollments, programWeeks, programDays, programmeWorkouts, programmeWorkoutBlocks, pathContentItems, topicContentItems, learningPaths, programmeModificationRecords, exerciseSubstitutionMappings, programmeBlockExercises, enrollmentWorkouts, enrollmentWorkoutBlocks, enrollmentBlockExercises, programs, userExtraWorkoutSessions, scheduledWorkouts, workoutLogs, learnContentLibrary, learnContentDocuments, exerciseLibrary, workoutExerciseLogs, workoutSetLogs, aiFeedback, workouts, workoutBlocks, blockExercises, stepEntries, sleepEntries, bodyweightEntries, bodyFatEntries, restingHREntries, caloricBurnEntries, exerciseMinutesEntries, bloodPressureEntries, leanBodyMassEntries, caloricIntakeEntries, hydrationLogs, habitCompletions, habits, wearableMetricsDaily } from "@shared/schema";
 import { calculateProgramEquipment, updateProgramEquipmentAuto } from "./equipmentDetection";
 import multer from "multer";
 import path from "path";
@@ -12314,6 +12314,59 @@ Rules:
           res.status(500).json({ message: "Failed to update content" });
         }
       })();
+    }
+  });
+
+  // --- Content Library Documents (multi-PDF support) ---
+
+  // List documents attached to a content item
+  app.get('/api/content-library/:id/documents', isAuthenticated, async (req, res) => {
+    try {
+      const id = parseInt(req.params.id);
+      const docs = await db
+        .select()
+        .from(learnContentDocuments)
+        .where(eq(learnContentDocuments.contentLibraryItemId, id))
+        .orderBy(asc(learnContentDocuments.createdAt));
+      res.json(docs);
+    } catch (error) {
+      console.error("Error fetching content documents:", error);
+      res.status(500).json({ message: "Failed to fetch documents" });
+    }
+  });
+
+  // Upload a PDF document and attach it to a content item
+  app.post('/api/content-library/:id/documents', isAuthenticated, (req, res) => {
+    const id = parseInt(req.params.id);
+    uploadPdf.single('file')(req, res, async (err) => {
+      try {
+        if (err) return res.status(400).json({ message: err.message });
+        if (!req.file) return res.status(400).json({ message: "No file provided" });
+
+        const title = req.body.title || req.file.originalname.replace(/\.pdf$/i, '');
+        const fileUrl = `/uploads/pdfs/${req.file.filename}`;
+
+        const [doc] = await db
+          .insert(learnContentDocuments)
+          .values({ contentLibraryItemId: id, title, fileUrl })
+          .returning();
+        res.json(doc);
+      } catch (error) {
+        console.error("Error uploading content document:", error);
+        res.status(500).json({ message: "Failed to upload document" });
+      }
+    });
+  });
+
+  // Delete a document
+  app.delete('/api/content-library/documents/:docId', isAuthenticated, async (req, res) => {
+    try {
+      const docId = parseInt(req.params.docId);
+      await db.delete(learnContentDocuments).where(eq(learnContentDocuments.id, docId));
+      res.status(204).send();
+    } catch (error) {
+      console.error("Error deleting content document:", error);
+      res.status(500).json({ message: "Failed to delete document" });
     }
   });
 

@@ -215,6 +215,16 @@ const SELF_HEAL_DDL: string[] = [
      created_at timestamp DEFAULT now()
    )`,
   `CREATE INDEX IF NOT EXISTS idx_ai_insight_reads_user ON ai_insight_reads (user_id)`,
+
+  // Multi-PDF support: documents attached to content library items
+  `CREATE TABLE IF NOT EXISTS learn_content_documents (
+     id serial PRIMARY KEY,
+     content_library_item_id integer NOT NULL REFERENCES learn_content_library(id) ON DELETE CASCADE,
+     title text NOT NULL,
+     file_url text NOT NULL,
+     created_at timestamp DEFAULT now()
+   )`,
+  `CREATE INDEX IF NOT EXISTS idx_learn_content_documents_item ON learn_content_documents (content_library_item_id)`,
 ];
 
 export async function runSchemaSelfHealOnce(): Promise<void> {

@@ -47,6 +47,86 @@ import { RecipeForm } from "@/components/admin/RecipeForm";
 import { RecipeTagBackfillDialog } from "@/components/admin/RecipeTagBackfillDialog";
 import { ExerciseLibraryForm } from "@/components/admin/ExerciseLibraryForm";
 import { BodyMapConfig } from "@/components/admin/BodyMapConfig";
+import type { LearnContentDocument } from "@shared/schema";
+import { FileText, Trash2 as TrashIcon } from "lucide-react";
+
+function EditContentDocuments({ contentItemId }: { contentItemId: number }) {
+  const { toast } = useToast();
+  const qc = useQueryClient();
+  const [uploading, setUploading] = useState(false);
+
+  const { data: docs = [], isLoading } = useQuery<LearnContentDocument[]>({
+    queryKey: [`/api/content-library/${contentItemId}/documents`],
+    enabled: !!contentItemId,
+  });
+
+  const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = e.target.files;
+    if (!files || files.length === 0) return;
+    setUploading(true);
+    try {
+      for (const file of Array.from(files)) {
+        const formData = new FormData();
+        formData.append('file', file);
+        formData.append('title', file.name.replace(/\.pdf$/i, ''));
+        const res = await fetch(`/api/content-library/${contentItemId}/documents`, {
+          method: 'POST',
+          body: formData,
+        });
+        if (!res.ok) throw new Error(`Failed to upload ${file.name}`);
+      }
+      qc.invalidateQueries({ queryKey: [`/api/content-library/${contentItemId}/documents`] });
+      toast({ title: 'Uploaded', description: `${files.length} document${files.length > 1 ? 's' : ''} added` });
+    } catch {
+      toast({ title: 'Error', description: 'Upload failed', variant: 'destructive' });
+    } finally {
+      setUploading(false);
+      e.target.value = '';
+    }
+  };
+
+  const handleDelete = async (docId: number) => {
+    try {
+      await fetch(`/api/content-library/documents/${docId}`, { method: 'DELETE' });
+      qc.invalidateQueries({ queryKey: [`/api/content-library/${contentItemId}/documents`] });
+    } catch {
+      toast({ title: 'Error', description: 'Could not delete document', variant: 'destructive' });
+    }
+  };
+
+  return (
+    <div>
+      <label className="text-sm font-medium text-foreground block mb-2">PDF Documents</label>
+      {isLoading ? (
+        <p className="text-xs text-muted-foreground">Loading…</p>
+      ) : docs.length === 0 ? (
+        <p className="text-xs text-muted-foreground mb-2">No documents attached yet.</p>
+      ) : (
+        <div className="space-y-2 mb-3">
+          {docs.map((doc) => (
+            <div key={doc.id} className="flex items-center gap-2 px-3 py-2 bg-muted rounded text-sm">
+              <FileText className="h-4 w-4 shrink-0 text-primary" />
+              <span className="flex-1 truncate text-foreground">{doc.title}</span>
+              <button
+                type="button"
+                onClick={() => handleDelete(doc.id)}
+                className="text-muted-foreground hover:text-destructive"
+                title="Remove"
+              >
+                <TrashIcon className="h-4 w-4" />
+              </button>
+            </div>
+          ))}
+        </div>
+      )}
+      <label className={`inline-flex items-center gap-2 px-3 py-2 rounded border border-border text-sm cursor-pointer hover:bg-muted ${uploading ? 'opacity-50 pointer-events-none' : ''}`}>
+        <Plus className="h-4 w-4" />
+        {uploading ? 'Uploading…' : 'Add PDF(s)'}
+        <input type="file" accept=".pdf" multiple className="hidden" onChange={handleFileChange} disabled={uploading} />
+      </label>
+    </div>
+  );
+}
 
 export default function AdminPanel() {
   const { toast } = useToast();
@@ -80,6 +160,7 @@ export default function AdminPanel() {
   const [editingContentDescription, setEditingContentDescription] = useState("");
   const [editingContentFile, setEditingContentFile] = useState<File | null>(null);
   const [editingContentMuxPlaybackId, setEditingContentMuxPlaybackId] = useState("");
+  const [uploadingDoc, setUploadingDoc] = useState(false);
   const [showCreateVideoModal, setShowCreateVideoModal] = useState(false);
   const [showCreatePdfModal, setShowCreatePdfModal] = useState(false);
   const [showAddContentModal, setShowAddContentModal] = useState(false);
@@ -3256,21 +3337,7 @@ export default function AdminPanel() {
                   <p className="text-xs text-slate-400 mt-1">Get this from your Mux dashboard</p>
                 </div>
 
-                <div>
-                  <label className="text-sm font-medium text-foreground block mb-2">Add PDF Documents</label>
-                  <input
-                    type="file"
-                    accept=".pdf"
-                    multiple
-                    onChange={(e) => {
-                      if (e.target.files?.[0]) {
-                        setEditingContentFile(e.target.files[0]);
-                      }
-                    }}
-                    className="w-full px-3 py-2 bg-card text-foreground border border-border rounded"
-                  />
-                  {editingContentFile && <p className="text-xs text-blue-400 mt-1">New file selected: {editingContentFile.name}</p>}
-                </div>
+                <EditContentDocuments contentItemId={editingContentItem.id} />
               </div>
 
               <div className="flex gap-2 justify-between pt-4">

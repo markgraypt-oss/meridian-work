@@ -7,7 +7,7 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { queryClient, apiRequest } from "@/lib/queryClient";
 import MuxPlayer from "@mux/mux-player-react";
-import type { LearnTopic, UserFavourite, LearnContentLibraryItem } from "@shared/schema";
+import type { LearnTopic, UserFavourite, LearnContentLibraryItem, LearnContentDocument } from "@shared/schema";
 
 export default function LearnTopicVideoDetail() {
   const [, params] = useRoute("/learn/:slug/video/:contentId");
@@ -31,6 +31,11 @@ export default function LearnTopicVideoDetail() {
 
   const { data: favourites = [] } = useQuery<UserFavourite[]>({
     queryKey: ["/api/favorites"],
+  });
+
+  const { data: attachedDocuments = [] } = useQuery<LearnContentDocument[]>({
+    queryKey: [`/api/content-library/${contentId}/documents`],
+    enabled: !!contentId,
   });
 
   const currentItem = contentItems.find(item => item.id === contentId);
@@ -280,29 +285,32 @@ export default function LearnTopicVideoDetail() {
         )}
 
         {/* Attached Documents */}
-        {currentItem.contentUrl && (currentItem.contentType === 'pdf' || currentItem.contentType === 'swipe_file' || currentItem.contentType === 'document') && (
+        {attachedDocuments.length > 0 && (
           <div className="mb-6">
             <h3 className="text-base font-semibold text-foreground mb-3">Resources</h3>
-            <Card 
-              className="overflow-hidden cursor-pointer hover:shadow-md transition-shadow"
-              onClick={() => window.open(currentItem.contentUrl!, '_blank')}
-              data-testid="card-attached-document"
-            >
-              <CardContent className="p-4">
-                <div className="flex items-center gap-3">
-                  <div className="w-10 h-10 rounded-lg bg-primary/10 flex items-center justify-center">
-                    <FileText className="h-5 w-5 text-primary" />
-                  </div>
-                  <div className="flex-1">
-                    <p className="font-medium text-foreground text-sm">
-                      {currentItem.contentType === 'pdf' ? 'PDF Document' : 'Download Resource'}
-                    </p>
-                    <p className="text-xs text-muted-foreground">Tap to open</p>
-                  </div>
-                  <Download className="h-5 w-5 text-muted-foreground" />
-                </div>
-              </CardContent>
-            </Card>
+            <div className="space-y-2">
+              {attachedDocuments.map((doc) => (
+                <Card
+                  key={doc.id}
+                  className="overflow-hidden cursor-pointer hover:shadow-md transition-shadow"
+                  onClick={() => window.open(doc.fileUrl, '_blank')}
+                  data-testid="card-attached-document"
+                >
+                  <CardContent className="p-4">
+                    <div className="flex items-center gap-3">
+                      <div className="w-10 h-10 rounded-lg bg-primary/10 flex items-center justify-center">
+                        <FileText className="h-5 w-5 text-primary" />
+                      </div>
+                      <div className="flex-1">
+                        <p className="font-medium text-foreground text-sm">{doc.title}</p>
+                        <p className="text-xs text-muted-foreground">Tap to open</p>
+                      </div>
+                      <Download className="h-5 w-5 text-muted-foreground" />
+                    </div>
+                  </CardContent>
+                </Card>
+              ))}
+            </div>
           </div>
         )}
 

@@ -162,6 +162,10 @@ app.use((req, res, next) => {
     import("./wearables/scheduler").then(({ startWearableScheduler }) => {
       startWearableScheduler();
     }).catch((e) => console.error("[startup] wearables scheduler failed:", e));
+    // Start nightly physiological baseline recomputation scheduler
+    import("./baselineScheduler").then(({ startBaselineScheduler }) => {
+      startBaselineScheduler();
+    }).catch((e) => console.error("[startup] baseline scheduler failed:", e));
     // Start daily morning training briefing scheduler
     import("./scheduledBriefings").then(({ startBriefingScheduler }) => {
       startBriefingScheduler();

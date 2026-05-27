@@ -96,6 +96,10 @@ const SELF_HEAL_DDL: string[] = [
      ADD COLUMN IF NOT EXISTS push_coach boolean DEFAULT true,
      ADD COLUMN IF NOT EXISTS push_admin boolean DEFAULT false`,
 
+  // Phase 1b: conditional perceived-control question (stress ≥4 or overwhelmed/anxious checked)
+  `ALTER TABLE check_ins ADD COLUMN IF NOT EXISTS perceived_control_score integer`,
+  `ALTER TABLE check_ins ADD COLUMN IF NOT EXISTS perceived_control_trigger_met boolean DEFAULT false`,
+
   // Badges: collection split (current vs legacy)
   `ALTER TABLE badges ADD COLUMN IF NOT EXISTS collection varchar NOT NULL DEFAULT 'current'`,
 
@@ -215,6 +219,16 @@ const SELF_HEAL_DDL: string[] = [
      created_at timestamp DEFAULT now()
    )`,
   `CREATE INDEX IF NOT EXISTS idx_ai_insight_reads_user ON ai_insight_reads (user_id)`,
+
+  // Multi-PDF support: documents attached to content library items
+  `CREATE TABLE IF NOT EXISTS learn_content_documents (
+     id serial PRIMARY KEY,
+     content_library_item_id integer NOT NULL REFERENCES learn_content_library(id) ON DELETE CASCADE,
+     title text NOT NULL,
+     file_url text NOT NULL,
+     created_at timestamp DEFAULT now()
+   )`,
+  `CREATE INDEX IF NOT EXISTS idx_learn_content_documents_item ON learn_content_documents (content_library_item_id)`,
 ];
 
 export async function runSchemaSelfHealOnce(): Promise<void> {
@@ -765,6 +779,43 @@ export async function seedReadinessBadgesOnce(): Promise<void> {
     console.log(`[startup-migration] readiness-badges: seeded ${readinessBadges.length} badges`);
   } catch (e: any) {
     console.error("[startup-migration] readiness-badges failed:", e?.message || e);
+  }
+}
+
+export async function fixHabitTemplateDescriptionsOnce(): Promise<void> {
+  try {
+    const stepsDesc = `Steps are the foundation of what is known as NEAT, or non-exercise activity thermogenesis. This is the energy your body burns through everything you do outside of formal training, and for most people it accounts for more daily calorie expenditure than their workouts.\n\n  Beyond fat loss, consistent walking improves cardiovascular health, regulates blood sugar, supports recovery, and meaningfully reduces all-cause mortality.\n\n  For anyone with a desk-bound role, it is one of the highest-leverage habits available. You set your own daily target based on your lifestyle and goals, and the benefits come from consistency over weeks and months.`;
+    const stepsShort = `Daily steps are one of the most effective and accessible levers for cardiovascular health, body composition, and sustained energy.`;
+    const hydrationDesc = `Hydration is one of the simplest performance levers available, and one of the most consistently neglected. By the time you feel thirsty, your body is already mildly dehydrated, and at that level cognitive function, focus, mood, and physical output are already measurably reduced.\n\n  Adequate intake supports circulation, temperature regulation, digestion, and brain function. It also reduces the headaches and afternoon energy dips that many people attribute to workload or stress.\n\n  For most adults, two to three litres a day is a sensible baseline, with more needed in hot weather, during hard training, or after travel. You set your own daily target in the app and track your intake against it.`;
+    const hydrationShort = `Even mild dehydration impairs cognitive function, focus, and physical performance, often before you feel thirsty.`;
+
+    // Update habit_templates
+    await pool.query(
+      `UPDATE habit_templates SET description = $1, short_description = $2
+       WHERE id = 2 AND (description IS DISTINCT FROM $1 OR short_description IS DISTINCT FROM $2)`,
+      [stepsDesc, stepsShort]
+    );
+    await pool.query(
+      `UPDATE habit_templates SET description = $1, short_description = $2
+       WHERE id = 36 AND (description IS DISTINCT FROM $1 OR short_description IS DISTINCT FROM $2)`,
+      [hydrationDesc, hydrationShort]
+    );
+
+    // Also update any existing user habits copied from these templates (description is copied at enrolment)
+    await pool.query(
+      `UPDATE habits SET description = $1
+       WHERE template_id = 2 AND description IS DISTINCT FROM $1`,
+      [stepsDesc]
+    );
+    await pool.query(
+      `UPDATE habits SET description = $1
+       WHERE template_id = 36 AND description IS DISTINCT FROM $1`,
+      [hydrationDesc]
+    );
+
+    console.log("[startup-migration] habit-template-descriptions: updated templates and user habits");
+  } catch (e: any) {
+    console.error("[startup-migration] habit-template-descriptions failed:", e?.message || e);
   }
 }
 

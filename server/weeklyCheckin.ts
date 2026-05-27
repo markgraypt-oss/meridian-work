@@ -224,9 +224,32 @@ export async function aggregateWeekV2(userId: string, weekStart: Date): Promise<
   ]);
 
   // ---- Burnout (for legacy metrics / trajectoryLabel fallback) ----
+  // Mirrors the inputs used by GET /api/burnout/current so the weekly check-in's
+  // burnout figure stays consistent with what users see on the dashboard. Both
+  // baselines and notesAggregate are best-effort: any failure falls back to null
+  // and the engine handles missing inputs via dynamic weight redistribution.
   let burnoutScore: number | null = null;
   let burnoutTrajRaw: string | null = null;
   try {
+    // Fetch baselines (best-effort)
+    const baselines = await storage.getUserPhysiologicalBaselines(userId).catch((e: any) => {
+      console.warn('[weekly-checkin] baseline fetch failed, continuing without it:', e?.message || e);
+      return null;
+    });
+
+    // Aggregate notes analyses from the check-ins we already fetched (no extra DB call)
+    let notesAggregate: any = null;
+    try {
+      const { aggregateNotesAnalyses, filterToAggregationWindow } = await import('./notesAnalyser');
+      const analyses = checkInData
+        .map((c: any) => c.notesAnalysis as any)
+        .filter((a: any) => a && typeof a === 'object');
+      const windowed = filterToAggregationWindow(analyses);
+      notesAggregate = aggregateNotesAnalyses(windowed);
+    } catch (err) {
+      console.warn('[weekly-checkin] notes aggregation failed, continuing without it:', (err as any)?.message || err);
+    }
+
     const result = computeBurnoutScore({
       checkIns: checkInData,
       workoutLogs: workoutLogData.filter((w: any) => w.completedAt && new Date(w.completedAt) >= weekStart && new Date(w.completedAt) < weekEnd),
@@ -234,6 +257,8 @@ export async function aggregateWeekV2(userId: string, weekStart: Date): Promise<
       sleepEntries: sleepData,
       stepEntries: stepData,
       wearableMetrics: wearable.rows,
+      baselines: baselines ?? null,
+      notesAggregate,
     });
     burnoutScore = result.score;
     burnoutTrajRaw = result.trajectory;

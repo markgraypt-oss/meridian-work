@@ -582,14 +582,21 @@ export default function DailyCheckInDialog({ open, onOpenChange, checkInToEdit }
             </div>
           </div>
 
-          {/* SECTION 5: Notes & Reflection */}
+          {/* SECTION 5: What's actually going on - free-text input that feeds the AI coach and burnout index */}
           <div className="space-y-3 pt-4 border-t border-gray-400 dark:border-gray-600">
-            <h3 className="font-semibold text-base text-foreground">Notes & Reflection (Optional)</h3>
+            <div className="space-y-1">
+              <h3 className="font-semibold text-base text-foreground">
+                What's actually going on this week?
+              </h3>
+              <p className="text-sm text-muted-foreground leading-relaxed">
+                This is the most important part of your check-in. Whatever you write here goes directly to your AI coach and feeds your Burnout Index. The more honest detail you give, the smarter Meridian gets about you. Two sentences is fine. A paragraph is better.
+              </p>
+            </div>
             <Textarea
-              placeholder="This could be something you're grateful for or a space to journal your thoughts."
+              placeholder="e.g. 'Big presentation at work next week, struggling to switch off at night.' Or: 'Knee felt off in training today, worried about it.' Or: 'Argument with partner, feeling rough.'"
               value={notes}
               onChange={(e) => setNotes(e.target.value)}
-              rows={3}
+              rows={5}
               className="text-base"
             />
           </div>

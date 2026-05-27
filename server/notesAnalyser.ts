@@ -211,3 +211,134 @@ export async function analyseNotesWithCache(
   }
   return analyseNotes(notes);
 }
+
+// ====================================================================
+// AGGREGATION ACROSS RECENT CHECK-INS
+// ====================================================================
+// Rolls up the last 14 days of notes analyses into a summary the burnout
+// engine can reason about. This is what turns per-check-in analysis into
+// patterns:
+//
+//   - "stressor mentioned twice this week" beats "stressor mentioned once 3 weeks ago"
+//   - "struggling to switch off" appearing across 3 notes is a meaningful signal
+//   - red flag in any recent note matters, regardless of how recent
+//
+// Window choice (14 days):
+//   - Long enough that "recurring" means something (typical user writes
+//     meaningful notes ~3x/week, so 14 days = ~6 entries)
+//   - Short enough that resolved stressors fall out — a work crisis from
+//     3 weeks ago shouldn't colour today's driver narratives
+//   - Aligns with the 14-sample calibration window used for physiological
+//     baselines for codebase consistency
+// ====================================================================
+
+const AGGREGATION_WINDOW_DAYS = 14;
+const RECURRING_THRESHOLD = 2; // appears in 2+ recent notes to be "recurring"
+
+export interface NotesAggregate {
+  analysisCount: number;           // how many recent check-ins had non-null analysis
+  daysWithSeverity: {
+    none: number;
+    mild: number;
+    moderate: number;
+    high: number;
+    severe: number;
+  };
+  recurringCategories: { category: StressorCategory; count: number }[];
+  recurringPhrases: { phrase: string; count: number }[];
+  chronicityCount: number;         // how many had chronicity markers
+  protectiveCount: number;         // how many mentioned protective factors
+  redFlagCount: number;            // critical — any > 0 should escalate
+  mostRecentSeverity: NotesSeverityLevel | null;
+  mostRecentCategories: StressorCategory[];
+  mostRecentAnalysedAt: string | null;
+}
+
+// Build the aggregate from a raw array of stored notes_analysis JSONB blobs.
+// The route handler is responsible for fetching the rows; this function is
+// pure so it's easy to test and reason about.
+export function aggregateNotesAnalyses(
+  analyses: (NotesAnalysis | null | undefined)[],
+): NotesAggregate {
+  const valid = analyses.filter((a): a is NotesAnalysis => a !== null && a !== undefined);
+
+  const daysWithSeverity = { none: 0, mild: 0, moderate: 0, high: 0, severe: 0 };
+  const categoryCounts: Map<StressorCategory, number> = new Map();
+  // Phrase counts are case-insensitive to catch "Work pressure" and "work pressure"
+  // as the same recurring phrase, but we keep the original casing for display.
+  const phraseCounts: Map<string, { display: string; count: number }> = new Map();
+
+  let chronicityCount = 0;
+  let protectiveCount = 0;
+  let redFlagCount = 0;
+
+  // Sort by analysedAt descending so "most recent" is index 0
+  const sortedDesc = [...valid].sort((a, b) =>
+    (b.analysedAt || '').localeCompare(a.analysedAt || '')
+  );
+
+  for (const a of sortedDesc) {
+    if (a.severityLevel && daysWithSeverity[a.severityLevel] !== undefined) {
+      daysWithSeverity[a.severityLevel]++;
+    }
+    for (const cat of a.stressorCategories || []) {
+      categoryCounts.set(cat, (categoryCounts.get(cat) || 0) + 1);
+    }
+    // Phrase aggregation uses severity indicators specifically — those are
+    // the phrases that drove burnout-relevant interpretation. We deliberately
+    // skip chronicity/protective/redFlag arrays here to keep the recurring
+    // phrase signal focused on stressor language.
+    for (const phrase of a.severityIndicators || []) {
+      const key = phrase.toLowerCase().trim();
+      if (!key) continue;
+      const existing = phraseCounts.get(key);
+      if (existing) {
+        existing.count++;
+      } else {
+        phraseCounts.set(key, { display: phrase.trim(), count: 1 });
+      }
+    }
+    if ((a.chronicityMarkers || []).length > 0) chronicityCount++;
+    if ((a.protectiveFactors || []).length > 0) protectiveCount++;
+    if ((a.redFlagPhrases || []).length > 0) redFlagCount++;
+  }
+
+  const recurringCategories = Array.from(categoryCounts.entries())
+    .filter(([, count]) => count >= RECURRING_THRESHOLD)
+    .sort((a, b) => b[1] - a[1])
+    .map(([category, count]) => ({ category, count }));
+
+  const recurringPhrases = Array.from(phraseCounts.values())
+    .filter((v) => v.count >= RECURRING_THRESHOLD)
+    .sort((a, b) => b.count - a.count)
+    .map((v) => ({ phrase: v.display, count: v.count }));
+
+  const mostRecent = sortedDesc[0];
+
+  return {
+    analysisCount: valid.length,
+    daysWithSeverity,
+    recurringCategories,
+    recurringPhrases,
+    chronicityCount,
+    protectiveCount,
+    redFlagCount,
+    mostRecentSeverity: mostRecent?.severityLevel ?? null,
+    mostRecentCategories: mostRecent?.stressorCategories ?? [],
+    mostRecentAnalysedAt: mostRecent?.analysedAt ?? null,
+  };
+}
+
+// Helper: filter analyses to the aggregation window using their analysedAt.
+// Exported so the route handler can use the same window logic consistently.
+export function filterToAggregationWindow(
+  analyses: (NotesAnalysis | null | undefined)[],
+): (NotesAnalysis | null | undefined)[] {
+  const cutoff = new Date();
+  cutoff.setDate(cutoff.getDate() - AGGREGATION_WINDOW_DAYS);
+  return analyses.filter((a) => {
+    if (!a || !a.analysedAt) return false;
+    return new Date(a.analysedAt) >= cutoff;
+  });
+}
+

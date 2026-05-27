@@ -1,4 +1,5 @@
 import type { CheckIn, BodyMapLog, WorkoutLog, SleepEntry, StepEntry, WearableMetricsDaily, UserPhysiologicalBaselines } from "@shared/schema";
+import type { NotesAggregate } from "./notesAnalyser";
 
 interface BurnoutDriver {
   key: string;
@@ -32,6 +33,12 @@ interface BurnoutDataSources {
   // When null or uncalibrated, that source contributes nothing and its
   // weight is redistributed across active sources via existing logic.
   baselines?: UserPhysiologicalBaselines | null;
+  // Rolled-up summary of notes analyses across the last 14 days.
+  // Used for two purposes: (1) a small severity-driven score contribution
+  // when red flags or sustained high-severity notes appear, and (2) enriching
+  // driver explanations with verbatim phrases from the user's own notes.
+  // Null when no recent check-ins have notes analyses.
+  notesAggregate?: NotesAggregate | null;
 }
 
 // Convert wearable_metrics_daily rows into the SleepEntry/StepEntry shapes
@@ -550,6 +557,65 @@ const DRIVER_LABELS: Record<string, string> = {
 
 const BASE_CHECKIN_KEYS = ['sleep', 'stress', 'energy', 'mood', 'clarity', 'booleans'];
 
+// --- NOTES CONTRIBUTION ---
+// Computes a small additive contribution (0 to ~2.5 points) based on the
+// notes aggregate. Intentionally conservative: subjective text shouldn't
+// dominate weeks of physiological data, but explicit user-reported severity
+// should nudge the score. Returns 0 when aggregate is empty or absent.
+//
+// Triggers:
+//   - Any red flag phrase across the 14-day window:     +1.5
+//   - 2+ days of high-or-severe severity:               +1.0
+//   - 1 day of high-or-severe severity:                 +0.5
+// Max total: 2.5 points added to the final burnout score.
+function computeNotesContribution(aggregate: NotesAggregate | null | undefined): number {
+  if (!aggregate || aggregate.analysisCount === 0) return 0;
+  let contribution = 0;
+  if (aggregate.redFlagCount > 0) contribution += 1.5;
+  const severeDays = aggregate.daysWithSeverity.high + aggregate.daysWithSeverity.severe;
+  if (severeDays >= 2) contribution += 1.0;
+  else if (severeDays === 1) contribution += 0.5;
+  return contribution;
+}
+
+// --- DRIVER NARRATIVE ENRICHMENT ---
+// When the user has recurring stressor categories or recurring verbatim
+// phrases across recent check-ins, splice that into the matching driver's
+// explanation. This is the mechanism that turns generic "your stress is
+// elevated" into specific "your stress is elevated, and you've mentioned
+// work pressure in 3 of your last 5 check-ins."
+//
+// The base explanation already covers severity. We append a clause that
+// names specific recurring patterns from the notes. Only applied when the
+// driver is from check-ins (stress, energy, mood, sleep, booleans, clarity)
+// because those are the ones the user is writing about.
+function enrichDriverExplanation(
+  baseExplanation: string,
+  driverKey: string,
+  aggregate: NotesAggregate | null | undefined,
+): string {
+  if (!aggregate || aggregate.analysisCount === 0) return baseExplanation;
+
+  const checkInDriverKeys = ['stress', 'energy', 'mood', 'sleep', 'booleans', 'clarity'];
+  if (!checkInDriverKeys.includes(driverKey)) return baseExplanation;
+
+  // Build the enrichment clause. We prefer recurring phrases (most specific)
+  // over recurring categories (less specific). Cap at the top item to avoid
+  // sentence sprawl — one specific reference is more powerful than three.
+  let enrichment = '';
+  if (aggregate.recurringPhrases.length > 0) {
+    const top = aggregate.recurringPhrases[0];
+    enrichment = ` You've described "${top.phrase}" in ${top.count} recent check-ins.`;
+  } else if (aggregate.recurringCategories.length > 0) {
+    const top = aggregate.recurringCategories[0];
+    enrichment = ` You've mentioned ${top.category} pressure in ${top.count} recent check-ins.`;
+  } else if (aggregate.redFlagCount > 0) {
+    enrichment = ` Your recent notes include phrases worth paying attention to.`;
+  }
+
+  return baseExplanation + enrichment;
+}
+
 // ====================================================================
 // MAIN SCORING FUNCTION
 // ====================================================================
@@ -745,6 +811,13 @@ export function computeBurnoutScore(data: BurnoutDataSources): BurnoutResult {
   if (activityScore !== null) finalScore += activityScore * (activeWeights['activity'] || 0);
   if (strainRecoveryBalanceScore !== null) finalScore += strainRecoveryBalanceScore * (activeWeights['strainRecoveryBalance'] || 0);
 
+  // Apply the small notes contribution AFTER weighted source computation.
+  // It's additive (not weighted) because it represents explicit user-reported
+  // severity that should escalate the score, not be redistributed by the
+  // dynamic weight logic.
+  const notesContribution = computeNotesContribution(data.notesAggregate);
+  finalScore += notesContribution;
+
   finalScore = Math.round(Math.max(0, Math.min(100, finalScore)));
 
   // --- Debug logging ---
@@ -759,6 +832,9 @@ export function computeBurnoutScore(data: BurnoutDataSources): BurnoutResult {
     finalScore,
     dataSourceCount,
     baselineCalibrated: data.baselines?.isCalibrated ?? false,
+    notesContribution: notesContribution.toFixed(2),
+    notesAnalysisCount: data.notesAggregate?.analysisCount ?? 0,
+    notesRedFlags: data.notesAggregate?.redFlagCount ?? 0,
     weights: activeWeights,
   });
 
@@ -917,10 +993,11 @@ export function computeBurnoutScore(data: BurnoutDataSources): BurnoutResult {
     } else {
       trend = 'stable';
     }
+    const baseExplanation = getDriverExplanation(key, allDriverComponents[key]);
     return {
       key,
       label: DRIVER_LABELS[key] || key,
-      explanation: getDriverExplanation(key, allDriverComponents[key]),
+      explanation: enrichDriverExplanation(baseExplanation, key, data.notesAggregate),
       trend,
       weight: allDriverWeights[key] || 0,
       weightedContribution: allDriverComponents[key] * (allDriverWeights[key] || 0),

@@ -20155,6 +20155,23 @@ Respond as the Recovery Coach. Reference their specific assessment data and prov
         baselineSafe,
       ]);
 
+      // Aggregate the last 14 days of notes analyses for driver enrichment
+      // and the small notes contribution to the score. Pulled from checkInData
+      // we already fetched — no extra DB call needed. Resilient: if notes_analysis
+      // is malformed JSON for some rows, those rows are simply dropped from the
+      // aggregate rather than failing the whole burnout computation.
+      let notesAggregate: any = null;
+      try {
+        const { aggregateNotesAnalyses, filterToAggregationWindow } = await import('./notesAnalyser');
+        const analyses = checkInData
+          .map((c: any) => c.notesAnalysis as any)
+          .filter((a: any) => a && typeof a === 'object');
+        const windowed = filterToAggregationWindow(analyses);
+        notesAggregate = aggregateNotesAnalyses(windowed);
+      } catch (err) {
+        console.warn('[burnout] notes aggregation failed, continuing without it:', (err as any)?.message || err);
+      }
+
       // Capture the most recent burnout tier BEFORE inserting the new score so
       // we can detect a tier change and fire a push notification.
       const [prevScoreRow] = await db
@@ -20173,6 +20190,7 @@ Respond as the Recovery Coach. Reference their specific assessment data and prov
         stepEntries: stepData,
         wearableMetrics: wearable.rows,
         baselines: baselines ?? null,
+        notesAggregate,
       });
 
       const saved = await storage.createBurnoutScore({

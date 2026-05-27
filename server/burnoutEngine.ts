@@ -33,9 +33,11 @@ interface BurnoutDataSources {
   // When null or uncalibrated, that source contributes nothing and its
   // weight is redistributed across active sources via existing logic.
   baselines?: UserPhysiologicalBaselines | null;
-  // Aggregated notes analyses from recent check-ins. Optional — when present
-  // it contributes a small additive nudge to the burnout score and enriches
-  // driver explanations with recurring verbatim phrases.
+  // Rolled-up summary of notes analyses across the last 14 days.
+  // Used for two purposes: (1) a small severity-driven score contribution
+  // when red flags or sustained high-severity notes appear, and (2) enriching
+  // driver explanations with verbatim phrases from the user's own notes.
+  // Null when no recent check-ins have notes analyses.
   notesAggregate?: NotesAggregate | null;
 }
 
@@ -555,71 +557,129 @@ const DRIVER_LABELS: Record<string, string> = {
 
 const BASE_CHECKIN_KEYS = ['sleep', 'stress', 'energy', 'mood', 'clarity', 'booleans'];
 
-// --- Notes-aware contribution and enrichment ---
-
-/** Small additive score nudge (0 to ~2.5) based on aggregated notes severity + red flags.
- *  Applied AFTER weighted source computation so it escalates rather than redistributes. */
-function computeNotesContribution(notesAggregate: NotesAggregate | null | undefined): number {
-  if (!notesAggregate || notesAggregate.analysisCount === 0) return 0;
-
+// --- NOTES CONTRIBUTION ---
+// Computes a small additive contribution (0 to ~2.5 points) based on the
+// notes aggregate. Intentionally conservative: subjective text shouldn't
+// dominate weeks of physiological data, but explicit user-reported severity
+// should nudge the score. Returns 0 when aggregate is empty or absent.
+//
+// Triggers:
+//   - Any red flag phrase across the 14-day window:     +1.5
+//   - 2+ days of high-or-severe severity:               +1.0
+//   - 1 day of high-or-severe severity:                 +0.5
+// Max total: 2.5 points added to the final burnout score.
+function computeNotesContribution(aggregate: NotesAggregate | null | undefined): number {
+  if (!aggregate || aggregate.analysisCount === 0) return 0;
   let contribution = 0;
-
-  // Red flags: any red flag phrases across the window = 1.5 point nudge
-  if (notesAggregate.redFlagCount > 0) {
-    contribution += 1.5;
-  }
-
-  // Severity: count high/severe days in the window
-  const highOrSevereCount = (notesAggregate.severityCounts.high || 0) + (notesAggregate.severityCounts.severe || 0);
-  if (highOrSevereCount >= 2) {
-    contribution += 1.0;
-  } else if (highOrSevereCount === 1) {
-    contribution += 0.5;
-  }
-
-  return Math.min(2.5, contribution);
+  if (aggregate.redFlagCount > 0) contribution += 1.5;
+  const severeDays = aggregate.severityCounts.high + aggregate.severityCounts.severe;
+  if (severeDays >= 2) contribution += 1.0;
+  else if (severeDays === 1) contribution += 0.5;
+  return contribution;
 }
 
-/** When recurring phrases or categories exist, append a specific clause to the
- *  driver explanation. Prefers recurring phrases (most specific) > recurring
- *  categories > generic red-flag mention. Caps at one specific reference. */
+// --- PERCEIVED CONTROL CONTRIBUTION ---
+// When the user reports high stress AND low perceived control, that is the
+// classic learned-helplessness pattern. Meta-analyses consistently show this
+// combination is a stronger burnout predictor than high stress alone.
+//
+// Conversely, high stress + high perceived control is just a hard week —
+// a sense of agency is a documented protective factor against burnout.
+//
+// Triggers (only fires when the user actually answered the question, i.e.
+// perceivedControlTriggerMet was true and perceivedControlScore is not null):
+//
+//   Stress >= 4 (high) + perceivedControl 1-2 (low):   +1.5  (learned helplessness)
+//   Stress >= 4 (high) + perceivedControl 3 (moderate): +0.5  (uncertainty)
+//   Stress >= 4 (high) + perceivedControl 4-5 (high):  -0.5  (agency as buffer)
+//   Stress < 4:                                          0    (trigger condition not met)
+//
+// Output range: -0.5 to +1.5. Intentionally small relative to the 0-100 scale.
+function computePerceivedControlContribution(checkIns: CheckIn[]): number {
+  if (!checkIns || checkIns.length === 0) return 0;
+
+  // Use the most recent check-in. Sorted by date descending so index 0 is newest.
+  const sorted = [...checkIns].sort((a, b) => {
+    const dateA = new Date(a.checkInDate).getTime();
+    const dateB = new Date(b.checkInDate).getTime();
+    return dateB - dateA;
+  });
+  const latest = sorted[0];
+  if (!latest) return 0;
+
+  const stress = latest.stressScore;
+  const control = latest.perceivedControlScore;
+
+  // Question wasn't answered — no signal to use
+  if (control === null || control === undefined) return 0;
+  // Stress isn't high enough for the trigger condition
+  if (stress === null || stress === undefined || stress < 4) return 0;
+
+  if (control <= 2) return 1.5;   // Learned helplessness pattern
+  if (control === 3) return 0.5;  // Uncertain control
+  if (control >= 4) return -0.5;  // Agency as buffer
+  return 0;
+}
+
+// --- DRIVER NARRATIVE ENRICHMENT ---
+// When the user has recurring stressor categories or recurring verbatim
+// phrases across recent check-ins, splice that into the matching driver's
+// explanation. This is the mechanism that turns generic "your stress is
+// elevated" into specific "your stress is elevated, and you've mentioned
+// work pressure in 3 of your last 5 check-ins."
+//
+// The base explanation already covers severity. We append a clause that
+// names specific recurring patterns from the notes. Only applied when the
+// driver is from check-ins (stress, energy, mood, sleep, booleans, clarity)
+// because those are the ones the user is writing about.
 function enrichDriverExplanation(
   baseExplanation: string,
-  notesAggregate: NotesAggregate | null | undefined,
   driverKey: string,
+  aggregate: NotesAggregate | null | undefined,
+  checkIns: CheckIn[],
 ): string {
-  if (!notesAggregate || notesAggregate.analysisCount === 0) return baseExplanation;
+  const checkInDriverKeys = ['stress', 'energy', 'mood', 'sleep', 'booleans', 'clarity'];
+  if (!checkInDriverKeys.includes(driverKey)) return baseExplanation;
 
-  // Only enrich check-in source drivers (stress, energy, mood, sleep, booleans, clarity)
-  const enrichableKeys = new Set(['stress', 'energy', 'mood', 'sleep', 'clarity', 'booleans']);
-  if (!enrichableKeys.has(driverKey)) return baseExplanation;
+  let enrichment = '';
 
-  const { recurringPhrases, recurringCategories, redFlagCount } = notesAggregate;
-
-  let clause = '';
-
-  if (recurringPhrases.length > 0) {
-    // Most specific: cite the first recurring verbatim phrase
-    const phrase = recurringPhrases[0];
-    clause = ` You've described "${phrase}" in ${notesAggregate.analysisCount} recent check-ins.`;
-  } else if (recurringCategories.length > 0) {
-    // Next best: cite recurring categories
-    const cats = recurringCategories.join(', ');
-    clause = ` Your notes have flagged ${cats} across ${notesAggregate.analysisCount} recent check-ins.`;
-  } else if (redFlagCount > 0) {
-    // Fallback: mention red flags if present but no recurring patterns yet
-    clause = ` Your recent check-ins contain warning phrases that merit attention.`;
+  // Notes-driven enrichment (most specific signal — the user's own words).
+  // Prefer recurring phrases over recurring categories over generic red-flag hint.
+  if (aggregate && aggregate.analysisCount > 0) {
+    if (aggregate.recurringPhrases.length > 0) {
+      const top = aggregate.recurringPhrases[0];
+      enrichment = ` You've described "${top}" in multiple recent check-ins.`;
+    } else if (aggregate.recurringCategories.length > 0) {
+      const top = aggregate.recurringCategories[0];
+      enrichment = ` You've mentioned ${top} pressure in multiple recent check-ins.`;
+    } else if (aggregate.redFlagCount > 0) {
+      enrichment = ` Your recent notes include phrases worth paying attention to.`;
+    }
   }
 
-  if (!clause) return baseExplanation;
-
-  // Prevent sentence sprawl: if the base already ends with punctuation, insert after it.
-  // Otherwise append with a space.
-  const trimmed = baseExplanation.trim();
-  if (trimmed.endsWith('.') || trimmed.endsWith('!') || trimmed.endsWith('?')) {
-    return trimmed + clause;
+  // Perceived-control enrichment ONLY for the stress driver, ONLY when the
+  // user answered the conditional question on the most recent check-in.
+  // Layered on top of notes enrichment if present, since they complement
+  // each other (notes = what is wrong, control = whether you can change it).
+  if (driverKey === 'stress' && checkIns.length > 0) {
+    const sorted = [...checkIns].sort((a, b) => {
+      const dateA = new Date(a.checkInDate).getTime();
+      const dateB = new Date(b.checkInDate).getTime();
+      return dateB - dateA;
+    });
+    const latest = sorted[0];
+    if (latest && latest.stressScore !== null && latest.stressScore !== undefined && latest.stressScore >= 4
+        && latest.perceivedControlScore !== null && latest.perceivedControlScore !== undefined) {
+      const control = latest.perceivedControlScore;
+      if (control <= 2) {
+        enrichment += ` You also reported feeling little control over what's driving this.`;
+      } else if (control >= 4) {
+        enrichment += ` You reported feeling mostly in control, which is a real protective factor.`;
+      }
+    }
   }
-  return trimmed + ' ' + clause.trim();
+
+  return baseExplanation + enrichment;
 }
 
 // ====================================================================
@@ -817,9 +877,22 @@ export function computeBurnoutScore(data: BurnoutDataSources): BurnoutResult {
   if (activityScore !== null) finalScore += activityScore * (activeWeights['activity'] || 0);
   if (strainRecoveryBalanceScore !== null) finalScore += strainRecoveryBalanceScore * (activeWeights['strainRecoveryBalance'] || 0);
 
-  // --- Notes contribution (additive nudge, applied AFTER weighted computation) ---
+  // Apply the small notes contribution AFTER weighted source computation.
+  // It's additive (not weighted) because it represents explicit user-reported
+  // severity that should escalate the score, not be redistributed by the
+  // dynamic weight logic.
   const notesContribution = computeNotesContribution(data.notesAggregate);
-  finalScore = Math.round(Math.max(0, Math.min(100, finalScore + notesContribution)));
+  finalScore += notesContribution;
+
+  // Perceived control nudge: small adjustment based on the learned-helplessness
+  // pattern (high stress + low perceived control). Conservative — max +1.5/-0.5
+  // out of 100. Applied additively, not via weighted source logic, because it
+  // reflects an explicit user-reported state that should escalate or buffer
+  // the score directly.
+  const perceivedControlContribution = computePerceivedControlContribution(data.checkIns);
+  finalScore += perceivedControlContribution;
+
+  finalScore = Math.round(Math.max(0, Math.min(100, finalScore)));
 
   // --- Debug logging ---
   console.log('[Burnout Engine] Source scores:', {
@@ -833,10 +906,11 @@ export function computeBurnoutScore(data: BurnoutDataSources): BurnoutResult {
     finalScore,
     dataSourceCount,
     baselineCalibrated: data.baselines?.isCalibrated ?? false,
-    weights: activeWeights,
-    notesContribution: notesContribution ?? 0,
+    notesContribution: notesContribution.toFixed(2),
     notesAnalysisCount: data.notesAggregate?.analysisCount ?? 0,
     notesRedFlags: data.notesAggregate?.redFlagCount ?? 0,
+    perceivedControlContribution: perceivedControlContribution.toFixed(2),
+    weights: activeWeights,
   });
 
   // --- Build driver components for ranking ---
@@ -994,10 +1068,11 @@ export function computeBurnoutScore(data: BurnoutDataSources): BurnoutResult {
     } else {
       trend = 'stable';
     }
+    const baseExplanation = getDriverExplanation(key, allDriverComponents[key]);
     return {
       key,
       label: DRIVER_LABELS[key] || key,
-      explanation: enrichDriverExplanation(getDriverExplanation(key, allDriverComponents[key]), data.notesAggregate, key),
+      explanation: enrichDriverExplanation(baseExplanation, key, data.notesAggregate, data.checkIns),
       trend,
       weight: allDriverWeights[key] || 0,
       weightedContribution: allDriverComponents[key] * (allDriverWeights[key] || 0),

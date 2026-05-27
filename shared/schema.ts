@@ -418,6 +418,14 @@ export const checkIns = pgTable("check_ins", {
   // Conditional fatigue question
   fatigue: boolean("fatigue"),
   fatigueTriggerMet: boolean("fatigue_trigger_met").default(false),
+  // Conditional perceived-control question. Only appears when stress is 4-5
+  // OR overwhelmed/anxious is checked (Phase 1b step 4 trigger logic, client-side).
+  // Captures the learned-helplessness dimension: high stress + low perceived
+  // control is a stronger burnout predictor than high stress alone.
+  // Score: 1 (not at all able to change it) to 5 (completely able to change it).
+  // NULL when the question wasn't shown or the user skipped it.
+  perceivedControlScore: integer("perceived_control_score"),
+  perceivedControlTriggerMet: boolean("perceived_control_trigger_met").default(false),
   // Legacy fields (kept for backwards compatibility)
   energyLevel: integer("energy_level").notNull().default(4),
   stressManagement: text("stress_management").notNull().default(""),
@@ -3586,3 +3594,4 @@ export const insertAiInsightReadSchema = createInsertSchema(aiInsightReads).omit
 
 // Chat models for AI conversations
 export * from "./models/chat";
+

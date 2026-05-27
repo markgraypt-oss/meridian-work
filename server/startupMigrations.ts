@@ -96,6 +96,10 @@ const SELF_HEAL_DDL: string[] = [
      ADD COLUMN IF NOT EXISTS push_coach boolean DEFAULT true,
      ADD COLUMN IF NOT EXISTS push_admin boolean DEFAULT false`,
 
+  // Phase 1b: conditional perceived-control question (stress ≥4 or overwhelmed/anxious checked)
+  `ALTER TABLE check_ins ADD COLUMN IF NOT EXISTS perceived_control_score integer`,
+  `ALTER TABLE check_ins ADD COLUMN IF NOT EXISTS perceived_control_trigger_met boolean DEFAULT false`,
+
   // Badges: collection split (current vs legacy)
   `ALTER TABLE badges ADD COLUMN IF NOT EXISTS collection varchar NOT NULL DEFAULT 'current'`,
 

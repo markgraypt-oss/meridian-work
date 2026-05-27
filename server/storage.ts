@@ -12649,7 +12649,8 @@ export class DatabaseStorage implements IStorage {
   }
 
   async createBurnoutScore(score: InsertBurnoutScore): Promise<BurnoutScore> {
-    const [created] = await db.insert(burnoutScores).values(score).returning();
+    const safe = { ...score, score: Math.round(score.score) };
+    const [created] = await db.insert(burnoutScores).values(safe).returning();
     return created;
   }
 

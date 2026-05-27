@@ -19,6 +19,9 @@
 // ====================================================================
 
 import { recomputeAllBaselines } from "./baselineEngine";
+import { db } from "./db";
+import { userPhysiologicalBaselines } from "@shared/schema";
+import { desc } from "drizzle-orm";
 
 const TICK_INTERVAL_MS = 60 * 60 * 1000; // hourly check
 const TARGET_HOUR_UTC = 3; // 3am UTC
@@ -51,14 +54,47 @@ async function tick() {
   }
 }
 
+// Catch-up check: if the most recent baseline computation in the database is
+// more than 24 hours old (or the table is empty), kick off an immediate run.
+// This handles the case where the server was down during the 3am UTC target
+// window — without this, a deploy or restart during that hour would silently
+// skip the day's computation.
+async function catchUpIfNeeded(): Promise<void> {
+  try {
+    const [latest] = await db
+      .select({ lastComputedAt: userPhysiologicalBaselines.lastComputedAt })
+      .from(userPhysiologicalBaselines)
+      .orderBy(desc(userPhysiologicalBaselines.lastComputedAt))
+      .limit(1);
+
+    const now = new Date();
+    const twentyFourHoursAgo = new Date(now.getTime() - 24 * 60 * 60 * 1000);
+
+    const needsCatchUp = !latest || !latest.lastComputedAt || latest.lastComputedAt < twentyFourHoursAgo;
+
+    if (needsCatchUp) {
+      console.log(`[baseline-scheduler] Catch-up triggered (last run: ${latest?.lastComputedAt?.toISOString() ?? 'never'})`);
+      const result = await recomputeAllBaselines();
+      lastRunDate = todayUtcDateStr();
+      console.log(`[baseline-scheduler] Catch-up complete:`, result);
+    } else {
+      console.log(`[baseline-scheduler] Catch-up not needed (last run: ${latest?.lastComputedAt?.toISOString()})`);
+    }
+  } catch (err) {
+    console.error("[baseline-scheduler] Catch-up check failed:", err);
+  }
+}
+
 export function startBaselineScheduler() {
   if (started) return;
   started = true;
   // Initial tick after 90 seconds (offset from wearable scheduler's 60s to spread load),
   // then hourly. The tick itself is cheap when it's not the target hour.
+  // Also run a catch-up check shortly after startup to handle missed nightly runs.
   setTimeout(() => {
+    catchUpIfNeeded().catch(() => {});
     tick().catch(() => {});
     setInterval(() => tick().catch(() => {}), TICK_INTERVAL_MS);
   }, 90_000);
-  console.log(`[baseline-scheduler] started (target=${TARGET_HOUR_UTC}:00 UTC, hourly checks)`);
+  console.log(`[baseline-scheduler] started (target=${TARGET_HOUR_UTC}:00 UTC, hourly checks, with startup catch-up)`);
 }

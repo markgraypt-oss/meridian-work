@@ -4,7 +4,7 @@ import rateLimit, { ipKeyGenerator } from "express-rate-limit";
 import { registerRoutes } from "./routes";
 import { setupVite, serveStatic, log } from "./vite";
 import { video } from "./mux";
-import { runProfileImageMigrationOnce, seedMeditationsOnce, runSchemaSelfHealOnce, seedAiPromptsOnce, repairBodyweightGoalUnitsOnce, normalizeRecipeMacrosOnce, seedBadgesV2Once, retireDroppedDeskBadgesOnce, seedReadinessBadgesOnce } from "./startupMigrations";
+import { runProfileImageMigrationOnce, seedMeditationsOnce, runSchemaSelfHealOnce, seedAiPromptsOnce, repairBodyweightGoalUnitsOnce, normalizeRecipeMacrosOnce, seedBadgesV2Once, retireDroppedDeskBadgesOnce, seedReadinessBadgesOnce, fixHabitTemplateDescriptionsOnce, dedupeCheckInsOnce } from "./startupMigrations";
 
 const app = express();
 
@@ -146,8 +146,14 @@ app.use((req, res, next) => {
         retireDroppedDeskBadgesOnce().catch((e) => {
           console.error("[startup-migration] retire-desk-badges failed:", e);
         });
+        fixHabitTemplateDescriptionsOnce().catch((e) => {
+          console.error("[startup-migration] habit-template-descriptions failed:", e);
+        });
         seedReadinessBadgesOnce().catch((e) => {
           console.error("[startup-migration] readiness-badges failed:", e);
+        });
+        dedupeCheckInsOnce().catch((e) => {
+          console.error("[startup-migration] dedupe-check-ins failed:", e);
         });
       });
     import("./aiGeneratorMigration").then(({ runAiGeneratorMigrationOnce }) => {
@@ -159,7 +165,7 @@ app.use((req, res, next) => {
     import("./wearables/scheduler").then(({ startWearableScheduler }) => {
       startWearableScheduler();
     }).catch((e) => console.error("[startup] wearables scheduler failed:", e));
-    // Start nightly physiological baseline computation scheduler (3am UTC)
+    // Start nightly physiological baseline recomputation scheduler
     import("./baselineScheduler").then(({ startBaselineScheduler }) => {
       startBaselineScheduler();
     }).catch((e) => console.error("[startup] baseline scheduler failed:", e));

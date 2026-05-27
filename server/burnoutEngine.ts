@@ -578,6 +578,49 @@ function computeNotesContribution(aggregate: NotesAggregate | null | undefined):
   return contribution;
 }
 
+// --- PERCEIVED CONTROL CONTRIBUTION ---
+// When the user reports high stress AND low perceived control, that is the
+// classic learned-helplessness pattern. Meta-analyses consistently show this
+// combination is a stronger burnout predictor than high stress alone.
+//
+// Conversely, high stress + high perceived control is just a hard week —
+// a sense of agency is a documented protective factor against burnout.
+//
+// Triggers (only fires when the user actually answered the question, i.e.
+// perceivedControlTriggerMet was true and perceivedControlScore is not null):
+//
+//   Stress >= 4 (high) + perceivedControl 1-2 (low):   +1.5  (learned helplessness)
+//   Stress >= 4 (high) + perceivedControl 3 (moderate): +0.5  (uncertainty)
+//   Stress >= 4 (high) + perceivedControl 4-5 (high):  -0.5  (agency as buffer)
+//   Stress < 4:                                          0    (trigger condition not met)
+//
+// Output range: -0.5 to +1.5. Intentionally small relative to the 0-100 scale.
+function computePerceivedControlContribution(checkIns: CheckIn[]): number {
+  if (!checkIns || checkIns.length === 0) return 0;
+
+  // Use the most recent check-in. Sorted by date descending so index 0 is newest.
+  const sorted = [...checkIns].sort((a, b) => {
+    const dateA = new Date(a.checkInDate).getTime();
+    const dateB = new Date(b.checkInDate).getTime();
+    return dateB - dateA;
+  });
+  const latest = sorted[0];
+  if (!latest) return 0;
+
+  const stress = latest.stressScore;
+  const control = latest.perceivedControlScore;
+
+  // Question wasn't answered — no signal to use
+  if (control === null || control === undefined) return 0;
+  // Stress isn't high enough for the trigger condition
+  if (stress === null || stress === undefined || stress < 4) return 0;
+
+  if (control <= 2) return 1.5;   // Learned helplessness pattern
+  if (control === 3) return 0.5;  // Uncertain control
+  if (control >= 4) return -0.5;  // Agency as buffer
+  return 0;
+}
+
 // --- DRIVER NARRATIVE ENRICHMENT ---
 // When the user has recurring stressor categories or recurring verbatim
 // phrases across recent check-ins, splice that into the matching driver's
@@ -593,24 +636,47 @@ function enrichDriverExplanation(
   baseExplanation: string,
   driverKey: string,
   aggregate: NotesAggregate | null | undefined,
+  checkIns: CheckIn[],
 ): string {
-  if (!aggregate || aggregate.analysisCount === 0) return baseExplanation;
-
   const checkInDriverKeys = ['stress', 'energy', 'mood', 'sleep', 'booleans', 'clarity'];
   if (!checkInDriverKeys.includes(driverKey)) return baseExplanation;
 
-  // Build the enrichment clause. We prefer recurring phrases (most specific)
-  // over recurring categories (less specific). Cap at the top item to avoid
-  // sentence sprawl — one specific reference is more powerful than three.
   let enrichment = '';
-  if (aggregate.recurringPhrases.length > 0) {
-    const top = aggregate.recurringPhrases[0];
-    enrichment = ` You've described "${top.phrase}" in ${top.count} recent check-ins.`;
-  } else if (aggregate.recurringCategories.length > 0) {
-    const top = aggregate.recurringCategories[0];
-    enrichment = ` You've mentioned ${top.category} pressure in ${top.count} recent check-ins.`;
-  } else if (aggregate.redFlagCount > 0) {
-    enrichment = ` Your recent notes include phrases worth paying attention to.`;
+
+  // Notes-driven enrichment (most specific signal — the user's own words).
+  // Prefer recurring phrases over recurring categories over generic red-flag hint.
+  if (aggregate && aggregate.analysisCount > 0) {
+    if (aggregate.recurringPhrases.length > 0) {
+      const top = aggregate.recurringPhrases[0];
+      enrichment = ` You've described "${top.phrase}" in ${top.count} recent check-ins.`;
+    } else if (aggregate.recurringCategories.length > 0) {
+      const top = aggregate.recurringCategories[0];
+      enrichment = ` You've mentioned ${top.category} pressure in ${top.count} recent check-ins.`;
+    } else if (aggregate.redFlagCount > 0) {
+      enrichment = ` Your recent notes include phrases worth paying attention to.`;
+    }
+  }
+
+  // Perceived-control enrichment ONLY for the stress driver, ONLY when the
+  // user answered the conditional question on the most recent check-in.
+  // Layered on top of notes enrichment if present, since they complement
+  // each other (notes = what is wrong, control = whether you can change it).
+  if (driverKey === 'stress' && checkIns.length > 0) {
+    const sorted = [...checkIns].sort((a, b) => {
+      const dateA = new Date(a.checkInDate).getTime();
+      const dateB = new Date(b.checkInDate).getTime();
+      return dateB - dateA;
+    });
+    const latest = sorted[0];
+    if (latest && latest.stressScore !== null && latest.stressScore !== undefined && latest.stressScore >= 4
+        && latest.perceivedControlScore !== null && latest.perceivedControlScore !== undefined) {
+      const control = latest.perceivedControlScore;
+      if (control <= 2) {
+        enrichment += ` You also reported feeling little control over what's driving this.`;
+      } else if (control >= 4) {
+        enrichment += ` You reported feeling mostly in control, which is a real protective factor.`;
+      }
+    }
   }
 
   return baseExplanation + enrichment;
@@ -818,6 +884,14 @@ export function computeBurnoutScore(data: BurnoutDataSources): BurnoutResult {
   const notesContribution = computeNotesContribution(data.notesAggregate);
   finalScore += notesContribution;
 
+  // Perceived control nudge: small adjustment based on the learned-helplessness
+  // pattern (high stress + low perceived control). Conservative — max +1.5/-0.5
+  // out of 100. Applied additively, not via weighted source logic, because it
+  // reflects an explicit user-reported state that should escalate or buffer
+  // the score directly.
+  const perceivedControlContribution = computePerceivedControlContribution(data.checkIns);
+  finalScore += perceivedControlContribution;
+
   finalScore = Math.round(Math.max(0, Math.min(100, finalScore)));
 
   // --- Debug logging ---
@@ -835,6 +909,7 @@ export function computeBurnoutScore(data: BurnoutDataSources): BurnoutResult {
     notesContribution: notesContribution.toFixed(2),
     notesAnalysisCount: data.notesAggregate?.analysisCount ?? 0,
     notesRedFlags: data.notesAggregate?.redFlagCount ?? 0,
+    perceivedControlContribution: perceivedControlContribution.toFixed(2),
     weights: activeWeights,
   });
 
@@ -997,7 +1072,7 @@ export function computeBurnoutScore(data: BurnoutDataSources): BurnoutResult {
     return {
       key,
       label: DRIVER_LABELS[key] || key,
-      explanation: enrichDriverExplanation(baseExplanation, key, data.notesAggregate),
+      explanation: enrichDriverExplanation(baseExplanation, key, data.notesAggregate, data.checkIns),
       trend,
       weight: allDriverWeights[key] || 0,
       weightedContribution: allDriverComponents[key] * (allDriverWeights[key] || 0),

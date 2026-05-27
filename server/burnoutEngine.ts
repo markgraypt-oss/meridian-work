@@ -572,7 +572,7 @@ function computeNotesContribution(aggregate: NotesAggregate | null | undefined):
   if (!aggregate || aggregate.analysisCount === 0) return 0;
   let contribution = 0;
   if (aggregate.redFlagCount > 0) contribution += 1.5;
-  const severeDays = aggregate.daysWithSeverity.high + aggregate.daysWithSeverity.severe;
+  const severeDays = aggregate.severityCounts.high + aggregate.severityCounts.severe;
   if (severeDays >= 2) contribution += 1.0;
   else if (severeDays === 1) contribution += 0.5;
   return contribution;
@@ -648,10 +648,10 @@ function enrichDriverExplanation(
   if (aggregate && aggregate.analysisCount > 0) {
     if (aggregate.recurringPhrases.length > 0) {
       const top = aggregate.recurringPhrases[0];
-      enrichment = ` You've described "${top.phrase}" in ${top.count} recent check-ins.`;
+      enrichment = ` You've described "${top}" in multiple recent check-ins.`;
     } else if (aggregate.recurringCategories.length > 0) {
       const top = aggregate.recurringCategories[0];
-      enrichment = ` You've mentioned ${top.category} pressure in ${top.count} recent check-ins.`;
+      enrichment = ` You've mentioned ${top} pressure in multiple recent check-ins.`;
     } else if (aggregate.redFlagCount > 0) {
       enrichment = ` Your recent notes include phrases worth paying attention to.`;
     }

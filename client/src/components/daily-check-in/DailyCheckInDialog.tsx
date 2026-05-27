@@ -593,7 +593,11 @@ export default function DailyCheckInDialog({ open, onOpenChange, checkInToEdit }
               </p>
             </div>
             <Textarea
-              placeholder="e.g. 'Big presentation at work next week, struggling to switch off at night.' Or: 'Knee felt off in training today, worried about it.' Or: 'Argument with partner, feeling rough.'"
+              placeholder={`e.g. "Big presentation next week, struggling to switch off at night."
+
+Or: "Knee felt off in training today, worried about it."
+
+Or: "Argument with partner, feeling rough."`}
               value={notes}
               onChange={(e) => setNotes(e.target.value)}
               rows={5}

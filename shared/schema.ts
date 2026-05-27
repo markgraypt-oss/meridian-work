@@ -424,6 +424,23 @@ export const checkIns = pgTable("check_ins", {
   goalsProgress: text("goals_progress").array(),
   completed: boolean("completed").default(false),
   notes: text("notes"),
+  // Structured AI analysis of the notes field, computed at submission time.
+  // Schema:
+  //   {
+  //     stressorCategories: string[]   // work | training | relationships | health | financial | sleep | family | other
+  //     severityLevel: 'none' | 'mild' | 'moderate' | 'high' | 'severe'
+  //     severityIndicators: string[]   // verbatim phrases that drove the severity rating
+  //     chronicityMarkers: string[]    // verbatim time/duration phrases (e.g. "for weeks now")
+  //     protectiveFactors: string[]    // verbatim phrases (e.g. "had a great session")
+  //     redFlagPhrases: string[]       // verbatim phrases signalling crisis-level distress
+  //     analysedAt: string             // ISO timestamp
+  //     analyserVersion: string        // e.g. "v1"
+  //     notesHash: string              // hash of source notes to skip re-analysis when unchanged
+  //   }
+  // NULL when notes are empty or analysis failed. Consumed by the burnout engine
+  // (modest score contribution), the AI coach (heavy context input), and the
+  // early warning narratives (critical for making explanations specific not generic).
+  notesAnalysis: jsonb("notes_analysis"),
   createdAt: timestamp("created_at").defaultNow(),
 });
 

@@ -5889,11 +5889,65 @@ Rules:
       const checkInData = insertCheckInSchema.parse({
         ...req.body,
         userId,
+        // Default to now if the client didn't supply a check-in date
+        checkInDate: req.body.checkInDate ? new Date(req.body.checkInDate) : new Date(),
       });
-      const checkIn = await storage.createCheckIn(checkInData);
-      res.json(checkIn);
+
+      // Run notes analysis synchronously when notes are present.
+      // Failure-safe: if the analyser errors or times out, we still save
+      // the check-in — notesAnalysis is just left NULL. A missing analysis
+      // is recoverable on the next submission; a failed check-in is not.
+      let notesAnalysis: any = null;
+      if (checkInData.notes && checkInData.notes.trim().length >= 3) {
+        try {
+          const { analyseNotes } = await import('./notesAnalyser');
+          notesAnalysis = await analyseNotes(checkInData.notes);
+        } catch (err) {
+          console.error('[check-ins] Notes analysis failed, continuing without it:', err);
+        }
+      }
+
+      const checkIn = await storage.createCheckIn({
+        ...checkInData,
+        notesAnalysis,
+      } as any);
+
+      // Update user streak after check-in (non-blocking)
+      storage.updateUserStreak(userId).catch(err => {
+        console.error(`[STREAK] Background update failed, will recalculate on next fetch:`, err?.message);
+      });
+
+      // Engagement: track streak (checkin) + award points (non-blocking)
+      recordEngagementActivity(userId, "daily_checkin", { checkInId: checkIn.id }).catch(err =>
+        console.error(`[ENGAGEMENT] daily_checkin failed:`, err?.message),
+      );
+
+      // Auto-complete the "Complete Your Check-In" habit (templateId 31) if the user has it
+      try {
+        const todayStr = new Date().toISOString().split('T')[0];
+        const userHabits = await storage.getHabits(userId);
+        const checkInHabit = userHabits.find(h => h.templateId === 31);
+        if (checkInHabit) {
+          const completions = await storage.getHabitCompletions(checkInHabit.id);
+          const alreadyCompleted = completions.some(c => {
+            const completionDate = new Date(c.completedDate).toISOString().split('T')[0];
+            return completionDate === todayStr;
+          });
+          if (!alreadyCompleted) {
+            await storage.completeHabit(checkInHabit.id, userId);
+            console.log('[Check-In] Auto-completed check-in habit for user:', userId);
+          }
+        }
+      } catch (habitError) {
+        console.error('[Check-In] Error auto-completing check-in habit:', habitError);
+      }
+
+      res.status(201).json(checkIn);
     } catch (error) {
       console.error("Error creating check-in:", error);
+      if (error instanceof z.ZodError) {
+        return res.status(400).json({ message: "Validation error", errors: error.errors });
+      }
       res.status(500).json({ message: "Failed to create check-in" });
     }
   });
@@ -14051,57 +14105,6 @@ Keep your response concise, practical, and evidence-based. Do not use em dashes.
     } catch (error) {
       console.error("Error fetching check-in for date:", error);
       res.status(500).json({ message: "Failed to fetch check-in" });
-    }
-  });
-
-  app.post('/api/check-ins', isAuthenticated, async (req: any, res) => {
-    try {
-      const userId = req.user.claims.sub;
-      const checkInData = insertCheckInSchema.parse({
-        ...req.body,
-        userId,
-        checkInDate: req.body.checkInDate ? new Date(req.body.checkInDate) : new Date(),
-      });
-
-      const checkIn = await storage.createCheckIn(checkInData);
-      
-      // Update user streak after check-in (non-blocking)
-      storage.updateUserStreak(userId).catch(err => {
-        console.error(`[STREAK] Background update failed, will recalculate on next fetch:`, err?.message);
-      });
-
-      // Engagement: track streak (checkin) + award points (non-blocking)
-      recordEngagementActivity(userId, "daily_checkin", { checkInId: checkIn.id }).catch(err =>
-        console.error(`[ENGAGEMENT] daily_checkin failed:`, err?.message),
-      );
-
-      // Auto-complete the "Complete Your Check-In" habit (templateId 31) if the user has it
-      try {
-        const todayStr = new Date().toISOString().split('T')[0];
-        const userHabits = await storage.getHabits(userId);
-        const checkInHabit = userHabits.find(h => h.templateId === 31);
-        if (checkInHabit) {
-          const completions = await storage.getHabitCompletions(checkInHabit.id);
-          const alreadyCompleted = completions.some(c => {
-            const completionDate = new Date(c.completedDate).toISOString().split('T')[0];
-            return completionDate === todayStr;
-          });
-          if (!alreadyCompleted) {
-            await storage.completeHabit(checkInHabit.id, userId);
-            console.log('[Check-In] Auto-completed check-in habit for user:', userId);
-          }
-        }
-      } catch (habitError) {
-        console.error('[Check-In] Error auto-completing check-in habit:', habitError);
-      }
-
-      res.status(201).json(checkIn);
-    } catch (error) {
-      console.error("Error creating check-in:", error);
-      if (error instanceof z.ZodError) {
-        return res.status(400).json({ message: "Validation error", errors: error.errors });
-      }
-      res.status(500).json({ message: "Failed to create check-in" });
     }
   });
 

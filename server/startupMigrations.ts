@@ -8,6 +8,7 @@ let hasRunMeditationSeed = false;
 let hasRunSchemaSelfHeal = false;
 let hasRunBodyweightGoalUnitRepair = false;
 let hasRunRecipeMacrosNormalize = false;
+let hasRunDedupeCheckIns = false;
 
 /**
  * Idempotent self-heal for schema columns that the app needs but that may not
@@ -816,6 +817,43 @@ export async function fixHabitTemplateDescriptionsOnce(): Promise<void> {
     console.log("[startup-migration] habit-template-descriptions: updated templates and user habits");
   } catch (e: any) {
     console.error("[startup-migration] habit-template-descriptions failed:", e?.message || e);
+  }
+}
+
+/**
+ * One-time deduplication: removes older duplicate check-ins (keeps newest per
+ * user per calendar day) and enforces the constraint at the DB level with a
+ * unique index. Safe to run repeatedly — the index creation is IF NOT EXISTS
+ * and the delete CTE is a no-op when no duplicates exist.
+ */
+export async function dedupeCheckInsOnce(): Promise<void> {
+  if (hasRunDedupeCheckIns) return;
+  hasRunDedupeCheckIns = true;
+
+  try {
+    // Delete duplicates: keep only the row with the highest created_at per user+day
+    const del = await pool.query(`
+      WITH ranked AS (
+        SELECT
+          id,
+          ROW_NUMBER() OVER (PARTITION BY user_id, DATE(check_in_date) ORDER BY created_at DESC) AS rn
+        FROM check_ins
+      )
+      DELETE FROM check_ins
+      WHERE id IN (SELECT id FROM ranked WHERE rn > 1)
+    `);
+    if ((del.rowCount ?? 0) > 0) {
+      console.log(`[startup-migration] dedupe-check-ins: removed ${del.rowCount} duplicate rows`);
+    }
+
+    // Create the unique index to prevent future duplicates
+    await pool.query(`
+      CREATE UNIQUE INDEX IF NOT EXISTS check_ins_user_day_unique
+        ON check_ins (user_id, DATE(check_in_date))
+    `);
+    console.log(`[startup-migration] dedupe-check-ins: unique index check_ins_user_day_unique ensured`);
+  } catch (e: any) {
+    console.error("[startup-migration] dedupe-check-ins failed:", e?.message || e);
   }
 }
 

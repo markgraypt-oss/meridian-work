@@ -424,6 +424,23 @@ export const checkIns = pgTable("check_ins", {
   goalsProgress: text("goals_progress").array(),
   completed: boolean("completed").default(false),
   notes: text("notes"),
+  // Structured AI analysis of the notes field, computed at submission time.
+  // Schema:
+  //   {
+  //     stressorCategories: string[]   // work | training | relationships | health | financial | sleep | family | other
+  //     severityLevel: 'none' | 'mild' | 'moderate' | 'high' | 'severe'
+  //     severityIndicators: string[]   // verbatim phrases that drove the severity rating
+  //     chronicityMarkers: string[]    // verbatim time/duration phrases (e.g. "for weeks now")
+  //     protectiveFactors: string[]    // verbatim phrases (e.g. "had a great session")
+  //     redFlagPhrases: string[]       // verbatim phrases signalling crisis-level distress
+  //     analysedAt: string             // ISO timestamp
+  //     analyserVersion: string        // e.g. "v1"
+  //     notesHash: string              // hash of source notes to skip re-analysis when unchanged
+  //   }
+  // NULL when notes are empty or analysis failed. Consumed by the burnout engine
+  // (modest score contribution), the AI coach (heavy context input), and the
+  // early warning narratives (critical for making explanations specific not generic).
+  notesAnalysis: jsonb("notes_analysis"),
   createdAt: timestamp("created_at").defaultNow(),
 });
 
@@ -1332,18 +1349,6 @@ export const learnContentLibrary = pgTable("learn_content_library", {
   tags: text("tags").array(), // Tags for filtering/categorization
   createdAt: timestamp("created_at").defaultNow(),
 });
-
-// Documents attached to a content library item (supports multiple PDFs per video)
-export const learnContentDocuments = pgTable("learn_content_documents", {
-  id: serial("id").primaryKey(),
-  contentLibraryItemId: integer("content_library_item_id").notNull().references(() => learnContentLibrary.id, { onDelete: "cascade" }),
-  title: text("title").notNull(),
-  fileUrl: text("file_url").notNull(),
-  createdAt: timestamp("created_at").defaultNow(),
-});
-
-export type LearnContentDocument = typeof learnContentDocuments.$inferSelect;
-export type InsertLearnContentDocument = typeof learnContentDocuments.$inferInsert;
 
 // Learning Paths - curated educational content paths
 export const learningPaths = pgTable("learning_paths", {

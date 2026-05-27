@@ -1,4 +1,5 @@
 import type { CheckIn, BodyMapLog, WorkoutLog, SleepEntry, StepEntry, WearableMetricsDaily, UserPhysiologicalBaselines } from "@shared/schema";
+import type { NotesAggregate } from "./notesAnalyser";
 
 interface BurnoutDriver {
   key: string;
@@ -32,6 +33,10 @@ interface BurnoutDataSources {
   // When null or uncalibrated, that source contributes nothing and its
   // weight is redistributed across active sources via existing logic.
   baselines?: UserPhysiologicalBaselines | null;
+  // Aggregated notes analyses from recent check-ins. Optional — when present
+  // it contributes a small additive nudge to the burnout score and enriches
+  // driver explanations with recurring verbatim phrases.
+  notesAggregate?: NotesAggregate | null;
 }
 
 // Convert wearable_metrics_daily rows into the SleepEntry/StepEntry shapes
@@ -550,6 +555,73 @@ const DRIVER_LABELS: Record<string, string> = {
 
 const BASE_CHECKIN_KEYS = ['sleep', 'stress', 'energy', 'mood', 'clarity', 'booleans'];
 
+// --- Notes-aware contribution and enrichment ---
+
+/** Small additive score nudge (0 to ~2.5) based on aggregated notes severity + red flags.
+ *  Applied AFTER weighted source computation so it escalates rather than redistributes. */
+function computeNotesContribution(notesAggregate: NotesAggregate | null | undefined): number {
+  if (!notesAggregate || notesAggregate.analysisCount === 0) return 0;
+
+  let contribution = 0;
+
+  // Red flags: any red flag phrases across the window = 1.5 point nudge
+  if (notesAggregate.redFlagCount > 0) {
+    contribution += 1.5;
+  }
+
+  // Severity: count high/severe days in the window
+  const highOrSevereCount = (notesAggregate.severityCounts.high || 0) + (notesAggregate.severityCounts.severe || 0);
+  if (highOrSevereCount >= 2) {
+    contribution += 1.0;
+  } else if (highOrSevereCount === 1) {
+    contribution += 0.5;
+  }
+
+  return Math.min(2.5, contribution);
+}
+
+/** When recurring phrases or categories exist, append a specific clause to the
+ *  driver explanation. Prefers recurring phrases (most specific) > recurring
+ *  categories > generic red-flag mention. Caps at one specific reference. */
+function enrichDriverExplanation(
+  baseExplanation: string,
+  notesAggregate: NotesAggregate | null | undefined,
+  driverKey: string,
+): string {
+  if (!notesAggregate || notesAggregate.analysisCount === 0) return baseExplanation;
+
+  // Only enrich check-in source drivers (stress, energy, mood, sleep, booleans, clarity)
+  const enrichableKeys = new Set(['stress', 'energy', 'mood', 'sleep', 'clarity', 'booleans']);
+  if (!enrichableKeys.has(driverKey)) return baseExplanation;
+
+  const { recurringPhrases, recurringCategories, redFlagCount } = notesAggregate;
+
+  let clause = '';
+
+  if (recurringPhrases.length > 0) {
+    // Most specific: cite the first recurring verbatim phrase
+    const phrase = recurringPhrases[0];
+    clause = ` You've described "${phrase}" in ${notesAggregate.analysisCount} recent check-ins.`;
+  } else if (recurringCategories.length > 0) {
+    // Next best: cite recurring categories
+    const cats = recurringCategories.join(', ');
+    clause = ` Your notes have flagged ${cats} across ${notesAggregate.analysisCount} recent check-ins.`;
+  } else if (redFlagCount > 0) {
+    // Fallback: mention red flags if present but no recurring patterns yet
+    clause = ` Your recent check-ins contain warning phrases that merit attention.`;
+  }
+
+  if (!clause) return baseExplanation;
+
+  // Prevent sentence sprawl: if the base already ends with punctuation, insert after it.
+  // Otherwise append with a space.
+  const trimmed = baseExplanation.trim();
+  if (trimmed.endsWith('.') || trimmed.endsWith('!') || trimmed.endsWith('?')) {
+    return trimmed + clause;
+  }
+  return trimmed + ' ' + clause.trim();
+}
+
 // ====================================================================
 // MAIN SCORING FUNCTION
 // ====================================================================
@@ -745,7 +817,9 @@ export function computeBurnoutScore(data: BurnoutDataSources): BurnoutResult {
   if (activityScore !== null) finalScore += activityScore * (activeWeights['activity'] || 0);
   if (strainRecoveryBalanceScore !== null) finalScore += strainRecoveryBalanceScore * (activeWeights['strainRecoveryBalance'] || 0);
 
-  finalScore = Math.round(Math.max(0, Math.min(100, finalScore)));
+  // --- Notes contribution (additive nudge, applied AFTER weighted computation) ---
+  const notesContribution = computeNotesContribution(data.notesAggregate);
+  finalScore = Math.round(Math.max(0, Math.min(100, finalScore + notesContribution)));
 
   // --- Debug logging ---
   console.log('[Burnout Engine] Source scores:', {
@@ -760,6 +834,9 @@ export function computeBurnoutScore(data: BurnoutDataSources): BurnoutResult {
     dataSourceCount,
     baselineCalibrated: data.baselines?.isCalibrated ?? false,
     weights: activeWeights,
+    notesContribution: notesContribution ?? 0,
+    notesAnalysisCount: data.notesAggregate?.analysisCount ?? 0,
+    notesRedFlags: data.notesAggregate?.redFlagCount ?? 0,
   });
 
   // --- Build driver components for ranking ---
@@ -920,7 +997,7 @@ export function computeBurnoutScore(data: BurnoutDataSources): BurnoutResult {
     return {
       key,
       label: DRIVER_LABELS[key] || key,
-      explanation: getDriverExplanation(key, allDriverComponents[key]),
+      explanation: enrichDriverExplanation(getDriverExplanation(key, allDriverComponents[key]), data.notesAggregate, key),
       trend,
       weight: allDriverWeights[key] || 0,
       weightedContribution: allDriverComponents[key] * (allDriverWeights[key] || 0),

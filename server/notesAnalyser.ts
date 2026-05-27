@@ -211,3 +211,79 @@ export async function analyseNotesWithCache(
   }
   return analyseNotes(notes);
 }
+
+// ====================================================================
+// AGGREGATION — summarise recent notes analyses for the burnout engine
+// ====================================================================
+
+export interface NotesAggregate {
+  analysisCount: number;                 // how many analyses in the window
+  severityCounts: Record<NotesSeverityLevel, number>;
+  recurringCategories: string[];         // categories appearing ≥2 times
+  recurringPhrases: string[];            // severityIndicators appearing ≥2 times (case-insensitive)
+  redFlagCount: number;                  // total redFlagPhrases across all analyses
+  mostRecentSeverity: NotesSeverityLevel | null;
+  mostRecentCategories: string[];
+}
+
+/** Keep only analyses whose analysedAt falls within the cutoff window. */
+export function filterToAggregationWindow(
+  analyses: NotesAnalysis[],
+  cutoffDate: Date,
+): NotesAnalysis[] {
+  return analyses.filter(a => {
+    const d = new Date(a.analysedAt);
+    return d.getTime() >= cutoffDate.getTime();
+  });
+}
+
+/** Aggregate an array of notes analyses into a summary for the burnout engine. */
+export function aggregateNotesAnalyses(analyses: NotesAnalysis[]): NotesAggregate {
+  const severityCounts: Record<NotesSeverityLevel, number> = {
+    none: 0, mild: 0, moderate: 0, high: 0, severe: 0,
+  };
+
+  const categoryFreq = new Map<string, number>();
+  const phraseFreq = new Map<string, number>(); // lowercased for case-insensitive matching
+  let redFlagCount = 0;
+  let mostRecent: NotesAnalysis | null = null;
+
+  for (const a of analyses) {
+    severityCounts[a.severityLevel]++;
+
+    for (const cat of a.stressorCategories) {
+      categoryFreq.set(cat, (categoryFreq.get(cat) || 0) + 1);
+    }
+
+    for (const phrase of a.severityIndicators) {
+      const key = phrase.trim().toLowerCase();
+      if (key.length > 0) {
+        phraseFreq.set(key, (phraseFreq.get(key) || 0) + 1);
+      }
+    }
+
+    redFlagCount += a.redFlagPhrases.length;
+
+    if (!mostRecent || new Date(a.analysedAt) > new Date(mostRecent.analysedAt)) {
+      mostRecent = a;
+    }
+  }
+
+  const recurringCategories = Array.from(categoryFreq.entries())
+    .filter(([, count]) => count >= 2)
+    .map(([cat]) => cat);
+
+  const recurringPhrases = Array.from(phraseFreq.entries())
+    .filter(([, count]) => count >= 2)
+    .map(([phrase]) => phrase);
+
+  return {
+    analysisCount: analyses.length,
+    severityCounts,
+    recurringCategories,
+    recurringPhrases,
+    redFlagCount,
+    mostRecentSeverity: mostRecent?.severityLevel ?? null,
+    mostRecentCategories: mostRecent?.stressorCategories ?? [],
+  };
+}

@@ -306,6 +306,7 @@ const uploadDoc = multer({
 
 import { computeBurnoutScore } from './burnoutEngine';
 import { trackCalibrationEvent, trackRecoveryModeActivation, generateCalibrationReport, getLevel as getBurnoutLevel } from './burnoutCalibration';
+import { aggregateNotesAnalyses, filterToAggregationWindow } from './notesAnalyser';
 import { burnoutScores, insertCompanySchema, insertCompanyBenefitSchema, checkIns, bodyMapLogs, departments, companyInvites, usageAlerts, insertAiPromptSchema, workdayBreakLogs, aiInsightReads } from "@shared/schema";
 
 import {
@@ -20165,6 +20166,15 @@ Respond as the Recovery Coach. Reference their specific assessment data and prov
         .limit(1);
       const previousTier = prevScoreRow ? getBurnoutLevel(prevScoreRow.score) : null;
 
+      // Extract notes analyses from check-in data (already fetched — no extra DB call)
+      const cutoff = new Date();
+      cutoff.setDate(cutoff.getDate() - 14);
+      const allNotesAnalyses = (checkInData || [])
+        .map(ci => ci.notesAnalysis)
+        .filter((na): na is NonNullable<typeof na> => na != null);
+      const windowedAnalyses = filterToAggregationWindow(allNotesAnalyses, cutoff);
+      const notesAggregate = windowedAnalyses.length > 0 ? aggregateNotesAnalyses(windowedAnalyses) : null;
+
       const result = computeBurnoutScore({
         checkIns: checkInData,
         workoutLogs: workoutLogData,
@@ -20173,6 +20183,7 @@ Respond as the Recovery Coach. Reference their specific assessment data and prov
         stepEntries: stepData,
         wearableMetrics: wearable.rows,
         baselines: baselines ?? null,
+        notesAggregate,
       });
 
       const saved = await storage.createBurnoutScore({

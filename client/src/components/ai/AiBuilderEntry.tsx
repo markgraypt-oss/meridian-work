@@ -108,7 +108,7 @@ function PersonalisationSignals({ kind }: { kind: AiBuilderKind }) {
       icon: Activity,
       description:
         kind === "workout"
-          ? "Your latest burnout score tunes today's intensity — higher burnout dials the session toward recovery and lower volume."
+          ? "Your latest burnout score tunes today's intensity. Higher burnout dials the session toward recovery and lower volume."
           : "Your latest burnout score shapes how aggressively the programme ramps load week over week.",
     });
   }

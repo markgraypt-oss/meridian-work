@@ -450,7 +450,7 @@ export function ProgrammeForm({ program, onClose }: ProgrammeFormProps) {
               render={({ field }) => (
                 <FormItem>
                   <FormLabel>Categories</FormLabel>
-                  <p className="text-xs text-muted-foreground">Primary navigation — controls which category tabs this programme appears under in the library</p>
+                  <p className="text-xs text-muted-foreground">Primary navigation: controls which category tabs this programme appears under in the library</p>
                   <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mt-2">
                     {AVAILABLE_CATEGORIES.map((cat) => (
                       <div key={cat.value} className="flex items-center space-x-2">
@@ -483,7 +483,7 @@ export function ProgrammeForm({ program, onClose }: ProgrammeFormProps) {
               render={({ field }) => (
                 <FormItem>
                   <FormLabel>Tags</FormLabel>
-                  <p className="text-xs text-muted-foreground">Secondary filters — users can filter programmes by these tags within any category</p>
+                  <p className="text-xs text-muted-foreground">Secondary filters: users can filter programmes by these tags within any category</p>
                   <div className="grid grid-cols-2 md:grid-cols-3 gap-3 mt-2">
                     {AVAILABLE_TAGS.map((tag) => (
                       <div key={tag.value} className="flex items-center space-x-2">

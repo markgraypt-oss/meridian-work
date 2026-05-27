@@ -159,7 +159,7 @@ export function WorkoutScheduleEditor({ programId, totalWeeks }: WorkoutSchedule
                 >
                   <div className="text-sm">
                     <span className="font-medium text-foreground">{dayLabel(gap.dayPosition)}</span>
-                    <span className="text-muted-foreground"> — {gap.workouts.map(w => w.name).join(', ')}</span>
+                    <span className="text-muted-foreground">: {gap.workouts.map(w => w.name).join(', ')}</span>
                     <span className="text-muted-foreground"> (was on Week {gap.sourceWeekNumber})</span>
                   </div>
                 </div>

@@ -46,8 +46,8 @@ export default function BottomNavigation({ onCoachOpen }: BottomNavigationProps)
   }, [isUnread, tooltipKey, isHome, briefingTooltipRelevant]);
   const tooltipGreeting = isMorning ? 'Good morning ☀️' : 'Evening check-in 🌙';
   const tooltipCta = isMorning
-    ? "Your briefing is ready — tap to start the day."
-    : "Let's wrap up the day — tap for your debrief.";
+    ? "Your briefing is ready. Tap to start the day."
+    : "Let's wrap up the day. Tap for your debrief.";
   const ariaLabel = isUnread
     ? `${tooltipGreeting}. ${tooltipCta}`
     : 'Open Coach';

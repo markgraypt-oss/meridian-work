@@ -373,7 +373,7 @@ export default function GoalsNutritionEdit() {
               Confirm Changes
             </AlertDialogTitle>
             <AlertDialogDescription>
-              Save {computedCalories} calories — {proteinGrams}g protein, {carbsGrams}g carbs, {fatGrams}g fat?
+              Save {computedCalories} calories: {proteinGrams}g protein, {carbsGrams}g carbs, {fatGrams}g fat?
               This will update what your Macro Tracker shows.
             </AlertDialogDescription>
           </AlertDialogHeader>

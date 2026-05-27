@@ -401,7 +401,7 @@ export default function ProgrammeHistoryStats() {
           )}
           <span className="text-xs text-muted-foreground">
             {enrollment.startDate ? format(new Date(enrollment.startDate), 'dd MMM yyyy') : ''} 
-            {enrollment.endDate ? ` — ${format(new Date(enrollment.endDate), 'dd MMM yyyy')}` : ''}
+            {enrollment.endDate ? ` to ${format(new Date(enrollment.endDate), 'dd MMM yyyy')}` : ''}
             {enrollment.programWeeks ? ` · ${enrollment.programWeeks} weeks` : ''}
           </span>
         </div>

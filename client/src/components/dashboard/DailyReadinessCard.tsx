@@ -430,7 +430,7 @@ export default function DailyReadinessCard() {
           <div className="flex flex-col items-center text-center py-2">
             <ScoreRing score={null} />
             <p className="text-sm text-muted-foreground mt-4 max-w-[280px]">
-              Building your baseline. Keep checking in — your first score appears at{" "}
+              Building your baseline. Keep checking in, your first score appears at{" "}
               {HISTORY_REQUIRED} days. ({today.daysOfHistory}/{HISTORY_REQUIRED})
             </p>
           </div>

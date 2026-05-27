@@ -3926,6 +3926,20 @@ export class DatabaseStorage implements IStorage {
     return newCheckIn;
   }
 
+  // Update an existing check-in by id. Used by the POST /api/check-ins handler
+  // when a user submits a second check-in for the same day, so we update the
+  // existing row instead of creating a duplicate. The DB unique index on
+  // (user_id, DATE(check_in_date)) provides a second line of defence against
+  // duplicate inserts.
+  async updateCheckIn(id: number, updates: Partial<InsertCheckIn>): Promise<CheckIn | undefined> {
+    const [updated] = await db
+      .update(checkIns)
+      .set(updates)
+      .where(eq(checkIns.id, id))
+      .returning();
+    return updated;
+  }
+
   async getLatestCheckIn(userId: string): Promise<CheckIn | undefined> {
     const [checkIn] = await db
       .select()
@@ -3942,6 +3956,9 @@ export class DatabaseStorage implements IStorage {
     const tomorrow = new Date(today);
     tomorrow.setDate(tomorrow.getDate() + 1);
 
+    // Order by created_at DESC and limit 1 as defence-in-depth. The DB now
+    // enforces one check-in per user per day via a unique index, but if any
+    // legacy duplicate ever sneaks through we prefer the most recent.
     const [checkIn] = await db
       .select()
       .from(checkIns)
@@ -3951,7 +3968,9 @@ export class DatabaseStorage implements IStorage {
           gte(checkIns.checkInDate, today),
           lt(checkIns.checkInDate, tomorrow)
         )
-      );
+      )
+      .orderBy(desc(checkIns.createdAt))
+      .limit(1);
     return checkIn;
   }
 

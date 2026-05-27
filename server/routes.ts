@@ -5907,10 +5907,29 @@ Rules:
         }
       }
 
-      const checkIn = await storage.createCheckIn({
-        ...checkInData,
-        notesAnalysis,
-      } as any);
+      // Upsert: if a check-in already exists for the user today, update it
+      // instead of inserting a duplicate. The DB unique index on
+      // (user_id, DATE(check_in_date)) is the safety net so even in a race
+      // condition only one row can ever exist per user per day.
+      const existingToday = await storage.getTodayCheckIn(userId);
+      let checkIn;
+      if (existingToday) {
+        const updated = await storage.updateCheckIn(existingToday.id, {
+          ...checkInData,
+          notesAnalysis,
+        } as any);
+        // updateCheckIn returns undefined only if the row was deleted between
+        // the SELECT and UPDATE which is extremely rare, but fall back to create.
+        checkIn = updated ?? (await storage.createCheckIn({
+          ...checkInData,
+          notesAnalysis,
+        } as any));
+      } else {
+        checkIn = await storage.createCheckIn({
+          ...checkInData,
+          notesAnalysis,
+        } as any);
+      }
 
       // Update user streak after check-in (non-blocking)
       storage.updateUserStreak(userId).catch(err => {

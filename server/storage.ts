@@ -372,15 +372,12 @@ import {
   burnoutSettings,
   weeklyCheckins,
   healthIntegrations,
-  userPhysiologicalBaselines,
   type BurnoutScore,
   type InsertBurnoutScore,
   type BurnoutSettings,
   type InsertBurnoutSettings,
   type WeeklyCheckin,
   type InsertWeeklyCheckin,
-  type UserPhysiologicalBaselines,
-  type InsertUserPhysiologicalBaselines,
   type HealthIntegration,
   type InsertHealthIntegration,
   companies,
@@ -1187,10 +1184,6 @@ export interface IStorage {
   // Burnout settings (recovery mode)
   getBurnoutSettings(userId: string): Promise<BurnoutSettings | undefined>;
   upsertBurnoutSettings(userId: string, data: Partial<InsertBurnoutSettings>): Promise<BurnoutSettings>;
-
-  // User physiological baselines
-  getUserPhysiologicalBaselines(userId: string): Promise<UserPhysiologicalBaselines | undefined>;
-  upsertUserPhysiologicalBaselines(userId: string, data: Partial<InsertUserPhysiologicalBaselines>): Promise<UserPhysiologicalBaselines>;
 
   // Health integrations
   getHealthIntegrations(userId: string): Promise<HealthIntegration[]>;
@@ -3933,6 +3926,20 @@ export class DatabaseStorage implements IStorage {
     return newCheckIn;
   }
 
+  // Update an existing check-in by id. Used by the POST /api/check-ins handler
+  // when a user submits a second check-in for the same day, so we update the
+  // existing row instead of creating a duplicate. The DB unique index on
+  // (user_id, DATE(check_in_date)) provides a second line of defence against
+  // duplicate inserts.
+  async updateCheckIn(id: number, updates: Partial<InsertCheckIn>): Promise<CheckIn | undefined> {
+    const [updated] = await db
+      .update(checkIns)
+      .set(updates)
+      .where(eq(checkIns.id, id))
+      .returning();
+    return updated;
+  }
+
   async getLatestCheckIn(userId: string): Promise<CheckIn | undefined> {
     const [checkIn] = await db
       .select()
@@ -3949,6 +3956,9 @@ export class DatabaseStorage implements IStorage {
     const tomorrow = new Date(today);
     tomorrow.setDate(tomorrow.getDate() + 1);
 
+    // Order by created_at DESC and limit 1 as defence-in-depth. The DB now
+    // enforces one check-in per user per day via a unique index, but if any
+    // legacy duplicate ever sneaks through we prefer the most recent.
     const [checkIn] = await db
       .select()
       .from(checkIns)
@@ -3958,7 +3968,9 @@ export class DatabaseStorage implements IStorage {
           gte(checkIns.checkInDate, today),
           lt(checkIns.checkInDate, tomorrow)
         )
-      );
+      )
+      .orderBy(desc(checkIns.createdAt))
+      .limit(1);
     return checkIn;
   }
 
@@ -7499,16 +7511,6 @@ export class DatabaseStorage implements IStorage {
   }
 
   async deleteWorkoutBlocksByWorkoutId(workoutId: number): Promise<void> {
-    // Explicitly delete block exercises first so we don't rely on DB-level cascade,
-    // which may not exist in production (sequence desync would cause pk conflicts).
-    const blocks = await db
-      .select({ id: workoutBlocks.id })
-      .from(workoutBlocks)
-      .where(eq(workoutBlocks.workoutId, workoutId));
-    if (blocks.length > 0) {
-      const blockIds = blocks.map(b => b.id);
-      await db.delete(blockExercises).where(inArray(blockExercises.blockId, blockIds));
-    }
     await db.delete(workoutBlocks).where(eq(workoutBlocks.workoutId, workoutId));
   }
 
@@ -12687,27 +12689,6 @@ export class DatabaseStorage implements IStorage {
       return updated;
     }
     const [created] = await db.insert(burnoutSettings)
-      .values({ userId, ...data })
-      .returning();
-    return created;
-  }
-
-  async getUserPhysiologicalBaselines(userId: string): Promise<UserPhysiologicalBaselines | undefined> {
-    const [baseline] = await db.select().from(userPhysiologicalBaselines)
-      .where(eq(userPhysiologicalBaselines.userId, userId));
-    return baseline;
-  }
-
-  async upsertUserPhysiologicalBaselines(userId: string, data: Partial<InsertUserPhysiologicalBaselines>): Promise<UserPhysiologicalBaselines> {
-    const existing = await this.getUserPhysiologicalBaselines(userId);
-    if (existing) {
-      const [updated] = await db.update(userPhysiologicalBaselines)
-        .set({ ...data, updatedAt: new Date() })
-        .where(eq(userPhysiologicalBaselines.userId, userId))
-        .returning();
-      return updated;
-    }
-    const [created] = await db.insert(userPhysiologicalBaselines)
       .values({ userId, ...data })
       .returning();
     return created;

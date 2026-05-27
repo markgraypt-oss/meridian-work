@@ -306,7 +306,6 @@ const uploadDoc = multer({
 
 import { computeBurnoutScore } from './burnoutEngine';
 import { trackCalibrationEvent, trackRecoveryModeActivation, generateCalibrationReport, getLevel as getBurnoutLevel } from './burnoutCalibration';
-import { aggregateNotesAnalyses, filterToAggregationWindow } from './notesAnalyser';
 import { burnoutScores, insertCompanySchema, insertCompanyBenefitSchema, checkIns, bodyMapLogs, departments, companyInvites, usageAlerts, insertAiPromptSchema, workdayBreakLogs, aiInsightReads } from "@shared/schema";
 
 import {
@@ -5908,10 +5907,29 @@ Rules:
         }
       }
 
-      const checkIn = await storage.createCheckIn({
-        ...checkInData,
-        notesAnalysis,
-      } as any);
+      // Upsert: if a check-in already exists for the user today, update it
+      // instead of inserting a duplicate. The DB unique index on
+      // (user_id, DATE(check_in_date)) is the safety net so even in a race
+      // condition only one row can ever exist per user per day.
+      const existingToday = await storage.getTodayCheckIn(userId);
+      let checkIn;
+      if (existingToday) {
+        const updated = await storage.updateCheckIn(existingToday.id, {
+          ...checkInData,
+          notesAnalysis,
+        } as any);
+        // updateCheckIn returns undefined only if the row was deleted between
+        // the SELECT and UPDATE which is extremely rare, but fall back to create.
+        checkIn = updated ?? (await storage.createCheckIn({
+          ...checkInData,
+          notesAnalysis,
+        } as any));
+      } else {
+        checkIn = await storage.createCheckIn({
+          ...checkInData,
+          notesAnalysis,
+        } as any);
+      }
 
       // Update user streak after check-in (non-blocking)
       storage.updateUserStreak(userId).catch(err => {
@@ -20156,6 +20174,23 @@ Respond as the Recovery Coach. Reference their specific assessment data and prov
         baselineSafe,
       ]);
 
+      // Aggregate the last 14 days of notes analyses for driver enrichment
+      // and the small notes contribution to the score. Pulled from checkInData
+      // we already fetched — no extra DB call needed. Resilient: if notes_analysis
+      // is malformed JSON for some rows, those rows are simply dropped from the
+      // aggregate rather than failing the whole burnout computation.
+      let notesAggregate: any = null;
+      try {
+        const { aggregateNotesAnalyses, filterToAggregationWindow } = await import('./notesAnalyser');
+        const analyses = checkInData
+          .map((c: any) => c.notesAnalysis as any)
+          .filter((a: any) => a && typeof a === 'object');
+        const windowed = filterToAggregationWindow(analyses);
+        notesAggregate = aggregateNotesAnalyses(windowed);
+      } catch (err) {
+        console.warn('[burnout] notes aggregation failed, continuing without it:', (err as any)?.message || err);
+      }
+
       // Capture the most recent burnout tier BEFORE inserting the new score so
       // we can detect a tier change and fire a push notification.
       const [prevScoreRow] = await db
@@ -20165,15 +20200,6 @@ Respond as the Recovery Coach. Reference their specific assessment data and prov
         .orderBy(desc(burnoutScores.computedDate))
         .limit(1);
       const previousTier = prevScoreRow ? getBurnoutLevel(prevScoreRow.score) : null;
-
-      // Extract notes analyses from check-in data (already fetched — no extra DB call)
-      const cutoff = new Date();
-      cutoff.setDate(cutoff.getDate() - 14);
-      const allNotesAnalyses = (checkInData || [])
-        .map(ci => ci.notesAnalysis)
-        .filter((na): na is NonNullable<typeof na> => na != null);
-      const windowedAnalyses = filterToAggregationWindow(allNotesAnalyses, cutoff);
-      const notesAggregate = windowedAnalyses.length > 0 ? aggregateNotesAnalyses(windowedAnalyses) : null;
 
       const result = computeBurnoutScore({
         checkIns: checkInData,

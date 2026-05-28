@@ -1790,6 +1790,69 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // Admin diagnostic: reports which schema items expected by the application
+  // ACTUALLY EXIST in the connected database. Use this to verify migrations
+  // landed in production (the [db-diag] log shows which DB you are connected
+  // to). The expected list intentionally focuses on schema items added since
+  // the iron-rule (every shared/schema.ts change needs a self-heal entry) was
+  // adopted, so this endpoint catches the same class of bug that left
+  // check_ins.notes_analysis missing from prod earlier.
+  app.get('/api/admin/schema-status', isAuthenticated, requireAdmin, async (_req: any, res) => {
+    try {
+      const expected: { table: string; column?: string; index?: string }[] = [
+        // Phase 1b additions
+        { table: 'check_ins', column: 'notes_analysis' },
+        { table: 'check_ins', column: 'perceived_control_score' },
+        { table: 'check_ins', column: 'perceived_control_trigger_met' },
+        { table: 'check_ins', index: 'check_ins_user_day_unique' },
+        // Phase 1c additions
+        { table: 'physiological_snapshots' },
+        { table: 'physiological_snapshots', index: 'physiological_snapshots_user_computed_idx' },
+        // Phase 1a additions
+        { table: 'user_physiological_baselines' },
+      ];
+
+      const colsQ = await pool.query(
+        `SELECT table_name, column_name FROM information_schema.columns WHERE table_schema = 'public'`
+      );
+      const presentColumns = new Set<string>(
+        colsQ.rows.map((r: any) => r.table_name + '.' + r.column_name)
+      );
+      const tablesQ = await pool.query(
+        `SELECT table_name FROM information_schema.tables WHERE table_schema = 'public'`
+      );
+      const presentTables = new Set<string>(tablesQ.rows.map((r: any) => r.table_name));
+      const idxQ = await pool.query(
+        `SELECT indexname, tablename FROM pg_indexes WHERE schemaname = 'public'`
+      );
+      const presentIndexes = new Set<string>(idxQ.rows.map((r: any) => r.tablename + '.' + r.indexname));
+
+      const ok: string[] = [];
+      const missing: string[] = [];
+      for (const e of expected) {
+        if (e.index) {
+          const k = e.table + '.' + e.index;
+          (presentIndexes.has(k) ? ok : missing).push('INDEX ' + k);
+        } else if (e.column) {
+          const k = e.table + '.' + e.column;
+          (presentColumns.has(k) ? ok : missing).push('COLUMN ' + k);
+        } else {
+          (presentTables.has(e.table) ? ok : missing).push('TABLE ' + e.table);
+        }
+      }
+
+      res.json({
+        databaseHost: process.env.DATABASE_URL?.match(/@([^/]+)/)?.[1] ?? 'unknown',
+        ok,
+        missing,
+        allClear: missing.length === 0,
+      });
+    } catch (error: any) {
+      console.error('[schema-status] error:', error);
+      res.status(500).json({ message: 'Failed to read schema', error: error?.message });
+    }
+  });
+
   // One-shot maintenance: clear default '8-12' reps pollution from warmup duration rows
   app.post('/api/admin/cleanup-rep-pollution', isAuthenticated, async (req: any, res) => {
     try {

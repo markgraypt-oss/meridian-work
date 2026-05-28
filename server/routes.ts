@@ -11810,17 +11810,6 @@ Rules:
     }
   });
 
-  app.get('/api/habits/:id/completions', isAuthenticated, async (req, res) => {
-    try {
-      const id = parseInt(req.params.id);
-      const completions = await storage.getHabitCompletions(id);
-      res.json(completions);
-    } catch (error) {
-      console.error("Error fetching habit completions:", error);
-      res.status(500).json({ message: "Failed to fetch habit completions" });
-    }
-  });
-
   app.post('/api/habits/recalculate-streaks', isAuthenticated, async (req: any, res) => {
     try {
       const habits = await storage.getHabits(req.user.claims.sub);
@@ -12629,20 +12618,6 @@ Rules:
   });
 
   // Update content library item
-  app.patch('/api/content-library/:id', isAuthenticated, async (req: any, res) => {
-    try {
-      const id = parseInt(req.params.id);
-      const item = await storage.updateContentLibraryItem(id, req.body);
-      if (!item) {
-        return res.status(404).json({ message: "Content not found" });
-      }
-      res.json(item);
-    } catch (error) {
-      console.error("Error updating library item:", error);
-      res.status(500).json({ message: "Failed to update content" });
-    }
-  });
-
   // Delete content library item
   app.delete('/api/content-library/:id', isAuthenticated, async (req: any, res) => {
     try {
@@ -14088,17 +14063,6 @@ Keep your response concise, practical, and evidence-based. Do not use em dashes.
   });
 
   // Daily Check-In endpoints
-  app.get('/api/check-ins', isAuthenticated, async (req: any, res) => {
-    try {
-      const userId = req.user.claims.sub;
-      const checkIns = await storage.getUserCheckIns(userId);
-      res.json(checkIns);
-    } catch (error) {
-      console.error("Error fetching check-ins:", error);
-      res.status(500).json({ message: "Failed to fetch check-ins" });
-    }
-  });
-
   app.get('/api/check-ins/today', isAuthenticated, async (req: any, res) => {
     try {
       const userId = req.user.claims.sub;

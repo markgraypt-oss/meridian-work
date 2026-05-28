@@ -305,7 +305,7 @@ const uploadDoc = multer({
 });
 
 import { computeBurnoutScore } from './burnoutEngine';
-import { trackCalibrationEvent, trackRecoveryModeActivation, generateCalibrationReport, getLevel as getBurnoutLevel } from './burnoutCalibration';
+import { trackCalibrationEvent, trackRecoveryModeActivation, generateCalibrationReport, getLevel as getBurnoutLevel, writePhysiologicalSnapshot } from './burnoutCalibration';
 import { burnoutScores, insertCompanySchema, insertCompanyBenefitSchema, checkIns, bodyMapLogs, departments, companyInvites, usageAlerts, insertAiPromptSchema, workdayBreakLogs, aiInsightReads } from "@shared/schema";
 
 import {
@@ -20189,6 +20189,10 @@ Respond as the Recovery Coach. Reference their specific assessment data and prov
       });
 
       trackCalibrationEvent(userId, result.score, result.trajectory, result.dataSourceCount).catch(() => {});
+
+      // Phase 1c: write a physiological snapshot on every computation (early-warning
+      // evidence). Fire-and-forget; a snapshot failure must never break the endpoint.
+      writePhysiologicalSnapshot(userId, result.score, getBurnoutLevel(result.score)).catch(() => {});
 
       // Fire a burnout tier change notification when the user moves between tiers.
       const newTier = getBurnoutLevel(result.score);

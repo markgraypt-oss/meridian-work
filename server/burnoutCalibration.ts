@@ -1,5 +1,5 @@
 import { db } from "./db";
-import { burnoutCalibrationEvents, burnoutScores } from "@shared/schema";
+import { burnoutCalibrationEvents, burnoutScores, physiologicalSnapshots, userPhysiologicalBaselines, wearableMetricsDaily } from "@shared/schema";
 import { eq, desc, and, gte, count } from "drizzle-orm";
 
 export function getLevel(score: number): string {
@@ -305,4 +305,111 @@ export async function generateCalibrationReport(): Promise<CalibrationReport> {
     levelStability,
     thresholdAlerts,
   };
+}
+
+
+// ====================================================================
+// PHYSIOLOGICAL SNAPSHOT WRITER (Phase 1c)
+// ====================================================================
+// Writes one snapshot per burnout computation into physiological_snapshots.
+// Self-contained: fetches its own baselines + recent wearable metrics and
+// computes HRV/RHR z-scores using the SAME method as the burnout engine
+// (7-day window, EWMA weighting, z = (recent - baseline) / max(1, sd),
+// provider dedup by priority). Kept independent of the engine so we never
+// have to reshape the engine's return type.
+//
+// Warning thresholds (conservative, tunable once calibration data accrues):
+//   HRV z <= -1.5  -> "hrv_suppressed"  (HRV well below personal baseline)
+//   RHR z >= +1.5  -> "rhr_elevated"    (RHR well above personal baseline)
+// warningFired is true if either flag is present.
+
+const WEARABLE_PRIORITY_SNAPSHOT: Record<string, number> = {
+  oura: 4, whoop: 3, apple_health: 2, google_fit: 1,
+};
+
+function ewmaAverage(values: number[], decayFactor = 0.15): number {
+  let weightedSum = 0;
+  let weightTotal = 0;
+  for (let i = 0; i < values.length; i++) {
+    const weight = Math.exp(-decayFactor * i);
+    weightedSum += values[i] * weight;
+    weightTotal += weight;
+  }
+  return weightTotal > 0 ? weightedSum / weightTotal : 0;
+}
+
+export async function writePhysiologicalSnapshot(
+  userId: string,
+  score: number,
+  tier: string,
+): Promise<void> {
+  try {
+    // Fetch baselines
+    const [baseline] = await db
+      .select()
+      .from(userPhysiologicalBaselines)
+      .where(eq(userPhysiologicalBaselines.userId, userId))
+      .limit(1);
+
+    const baselineCalibrated = !!(baseline && baseline.isCalibrated);
+
+    let hrvZScore: number | null = null;
+    let rhrZScore: number | null = null;
+    const warningFlags: string[] = [];
+
+    if (baselineCalibrated && baseline) {
+      // Last 7 days of wearable metrics for this user
+      const sevenDaysAgo = new Date();
+      sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
+      const cutoffStr = sevenDaysAgo.toISOString().slice(0, 10);
+
+      const metrics = await db
+        .select()
+        .from(wearableMetricsDaily)
+        .where(and(
+          eq(wearableMetricsDaily.userId, userId),
+          gte(wearableMetricsDaily.date, cutoffStr),
+        ))
+        .orderBy(desc(wearableMetricsDaily.date));
+
+      // Dedupe by date, keeping highest-priority provider (matches engine logic)
+      const byDate = new Map<string, typeof metrics[number]>();
+      for (const m of metrics) {
+        const cur = byDate.get(m.date);
+        if (!cur || (WEARABLE_PRIORITY_SNAPSHOT[m.provider] || 0) > (WEARABLE_PRIORITY_SNAPSHOT[cur.provider] || 0)) {
+          byDate.set(m.date, m);
+        }
+      }
+      const deduped = Array.from(byDate.values()).sort((a, b) => b.date.localeCompare(a.date));
+
+      // HRV z-score
+      const hrvVals = deduped.filter(m => m.hrvMs != null).map(m => m.hrvMs as number);
+      if (hrvVals.length >= 3 && baseline.hrvBaselineMs && baseline.hrvStdDevMs) {
+        const recentHrv = ewmaAverage(hrvVals);
+        hrvZScore = (recentHrv - baseline.hrvBaselineMs) / Math.max(1, baseline.hrvStdDevMs);
+        if (hrvZScore <= -1.5) warningFlags.push('hrv_suppressed');
+      }
+
+      // RHR z-score
+      const rhrVals = deduped.filter(m => m.restingHrBpm != null).map(m => m.restingHrBpm as number);
+      if (rhrVals.length >= 3 && baseline.rhrBaselineBpm && baseline.rhrStdDevBpm) {
+        const recentRhr = ewmaAverage(rhrVals);
+        rhrZScore = (recentRhr - baseline.rhrBaselineBpm) / Math.max(1, baseline.rhrStdDevBpm);
+        if (rhrZScore >= 1.5) warningFlags.push('rhr_elevated');
+      }
+    }
+
+    await db.insert(physiologicalSnapshots).values({
+      userId,
+      hrvZScore,
+      rhrZScore,
+      baselineCalibrated,
+      warningFired: warningFlags.length > 0,
+      warningFlags,
+      score,
+      tier,
+    });
+  } catch (error) {
+    console.error("[Calibration] Error writing physiological snapshot:", error);
+  }
 }

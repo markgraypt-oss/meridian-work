@@ -621,6 +621,70 @@ function computePerceivedControlContribution(checkIns: CheckIn[]): number {
   return 0;
 }
 
+// --- DRIVER CHRONICITY ---
+// How SUSTAINED a problem is, is one of the strongest burnout signals. A single
+// bad day is noise; two weeks of bad days is a pattern. This counts how many of
+// the recent check-ins (14-day window) were in the "bad" zone for a given driver
+// and produces a clause that names the timeframe. Only fires at >= 5 bad days so
+// we never manufacture chronicity from a blip.
+//
+// Direction per metric (confirmed against normalizeStress / normalizeInverted):
+//   stress:  bad when score >= 4 (high = bad)
+//   mood/energy/sleep/clarity: bad when score <= 2 (low = bad, inverted scale)
+//
+// 1-5 scale throughout. Returns '' when not sustained enough or not applicable.
+function computeDriverChronicity(driverKey: string, checkIns: CheckIn[]): string {
+  if (!checkIns || checkIns.length === 0) return '';
+
+  // 14-day window, most recent first
+  const now = Date.now();
+  const fourteenDaysAgo = now - 14 * 24 * 60 * 60 * 1000;
+  const windowed = checkIns.filter(c => {
+    const t = new Date(c.checkInDate).getTime();
+    return t >= fourteenDaysAgo && t <= now;
+  });
+  if (windowed.length === 0) return '';
+
+  // Map driver -> (field, isBad predicate, descriptor)
+  const isHighBad = (v: number | null | undefined) => v !== null && v !== undefined && v >= 4;
+  const isLowBad = (v: number | null | undefined) => v !== null && v !== undefined && v <= 2;
+
+  let badCount = 0;
+  let descriptor = '';
+  switch (driverKey) {
+    case 'stress':
+      badCount = windowed.filter(c => isHighBad(c.stressScore)).length;
+      descriptor = 'elevated';
+      break;
+    case 'mood':
+      badCount = windowed.filter(c => isLowBad(c.moodScore)).length;
+      descriptor = 'low';
+      break;
+    case 'energy':
+      badCount = windowed.filter(c => isLowBad(c.energyScore)).length;
+      descriptor = 'low';
+      break;
+    case 'sleep':
+      badCount = windowed.filter(c => isLowBad(c.sleepScore)).length;
+      descriptor = 'poor';
+      break;
+    case 'clarity':
+      badCount = windowed.filter(c => isLowBad(c.clarityScore)).length;
+      descriptor = 'low';
+      break;
+    default:
+      return ''; // booleans and non-check-in drivers have no single-metric chronicity
+  }
+
+  // Not sustained enough to call it a pattern
+  if (badCount < 5) return '';
+
+  if (badCount >= 10) {
+    return ` This has stayed ${descriptor} on ${badCount} of your last ${windowed.length} check-ins, so it has been building for most of the past two weeks.`;
+  }
+  return ` This has been ${descriptor} on ${badCount} of your last ${windowed.length} check-ins, a recurring pattern rather than a one-off.`;
+}
+
 // --- DRIVER NARRATIVE ENRICHMENT ---
 // When the user has recurring stressor categories or recurring verbatim
 // phrases across recent check-ins, splice that into the matching driver's
@@ -641,7 +705,9 @@ function enrichDriverExplanation(
   const checkInDriverKeys = ['stress', 'energy', 'mood', 'sleep', 'booleans', 'clarity'];
   if (!checkInDriverKeys.includes(driverKey)) return baseExplanation;
 
-  let enrichment = '';
+  // Chronicity leads the enrichment chain: how long > what > can you change it.
+  // It is the most actionable signal because it distinguishes a blip from a trend.
+  let enrichment = computeDriverChronicity(driverKey, checkIns);
 
   // Notes-driven enrichment (most specific signal — the user's own words).
   // Prefer recurring phrases over recurring categories over generic red-flag hint.

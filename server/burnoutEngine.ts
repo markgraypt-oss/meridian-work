@@ -285,11 +285,12 @@ function computeSleepTrackingScore(sleepEntries: SleepEntry[], windowDays: numbe
 
     if (entry.durationMinutes) {
       const hours = entry.durationMinutes / 60;
-      if (hours >= 7 && hours <= 9) entryScore = 0;       // Optimal
+      if (hours >= 7) entryScore = 0;                       // Optimal (7h+). Long sleep is recovery-positive
+                                                            // for active adults under training load, NOT a
+                                                            // depression signal. No penalty for >9h.
       else if (hours >= 6 && hours < 7) entryScore = 30;   // Slightly short
       else if (hours >= 5 && hours < 6) entryScore = 55;   // Short
       else if (hours < 5) entryScore = 85;                  // Severely short
-      else if (hours > 9) entryScore = 20;                  // Oversleeping (can signal depression)
     }
 
     if (entry.quality) {

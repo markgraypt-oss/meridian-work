@@ -2846,6 +2846,60 @@ export type UserPhysiologicalBaselines = typeof userPhysiologicalBaselines.$infe
 export type InsertUserPhysiologicalBaselines = typeof userPhysiologicalBaselines.$inferInsert;
 export const insertUserPhysiologicalBaselinesSchema = createInsertSchema(userPhysiologicalBaselines).omit({ id: true, createdAt: true, updatedAt: true });
 
+// ====================================================================
+// PHYSIOLOGICAL SNAPSHOTS
+// ====================================================================
+// The evidence foundation for the Early Warning system (revolutionary
+// requirement #1: prove physiological warnings precede burnout tier changes
+// more often than chance).
+//
+// Unlike burnoutCalibrationEvents (which records DISCRETE transition events),
+// this table records a snapshot on EVERY burnout computation — including the
+// quiet days when nothing changes. That is the whole point: to prove a warning
+// PRECEDES a transition, we must have recorded the days before the transition,
+// not just the transition itself.
+//
+// Written forward on every computation. Analysed backward later: for each tier
+// transition, we look at the snapshots in the preceding days and ask whether
+// warning signals were already present. Accumulates silently for weeks before
+// it has enough paired data to compute predictive validity.
+export const physiologicalSnapshots = pgTable("physiological_snapshots", {
+  id: serial("id").primaryKey(),
+  userId: varchar("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+
+  // When this snapshot was taken (one per burnout computation)
+  computedAt: timestamp("computed_at").notNull().defaultNow(),
+
+  // Physiological deviation from personal baseline, in standard deviations.
+  // hrvZ negative = HRV below baseline (bad). rhrZ positive = RHR above
+  // baseline (bad). Null when the metric was unavailable or baseline
+  // uncalibrated. Computed from the same EWMA + z-score method the burnout
+  // engine uses internally.
+  hrvZScore: real("hrv_z_score"),
+  rhrZScore: real("rhr_z_score"),
+
+  // Whether the baseline was calibrated at snapshot time. When false, z-scores
+  // are not yet trustworthy and the row should be excluded from analysis.
+  baselineCalibrated: boolean("baseline_calibrated").notNull().default(false),
+
+  // Whether an early-warning condition was met at this snapshot, and which.
+  // warningFlags e.g. ["hrv_suppressed", "rhr_elevated"]. Empty array when none.
+  warningFired: boolean("warning_fired").notNull().default(false),
+  warningFlags: jsonb("warning_flags").notNull().default(sql`'[]'::jsonb`),
+
+  // The burnout state at snapshot time (the "before" picture for analysis).
+  score: integer("score"),
+  tier: text("tier"), // optimal | balanced | strained | overloaded | sustained_overload
+
+  createdAt: timestamp("created_at").defaultNow(),
+}, (t) => ({
+  userComputedIdx: index("physiological_snapshots_user_computed_idx").on(t.userId, t.computedAt),
+}));
+
+export type PhysiologicalSnapshot = typeof physiologicalSnapshots.$inferSelect;
+export type InsertPhysiologicalSnapshot = typeof physiologicalSnapshots.$inferInsert;
+export const insertPhysiologicalSnapshotSchema = createInsertSchema(physiologicalSnapshots).omit({ id: true, createdAt: true });
+
 // Weekly AI Check-in - generated weekly summary per user (idempotent per ISO week)
 export const weeklyCheckins = pgTable("weekly_checkins", {
   id: serial("id").primaryKey(),

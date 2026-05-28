@@ -20521,34 +20521,6 @@ RULES:
 
   // Temporary GET variant for server-side cache clearing (no session cookie needed).
   // Uses the same secret as the previous temp endpoint. Delete after testing.
-  app.get("/api/burnout/clear-cache", async (req: any, res) => {
-    try {
-      const secret = req.query.secret;
-      if (secret !== "burnout-clear-2026-05-28") {
-        return res.status(403).json({ message: "Forbidden" });
-      }
-      const targetUserId = req.query.userId as string;
-      if (!targetUserId) {
-        return res.status(400).json({ message: "userId required" });
-      }
-      const today = new Date();
-      today.setHours(0, 0, 0, 0);
-      const tomorrow = new Date(today);
-      tomorrow.setDate(tomorrow.getDate() + 1);
-      const deleted = await db.delete(burnoutScores)
-        .where(and(
-          eq(burnoutScores.userId, targetUserId),
-          gte(burnoutScores.computedDate, today),
-          lt(burnoutScores.computedDate, tomorrow)
-        ))
-        .returning();
-      res.json({ deleted: deleted.length, rows: deleted.map(r => ({ id: r.id, computedDate: r.computedDate, score: r.score })) });
-    } catch (error) {
-      console.error("[burnout] clear-cache GET error:", error);
-      res.status(500).json({ message: "Failed to clear cache" });
-    }
-  });
-
   // Mindfulness Tools - User-facing routes
   app.get('/api/mindfulness', isAuthenticated, async (req: any, res) => {
     try {

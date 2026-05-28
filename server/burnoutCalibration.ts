@@ -409,9 +409,6 @@ export async function writePhysiologicalSnapshot(
       score,
       tier,
     });
-    // TEMPORARY diagnostic — confirms the snapshot write reached the real
-    // production DB. Remove after verification.
-    console.log('[Calibration] SNAPSHOT WRITTEN user=' + userId + ' score=' + score + ' tier=' + tier + ' baselineCalibrated=' + baselineCalibrated + ' hrvZ=' + hrvZScore + ' rhrZ=' + rhrZScore + ' warningFired=' + (warningFlags.length > 0) + ' flags=' + JSON.stringify(warningFlags));
   } catch (error) {
     console.error("[Calibration] Error writing physiological snapshot:", error);
   }

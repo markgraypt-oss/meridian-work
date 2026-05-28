@@ -21,6 +21,7 @@ import {
   engagementConfig as engagementConfigTable,
   weeklyCheckins,
 } from "@shared/schema";
+import { BUILD_INFO } from "./buildInfo";
 
 type CompanionHabitDef = { title: string; templateId: number | null; defaultSettings: any };
 const GOAL_COMPANION_HABITS: Record<string, CompanionHabitDef> = {
@@ -1018,6 +1019,13 @@ async function programIdForProgrammeBlockExercise(exId: number): Promise<number 
 export async function registerRoutes(app: Express): Promise<Server> {
   // Auth middleware
   await setupAuth(app);
+
+  // Public version endpoint — returns the commit SHA and build timestamp baked
+  // into this bundle at publish time. Used to verify post-deploy which commit
+  // actually shipped (catches container/GitHub drift instantly).
+  app.get("/api/_meta/version", (_req, res) => {
+    res.json(BUILD_INFO);
+  });
 
   // ==========================================================================
   // Notifications system: in-app feed, web-push subscribe/unsubscribe, test.

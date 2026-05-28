@@ -573,7 +573,7 @@ function computeNotesContribution(aggregate: NotesAggregate | null | undefined):
   if (!aggregate || aggregate.analysisCount === 0) return 0;
   let contribution = 0;
   if (aggregate.redFlagCount > 0) contribution += 1.5;
-  const severeDays = aggregate.severityCounts.high + aggregate.severityCounts.severe;
+  const severeDays = aggregate.daysWithSeverity.high + aggregate.daysWithSeverity.severe;
   if (severeDays >= 2) contribution += 1.0;
   else if (severeDays === 1) contribution += 0.5;
   return contribution;

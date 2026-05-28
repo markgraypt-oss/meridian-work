@@ -210,6 +210,23 @@ const SELF_HEAL_DDL: string[] = [
    )`,
   `CREATE INDEX IF NOT EXISTS idx_workday_break_logs_user ON workday_break_logs (user_id)`,
 
+  // Phase 1c: physiological snapshots — per-computation early-warning evidence
+  `CREATE TABLE IF NOT EXISTS physiological_snapshots (
+     id serial PRIMARY KEY,
+     user_id varchar NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+     computed_at timestamp NOT NULL DEFAULT now(),
+     hrv_z_score real,
+     rhr_z_score real,
+     baseline_calibrated boolean NOT NULL DEFAULT false,
+     warning_fired boolean NOT NULL DEFAULT false,
+     warning_flags jsonb NOT NULL DEFAULT '[]'::jsonb,
+     score integer,
+     tier text,
+     created_at timestamp DEFAULT now()
+   )`,
+  `CREATE INDEX IF NOT EXISTS physiological_snapshots_user_computed_idx
+     ON physiological_snapshots (user_id, computed_at)`,
+
   // Badge system v2: AI insight read tracker
   `CREATE TABLE IF NOT EXISTS ai_insight_reads (
      id serial PRIMARY KEY,

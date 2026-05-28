@@ -20496,6 +20496,29 @@ RULES:
     }
   });
 
+  // User self-service: clear today's cached burnout score so the next
+  // GET /api/burnout/current triggers a fresh computation.
+  app.post("/api/burnout/clear-cache", isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = req.user.claims.sub;
+      const today = new Date();
+      today.setHours(0, 0, 0, 0);
+      const tomorrow = new Date(today);
+      tomorrow.setDate(tomorrow.getDate() + 1);
+      const deleted = await db.delete(burnoutScores)
+        .where(and(
+          eq(burnoutScores.userId, userId),
+          gte(burnoutScores.computedDate, today),
+          lt(burnoutScores.computedDate, tomorrow)
+        ))
+        .returning();
+      res.json({ deleted: deleted.length, rows: deleted.map(r => ({ id: r.id, computedDate: r.computedDate, score: r.score })) });
+    } catch (error) {
+      console.error("[burnout] clear-cache error:", error);
+      res.status(500).json({ message: "Failed to clear cache" });
+    }
+  });
+
   // Mindfulness Tools - User-facing routes
   app.get('/api/mindfulness', isAuthenticated, async (req: any, res) => {
     try {

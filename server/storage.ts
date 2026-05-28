@@ -407,6 +407,8 @@ import {
   workdayBreakLogs,
   aiInsightReads,
   dailyReadinessHistory,
+  userPhysiologicalBaselines,
+  type UserPhysiologicalBaselines,
 } from "@shared/schema";
 import { db, pool } from "./db";
 import { eq, ne, desc, and, ilike, or, gte, lte, inArray, lt, asc, sql, isNull, isNotNull, aliasedTable, type SQL } from "drizzle-orm";
@@ -8325,6 +8327,20 @@ export class DatabaseStorage implements IStorage {
       .from(workoutLogs)
       .where(eq(workoutLogs.id, id));
     return log;
+  }
+
+  // Fetch a user's physiological baselines (HRV/RHR/sleep medians + stddev).
+  // Returns undefined if the user has no baseline row yet. The burnout endpoint
+  // calls this with a .catch() fallback to null, so a missing baseline never
+  // breaks score computation — it just means the physiological readiness source
+  // does not contribute.
+  async getUserPhysiologicalBaselines(userId: string): Promise<UserPhysiologicalBaselines | undefined> {
+    const [baseline] = await db
+      .select()
+      .from(userPhysiologicalBaselines)
+      .where(eq(userPhysiologicalBaselines.userId, userId))
+      .limit(1);
+    return baseline;
   }
 
   async getUserWorkoutLogs(userId: string, limit: number = 50): Promise<WorkoutLog[]> {

@@ -322,7 +322,7 @@ const SEED_AI_PROMPTS = [
 
   // ---------------- PROGRAMME (multi-week) ----------------
   { kind: "programme", title: "4-week executive strength", description: "3x/week, full gym, balanced strength build.", iconName: "Dumbbell",
-    promptBody: "Build a 4-week strength programme for a busy executive who can train 3 days per week in a full gym. Compound lifts, balanced upper/lower split, progressive overload.",
+    promptBody: "Build a 4-week strength programme for someone with limited time who can train 3 days per week in a full gym. Compound lifts, balanced upper/lower split, progressive overload.",
     prefill: { goal: "general_strength", equipment: "full_gym", weeks: 4, daysPerWeek: 3, sessionDuration: 45, difficulty: "intermediate", audience: "busy professionals" } },
   { kind: "programme", title: "6-week home-gym hypertrophy", description: "4x/week dumbbells & bench muscle build.", iconName: "Home",
     promptBody: "Design a 6-week hypertrophy programme using only dumbbells and a bench. 4 sessions per week, 45 minutes each, body-part split.",

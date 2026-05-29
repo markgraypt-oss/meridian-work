@@ -20392,7 +20392,9 @@ Respond as the Recovery Coach. Reference their specific assessment data and prov
 
         const currentScore = await storage.getBurnoutScore(userId);
         const scoreAtStart = currentScore?.score ?? null;
-        const tierAtStart = currentScore?.tier ?? null;
+        // burnout_scores has no tier column — derive from score via getLevel()
+        const { getLevel } = await import('./burnoutCalibration');
+        const tierAtStart = scoreAtStart !== null ? getLevel(scoreAtStart) : null;
         if (currentScore) {
           trackRecoveryModeActivation(userId, currentScore.score).catch(() => {});
         }

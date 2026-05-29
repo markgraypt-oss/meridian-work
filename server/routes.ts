@@ -20469,7 +20469,7 @@ Respond as the Recovery Coach. Reference their specific assessment data and prov
 
       const prompt = `${coachingContext}
 
-You are a burnout prevention and performance specialist for a busy executive. Write a calm, intelligent performance insight based on their burnout data.
+You are a burnout prevention and performance specialist for a working adult. Write a calm, intelligent performance insight based on their burnout data.
 
 BURNOUT DATA:
 - Current Score: ${currentScore.score}/100 (higher = more burned out)
@@ -20486,10 +20486,10 @@ ${crossCoachContext}
 RULES:
 1. Write 2-3 short paragraphs in a calm, supportive tone.
 2. Reference specific trends from the data (e.g. sleep duration changes, stress patterns, energy levels).
-3. End with 1-2 actionable micro-suggestions that are practical for a busy executive.
+3. End with 1-2 actionable micro-suggestions that are practical for someone with a normal workload.
 4. Never say "you are burnt out", "critical", or "danger". Frame everything as patterns and opportunities.
 5. Never use em dashes. Use commas or shorter sentences.
-6. If Recovery Mode is active, acknowledge it positively and reinforce recovery priorities.
+6. If Recovery Mode is active, reinforce the user's smart adjustment. Recovery Mode means keeping training while shifting modality: zone 2 cardio, moderate compound lifts capped at RPE 7, mobility, yoga, walks. Avoid recommending rest days, training breaks, HIIT, or max-effort lifts. Movement is the intervention.
 7. Be specific to their data. Do not give generic advice.
 8. Keep the total response under 180 words.
 9. Do not use bullet points or lists. Write in natural flowing prose.`;

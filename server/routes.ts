@@ -1861,6 +1861,22 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // Admin diagnostic: returns the full burnout calibration report including
+  // Recovery Mode effectiveness, level stability stats, transition matrix, and
+  // any threshold alerts. This is the only way to see whether Recovery Mode is
+  // actually improving outcomes — the underlying computation already exists in
+  // burnoutCalibration.ts, this endpoint just surfaces it.
+  app.get('/api/admin/calibration-report', isAuthenticated, requireAdmin, async (_req: any, res) => {
+    try {
+      const { generateCalibrationReport } = await import('./burnoutCalibration');
+      const report = await generateCalibrationReport();
+      res.json(report);
+    } catch (error: any) {
+      console.error('[calibration-report] error:', error);
+      res.status(500).json({ message: 'Failed to generate calibration report', error: error?.message });
+    }
+  });
+
   // One-shot maintenance: clear default '8-12' reps pollution from warmup duration rows
   app.post('/api/admin/cleanup-rep-pollution', isAuthenticated, async (req: any, res) => {
     try {

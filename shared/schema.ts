@@ -2787,11 +2787,36 @@ export const burnoutSettings = pgTable("burnout_settings", {
   recoveryModeStartedAt: timestamp("recovery_mode_started_at"),
   recoveryModeExpiresAt: timestamp("recovery_mode_expires_at"),
   alertDismissedAt: timestamp("alert_dismissed_at"),
+  // Tracks when the user has seen the exit report for the most recently
+  // completed Recovery Mode. Compared against the most recent activation's
+  // started/expires/deactivated timestamps to decide whether to show the
+  // exit report on next app load.
+  recoveryModeReportSeenAt: timestamp("recovery_mode_report_seen_at"),
   updatedAt: timestamp("updated_at").defaultNow(),
 });
 
 export type BurnoutSettings = typeof burnoutSettings.$inferSelect;
 export type InsertBurnoutSettings = typeof burnoutSettings.$inferInsert;
+
+// Permanent history of every Recovery Mode period. One row per activation.
+// Populated on activation, completed (endedAt + endReason) on deactivation or
+// expiry. Used to compute the exit report and to track patterns over time
+// (how many activations, how long each lasted, did the score improve, etc.)
+// without ever overwriting historical data.
+export const recoveryModePeriods = pgTable("recovery_mode_periods", {
+  id: serial("id").primaryKey(),
+  userId: varchar("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+  startedAt: timestamp("started_at").notNull(),
+  scheduledEndAt: timestamp("scheduled_end_at").notNull(),
+  endedAt: timestamp("ended_at"),
+  endReason: varchar("end_reason"),
+  scoreAtStart: integer("score_at_start"),
+  tierAtStart: varchar("tier_at_start"),
+  createdAt: timestamp("created_at").defaultNow(),
+});
+
+export type RecoveryModePeriod = typeof recoveryModePeriods.$inferSelect;
+export type InsertRecoveryModePeriod = typeof recoveryModePeriods.$inferInsert;
 
 // ====================================================================
 // USER PHYSIOLOGICAL BASELINES

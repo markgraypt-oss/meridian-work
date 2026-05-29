@@ -307,7 +307,7 @@ const uploadDoc = multer({
 
 import { computeBurnoutScore } from './burnoutEngine';
 import { trackCalibrationEvent, trackRecoveryModeActivation, generateCalibrationReport, getLevel as getBurnoutLevel, writePhysiologicalSnapshot } from './burnoutCalibration';
-import { burnoutScores, insertCompanySchema, insertCompanyBenefitSchema, checkIns, bodyMapLogs, departments, companyInvites, usageAlerts, insertAiPromptSchema, workdayBreakLogs, aiInsightReads } from "@shared/schema";
+import { burnoutScores, insertCompanySchema, insertCompanyBenefitSchema, checkIns, bodyMapLogs, departments, companyInvites, usageAlerts, insertAiPromptSchema, workdayBreakLogs, aiInsightReads, recoveryModePeriods } from "@shared/schema";
 
 import {
   insertExerciseLibraryItemSchema,
@@ -20367,18 +20367,52 @@ Respond as the Recovery Coach. Reference their specific assessment data and prov
       };
 
       if (enabled) {
-        data.recoveryModeStartedAt = new Date();
+        const startedAt = new Date();
         const expiresAt = new Date();
         expiresAt.setDate(expiresAt.getDate() + 30);
+        data.recoveryModeStartedAt = startedAt;
         data.recoveryModeExpiresAt = expiresAt;
 
         const currentScore = await storage.getBurnoutScore(userId);
+        const scoreAtStart = currentScore?.score ?? null;
+        const tierAtStart = currentScore?.tier ?? null;
         if (currentScore) {
           trackRecoveryModeActivation(userId, currentScore.score).catch(() => {});
+        }
+
+        // Permanent history row for this Recovery Mode period. Used later by
+        // the exit report to compute before/after diffs. Stays forever.
+        try {
+          await db.insert(recoveryModePeriods).values({
+            userId,
+            startedAt,
+            scheduledEndAt: expiresAt,
+            scoreAtStart,
+            tierAtStart,
+          });
+        } catch (err) {
+          console.error('[recovery-mode] failed to insert history row:', err);
         }
       } else {
         data.recoveryModeStartedAt = null;
         data.recoveryModeExpiresAt = null;
+
+        // Close the most recent open history row. Marks this as a manual end so
+        // the exit report knows whether expiry or deactivation completed it.
+        try {
+          const [openPeriod] = await db.select()
+            .from(recoveryModePeriods)
+            .where(and(eq(recoveryModePeriods.userId, userId), isNull(recoveryModePeriods.endedAt)))
+            .orderBy(desc(recoveryModePeriods.startedAt))
+            .limit(1);
+          if (openPeriod) {
+            await db.update(recoveryModePeriods)
+              .set({ endedAt: new Date(), endReason: 'manual' })
+              .where(eq(recoveryModePeriods.id, openPeriod.id));
+          }
+        } catch (err) {
+          console.error('[recovery-mode] failed to close history row:', err);
+        }
       }
 
       const settings = await storage.upsertBurnoutSettings(userId, data);
@@ -20402,6 +20436,145 @@ Respond as the Recovery Coach. Reference their specific assessment data and prov
     } catch (error) {
       console.error("Error fetching burnout settings:", error);
       res.status(500).json({ message: "Failed to fetch burnout settings" });
+    }
+  });
+
+  // Returns the exit report data for the user's most recently completed
+  // Recovery Mode period, IF the user hasn't seen the report for that period
+  // yet. Returns null otherwise. Mobile uses this to decide whether to route
+  // the user to the exit report screen on app load.
+  app.get("/api/burnout/recovery-mode-report", isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = req.user.claims.sub;
+
+      // Step 1: find the most recent period for this user. Either ended already,
+      // or expired but never explicitly closed.
+      const [recent] = await db.select()
+        .from(recoveryModePeriods)
+        .where(eq(recoveryModePeriods.userId, userId))
+        .orderBy(desc(recoveryModePeriods.startedAt))
+        .limit(1);
+
+      if (!recent) return res.json(null);
+
+      const now = new Date();
+      const scheduledEnd = recent.scheduledEndAt ? new Date(recent.scheduledEndAt) : null;
+      const expiredButOpen = !recent.endedAt && scheduledEnd && scheduledEnd < now;
+
+      // Auto-close an expired-but-still-open period (the user neither deactivated
+      // nor opened the app to trigger this since expiry). We retroactively close
+      // it at the scheduled end so the report's window is accurate.
+      if (expiredButOpen) {
+        await db.update(recoveryModePeriods)
+          .set({ endedAt: scheduledEnd, endReason: 'expired' })
+          .where(eq(recoveryModePeriods.id, recent.id));
+        recent.endedAt = scheduledEnd;
+        recent.endReason = 'expired';
+      }
+
+      // If still not ended (active and not yet expired), no report yet.
+      if (!recent.endedAt) return res.json(null);
+
+      // Step 2: has the user already seen this period's report?
+      const settings = await storage.getBurnoutSettings(userId);
+      const seenAt = settings?.recoveryModeReportSeenAt ? new Date(settings.recoveryModeReportSeenAt) : null;
+      const startedAt = recent.startedAt ? new Date(recent.startedAt) : null;
+      // Considered seen if the user dismissed AFTER this period started.
+      if (seenAt && startedAt && seenAt >= startedAt) return res.json(null);
+
+      // Step 3: compute the diff. "Before" data is captured at activation.
+      // "After" data comes from the most recent burnout score on or before endedAt.
+      const endedAt = new Date(recent.endedAt);
+      const [scoreAfter] = await db.select()
+        .from(burnoutScores)
+        .where(and(
+          eq(burnoutScores.userId, userId),
+          lte(burnoutScores.computedDate, endedAt),
+        ))
+        .orderBy(desc(burnoutScores.computedDate))
+        .limit(1);
+
+      const scoreBefore = recent.scoreAtStart ?? null;
+      const tierBefore = recent.tierAtStart ?? null;
+      const scoreAfterValue = scoreAfter?.score ?? null;
+      const tierAfter = scoreAfter?.tier ?? null;
+      const topDriversAfter = Array.isArray(scoreAfter?.topDrivers) ? scoreAfter.topDrivers : [];
+
+      // Physiological delta: average z-scores from the 7 days before start vs
+      // the 7 days before end. Only meaningful if the user has wearable data.
+      const sevenDaysBeforeStart = startedAt ? new Date(startedAt.getTime() - 7 * 24 * 60 * 60 * 1000) : null;
+      const sevenDaysBeforeEnd = new Date(endedAt.getTime() - 7 * 24 * 60 * 60 * 1000);
+
+      let hrvDelta: number | null = null;
+      let rhrDelta: number | null = null;
+      let hasPhysioData = false;
+
+      if (sevenDaysBeforeStart && startedAt) {
+        const snapsBefore = await db.select()
+          .from(physiologicalSnapshots)
+          .where(and(
+            eq(physiologicalSnapshots.userId, userId),
+            gte(physiologicalSnapshots.computedAt, sevenDaysBeforeStart),
+            lte(physiologicalSnapshots.computedAt, startedAt),
+          ));
+        const snapsAfter = await db.select()
+          .from(physiologicalSnapshots)
+          .where(and(
+            eq(physiologicalSnapshots.userId, userId),
+            gte(physiologicalSnapshots.computedAt, sevenDaysBeforeEnd),
+            lte(physiologicalSnapshots.computedAt, endedAt),
+          ));
+
+        const avg = (rows: any[], field: string): number | null => {
+          const vals = rows.map(r => r[field]).filter((v: any) => typeof v === 'number');
+          if (vals.length === 0) return null;
+          return vals.reduce((a: number, b: number) => a + b, 0) / vals.length;
+        };
+
+        const hrvBefore = avg(snapsBefore, 'hrvZScore');
+        const hrvAfter = avg(snapsAfter, 'hrvZScore');
+        const rhrBefore = avg(snapsBefore, 'rhrZScore');
+        const rhrAfter = avg(snapsAfter, 'rhrZScore');
+
+        if (hrvBefore !== null && hrvAfter !== null) hrvDelta = +(hrvAfter - hrvBefore).toFixed(2);
+        if (rhrBefore !== null && rhrAfter !== null) rhrDelta = +(rhrAfter - rhrBefore).toFixed(2);
+        hasPhysioData = hrvDelta !== null || rhrDelta !== null;
+      }
+
+      const daysInRecoveryMode = startedAt
+        ? Math.max(1, Math.round((endedAt.getTime() - startedAt.getTime()) / (1000 * 60 * 60 * 24)))
+        : null;
+
+      res.json({
+        periodId: recent.id,
+        daysInRecoveryMode,
+        endReason: recent.endReason,
+        scoreBefore,
+        scoreAfter: scoreAfterValue,
+        scoreDelta: scoreBefore !== null && scoreAfterValue !== null ? scoreAfterValue - scoreBefore : null,
+        tierBefore,
+        tierAfter,
+        topDriversAfter,
+        hrvDelta,
+        rhrDelta,
+        hasPhysioData,
+      });
+    } catch (error) {
+      console.error("Error fetching recovery mode report:", error);
+      res.status(500).json({ message: "Failed to fetch recovery mode report" });
+    }
+  });
+
+  // Marks the most recent Recovery Mode exit report as seen for this user.
+  // Called from mobile when the user taps "Got it" on the report screen.
+  app.post("/api/burnout/recovery-mode-report/dismiss", isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = req.user.claims.sub;
+      await storage.upsertBurnoutSettings(userId, { recoveryModeReportSeenAt: new Date() });
+      res.json({ ok: true });
+    } catch (error) {
+      console.error("Error dismissing recovery mode report:", error);
+      res.status(500).json({ message: "Failed to dismiss recovery mode report" });
     }
   });
 

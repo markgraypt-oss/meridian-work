@@ -101,6 +101,19 @@ const SELF_HEAL_DDL: string[] = [
   `ALTER TABLE check_ins ADD COLUMN IF NOT EXISTS perceived_control_score integer`,
   `ALTER TABLE check_ins ADD COLUMN IF NOT EXISTS perceived_control_trigger_met boolean DEFAULT false`,
   `ALTER TABLE check_ins ADD COLUMN IF NOT EXISTS notes_analysis jsonb`,
+  `ALTER TABLE burnout_settings ADD COLUMN IF NOT EXISTS recovery_mode_report_seen_at timestamp`,
+  `CREATE TABLE IF NOT EXISTS recovery_mode_periods (
+    id serial PRIMARY KEY,
+    user_id varchar NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    started_at timestamp NOT NULL,
+    scheduled_end_at timestamp NOT NULL,
+    ended_at timestamp,
+    end_reason varchar,
+    score_at_start integer,
+    tier_at_start varchar,
+    created_at timestamp DEFAULT NOW()
+  )`,
+  `CREATE INDEX IF NOT EXISTS recovery_mode_periods_user_started_idx ON recovery_mode_periods (user_id, started_at DESC)`,
 
   // Badges: collection split (current vs legacy)
   `ALTER TABLE badges ADD COLUMN IF NOT EXISTS collection varchar NOT NULL DEFAULT 'current'`,

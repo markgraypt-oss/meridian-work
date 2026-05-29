@@ -307,7 +307,7 @@ const uploadDoc = multer({
 
 import { computeBurnoutScore } from './burnoutEngine';
 import { trackCalibrationEvent, trackRecoveryModeActivation, generateCalibrationReport, getLevel as getBurnoutLevel, writePhysiologicalSnapshot } from './burnoutCalibration';
-import { burnoutScores, insertCompanySchema, insertCompanyBenefitSchema, checkIns, bodyMapLogs, departments, companyInvites, usageAlerts, insertAiPromptSchema, workdayBreakLogs, aiInsightReads, recoveryModePeriods } from "@shared/schema";
+import { burnoutScores, insertCompanySchema, insertCompanyBenefitSchema, checkIns, bodyMapLogs, departments, companyInvites, usageAlerts, insertAiPromptSchema, workdayBreakLogs, aiInsightReads, recoveryModePeriods, physiologicalSnapshots } from "@shared/schema";
 
 import {
   insertExerciseLibraryItemSchema,

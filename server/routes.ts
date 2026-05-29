@@ -20608,6 +20608,16 @@ Respond as the Recovery Coach. Reference their specific assessment data and prov
     try {
       const userId = req.user.claims.sub;
 
+      // TEMP: force suggestion on for admin user testing
+      if (userId === 'd6932281-15e3-4266-851c-5c8e9b12268c') {
+        return res.json({
+          suggest: true,
+          reason: 'Test mode — your nervous system markers would normally trigger this',
+          trajectory: 'rising',
+          warningFlags: ['hrv_suppressed', 'rhr_elevated'],
+        });
+      }
+
       const settings = await storage.getBurnoutSettings(userId);
 
       // Already on Recovery Mode — no suggestion needed

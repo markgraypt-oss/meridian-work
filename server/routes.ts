@@ -20578,6 +20578,94 @@ Respond as the Recovery Coach. Reference their specific assessment data and prov
     }
   });
 
+  // Returns whether to proactively suggest Recovery Mode to this user right now.
+  // Trigger criteria (placeholder, to calibrate from real data):
+  //   - Latest physiological_snapshots.warning_fired = true
+  //   - Current burnout score's tier is 'strained' or worse OR trajectory is rising
+  //   - Recovery Mode is currently OFF
+  //   - User hasn't dismissed a suggestion in the last 7 days
+  // Returns { suggest: true, reason, trajectory, warningFlags } or { suggest: false }.
+  app.get("/api/burnout/suggestion", isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = req.user.claims.sub;
+
+      const settings = await storage.getBurnoutSettings(userId);
+
+      // Already on Recovery Mode — no suggestion needed
+      if (settings?.recoveryModeEnabled) return res.json({ suggest: false });
+
+      // Suppress for 7 days after dismissal
+      if (settings?.suggestionDismissedAt) {
+        const dismissedAt = new Date(settings.suggestionDismissedAt);
+        const sevenDaysAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
+        if (dismissedAt > sevenDaysAgo) return res.json({ suggest: false });
+      }
+
+      // Latest snapshot — must have warning_fired
+      const [latestSnapshot] = await db.select()
+        .from(physiologicalSnapshots)
+        .where(eq(physiologicalSnapshots.userId, userId))
+        .orderBy(desc(physiologicalSnapshots.computedAt))
+        .limit(1);
+
+      if (!latestSnapshot || !latestSnapshot.warningFired) {
+        return res.json({ suggest: false });
+      }
+
+      // Latest burnout score — check tier and trajectory
+      const [latestScore] = await db.select()
+        .from(burnoutScores)
+        .where(eq(burnoutScores.userId, userId))
+        .orderBy(desc(burnoutScores.computedDate))
+        .limit(1);
+
+      if (!latestScore) return res.json({ suggest: false });
+
+      const concerningTier = latestScore.tier === 'strained'
+        || latestScore.tier === 'overloaded'
+        || latestScore.tier === 'sustained_overload';
+      const concerningTrajectory = latestScore.trajectory === 'rising'
+        || latestScore.trajectory === 'elevated';
+
+      if (!concerningTier && !concerningTrajectory) {
+        return res.json({ suggest: false });
+      }
+
+      // Build the human-readable reason
+      const flags = Array.isArray(latestSnapshot.warningFlags) ? latestSnapshot.warningFlags : [];
+      const flagsText = flags.includes('hrv_suppressed') && flags.includes('rhr_elevated')
+        ? 'Your heart rate variability is suppressed and resting heart rate is elevated against your baseline'
+        : flags.includes('hrv_suppressed')
+        ? 'Your heart rate variability is suppressed against your baseline'
+        : flags.includes('rhr_elevated')
+        ? 'Your resting heart rate is elevated against your baseline'
+        : 'Your nervous system markers are flagging early strain';
+
+      return res.json({
+        suggest: true,
+        reason: flagsText,
+        trajectory: latestScore.trajectory,
+        warningFlags: flags,
+      });
+    } catch (error) {
+      console.error("Error computing burnout suggestion:", error);
+      // Fail closed — do NOT suggest on error, since a wrong nag is worse than silence
+      res.json({ suggest: false });
+    }
+  });
+
+  // User tapped "Not now" on the suggestion banner — suppress for 7 days.
+  app.post("/api/burnout/suggestion/dismiss", isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = req.user.claims.sub;
+      await storage.upsertBurnoutSettings(userId, { suggestionDismissedAt: new Date() });
+      res.json({ ok: true });
+    } catch (error) {
+      console.error("Error dismissing burnout suggestion:", error);
+      res.status(500).json({ message: "Failed to dismiss suggestion" });
+    }
+  });
+
   app.get("/api/health-integrations", isAuthenticated, async (req: any, res) => {
     try {
       const userId = req.user.claims.sub;

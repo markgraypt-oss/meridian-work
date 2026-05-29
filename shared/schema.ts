@@ -2792,6 +2792,9 @@ export const burnoutSettings = pgTable("burnout_settings", {
   // started/expires/deactivated timestamps to decide whether to show the
   // exit report on next app load.
   recoveryModeReportSeenAt: timestamp("recovery_mode_report_seen_at"),
+  // When the user last dismissed an auto-suggestion banner. Used to suppress
+  // the suggestion for 7 days so we don't nag.
+  suggestionDismissedAt: timestamp("suggestion_dismissed_at"),
   updatedAt: timestamp("updated_at").defaultNow(),
 });
 

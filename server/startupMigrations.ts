@@ -102,6 +102,7 @@ const SELF_HEAL_DDL: string[] = [
   `ALTER TABLE check_ins ADD COLUMN IF NOT EXISTS perceived_control_trigger_met boolean DEFAULT false`,
   `ALTER TABLE check_ins ADD COLUMN IF NOT EXISTS notes_analysis jsonb`,
   `ALTER TABLE burnout_settings ADD COLUMN IF NOT EXISTS recovery_mode_report_seen_at timestamp`,
+  `ALTER TABLE burnout_settings ADD COLUMN IF NOT EXISTS suggestion_dismissed_at timestamp`,
   `CREATE TABLE IF NOT EXISTS recovery_mode_periods (
     id serial PRIMARY KEY,
     user_id varchar NOT NULL REFERENCES users(id) ON DELETE CASCADE,

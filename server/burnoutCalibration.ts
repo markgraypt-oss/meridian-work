@@ -589,9 +589,11 @@ export async function computeEarlyWarningValidity(): Promise<ValidityReport> {
   const totalWarnings = tp + fp;
   const totalEscalations = escalations.length;
 
-  const precision = totalWarnings > 0 ? +(tp / totalWarnings).toFixed(3) : null;
-  // Recall = of all escalations that occurred, how many were preceded by a warning?
-  const recall = totalEscalations > 0 ? +(tp / (tp + fn)).toFixed(3) : null;
+  // Precision = TP / (TP + FP). Only computable when at least one warning fired.
+  const precision = (tp + fp) > 0 ? +(tp / (tp + fp)).toFixed(3) : null;
+  // Recall = TP / (TP + FN). Only computable when at least one escalation occurred.
+  // If escalations exist but none were caught, recall is genuinely 0 (not null).
+  const recall = (tp + fn) > 0 ? +(tp / (tp + fn)).toFixed(3) : null;
   const medianLeadTimeDays = leadTimes.length > 0 ? +median(leadTimes)!.toFixed(2) : null;
 
   return {
@@ -605,8 +607,8 @@ export async function computeEarlyWarningValidity(): Promise<ValidityReport> {
     byFlag,
     insufficientData: {
       precision: precision === null ? 'no warnings fired yet' : null,
-      recall: recall === null ? 'no tier escalations recorded yet' : null,
-      leadTime: medianLeadTimeDays === null ? 'no true positives yet' : null,
+      recall: recall === null ? 'no escalations have happened yet' : null,
+      leadTime: medianLeadTimeDays === null ? 'no warnings have correctly preceded an escalation yet' : null,
     },
   };
 }

@@ -413,3 +413,200 @@ export async function writePhysiologicalSnapshot(
     console.error("[Calibration] Error writing physiological snapshot:", error);
   }
 }
+
+// ===========================================================================
+// PHASE 1c STEP 3 — Early-warning validity
+// ===========================================================================
+//
+// For each warning fired in physiological_snapshots, look forward 14 days for
+// a tier escalation in burnout_calibration_events. Bucket as TP/FP/TN/FN, then
+// compute precision, recall, and median lead time. Returns null metrics with
+// an `insufficientData` explanation when the cohort isn't large enough yet —
+// no fake numbers. This is the backward-looking proof system that validates
+// the early-warning mechanism actually warns BEFORE escalation, not after.
+
+const WINDOW_DAYS = 14;
+const WINDOW_MS = WINDOW_DAYS * 24 * 60 * 60 * 1000;
+
+interface FlagStats {
+  warnings: number;
+  truePositives: number;
+  falsePositives: number;
+  precision: number | null;
+}
+
+interface ValidityReport {
+  windowDays: number;
+  generatedAt: string;
+  totalSnapshots: number;
+  totalWarnings: number;
+  totalEscalations: number;
+  buckets: {
+    truePositives: number;
+    falsePositives: number;
+    trueNegatives: number;
+    falseNegatives: number;
+  };
+  metrics: {
+    precision: number | null;
+    recall: number | null;
+    medianLeadTimeDays: number | null;
+  };
+  byFlag: {
+    hrv_suppressed: FlagStats;
+    rhr_elevated: FlagStats;
+    both: FlagStats;
+  };
+  insufficientData: {
+    precision: string | null;
+    recall: string | null;
+    leadTime: string | null;
+  };
+}
+
+const tierOrder: Record<string, number> = {
+  optimal: 0,
+  balanced: 1,
+  strained: 2,
+  overloaded: 3,
+  sustained_overload: 4,
+};
+
+function isEscalation(fromTier: string, toTier: string): boolean {
+  const from = tierOrder[fromTier];
+  const to = tierOrder[toTier];
+  if (from === undefined || to === undefined) return false;
+  return to > from;
+}
+
+function median(values: number[]): number | null {
+  if (values.length === 0) return null;
+  const sorted = [...values].sort((a, b) => a - b);
+  const mid = Math.floor(sorted.length / 2);
+  return sorted.length % 2 === 0
+    ? (sorted[mid - 1] + sorted[mid]) / 2
+    : sorted[mid];
+}
+
+export async function computeEarlyWarningValidity(): Promise<ValidityReport> {
+  // Pull all snapshots + all level-transition escalations across all users.
+  // Indexed in memory by userId so we look forward efficiently per warning.
+  const allSnapshots = await db
+    .select()
+    .from(physiologicalSnapshots)
+    .orderBy(physiologicalSnapshots.computedAt);
+
+  const allTransitions = await db
+    .select()
+    .from(burnoutCalibrationEvents)
+    .where(eq(burnoutCalibrationEvents.eventType, 'level_transition'));
+
+  // Filter to actual escalations (toTier worse than fromTier)
+  const escalations = allTransitions.filter((e: any) =>
+    e.fromLevel && e.toLevel && isEscalation(e.fromLevel, e.toLevel)
+  );
+
+  // Group escalations by userId for fast forward-lookup
+  const escByUser: Record<string, any[]> = {};
+  for (const e of escalations) {
+    if (!e.userId || !e.createdAt) continue;
+    (escByUser[e.userId] ||= []).push(e);
+  }
+  // Sort each user's escalations chronologically
+  for (const uid in escByUser) {
+    escByUser[uid].sort((a, b) =>
+      new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime()
+    );
+  }
+
+  let tp = 0, fp = 0, tn = 0, fn = 0;
+  const leadTimes: number[] = [];
+
+  const byFlag = {
+    hrv_suppressed: { warnings: 0, truePositives: 0, falsePositives: 0, precision: null as number | null },
+    rhr_elevated:  { warnings: 0, truePositives: 0, falsePositives: 0, precision: null as number | null },
+    both:          { warnings: 0, truePositives: 0, falsePositives: 0, precision: null as number | null },
+  };
+
+  // Track which escalations were "caught" by at least one warning, so we can
+  // compute recall against escalations that no warning preceded (FN).
+  const caughtEscalationIds = new Set<number>();
+
+  for (const snap of allSnapshots) {
+    const userId = (snap as any).userId;
+    const computedAt = (snap as any).computedAt;
+    if (!userId || !computedAt) continue;
+
+    const snapTime = new Date(computedAt).getTime();
+    const windowEnd = snapTime + WINDOW_MS;
+    const userEscalations = escByUser[userId] || [];
+    const escalationInWindow = userEscalations.find((e) => {
+      const t = new Date(e.createdAt).getTime();
+      return t > snapTime && t <= windowEnd;
+    });
+
+    if ((snap as any).warningFired) {
+      // Per-flag counting
+      const flags = Array.isArray((snap as any).warningFlags) ? (snap as any).warningFlags : [];
+      const hasHrv = flags.includes('hrv_suppressed');
+      const hasRhr = flags.includes('rhr_elevated');
+      if (hasHrv && hasRhr) byFlag.both.warnings++;
+      else if (hasHrv) byFlag.hrv_suppressed.warnings++;
+      else if (hasRhr) byFlag.rhr_elevated.warnings++;
+
+      if (escalationInWindow) {
+        tp++;
+        caughtEscalationIds.add(escalationInWindow.id);
+        const leadDays = (new Date(escalationInWindow.createdAt).getTime() - snapTime) / (1000 * 60 * 60 * 24);
+        leadTimes.push(leadDays);
+        if (hasHrv && hasRhr) byFlag.both.truePositives++;
+        else if (hasHrv) byFlag.hrv_suppressed.truePositives++;
+        else if (hasRhr) byFlag.rhr_elevated.truePositives++;
+      } else {
+        fp++;
+        if (hasHrv && hasRhr) byFlag.both.falsePositives++;
+        else if (hasHrv) byFlag.hrv_suppressed.falsePositives++;
+        else if (hasRhr) byFlag.rhr_elevated.falsePositives++;
+      }
+    } else {
+      if (escalationInWindow) {
+        fn++;
+        // Don't mark as caught — this is a miss.
+      } else {
+        tn++;
+      }
+    }
+  }
+
+  // Compute per-flag precision
+  for (const k of Object.keys(byFlag) as Array<keyof typeof byFlag>) {
+    const fs = byFlag[k];
+    fs.precision = (fs.truePositives + fs.falsePositives) > 0
+      ? +(fs.truePositives / (fs.truePositives + fs.falsePositives)).toFixed(3)
+      : null;
+  }
+
+  const totalWarnings = tp + fp;
+  const totalEscalations = escalations.length;
+
+  const precision = totalWarnings > 0 ? +(tp / totalWarnings).toFixed(3) : null;
+  // Recall = of all escalations that occurred, how many were preceded by a warning?
+  const recall = totalEscalations > 0 ? +(tp / (tp + fn)).toFixed(3) : null;
+  const medianLeadTimeDays = leadTimes.length > 0 ? +median(leadTimes)!.toFixed(2) : null;
+
+  return {
+    windowDays: WINDOW_DAYS,
+    generatedAt: new Date().toISOString(),
+    totalSnapshots: allSnapshots.length,
+    totalWarnings,
+    totalEscalations,
+    buckets: { truePositives: tp, falsePositives: fp, trueNegatives: tn, falseNegatives: fn },
+    metrics: { precision, recall, medianLeadTimeDays },
+    byFlag,
+    insufficientData: {
+      precision: precision === null ? 'no warnings fired yet' : null,
+      recall: recall === null ? 'no tier escalations recorded yet' : null,
+      leadTime: medianLeadTimeDays === null ? 'no true positives yet' : null,
+    },
+  };
+}

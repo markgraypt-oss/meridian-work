@@ -1877,6 +1877,23 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // Phase 1c step 3 — early-warning validity report. For every warning fired in
+  // physiological_snapshots, looks forward 14 days for a tier escalation in
+  // burnout_calibration_events. Returns precision, recall, median lead time,
+  // and a per-flag breakdown. Returns null metrics with insufficientData when
+  // the cohort isn't large enough — no fake numbers. The proof system for
+  // revolutionary requirement #1 (warn BEFORE escalation, not after).
+  app.get('/api/admin/early-warning-validity', isAuthenticated, requireAdmin, async (_req: any, res) => {
+    try {
+      const { computeEarlyWarningValidity } = await import('./burnoutCalibration');
+      const report = await computeEarlyWarningValidity();
+      res.json(report);
+    } catch (error: any) {
+      console.error('[early-warning-validity] error:', error);
+      res.status(500).json({ message: 'Failed to compute validity report', error: error?.message });
+    }
+  });
+
   // One-shot maintenance: clear default '8-12' reps pollution from warmup duration rows
   app.post('/api/admin/cleanup-rep-pollution', isAuthenticated, async (req: any, res) => {
     try {

@@ -5626,7 +5626,7 @@ Return format: {"category": "strength|cardio|hiit|mobility|recovery", "difficult
         ? `\n\nThe user's requirements (follow these strictly):\n${prefLines.join('\n')}`
         : '';
 
-      const prompt = `You are a chef helping a busy executive turn a fridge/pantry photo into meal ideas.
+      const prompt = `You are a chef helping a working adult turn a fridge/pantry photo into meal ideas.
 
 Look at the photo(s) and propose exactly 3 recipe ideas that could realistically be made with what you can see (plus common pantry staples like oil, salt, pepper, basic spices).${prefsBlock}
 

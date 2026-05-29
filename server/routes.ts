@@ -2,7 +2,7 @@ import type { Express } from "express";
 import express from "express";
 import { createServer, type Server } from "http";
 import { storage } from "./storage";
-import { db } from "./db";
+import { db, pool } from "./db";
 import { setupAuth, isAuthenticated, generateResetToken, hashToken, sendUserInviteEmail } from "./replitAuth";
 import rateLimit, { ipKeyGenerator } from "express-rate-limit";
 import { registerNotificationRoutes } from "./notificationsRoutes";

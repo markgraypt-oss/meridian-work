@@ -280,6 +280,93 @@ export function registerWearableRoutes(app: Express) {
     }
   });
 
+  // Health Connect (Android): mobile sync endpoint.
+  // Mirrors the Apple Health endpoint above — same payload shape, same
+  // normalisation, same idempotent upserts. Provider id is "google_fit" so
+  // Android Health Connect data flows into the same wearable tables and is
+  // visible everywhere existing google_fit data is shown.
+  const hcMetricSchema = z.object({
+    date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+    sleepMinutes: z.number().int().nonnegative().optional().nullable(),
+    sleepDeepMinutes: z.number().int().nonnegative().optional().nullable(),
+    sleepRemMinutes: z.number().int().nonnegative().optional().nullable(),
+    sleepLightMinutes: z.number().int().nonnegative().optional().nullable(),
+    sleepAwakeMinutes: z.number().int().nonnegative().optional().nullable(),
+    sleepScore: z.number().int().min(0).max(100).optional().nullable(),
+    steps: z.number().int().nonnegative().optional().nullable(),
+    activeEnergyKcal: z.number().nonnegative().optional().nullable(),
+    exerciseMinutes: z.number().int().nonnegative().optional().nullable(),
+    restingHeartRate: z.number().int().nonnegative().optional().nullable(),
+    hrvMs: z.number().int().nonnegative().optional().nullable(),
+    vo2MaxMlKgMin: z.number().nonnegative().optional().nullable(),
+  });
+
+  const hcWorkoutSchema = z.object({
+    startedAt: z.string().datetime(),
+    endedAt: z.string().datetime().optional().nullable(),
+    type: z.string().max(64).optional().nullable(),
+    durationMinutes: z.number().int().nonnegative().optional().nullable(),
+    distanceMeters: z.number().int().nonnegative().optional().nullable(),
+    activeEnergyKcal: z.number().nonnegative().optional().nullable(),
+    averageHeartRate: z.number().int().nonnegative().optional().nullable(),
+  });
+
+  const hcSyncBodySchema = z.object({
+    metrics: z.array(hcMetricSchema).max(366).default([]),
+    workouts: z.array(hcWorkoutSchema).max(500).default([]),
+  });
+
+  app.post("/api/wearables/health-connect/sync", isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = req.user.claims.sub;
+
+      const parsed = hcSyncBodySchema.safeParse(req.body);
+      if (!parsed.success) {
+        return res.status(400).json({ message: "Invalid sync payload", errors: parsed.error.flatten() });
+      }
+
+      const { metrics, workouts } = parsed.data;
+
+      // Mark Android Health Connect connection as active (provider id: google_fit).
+      await upsertConnection(userId, "google_fit", { status: "connected" });
+
+      // Map mobile metric field names to the NormalisedDailyMetrics interface.
+      const { upsertDailyMetrics } = await import("./index");
+      const normalisedMetrics = metrics.map((m) => ({
+        date: m.date,
+        sleepMinutes: m.sleepMinutes ?? null,
+        sleepDeepMinutes: m.sleepDeepMinutes ?? null,
+        sleepRemMinutes: m.sleepRemMinutes ?? null,
+        sleepLightMinutes: m.sleepLightMinutes ?? null,
+        sleepAwakeMinutes: m.sleepAwakeMinutes ?? null,
+        sleepScore: m.sleepScore ?? null,
+        steps: m.steps ?? null,
+        caloriesBurned: m.activeEnergyKcal != null ? Math.round(m.activeEnergyKcal) : null,
+        activeMinutes: m.exerciseMinutes ?? null,
+        restingHrBpm: m.restingHeartRate ?? null,
+        hrvMs: m.hrvMs ?? null,
+        vo2MaxMlKgMin: m.vo2MaxMlKgMin ?? null,
+        workoutCount: null,
+        raw: m,
+      }));
+
+      const daysWritten = await upsertDailyMetrics(userId, "google_fit", normalisedMetrics);
+
+      // Per-workout records.
+      const workoutsWritten = await upsertWearableWorkouts(userId, "google_fit", workouts);
+
+      const dates = metrics.map((m) => m.date).filter(Boolean).sort();
+      const latestSyncedDate = dates[dates.length - 1] ?? null;
+
+      console.log(`[wearables] health-connect/sync user=${userId} days=${daysWritten} workouts=${workoutsWritten}`);
+
+      res.json({ daysWritten, workoutsWritten, latestSyncedDate });
+    } catch (err: any) {
+      console.error("[wearables] health-connect/sync error", err);
+      res.status(500).json({ message: "Failed to sync Health Connect data", error: err?.message });
+    }
+  });
+
   // Wearable workouts: fetch per-workout records (all providers)
   // Mobile and web can use this to build a unified training history alongside workoutLogs.
   app.get("/api/wearables/workouts", isAuthenticated, async (req: any, res) => {

@@ -6,3 +6,6 @@ vite.config.ts.*
 *.tar.gz
 uploads/
 attached_assets/
+
+# Local backup files
+*.backup

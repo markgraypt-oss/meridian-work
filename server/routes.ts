@@ -1916,6 +1916,24 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // Admin-only: force-generate a coach briefing for a user, bypassing the
+  // time window. Intended for testing prompt changes. Query params:
+  //   userId (required) - target user
+  //   type (optional)   - "morning" (default) or "evening"
+  app.get('/api/admin/force-briefing', requireAdmin, async (req: any, res) => {
+    try {
+      const userId = String(req.query.userId || '').trim();
+      const type = (String(req.query.type || 'morning') === 'evening' ? 'evening' : 'morning') as 'morning' | 'evening';
+      if (!userId) return res.status(400).json({ error: 'userId required' });
+      const { getOrGenerateBriefing } = await import('./coach/briefings');
+      const briefing = await getOrGenerateBriefing(userId, type);
+      return res.json({ ok: true, briefing });
+    } catch (e: any) {
+      console.error('[admin/force-briefing] failed:', e);
+      return res.status(500).json({ error: e?.message || 'failed' });
+    }
+  });
+
   // One-shot maintenance: clear default '8-12' reps pollution from warmup duration rows
   app.post('/api/admin/cleanup-rep-pollution', isAuthenticated, async (req: any, res) => {
     try {

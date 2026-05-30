@@ -1925,6 +1925,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const userId = String(req.query.userId || '').trim();
       const type = (String(req.query.type || 'morning') === 'evening' ? 'evening' : 'morning') as 'morning' | 'evening';
       if (!userId) return res.status(400).json({ error: 'userId required' });
+      // Always wipe today's row first so the generator can't short-circuit
+      // on the existing-row check. This endpoint is for forcing a fresh
+      // generation against the current prompt and current wearable data.
+      const today = new Date();
+      const dateKey = `${today.getUTCFullYear()}-${String(today.getUTCMonth() + 1).padStart(2, '0')}-${String(today.getUTCDate()).padStart(2, '0')}`;
+      await (storage as any).deleteCoachBriefingForDay?.(userId, dateKey, type).catch(() => {});
       const { getOrGenerateBriefing } = await import('./coach/briefings');
       const briefing = await getOrGenerateBriefing(userId, type);
       return res.json({ ok: true, briefing });

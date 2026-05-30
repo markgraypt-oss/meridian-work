@@ -12331,6 +12331,19 @@ export class DatabaseStorage implements IStorage {
     return row;
   }
 
+  
+  async deleteCoachBriefingForDay(userId: string, briefingDate: string, type: 'morning' | 'evening'): Promise<number> {
+    const result = await db
+      .delete(coachBriefings)
+      .where(and(
+        eq(coachBriefings.userId, userId),
+        eq(coachBriefings.briefingDate, briefingDate),
+        eq(coachBriefings.type, type as any),
+      ))
+      .returning({ id: coachBriefings.id });
+    return result.length;
+  }
+
   async createCoachBriefing(briefing: InsertCoachBriefing): Promise<CoachBriefing> {
     // Idempotent at the DB level. If a real AI briefing already exists for
     // (user, date, type), keep it. If the existing row is a generic

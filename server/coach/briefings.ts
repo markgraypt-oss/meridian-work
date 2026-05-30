@@ -25,20 +25,16 @@ function clampMedical(text: string): string {
 
 function sanitizeBriefingContent(c: BriefingContent): BriefingContent {
   return {
-    greeting: clampMedical(c.greeting),
-    summary: clampMedical(c.summary),
-    focus: c.focus.map(clampMedical),
-    nudges: (c.nudges || []).map(clampMedical),
-    watchout: c.watchout ? clampMedical(c.watchout) : c.watchout ?? null,
+    headline: clampMedical(c.headline),
+    body: clampMedical(c.body),
+    nudge: c.nudge ? clampMedical(c.nudge) : c.nudge ?? null,
   };
 }
 
 const briefingSchema = z.object({
-  greeting: z.string().min(1).max(280),
-  summary: z.string().min(1).max(800),
-  focus: z.array(z.string().min(1).max(220)).min(1).max(5),
-  nudges: z.array(z.string().min(1).max(220)).max(5).optional().default([]),
-  watchout: z.string().max(280).optional().nullable(),
+  headline: z.string().min(1).max(120),
+  body: z.string().min(1).max(240),
+  nudge: z.string().max(140).optional().nullable(),
 });
 
 export type BriefingContent = z.infer<typeof briefingSchema>;
@@ -53,36 +49,6 @@ export function todayKeyForUser(date: Date = new Date()): string {
   return `${y}-${m}-${d}`;
 }
 
-// Retained for reference / potential future use but no longer called. We
-// deliberately do NOT serve generic fallback copy to users — if the AI fails
-// the briefing is skipped and the scheduler retries on the next 30m tick.
-// eslint-disable-next-line @typescript-eslint/no-unused-vars
-function fallbackBriefing(type: BriefingType, userName: string): BriefingContent {
-  if (type === "morning") {
-    return {
-      greeting: `Good morning, ${userName}.`,
-      summary: "Here is a simple plan to start the day well while we wait on your full briefing.",
-      focus: [
-        "Drink a large glass of water before coffee",
-        "Aim for 10 minutes of movement in the first hour",
-        "Pick the single most important task for today and start it before 11am",
-      ],
-      nudges: ["Step away from the desk every 60 minutes."],
-      watchout: null,
-    };
-  }
-  return {
-    greeting: `Evening, ${userName}.`,
-    summary: "A short debrief while we wait on your full evening briefing.",
-    focus: [
-      "Note one win from today and one thing to improve tomorrow",
-      "Aim for a screen-free 30 minutes before bed",
-      "Keep tomorrow's first task visible so you can start fast",
-    ],
-    nudges: ["Hydrate before bed if you trained today."],
-    watchout: null,
-  };
-}
 
 // Per-process locks to prevent duplicate generation when the dashboard fires
 // multiple simultaneous requests on first load.
@@ -101,7 +67,7 @@ export async function getOrGenerateBriefing(
   // snapshot exactly. If anything has changed (e.g. Apple Health backfilled
   // additional steps for "yesterday" after the briefing was first
   // generated) we regenerate so the numbers quoted in the briefing always
-  // match the underlying wearable source. Do NOT relax this comparison —
+  // match the underlying wearable source. Do NOT relax this comparison -
   // the whole point of this check is to prevent user-visible drift like
   // "13,289 steps yesterday" while the wearable now reads 13,307.
   if (existing && (existing as any).source !== "fallback") {
@@ -144,7 +110,7 @@ async function buildRecentBriefingsText(userId: string): Promise<string> {
 // Every wearable field that can be surfaced in the briefing prompt (see
 // server/aiProvider.ts sleep/steps/resting_hr sections) must be captured
 // here. If a new wearable field is ever piped into the briefing context,
-// add it here too — otherwise drift in that field will not trigger
+// add it here too - otherwise drift in that field will not trigger
 // regeneration and the briefing copy will silently lag the wearable.
 interface WearableDaySnapshot {
   date: string;
@@ -179,7 +145,7 @@ interface BriefingContextSnapshot {
   // if any value here differs from the current wearable snapshot when the
   // briefing is re-requested, we regenerate so the user-visible numbers
   // (steps, sleep, HR, etc.) always match the underlying wearable source
-  // exactly. Do not relax this — drift between briefing copy and the
+  // exactly. Do not relax this - drift between briefing copy and the
   // wearable data is the bug this guards against.
   wearable?: WearableDaySnapshot[];
 }
@@ -240,7 +206,7 @@ function wearableSnapshotsEqual(
 
 async function buildContextSnapshot(userId: string): Promise<BriefingContextSnapshot | null> {
   // Snapshot of inputs used to generate the briefing. The `wearable` field
-  // is also the drift-detection source of truth — see wearableSnapshotsEqual.
+  // is also the drift-detection source of truth - see wearableSnapshotsEqual.
   const snap: BriefingContextSnapshot = {};
   snap.wearable = await buildWearableSnapshot(userId);
   try {
@@ -307,27 +273,35 @@ async function generateAndStoreBriefing(
       const recentText = await buildRecentBriefingsText(userId);
 
       const intent = type === "morning"
-        ? "Set the user up for a focused, healthy day. Acknowledge how they look right now (sleep, stress, body), pick 3 high-leverage focus actions for today, and 1-3 short nudges. If something is concerning (e.g. very low sleep, high pain, rising burnout), surface it in `watchout`."
-        : "Wind the user down. Reflect on what today looked like (movement, check-ins, hydration), suggest 2-3 recovery / wind-down focus actions, and 1-3 nudges to set up tomorrow. If something is concerning, surface it in `watchout`.";
+        ? "A short morning snapshot. Tell the user how they look right now using their real data (sleep, HRV, resting HR, steps, mood/energy/stress if checked in). Mention today's scheduled workout or habit if relevant. Tone is calm, observational, conversational. This is NOT a to-do list. It is a snapshot that opens a door to the AI coach."
+        : "A short evening snapshot. Reflect briefly on how the day went using their real data (steps, active minutes, hydration, workouts, check-in if logged). Mention one thing that went well and, if useful, one soft heads-up about tomorrow. Tone is calm, observational, conversational. This is NOT a to-do list.";
 
       const prompt = `You are the user's digital performance coach. Produce a short ${type} briefing as JSON only.
 
 OUTPUT JSON SHAPE (strict):
 {
-  "greeting": string (<= 240 chars, address ${userName} by name),
-  "summary": string (<= 600 chars, 2-3 sentences, plain language),
-  "focus": string[] (2-4 specific, actionable items for ${type === "morning" ? "today" : "tonight / tomorrow"}),
-  "nudges": string[] (0-3 short reminders),
-  "watchout": string | null (one sentence if you see a concerning pattern, otherwise null)
+  "headline": string (<= 100 chars, ONE sentence, address ${userName} by name),
+  "body": string (<= 200 chars, ONE or TWO short sentences, conversational snapshot of the data),
+  "nudge": string | null (<= 120 chars - optional, gentle, single suggestion that opens a door to the AI coach, e.g. "Your HRV has been low this week - want to talk about what could help?". null if nothing useful to add.)
 }
 
+WHAT THIS IS:
+- A WHOOP-style snapshot. Short. Calm. Observational.
+- Designed to open the door to the AI coach. The user can ask follow-up questions if they want detail.
+
+WHAT THIS IS NOT:
+- A to-do list. Do not give multi-step instructions.
+- A nutrition plan. Do not prescribe protein grams, calorie targets, meal times, or photo-logging routines.
+- A guilt trip. Do not flag what the user hasn't logged. Do not call out streaks of missed entries.
+- A medical assessment. Never diagnose.
+
 RULES:
-- Reference the user's actual data when it is in the snapshot below.
-- Never give medical advice or diagnose. Recommend professional input where appropriate.
-- Be warm, direct, and concise. No em dashes.
-- Do not invent data. If a metric is missing, do not pretend you know it.
-- Quote every duration and metric exactly as it appears in the data snapshot (e.g. "6h 54m", "13,307 steps"). Never round, summarise, or convert sleep durations to decimal hours like "6.9 hours".
-- Build on the recent briefings below — vary the focus items so the user gets fresh, progressive guidance, not the same suggestions repeated.
+- Reference the user's actual numbers when they appear in the snapshot below. Quote durations exactly (e.g. "6h 54m", "13,307 steps"). Never convert sleep to decimal hours.
+- If data is missing, do not pretend you have it. Do not invent.
+- No em dashes. No bullet lists. No section headers. Plain prose only.
+- Warm but direct. No corporate fluff. No motivational filler.
+- The nudge, if present, must feel like an invitation, not an instruction. Examples of good nudges: "Your sleep has dipped 3 nights running - want to dig into what's behind it?", "You hit 18k steps today, big day. Worth taking it easier tomorrow?", "Energy is showing low again - fancy a breathwork session?". Examples of BAD nudges: "Eat 600 cal with 50g protein before 9am", "You haven't logged food in 7 days", "Set a 90-minute timer and do 10 chin tucks".
+- Build on the recent briefings below so you don't repeat yourself.
 - Do not include any prose outside the JSON.
 
 INTENT: ${intent}
@@ -371,7 +345,7 @@ Return only the JSON object now.`;
   content = sanitizeBriefingContent(content);
 
   // If a real AI briefing already exists (drift regeneration) we must
-  // unconditionally overwrite it — createCoachBriefing's onConflict guard
+  // unconditionally overwrite it - createCoachBriefing's onConflict guard
   // only updates rows where source='fallback'. Use replaceCoachBriefing for
   // the regen path so the fresh wearable numbers actually land.
   let briefing;
@@ -391,14 +365,14 @@ Return only the JSON object now.`;
   // Fire a push / in-app notification for fresh morning briefings so the
   // coach feels proactive even if the user has not opened the dashboard
   // yet. Quiet hours, daily cap, and per-channel preferences are honored
-  // by notify(). Only fire when the briefing is for *today* — skip any
+  // by notify(). Only fire when the briefing is for *today* - skip any
   // historical backfill so users aren't pinged about old days.
   const todayKey = todayKeyForUser(new Date());
   if (briefing.briefingDate === todayKey) {
     const isEvening = type === "evening";
     const defaultTitle = isEvening ? "Evening briefing ready" : "Morning briefing ready";
-    const headline = (content.greeting || defaultTitle).trim();
-    const firstFocus = (content.focus?.[0] || content.summary || "").trim();
+    const headline = (content.headline || defaultTitle).trim();
+    const firstFocus = (content.body || "").trim();
     notify({
       userId,
       category: "coach",

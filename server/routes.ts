@@ -1894,6 +1894,28 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // Admin debug: list recent wearable_metrics_daily rows for the current user,
+  // optionally filtered by provider. Read-only, no writes. Useful for verifying
+  // mobile sync wrote the expected rows (e.g. Health Connect on Android tagged
+  // as 'google_fit', or Apple Health on iOS as 'apple_health'). Returns up to
+  // 30 days back, max 100 rows.
+  app.get('/api/admin/wearables-debug', isAuthenticated, requireAdmin, async (req: any, res) => {
+    try {
+      const userId = req.user.claims.sub;
+      const provider = typeof req.query.provider === 'string' ? req.query.provider : undefined;
+      const daysRaw = parseInt(String(req.query.days ?? '14'), 10);
+      const days = Number.isFinite(daysRaw) ? Math.min(Math.max(daysRaw, 1), 30) : 14;
+      const cutoff = new Date(Date.now() - days * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
+      const conditions = [eq(wearableMetricsDaily.userId, userId), sql`${wearableMetricsDaily.date} >= ${cutoff}`];
+      if (provider) conditions.push(eq(wearableMetricsDaily.provider, provider));
+      const rows = await db.select().from(wearableMetricsDaily).where(and(...conditions)).orderBy(desc(wearableMetricsDaily.date)).limit(100);
+      res.json({ userId, provider: provider ?? 'all', days, count: rows.length, rows });
+    } catch (error: any) {
+      console.error('[wearables-debug] error:', error);
+      res.status(500).json({ message: 'Failed to fetch wearable debug data', error: error?.message });
+    }
+  });
+
   // One-shot maintenance: clear default '8-12' reps pollution from warmup duration rows
   app.post('/api/admin/cleanup-rep-pollution', isAuthenticated, async (req: any, res) => {
     try {

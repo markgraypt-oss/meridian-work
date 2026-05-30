@@ -296,6 +296,7 @@ WHAT THIS IS NOT:
 - A medical assessment. Never diagnose.
 
 RULES:
+- TODAY is ${dateKey}. The wearable snapshot below has one row per date. The row whose "date" equals TODAY is today's data, which may be partial (e.g. it is only mid-morning when this runs). The row immediately before TODAY is YESTERDAY. Older rows are earlier days. NEVER call today's partial numbers "yesterday". NEVER call yesterday's numbers "today".
 - Reference the user's actual numbers when they appear in the snapshot below. Quote durations exactly (e.g. "6h 54m", "13,307 steps"). Never convert sleep to decimal hours.
 - If data is missing, do not pretend you have it. Do not invent.
 - No em dashes. No bullet lists. No section headers. Plain prose only.

@@ -92,6 +92,48 @@ export async function getOrGenerateBriefing(
   return work;
 }
 
+async function buildReadinessAndBaselineText(userId: string, dateKey: string): Promise<string> {
+  try {
+    const [dr, baselines] = await Promise.all([
+      import("../dailyReadiness").then((m) => m.getTodayForUser(userId)).catch(() => null),
+      storage.getUserPhysiologicalBaselines(userId).catch(() => undefined),
+    ]);
+
+    const lines: string[] = [];
+    lines.push("\nTODAY'S READINESS:");
+    if (dr && dr.score != null) {
+      lines.push(`- Daily Readiness Score: ${dr.score}/100 (based on ${dr.daysOfHistory} days of history)`);
+      if (dr.inputs) {
+        const ip = dr.inputs as any;
+        if (ip.sleep != null) lines.push(`- Readiness input: sleep contribution ${ip.sleep}`);
+        if (ip.energy != null) lines.push(`- Readiness input: energy contribution ${ip.energy}`);
+        if (ip.trainingLoad != null) lines.push(`- Readiness input: training load contribution ${ip.trainingLoad}`);
+        if (ip.hrv != null) lines.push(`- Readiness input: HRV contribution ${ip.hrv}`);
+        if (ip.rhr != null) lines.push(`- Readiness input: RHR contribution ${ip.rhr}`);
+      }
+    } else if (dr && dr.daysOfHistory < 14) {
+      lines.push(`- Daily Readiness Score: not yet available (building baseline, ${dr.daysOfHistory}/14 days collected)`);
+    } else {
+      lines.push("- Daily Readiness Score: not available today");
+    }
+
+    if (baselines) {
+      const b = baselines as any;
+      lines.push("\nUSER PHYSIOLOGICAL BASELINES (30-day medians, used to detect today's extremes):");
+      if (b.hrvMedian != null) lines.push(`- HRV baseline: ${b.hrvMedian}ms (stddev ${b.hrvStddev ?? "?"}ms)`);
+      if (b.rhrMedian != null) lines.push(`- Resting HR baseline: ${b.rhrMedian}bpm (stddev ${b.rhrStddev ?? "?"}bpm)`);
+      if (b.sleepMinutesMedian != null) lines.push(`- Sleep baseline: ${b.sleepMinutesMedian} minutes (stddev ${b.sleepMinutesStddev ?? "?"} min)`);
+      lines.push("RULES FOR EXTREMES: today's HRV more than 1 stddev BELOW baseline = suppressed recovery. Today's HRV well ABOVE baseline = strong recovery. Today's RHR more than 1 stddev ABOVE baseline = elevated, recovery cost. Sleep below 6h = short sleep. Sleep above 9h = unusually long sleep, possibly recovery debt or illness.");
+    } else {
+      lines.push("\n(No physiological baselines yet — user is still in the first 30 days, so do not compare to baseline. Just describe today's numbers plainly.)");
+    }
+
+    return lines.join("\n");
+  } catch {
+    return "";
+  }
+}
+
 async function buildRecentBriefingsText(userId: string): Promise<string> {
   try {
     const recent = await storage.listCoachBriefings(userId, 5);
@@ -271,23 +313,53 @@ async function generateAndStoreBriefing(
       const dataContext = await getUserDataContext(userId, "coach_briefing");
       const memoryText = await getTopMemoriesText(userId, 8);
       const recentText = await buildRecentBriefingsText(userId);
+      const readinessText = await buildReadinessAndBaselineText(userId, dateKey);
 
-      const intent = type === "morning"
-        ? "A short morning snapshot. Tell the user how they look right now using their real data (sleep, HRV, resting HR, steps, mood/energy/stress if checked in). Mention today's scheduled workout or habit if relevant. Tone is calm, observational, conversational. This is NOT a to-do list. It is a snapshot that opens a door to the AI coach."
-        : "A short evening snapshot. Reflect briefly on how the day went using their real data (steps, active minutes, hydration, workouts, check-in if logged). Mention one thing that went well and, if useful, one soft heads-up about tomorrow. Tone is calm, observational, conversational. This is NOT a to-do list.";
+      const intentMorning = `A MORNING READINESS PREVIEW. The day has not happened yet, so do NOT reference today's steps, today's active minutes, or any activity that would only exist after the user has lived the day. The ONLY today-data you may reference in the morning is OVERNIGHT data: last night's sleep, this morning's HRV, this morning's resting HR, and today's Daily Readiness Score if available.
+
+YOUR JOB IN THE MORNING:
+1. Read the readiness score and overnight metrics vs the user's baseline.
+2. Look at whether a workout is scheduled today (in the USER HEALTH DATA CONTEXT below).
+3. Produce a readiness verdict that links the body's state to the day ahead.
+
+THE FOUR VERDICTS (pick the one that fits, do not name it explicitly):
+- GREEN (good sleep + HRV at/above baseline + RHR at/below baseline + good check-in if any, plus workout planned): tell the user the body looks primed and today's planned session is well-timed. Use language like "go after it", "good day to push", "your body's ready for it".
+- YELLOW (one or two markers off, workout planned): tell the user recovery is mixed. The session is still doable but they may find it heavier than usual. Suggest listening to the body in the warm-up.
+- RED (multiple markers suppressed: HRV well below baseline OR RHR clearly elevated OR sleep under 6h, workout planned): tell the user the body is asking for less. Suggest considering an easier session, scaling back intensity, or moving the workout to tomorrow. Never order them to skip.
+- REST DAY (no workout planned today, any recovery state): describe how recovery looks and suggest the kind of day that fits (active recovery, mobility, prioritising sleep).
+
+If there is no readiness score yet (building baseline), give a softer snapshot of overnight metrics and link to the planned workout if any, without making a strong verdict.`;
+
+      const intentEvening = `AN EVENING DAY REVIEW. The day has now happened. Reference today's actual data: steps, active minutes, workouts completed, hydration, check-in if logged. Do NOT preview tomorrow as the main focus, this is a review of today.
+
+YOUR JOB IN THE EVENING:
+1. Read what actually happened today: did they hit good output, did they complete a planned workout, how does the check-in read.
+2. Look at this evening's recovery markers (HRV, RHR if available) vs baseline to see how the body responded to the day.
+3. Produce a one-line verdict on the day's output, then a body that captures what happened and what stood out.
+
+THE EVENING VERDICTS (pick the one that fits, do not name it explicitly):
+- BIG DAY (high steps, completed workout, good check-in): celebrate the output briefly, then flag the recovery cost if HRV/RHR show it, and invite a recovery-focused wind-down.
+- STEADY DAY (moderate output, consistent with their norm): observe the consistency, name one thing that stood out positively or one signal worth watching.
+- QUIET DAY (low output, no workout, low energy on check-in): observe it without judgement. If the body needed it (recovery markers were suppressed this morning), validate that. If not, gently note tomorrow as a fresh start.
+- MIXED DAY (workout completed but check-in poor, or high steps but suppressed HRV): name the tension. The body did the work but is showing a cost, or vice versa.
+
+If a workout was scheduled but not completed, do NOT scold. Acknowledge neutrally if relevant and move on. If recovery markers look poor tonight (HRV dropped, RHR spiked vs baseline), flag it gently as something to factor into tomorrow.`;
+
+      const intent = type === "morning" ? intentMorning : intentEvening;
 
       const prompt = `You are the user's digital performance coach. Produce a short ${type} briefing as JSON only.
 
 OUTPUT JSON SHAPE (strict):
 {
-  "headline": string (<= 100 chars, ONE sentence, address ${userName} by name),
-  "body": string (<= 200 chars, ONE or TWO short sentences, conversational snapshot of the data),
-  "nudge": string | null (<= 120 chars - optional, gentle, single suggestion that opens a door to the AI coach, e.g. "Your HRV has been low this week - want to talk about what could help?". null if nothing useful to add.)
+  "headline": string (<= 110 chars, ONE sentence, address ${userName} by name),
+  "body": string (<= 240 chars, ONE or TWO short sentences. Must connect the body's state to either today's planned workout (morning) or today's actual activity (evening). Quote real numbers from the data.),
+  "nudge": string | null (<= 130 chars - optional, INVITATION not instruction, opens a door to the AI coach. null if nothing useful to add.)
 }
 
 WHAT THIS IS:
 - A WHOOP-style snapshot. Short. Calm. Observational.
 - Designed to open the door to the AI coach. The user can ask follow-up questions if they want detail.
+- ALWAYS suggestion, feedback, advice. NEVER directions or instructions. Do not tell the user what to do. Offer a perspective and an option.
 
 WHAT THIS IS NOT:
 - A to-do list. Do not give multi-step instructions.
@@ -309,8 +381,10 @@ RULES:
 - Build on the recent briefings below so you don't repeat yourself.
 - Do not include any prose outside the JSON.
 
-INTENT: ${intent}
+INTENT:
+${intent}
 ${memoryText ? `\nUSER MEMORY (durable facts about this user, use to personalise):\n${memoryText}` : ""}${recentText}
+${readinessText}
 ${dataContext}
 
 Return only the JSON object now.`;

@@ -19001,23 +19001,20 @@ Respond as the coach. Be personalised, reference their actual data and specific 
         return true;
       });
 
-      // Prefer the briefing that matches the current window; otherwise the
-      // most recent one for today regardless of type.
-      let existing: any = null;
-      if (windowType) {
-        existing = todayRows.find((b: any) => b.type === windowType) || null;
-      }
-      if (!existing) {
-        existing = todayRows[0] || null;
-      }
-
-      if (existing) {
-        return res.json(existing);
-      }
-
-      // No existing briefing for today. Only generate if we're inside a
-      // window — otherwise return 204 so the UI hides the panel.
+      // Display policy. The briefing now renders inline in the chat
+      // (not as a persistent card). The chat client decides whether to
+      // render based on the briefing's readAt field — once readAt is set,
+      // the client treats the briefing as already delivered and shows a
+      // proactive greeting instead. Read state is updated via the
+      // separate POST /api/coach/briefing/:id/read endpoint.
+      //
+      // Outside any window: 204 always, no briefing.
       if (!windowType) return res.status(204).end();
+
+      // Return whatever briefing exists for the current window (read or
+      // unread). The client decides what to do with readAt.
+      const matching = todayRows.find((b: any) => b.type === windowType);
+      if (matching) return res.json(matching);
 
       const requested = typeof req.query.type === 'string' ? req.query.type : null;
       const type: 'morning' | 'evening' =

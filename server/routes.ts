@@ -18981,7 +18981,26 @@ Respond as the coach. Be personalised, reference their actual data and specific 
         return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
       })();
       const recent = await storage.listCoachBriefings(userId, 5);
-      const todayRows = recent.filter((b: any) => b.briefingDate === todayKey && b.source !== 'fallback');
+      let todayRows = recent.filter((b: any) => b.briefingDate === todayKey && b.source !== 'fallback');
+
+      // Reject briefings that were generated OUTSIDE their proper window.
+      // For example, an evening briefing generated at 11:59 (when the day
+      // wasn't actually over) would describe partial data as if the day
+      // were done. The morning generation window starts at 06:00 local;
+      // the evening window starts at 20:00 local. Anything created before
+      // that window's start for its type is treated as stale junk.
+      const now = new Date();
+      const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+      const morningWindowStart = new Date(todayStart); morningWindowStart.setHours(6, 0, 0, 0);
+      const eveningWindowStart = new Date(todayStart); eveningWindowStart.setHours(20, 0, 0, 0);
+      todayRows = todayRows.filter((b: any) => {
+        const created = b.createdAt ? new Date(b.createdAt) : null;
+        if (!created) return true;
+        if (b.type === 'morning') return created >= morningWindowStart;
+        if (b.type === 'evening') return created >= eveningWindowStart;
+        return true;
+      });
+
       // Prefer the briefing that matches the current window; otherwise the
       // most recent one for today regardless of type.
       let existing: any = null;

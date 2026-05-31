@@ -438,6 +438,11 @@ THE EVENING VERDICTS (pick the one that fits, do not name the label):
 If a workout was scheduled but not completed, do NOT scold. Acknowledge neutrally if relevant and move on.`;
 
       const intent = type === "morning" ? intentMorning : intentEvening;
+      // Compute today's day name (Monday, Tuesday, etc) so the model never
+      // has to guess which day of the week dateKey corresponds to. This
+      // fixes cases where the opener said "that's a wrap on Saturday" when
+      // today was actually Sunday.
+      const dayName = new Date(dateKey + 'T12:00:00').toLocaleDateString('en-US', { weekday: 'long' });
 
       const prompt = `You are the user's digital performance coach. Produce a rich ${type} briefing as JSON only.
 
@@ -470,7 +475,7 @@ ABSOLUTELY FORBIDDEN (THIS IS THE MOST IMPORTANT RULE):
 - Do NOT mention what the user "hasn't" done. No "you haven't", no "still no", no "missed", no "gap". Only describe what IS there.
 
 RULES:
-- TODAY is ${dateKey}. The wearable snapshot below has one row per date. The row whose "date" equals TODAY is today's data, which may be partial in the morning. The row immediately before TODAY is YESTERDAY. NEVER call today's partial numbers "yesterday". NEVER call yesterday's numbers "today".
+- TODAY is ${dayName}, ${dateKey}. YESTERDAY was the calendar day before TODAY. The wearable snapshot below has one row per date. The row whose "date" equals TODAY is today's data, which may be partial in the morning. The row immediately before TODAY is YESTERDAY. NEVER call today's partial numbers "yesterday". NEVER call yesterday's numbers "today".
 - Reference the user's actual numbers when they appear. Quote durations exactly (e.g. "7h 19m", "14,873 steps"). Never convert sleep to decimal hours.
 - If data is missing, do not pretend you have it. Do not invent.
 - No em dashes anywhere. Use commas, full stops, or rephrase.

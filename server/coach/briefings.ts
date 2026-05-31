@@ -24,18 +24,48 @@ function clampMedical(text: string): string {
 }
 
 function sanitizeBriefingContent(c: BriefingContent): BriefingContent {
+  const clampStr = (s: string | null | undefined) => (s ? clampMedical(s) : s ?? null);
   return {
-    headline: clampMedical(c.headline),
-    body: clampMedical(c.body),
+    // New rich shape
+    opener: clampStr(c.opener) || undefined,
+    deepDive: c.deepDive?.map((s) => ({
+      title: clampMedical(s.title),
+      body: clampMedical(s.body),
+    })),
+    recommendations: c.recommendations?.map((r) => ({
+      title: clampMedical(r.title),
+      body: clampMedical(r.body),
+    })),
+    closingQuestion: clampStr(c.closingQuestion) || undefined,
+    suggestedReplies: c.suggestedReplies?.map((s) => clampMedical(s)),
+    // Legacy short shape (kept for backwards compatibility with existing rows)
+    headline: c.headline ? clampMedical(c.headline) : c.headline,
+    body: c.body ? clampMedical(c.body) : c.body,
     nudge: c.nudge ? clampMedical(c.nudge) : c.nudge ?? null,
   };
 }
 
 const briefingSchema = z.object({
-  headline: z.string().min(1).max(120),
-  body: z.string().min(1).max(240),
+  // New rich shape — preferred
+  opener: z.string().max(400).optional().nullable(),
+  deepDive: z.array(z.object({
+    title: z.string().min(1).max(80),
+    body: z.string().min(1).max(400),
+  })).max(4).optional(),
+  recommendations: z.array(z.object({
+    title: z.string().min(1).max(60),
+    body: z.string().min(1).max(300),
+  })).max(3).optional(),
+  closingQuestion: z.string().max(280).optional().nullable(),
+  suggestedReplies: z.array(z.string().max(80)).max(4).optional(),
+  // Legacy short shape — kept so older rows still validate and render
+  headline: z.string().max(120).optional(),
+  body: z.string().max(240).optional(),
   nudge: z.string().max(140).optional().nullable(),
-});
+}).refine(
+  (c) => Boolean(c.opener) || Boolean(c.headline),
+  { message: "briefing must include either an opener (new shape) or a headline (legacy shape)" },
+);
 
 export type BriefingContent = z.infer<typeof briefingSchema>;
 
@@ -92,6 +122,59 @@ export async function getOrGenerateBriefing(
   return work;
 }
 
+async function buildWeatherText(lat: number | null | undefined, lng: number | null | undefined): Promise<string> {
+  if (lat == null || lng == null) return "";
+  try {
+    const url = `https://api.open-meteo.com/v1/forecast?latitude=${encodeURIComponent(String(lat))}&longitude=${encodeURIComponent(String(lng))}&current=temperature_2m,relative_humidity_2m,weather_code,uv_index&daily=temperature_2m_max,temperature_2m_min,uv_index_max,weather_code&timezone=auto&forecast_days=1`;
+    const res = await fetch(url);
+    if (!res.ok) return "";
+    const data: any = await res.json();
+    const cur = data?.current;
+    const daily = data?.daily;
+    if (!cur || !daily) return "";
+    const code = Number(cur.weather_code);
+    const codeMap: Record<number, string> = {
+      0: "clear skies",
+      1: "mostly clear",
+      2: "partly cloudy",
+      3: "overcast",
+      45: "fog",
+      48: "freezing fog",
+      51: "light drizzle",
+      53: "drizzle",
+      55: "heavy drizzle",
+      61: "light rain",
+      63: "rain",
+      65: "heavy rain",
+      71: "light snow",
+      73: "snow",
+      75: "heavy snow",
+      77: "snow grains",
+      80: "light showers",
+      81: "showers",
+      82: "heavy showers",
+      85: "snow showers",
+      86: "heavy snow showers",
+      95: "thunderstorm",
+      96: "thunderstorm with hail",
+      99: "thunderstorm with heavy hail",
+    };
+    const conditions = codeMap[code] || "mixed conditions";
+    const tMin = Math.round(Number(daily.temperature_2m_min?.[0] ?? cur.temperature_2m));
+    const tMax = Math.round(Number(daily.temperature_2m_max?.[0] ?? cur.temperature_2m));
+    const uv = Math.round(Number(daily.uv_index_max?.[0] ?? cur.uv_index ?? 0));
+    const humidity = Math.round(Number(cur.relative_humidity_2m ?? 0));
+    const uvNote =
+      uv >= 8 ? "very high UV, time outdoor sessions for early morning or late afternoon" :
+      uv >= 6 ? "high UV, consider timing outdoor sessions outside peak sun" :
+      uv >= 3 ? "moderate UV" :
+      "low UV";
+    return `\nTODAY'S WEATHER (use ONLY in the morning opener, never invent if absent):\n- Range: ${tMin}-${tMax}\u00B0C, ${conditions}, humidity ${humidity}%\n- UV index: ${uv} (${uvNote})`;
+  } catch {
+    return "";
+  }
+}
+
 async function buildReadinessAndBaselineText(userId: string, dateKey: string): Promise<string> {
   try {
     const [dr, baselines] = await Promise.all([
@@ -140,10 +223,14 @@ async function buildRecentBriefingsText(userId: string): Promise<string> {
     if (!recent.length) return "";
     const lines = recent.map((b) => {
       const c = (b.content as BriefingContent | null) || null;
-      const focus = c?.focus?.slice(0, 2).join("; ") || "";
-      return `- ${b.briefingDate} ${b.type}: ${focus}`;
+      // Rich shape: summarise via the deepDive section titles. Legacy shape:
+      // fall back to the headline. This is just a "don't repeat yourself"
+      // hint to the model so the gist is enough.
+      const richSummary = c?.deepDive?.slice(0, 3).map((s) => s.title).join("; ") || "";
+      const summary = richSummary || c?.headline || "";
+      return `- ${b.briefingDate} ${b.type}: ${summary}`;
     });
-    return `\nRECENT BRIEFINGS (most recent first, do not repeat the same focus items verbatim):\n${lines.join("\n")}`;
+    return `\nRECENT BRIEFINGS (most recent first, vary the angles you choose so you don't repeat yourself):\n${lines.join("\n")}`;
   } catch {
     return "";
   }
@@ -314,19 +401,24 @@ async function generateAndStoreBriefing(
       const memoryText = await getTopMemoriesText(userId, 8);
       const recentText = await buildRecentBriefingsText(userId);
       const readinessText = await buildReadinessAndBaselineText(userId, dateKey);
+      // Weather context. lat/lng column is added in a later phase. Until then this
+      // stays a no-op and the prompt simply has no weather block to reference.
+      const userLat = (user as any)?.lastLat ?? null;
+      const userLng = (user as any)?.lastLng ?? null;
+      const weatherText = await buildWeatherText(userLat, userLng);
 
-      const intentMorning = `A MORNING READINESS PREVIEW. The day has not happened yet, so do NOT reference today's steps, today's active minutes, or any activity that would only exist after the user has lived the day. The ONLY today-data you may reference in the morning is OVERNIGHT data: last night's sleep, this morning's HRV, this morning's resting HR, and today's Daily Readiness Score if available.
+      const intentMorning = `A MORNING READINESS PREVIEW. The day has not happened yet, so do NOT reference today's steps, today's active minutes, or any activity that would only exist after the user has lived the day. The ONLY today-data you may reference in the morning is OVERNIGHT data: last night's sleep, this morning's HRV, this morning's resting HR, and today's Daily Readiness Score if available, plus today's weather if provided.
 
 YOUR JOB IN THE MORNING:
 1. Read the readiness score and overnight metrics vs the user's baseline.
 2. Look at whether a workout is scheduled today (in the USER HEALTH DATA CONTEXT below).
 3. Produce a readiness verdict that links the body's state to the day ahead.
 
-THE FOUR VERDICTS (pick the one that fits, do not name it explicitly):
+THE FOUR VERDICTS (pick the one that fits, do not name the colour):
 - GREEN (good sleep + HRV at/above baseline + RHR at/below baseline + good check-in if any, plus workout planned): tell the user the body looks primed and today's planned session is well-timed. Use language like "go after it", "good day to push", "your body's ready for it".
 - YELLOW (one or two markers off, workout planned): tell the user recovery is mixed. The session is still doable but they may find it heavier than usual. Suggest listening to the body in the warm-up.
-- RED (multiple markers suppressed: HRV well below baseline OR RHR clearly elevated OR sleep under 6h, workout planned): tell the user the body is asking for less. Suggest considering an easier session, scaling back intensity, or moving the workout to tomorrow. Never order them to skip.
-- REST DAY (no workout planned today, any recovery state): describe how recovery looks and suggest the kind of day that fits (active recovery, mobility, prioritising sleep).
+- RED (multiple markers suppressed, workout planned): tell the user the body is asking for less. Suggest considering an easier session, scaling back intensity, or moving the workout to tomorrow. Never order them to skip.
+- REST DAY (no workout planned today): describe how recovery looks and suggest the kind of day that fits (active recovery, mobility, prioritising sleep).
 
 If there is no readiness score yet (building baseline), give a softer snapshot of overnight metrics and link to the planned workout if any, without making a strong verdict.`;
 
@@ -337,27 +429,33 @@ YOUR JOB IN THE EVENING:
 2. Look at this evening's recovery markers (HRV, RHR if available) vs baseline to see how the body responded to the day.
 3. Produce a one-line verdict on the day's output, then a body that captures what happened and what stood out.
 
-THE EVENING VERDICTS (pick the one that fits, do not name it explicitly):
+THE EVENING VERDICTS (pick the one that fits, do not name the label):
 - BIG DAY (high steps, completed workout, good check-in): celebrate the output briefly, then flag the recovery cost if HRV/RHR show it, and invite a recovery-focused wind-down.
 - STEADY DAY (moderate output, consistent with their norm): observe the consistency, name one thing that stood out positively or one signal worth watching.
 - QUIET DAY (low output, no workout, low energy on check-in): observe it without judgement. If the body needed it (recovery markers were suppressed this morning), validate that. If not, gently note tomorrow as a fresh start.
 - MIXED DAY (workout completed but check-in poor, or high steps but suppressed HRV): name the tension. The body did the work but is showing a cost, or vice versa.
 
-If a workout was scheduled but not completed, do NOT scold. Acknowledge neutrally if relevant and move on. If recovery markers look poor tonight (HRV dropped, RHR spiked vs baseline), flag it gently as something to factor into tomorrow.`;
+If a workout was scheduled but not completed, do NOT scold. Acknowledge neutrally if relevant and move on.`;
 
       const intent = type === "morning" ? intentMorning : intentEvening;
 
-      const prompt = `You are the user's digital performance coach. Produce a short ${type} briefing as JSON only.
+      const prompt = `You are the user's digital performance coach. Produce a rich ${type} briefing as JSON only.
 
 OUTPUT JSON SHAPE (strict):
 {
-  "headline": string (<= 110 chars, ONE sentence, address ${userName} by name),
-  "body": string (<= 240 chars, ONE or TWO short sentences. Must connect the body's state to either today's planned workout (morning) or today's actual activity (evening). Quote real numbers from the data.),
-  "nudge": string | null (<= 130 chars - optional, INVITATION not instruction, opens a door to the AI coach. null if nothing useful to add.)
+  "opener": string (greeting + light context. Morning: friendly greeting addressing ${userName} by name, optional weather note if provided, optional one-line nod to yesterday or the user's recent context. Evening: friendly greeting addressing ${userName} by name, one-line frame for the day just lived. Max 400 chars. 2-4 short sentences max. No emojis.),
+  "deepDive": [
+    { "title": string (4-8 words, e.g. "Nervous system is primed", "Load is high even on rest"), "body": string (1-3 short sentences interpreting one specific aspect of the data, max 400 chars) }
+  ] (2-3 items, each on a DIFFERENT aspect of the body's state. Morning aspects to choose from: recovery/nervous system, load history, healthspan trend, sleep quality, baseline deviation. Evening aspects to choose from: output level, recovery cost, check-in alignment, sleep debt, trend signal.),
+  "recommendations": [
+    { "title": string (e.g. the scheduled workout name, or "Active recovery", "Mobility session"), "body": string (1-2 sentences on WHY this fits today's recovery state. Tie it explicitly to the verdict from deepDive. Max 300 chars.) }
+  ] (0-2 items. Morning: today's scheduled workout from USER HEALTH DATA CONTEXT, framed against the recovery verdict, plus optional stretching/yoga if recovery is suppressed or no session is planned. Evening: usually empty or a single wind-down/recovery suggestion. NEVER invent workouts that are not in the user's scheduled data. If no workout is scheduled and no recovery work is needed, return an empty array.),
+  "closingQuestion": string (one open question that invites the user to chat with the coach. Should connect to the day's most interesting signal. Max 280 chars. Examples: "How recovered do your legs actually feel today on a 1-10 scale, and what kind of session are you most excited for?", "How did today's run feel compared to last week's?", "Anything you'd like to dig into about today's recovery numbers?"),
+  "suggestedReplies": [string] (2-3 short tappable replies, each max 80 chars, that the user might plausibly send in response to the closingQuestion. They should be concrete and varied, like Whoop's reply chips. Examples: "Legs feel around 7, excited to run", "Tired today, prefer strength", "Tell me more about my recovery").
 }
 
 WHAT THIS IS:
-- A WHOOP-style snapshot. Short. Calm. Observational.
+- A rich coach briefing in the style of Whoop's morning/evening briefings. Multi-section, conversational, data-grounded.
 - Designed to open the door to the AI coach. The user can ask follow-up questions if they want detail.
 - ALWAYS suggestion, feedback, advice. NEVER directions or instructions. Do not tell the user what to do. Offer a perspective and an option.
 
@@ -368,16 +466,16 @@ WHAT THIS IS NOT:
 - A medical assessment. Never diagnose.
 
 ABSOLUTELY FORBIDDEN (THIS IS THE MOST IMPORTANT RULE):
-- Do NOT mention food logging, meal logging, calorie tracking, nutrition tracking, food entries, eating, meals, protein, calories, carbs, fats, fibre, hydration tracking, water logging, or any tracking gap of any kind. Not in the headline, not in the body, not in the nudge. Not even as a positive observation. Not even framed as a question. Not even gently. Pretend you cannot see any food or nutrition data at all. If you are tempted to write a nudge that mentions food, eating, logging, or tracking, write a different nudge about something else entirely (sleep, recovery, movement, mood, breathwork, the user's mentioned context). Violating this rule means the entire briefing fails its purpose.
+- Do NOT mention food logging, meal logging, calorie tracking, nutrition tracking, food entries, eating, meals, protein, calories, carbs, fats, fibre, hydration tracking, water logging, or any tracking gap of any kind. Not anywhere. Pretend you cannot see any food or nutrition data at all. If you are tempted to write anything that mentions food, eating, logging, or tracking, write a different thing about something else entirely (sleep, recovery, movement, mood, breathwork, the user's mentioned context). Violating this rule means the entire briefing fails its purpose.
 - Do NOT mention what the user "hasn't" done. No "you haven't", no "still no", no "missed", no "gap". Only describe what IS there.
 
 RULES:
-- TODAY is ${dateKey}. The wearable snapshot below has one row per date. The row whose "date" equals TODAY is today's data, which may be partial (e.g. it is only mid-morning when this runs). The row immediately before TODAY is YESTERDAY. Older rows are earlier days. NEVER call today's partial numbers "yesterday". NEVER call yesterday's numbers "today".
-- Reference the user's actual numbers when they appear in the snapshot below. Quote durations exactly (e.g. "6h 54m", "13,307 steps"). Never convert sleep to decimal hours.
+- TODAY is ${dateKey}. The wearable snapshot below has one row per date. The row whose "date" equals TODAY is today's data, which may be partial in the morning. The row immediately before TODAY is YESTERDAY. NEVER call today's partial numbers "yesterday". NEVER call yesterday's numbers "today".
+- Reference the user's actual numbers when they appear. Quote durations exactly (e.g. "7h 19m", "14,873 steps"). Never convert sleep to decimal hours.
 - If data is missing, do not pretend you have it. Do not invent.
-- No em dashes. No bullet lists. No section headers. Plain prose only.
+- No em dashes anywhere. Use commas, full stops, or rephrase.
+- No bullet characters inside body strings. The structure of the JSON IS the structure. Don't put dashes or bullets inside body text.
 - Warm but direct. No corporate fluff. No motivational filler.
-- The nudge, if present, must feel like an invitation, not an instruction. Examples of good nudges: "Your sleep has dipped 3 nights running - want to dig into what's behind it?", "You hit 18k steps today, big day. Worth taking it easier tomorrow?", "Energy is showing low again - fancy a breathwork session?", "You mentioned neck stiffness yesterday - want to try a quick reset routine?". Examples of BAD nudges (NEVER PRODUCE ANYTHING LIKE THESE): "You haven't logged food in 6 days now. Want to talk about what's making it hard to track?", "Eat 600 cal with 50g protein before 9am", "You haven't logged food in 7 days", "Want to talk about what's making it hard to track your meals?", "Your nutrition tracking has stalled", "Set a 90-minute timer and do 10 chin tucks", "Try logging one meal today".
 - Build on the recent briefings below so you don't repeat yourself.
 - Do not include any prose outside the JSON.
 
@@ -385,6 +483,7 @@ INTENT:
 ${intent}
 ${memoryText ? `\nUSER MEMORY (durable facts about this user, use to personalise):\n${memoryText}` : ""}${recentText}
 ${readinessText}
+${weatherText}
 ${dataContext}
 
 Return only the JSON object now.`;
@@ -450,8 +549,13 @@ Return only the JSON object now.`;
   if (briefing.briefingDate === todayKey) {
     const isEvening = type === "evening";
     const defaultTitle = isEvening ? "Evening briefing ready" : "Morning briefing ready";
-    const headline = (content.headline || defaultTitle).trim();
-    const firstFocus = (content.body || "").trim();
+    // Prefer rich shape (opener + first deepDive section) when present,
+    // otherwise fall back to the legacy headline/body fields so old rows
+    // still notify correctly.
+    const richTitle = content.deepDive?.[0]?.title?.trim();
+    const richBody = content.deepDive?.[0]?.body?.trim() || content.opener?.trim();
+    const headline = (richTitle || content.headline || defaultTitle).trim();
+    const firstFocus = (richBody || content.body || "").trim();
     notify({
       userId,
       category: "coach",

@@ -548,19 +548,30 @@ Return only the JSON object now.`;
   const todayKey = todayKeyForUser(new Date());
   if (briefing.briefingDate === todayKey) {
     const isEvening = type === "evening";
-    const defaultTitle = isEvening ? "Evening briefing ready" : "Morning briefing ready";
-    // Prefer rich shape (opener + first deepDive section) when present,
-    // otherwise fall back to the legacy headline/body fields so old rows
-    // still notify correctly.
-    const richTitle = content.deepDive?.[0]?.title?.trim();
-    const richBody = content.deepDive?.[0]?.body?.trim() || content.opener?.trim();
-    const headline = (richTitle || content.headline || defaultTitle).trim();
-    const firstFocus = (richBody || content.body || "").trim();
+    // Lock-screen title is the briefing label. Section titles belong INSIDE
+    // the briefing, not on the lock screen. Body is a short teaser drawn
+    // from the opener (rich shape) or the legacy body field, truncated so
+    // the lock screen does not show a wall of text.
+    const notifTitle = isEvening ? "Evening Briefing" : "Morning Briefing";
+    const rawBody = (content.opener || content.body || "").trim();
+    const truncateToSentence = (s: string, max: number) => {
+      if (!s) return s;
+      if (s.length <= max) return s;
+      const slice = s.slice(0, max);
+      // Prefer cutting at a sentence end, then a comma, then a space.
+      const lastStop = Math.max(slice.lastIndexOf(". "), slice.lastIndexOf("! "), slice.lastIndexOf("? "));
+      if (lastStop > max * 0.5) return slice.slice(0, lastStop + 1);
+      const lastComma = slice.lastIndexOf(", ");
+      if (lastComma > max * 0.5) return slice.slice(0, lastComma) + ".";
+      const lastSpace = slice.lastIndexOf(" ");
+      return slice.slice(0, lastSpace > 0 ? lastSpace : max).trimEnd() + "...";
+    };
+    const teaser = truncateToSentence(rawBody, 110);
     notify({
       userId,
       category: "coach",
-      title: headline,
-      body: firstFocus,
+      title: notifTitle,
+      body: teaser,
       data: { url: `/?coach=1&briefing=${briefing.id}`, briefingId: briefing.id, type, route: "/coach-briefings" },
       disableEmail: true,
       prefKey: isEvening ? "eveningBriefing" : "morningBriefing",

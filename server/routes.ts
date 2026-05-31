@@ -1933,6 +1933,44 @@ export async function registerRoutes(app: Express): Promise<Server> {
       await (storage as any).deleteCoachBriefingForDay?.(userId, dateKey, type).catch(() => {});
       const { getOrGenerateBriefing } = await import('./coach/briefings');
       const briefing = await getOrGenerateBriefing(userId, type);
+
+      // Re-fire the push/in-app notification with force=true so the daily
+      // cap and quiet hours are bypassed. Useful while iterating on the
+      // notification copy. Mirrors the same title/body logic used inside
+      // generateAndStoreBriefing.
+      try {
+        if (briefing?.content) {
+          const c = briefing.content as any;
+          const isEvening = type === 'evening';
+          const notifTitle = isEvening ? 'Evening Briefing' : 'Morning Briefing';
+          const rawBody = ((c.opener || c.body || '') as string).trim();
+          const truncateToSentence = (s: string, max: number) => {
+            if (!s) return s;
+            if (s.length <= max) return s;
+            const slice = s.slice(0, max);
+            const lastStop = Math.max(slice.lastIndexOf('. '), slice.lastIndexOf('! '), slice.lastIndexOf('? '));
+            if (lastStop > max * 0.5) return slice.slice(0, lastStop + 1);
+            const lastComma = slice.lastIndexOf(', ');
+            if (lastComma > max * 0.5) return slice.slice(0, lastComma) + '.';
+            const lastSpace = slice.lastIndexOf(' ');
+            return slice.slice(0, lastSpace > 0 ? lastSpace : max).trimEnd() + '...';
+          };
+          const teaser = truncateToSentence(rawBody, 110);
+          const { notify } = await import('./notifications');
+          await notify({
+            userId,
+            category: 'coach',
+            title: notifTitle,
+            body: teaser,
+            data: { url: `/?coach=1&briefing=${briefing.id}`, briefingId: briefing.id, type, route: '/coach-briefings' },
+            disableEmail: true,
+            force: true,
+          });
+        }
+      } catch (e: any) {
+        console.warn('[admin/force-briefing] notify re-fire failed:', e?.message || e);
+      }
+
       return res.json({ ok: true, briefing });
     } catch (e: any) {
       console.error('[admin/force-briefing] failed:', e);

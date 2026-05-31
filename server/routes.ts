@@ -2905,6 +2905,44 @@ export async function registerRoutes(app: Express): Promise<Server> {
     inAppAdmin: z.boolean().optional(), emailAdmin: z.boolean().optional(), pushAdmin: z.boolean().optional(),
   }).strict();
 
+  // ============================================================
+  // User location — drives the weather block in coach briefings.
+  // The mobile app posts lat/lng here when it gets fresh GPS, and
+  // separately reports the permission status so we can implement
+  // the "ask once, soft re-nudge once, then never again" policy.
+  // ============================================================
+  app.post('/api/me/location', isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = req.user.claims.sub;
+      const body = req.body || {};
+      const lat = typeof body.lat === 'number' ? body.lat : null;
+      const lng = typeof body.lng === 'number' ? body.lng : null;
+      const permissionStatus = typeof body.permissionStatus === 'string' ? body.permissionStatus : null;
+      const valid = ['never_asked', 'granted', 'denied', 'denied_twice'];
+
+      if (lat !== null && (lat < -90 || lat > 90)) return res.status(400).json({ message: 'invalid lat' });
+      if (lng !== null && (lng < -180 || lng > 180)) return res.status(400).json({ message: 'invalid lng' });
+      if (permissionStatus !== null && !valid.includes(permissionStatus)) {
+        return res.status(400).json({ message: 'invalid permissionStatus' });
+      }
+
+      const sets: string[] = [];
+      const params: any[] = [];
+      if (lat !== null) { params.push(lat); sets.push(`last_lat = $${params.length}`); }
+      if (lng !== null) { params.push(lng); sets.push(`last_lng = $${params.length}`); }
+      if (lat !== null && lng !== null) { sets.push(`location_updated_at = now()`); }
+      if (permissionStatus !== null) { params.push(permissionStatus); sets.push(`location_permission_status = $${params.length}`); }
+      if (sets.length === 0) return res.json({ ok: true, noop: true });
+      params.push(userId);
+      const sql = `UPDATE users SET ${sets.join(', ')} WHERE id = $${params.length}`;
+      await pool.query(sql, params);
+      return res.json({ ok: true });
+    } catch (e: any) {
+      console.error('[POST /api/me/location] failed:', e?.message || e);
+      res.status(500).json({ message: 'failed to update location' });
+    }
+  });
+
   app.patch('/api/user/notifications', isAuthenticated, async (req: any, res) => {
     try {
       const userId = req.user.claims.sub;
@@ -19295,43 +19333,56 @@ Respond as the coach. Be personalised, reference their actual data and specific 
 
       const dayOfWeek = now.toLocaleDateString('en-US', { weekday: 'long' });
 
+      // Pool of safe topics. Nutrition and hydration tracking are deliberately
+      // excluded. Pick one at random so greetings vary day to day.
       const topicCategories = [
-        'Workout progress, training consistency, or today\'s scheduled session',
-        'Sleep quality, sleep duration trends, or recovery patterns',
-        'Stress levels, energy, or mood patterns from recent check-ins',
-        'Positive streaks, consistency, or milestones worth celebrating',
-        'Nutrition intake, calorie tracking, or meal habits',
-        'Hydration levels and daily water intake',
-        'Programme progress, weeks completed, or upcoming workouts',
-        'Resting heart rate trends or cardiovascular fitness',
-        'Body composition changes or bodyweight trends',
-        'Overall wellbeing, work-life balance, or mental clarity scores',
+        "Sleep quality, sleep duration, or overnight recovery",
+        "Today's scheduled workout or recent training consistency",
+        "Energy, mood, or stress patterns from recent check-ins",
+        "Positive streaks, consistency, or a milestone worth acknowledging",
+        "Programme progress, weeks completed, or upcoming sessions",
+        "Resting heart rate or HRV trend",
+        "Body composition or bodyweight trend, if data is available",
+        "Overall wellbeing, work-life balance, or recent clarity scores",
+        "Mobility, mindfulness, or movement quality",
       ];
       const selectedTopic = topicCategories[Math.floor(Math.random() * topicCategories.length)];
 
-      const systemPrompt = `You are a proactive digital performance coach built into an executive health and wellness platform called The Paradigm Project. You are opening the chat with the user and need to deliver a brief, personalised opening message based on their current health data, like a trusted coach who has reviewed their file before a meeting.
+      const systemPrompt = `You are a proactive digital performance coach inside MeridianWork, a corporate wellness platform. You are opening the chat with the user with one short, warm message based on their current health data.
 
-MANDATORY TOPIC FOR THIS GREETING: ${selectedTopic}
-You MUST talk about this topic. Find relevant data from the user's health context below and build your greeting around it. If there is no data for this topic, pick the closest related observation.
+PREFERRED TOPIC FOR THIS GREETING: ${selectedTopic}
+Build the greeting around this topic if real data is available. If nothing supports it, pick another aspect of the user's recent data (sleep, recovery, mood, training, streaks).
 
-CRITICAL RULES:
-- Write exactly 1-3 sentences. No more. Be punchy and direct.
-- NEVER use em dashes or the character. Use commas, full stops, or shorter sentences instead.
-- Reference their ACTUAL data. Be specific with numbers, trends, or observations you can see.
-- CRITICAL: For body map/pain data, ONLY use the values labeled "CURRENT severity". Never reference previous/historical severity values as if they are current.
-- End with a simple, low-effort question or offer to help. The user should be able to answer with a yes/no or a single tap. Examples: "Want me to walk you through some options?", "Should we look at that together?", "Want to dig into this?", "Need any tweaks to your plan?"
-- NEVER ask the user to think like an expert or reflect deeply. Bad examples: "What do you think made the biggest difference?", "How would you describe your recovery?", "What factors do you attribute this to?"
-- Sound warm and human, like "Hey ${userName}, [observation]. [simple offer to help]"
-- DO NOT list multiple topics. Stick to the mandatory topic above.
-- DO NOT use bullet points, numbered lists, or headers.
-- DO NOT be generic. If you have their data, use it.
-- DO NOT say "I noticed" or "I see that". Just state the insight directly.
-- Never give medical advice.
+WHAT THIS IS:
+- A short, friendly opener. One or two short sentences max. Punchy and warm.
+- Followed by a single low-effort question the user can answer with a tap or one short line.
+- ALWAYS suggestion, observation, offer. NEVER instruction or directive.
+
+WHAT THIS IS NOT:
+- A to-do list.
+- A lecture.
+- A guilt trip.
+- A check-up on missing logs.
+
+ABSOLUTELY FORBIDDEN:
+- Do NOT mention food, nutrition, calorie tracking, protein, meals, hydration tracking, water logging, or any tracking gap of any kind. Pretend you cannot see any food or nutrition data at all. If you are tempted to write about food, eating, logging, or tracking, write about something else (sleep, recovery, training, mood, mindfulness, the user's mentioned context).
+- Do NOT mention what the user "hasn't" done. No "you haven't", no "still no", no "missed", no "gap". Only describe what IS there.
+- Do NOT use em dashes. Use commas, full stops, or rephrase.
+- Do NOT use bullet points, numbered lists, or headers.
+- Do NOT ask the user to think like an expert or reflect deeply. Bad: "What do you think made the biggest difference?", "How would you describe your recovery?", "What factors do you attribute this to?"
+- Do NOT say "I noticed" or "I see that". Just state the insight directly.
+- Do NOT give medical advice.
+
+RULES:
+- Reference the user's actual numbers when relevant (HRV, sleep duration, steps, RHR). Quote durations exactly (e.g. "7h 19m"). Never convert sleep to decimal hours.
+- For body map / pain data, ONLY use values labeled "CURRENT severity". Never reference previous/historical severity values as if they were current.
+- Sound warm and human, like "Hey ${userName}, your sleep came in at 7h 19m last night and your HRV is steady at 60ms. Want to dig into anything about recovery today?"
+- End with a simple, low-effort question or offer. Examples: "Want to look at that together?", "Anything you'd like to explore on this?", "Want me to walk through what's behind that?"
 - It is currently ${timeOfDay} on ${dayOfWeek}.
 
 ${coachingContext}${userDataContext}${onboardingContext}${crossCoachContext}
 
-Generate the opening message now. Remember: 1-3 sentences, specific, mandatory topic only, ends with engagement.`;
+Generate the opening message now. Two short sentences plus a single low-effort question. No nutrition or hydration mentions of any kind.`;
 
       const response = await aiCall({
         feature: 'proactive_greeting',

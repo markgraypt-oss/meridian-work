@@ -262,6 +262,15 @@ const SELF_HEAL_DDL: string[] = [
      created_at timestamp DEFAULT now()
    )`,
   `CREATE INDEX IF NOT EXISTS idx_learn_content_documents_item ON learn_content_documents (content_library_item_id)`,
+
+  // Location columns on users table — drive the weather block inside coach
+  // briefings. Permission status tracks whether we have asked yet, so the
+  // mobile app can show a one-time soft re-prompt after an initial decline
+  // and never ask again after the second no.
+  `ALTER TABLE users ADD COLUMN IF NOT EXISTS last_lat double precision`,
+  `ALTER TABLE users ADD COLUMN IF NOT EXISTS last_lng double precision`,
+  `ALTER TABLE users ADD COLUMN IF NOT EXISTS location_updated_at timestamp`,
+  `ALTER TABLE users ADD COLUMN IF NOT EXISTS location_permission_status text DEFAULT 'never_asked'`,
 ];
 
 export async function runSchemaSelfHealOnce(): Promise<void> {

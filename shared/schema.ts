@@ -10,6 +10,7 @@ import {
   integer,
   boolean,
   real,
+  doublePrecision,
 } from "drizzle-orm/pg-core";
 import { sql } from "drizzle-orm";
 import { createInsertSchema } from "drizzle-zod";
@@ -67,6 +68,13 @@ export const users = pgTable("users", {
   dismissedWeeklyCheckinId: integer("dismissed_weekly_checkin_id"),
   dismissedConnectNudge: boolean("dismissed_connect_nudge").default(false),
   firstLoginAt: timestamp("first_login_at"),
+  // Location columns drive the weather block inside coach briefings.
+  // permissionStatus values: 'never_asked' | 'granted' | 'denied' | 'denied_twice'.
+  // We ask once at onboarding, soft re-nudge once later, then never again.
+  lastLat: doublePrecision("last_lat"),
+  lastLng: doublePrecision("last_lng"),
+  locationUpdatedAt: timestamp("location_updated_at"),
+  locationPermissionStatus: varchar("location_permission_status").default("never_asked"),
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow(),
 });

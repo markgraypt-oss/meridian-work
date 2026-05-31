@@ -18922,23 +18922,47 @@ Respond as the coach. Be personalised, reference their actual data and specific 
     try {
       const userId = req.user.claims.sub;
       const hour = new Date().getHours();
-      // Two windows only (local server time):
+      // Two GENERATION windows (local server time):
       //   Morning Briefing — 06:00 to 11:59
       //   Evening Debrief  — 20:00 onwards
-      // Outside these windows we return 204 so the dashboard hides the
-      // card entirely (no afternoon briefing, no stale "Morning Briefing"
-      // label). The window gate applies even when an explicit
-      // ?type=morning|evening is passed — the contract is "no briefing
-      // shown outside the two windows", full stop.
+      // Within a window we may generate a new briefing if one doesn't exist
+      // yet for that type today. Outside both windows we never generate,
+      // but we STILL return today's most recent existing briefing if one
+      // exists — so users can re-open the coach drawer at any time and see
+      // what was already produced.
       let windowType: 'morning' | 'evening' | null;
       if (hour >= 6 && hour < 12) windowType = 'morning';
       else if (hour >= 20) windowType = 'evening';
       else windowType = null;
+
+      // First, look up the most recent briefing for today (any type). This
+      // is what we'll return outside the generation windows, and also what
+      // we'll return inside a window IF the right one already exists.
+      const todayKey = (() => {
+        const d = new Date();
+        return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+      })();
+      const recent = await storage.listCoachBriefings(userId, 5);
+      const todayRows = recent.filter((b: any) => b.briefingDate === todayKey && b.source !== 'fallback');
+      // Prefer the briefing that matches the current window; otherwise the
+      // most recent one for today regardless of type.
+      let existing: any = null;
+      if (windowType) {
+        existing = todayRows.find((b: any) => b.type === windowType) || null;
+      }
+      if (!existing) {
+        existing = todayRows[0] || null;
+      }
+
+      if (existing) {
+        return res.json(existing);
+      }
+
+      // No existing briefing for today. Only generate if we're inside a
+      // window — otherwise return 204 so the UI hides the panel.
       if (!windowType) return res.status(204).end();
 
       const requested = typeof req.query.type === 'string' ? req.query.type : null;
-      // An explicit ?type override is only honored if it matches the
-      // current window (e.g. prevents asking for "evening" at 9am).
       const type: 'morning' | 'evening' =
         (requested === 'morning' || requested === 'evening') && requested === windowType
           ? requested
@@ -18946,9 +18970,6 @@ Respond as the coach. Be personalised, reference their actual data and specific 
 
       const { getOrGenerateBriefing } = await import('./coach/briefings');
       const briefing = await getOrGenerateBriefing(userId, type);
-      // briefing may be null if the AI generation failed. Return 204 so the
-      // client renders nothing rather than a generic fallback. Also hide any
-      // legacy fallback rows so we never show generic copy to the user.
       if (!briefing || (briefing as any).source === 'fallback') {
         return res.status(204).end();
       }

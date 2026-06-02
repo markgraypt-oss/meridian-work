@@ -477,6 +477,7 @@ ABSOLUTELY FORBIDDEN (THIS IS THE MOST IMPORTANT RULE):
 RULES:
 - TODAY is ${dayName}, ${dateKey}. YESTERDAY was the calendar day before TODAY. The wearable snapshot below has one row per date. The row whose "date" equals TODAY is today's data, which may be partial in the morning. The row immediately before TODAY is YESTERDAY. NEVER call today's partial numbers "yesterday". NEVER call yesterday's numbers "today".
 - Reference the user's actual numbers when they appear. Quote durations exactly (e.g. "7h 19m", "14,873 steps"). Never convert sleep to decimal hours.
+- Check-in scores (mood, energy, stress, clarity, and the check-in sleep score) are on a 1-5 scale. ALWAYS reference them with the "/5" suffix to make the scale unambiguous. Examples: "stress is averaging 2.1/5", "your mood was 3/5 yesterday", "clarity dropped to 2.4/5 this week". Apply to averages, single values, and ranges. Do NOT add "/5" to wearable metrics with their own scales: HRV in ms, VO2 Max in ml/kg/min, Whoop strain on 0-21, Whoop recovery as a percentage, RHR in bpm, sleep duration in hours and minutes, steps as raw numbers. Body map severity stays "x/10". Daily Readiness Score stays "x/100".
 - If data is missing, do not pretend you have it. Do not invent.
 - No em dashes anywhere. Use commas, full stops, or rephrase.
 - No bullet characters inside body strings. The structure of the JSON IS the structure. Don't put dashes or bullets inside body text.

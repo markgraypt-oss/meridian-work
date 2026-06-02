@@ -1282,6 +1282,7 @@ export const habits = pgTable("habits", {
   // Settings for habit-specific configuration (e.g., portion guide settings, number of meals)
   settings: jsonb("settings"), // Flexible JSON for habit-specific settings
   reminderTime: varchar("reminder_time"), // HH:MM local time for push reminder, null = default 09:00
+  reminderTimezoneOffset: integer("reminder_timezone_offset"), // JS Date.getTimezoneOffset() value: minutes of (UTC - local). e.g. CEST = -120. null = treat as UTC.
   // Tracking fields
   isCustom: boolean("is_custom").default(false),
   isActive: boolean("is_active").default(true),

@@ -18,6 +18,7 @@ let hasRunDedupeCheckIns = false;
 const SELF_HEAL_DDL: string[] = [
   // workday rotation: pause-without-remove
   `ALTER TABLE workday_user_profiles ADD COLUMN IF NOT EXISTS active_positions text[]`,
+  `ALTER TABLE habits ADD COLUMN IF NOT EXISTS reminder_timezone_offset integer`,
 
   // Wearables: required by burnout score computation
   `CREATE TABLE IF NOT EXISTS wearable_connections (

@@ -27,11 +27,25 @@ function parseHHMM(t: string): { h: number; m: number } | null {
  * Returns true if the current local time falls within the 30-minute window
  * starting at the given HH:MM target.
  */
-function isWithinWindow(target: string): boolean {
+function isWithinWindow(target: string, tzOffsetMinutes?: number | null): boolean {
   const parsed = parseHHMM(target);
   if (!parsed) return false;
   const now = new Date();
-  const nowMin = now.getHours() * 60 + now.getMinutes();
+  // If tzOffsetMinutes is provided, compute "now" in the user's local time.
+  // getTimezoneOffset() returns (UTC - local) in minutes: e.g. CEST = -120.
+  // So local time = UTC - tzOffsetMinutes.
+  let hours: number;
+  let minutes: number;
+  if (typeof tzOffsetMinutes === "number") {
+    const localMs = now.getTime() - tzOffsetMinutes * 60 * 1000;
+    const local = new Date(localMs);
+    hours = local.getUTCHours();
+    minutes = local.getUTCMinutes();
+  } else {
+    hours = now.getHours();
+    minutes = now.getMinutes();
+  }
+  const nowMin = hours * 60 + minutes;
   const targetMin = parsed.h * 60 + parsed.m;
   return nowMin >= targetMin && nowMin < targetMin + 30;
 }
@@ -40,13 +54,19 @@ function isWithinWindow(target: string): boolean {
  * Returns true if the habit is scheduled for today based on its daysOfWeek field.
  * Accepts 'everyday' / 'every day', or a comma-separated list of day names/abbreviations.
  */
-function isDueToday(daysOfWeek: string | null): boolean {
+function isDueToday(daysOfWeek: string | null, tzOffsetMinutes?: number | null): boolean {
   if (!daysOfWeek) return true;
   const lower = daysOfWeek.toLowerCase().trim();
   if (lower === "everyday" || lower === "every day" || lower === "daily") return true;
   const dayNames = ["sunday", "monday", "tuesday", "wednesday", "thursday", "friday", "saturday"];
   const dayAbbr = ["sun", "mon", "tue", "wed", "thu", "fri", "sat"];
-  const todayIdx = new Date().getDay();
+  let todayIdx: number;
+  if (typeof tzOffsetMinutes === "number") {
+    const localMs = Date.now() - tzOffsetMinutes * 60 * 1000;
+    todayIdx = new Date(localMs).getUTCDay();
+  } else {
+    todayIdx = new Date().getDay();
+  }
   return lower.includes(dayNames[todayIdx]) || lower.includes(dayAbbr[todayIdx]);
 }
 
@@ -65,6 +85,7 @@ async function runHabitReminders(): Promise<void> {
       userId: habits.userId,
       title: habits.title,
       reminderTime: habits.reminderTime,
+      reminderTimezoneOffset: habits.reminderTimezoneOffset,
       daysOfWeek: habits.daysOfWeek,
       habitReminders: notificationPreferences.habitReminders,
     })
@@ -81,8 +102,8 @@ async function runHabitReminders(): Promise<void> {
       if (habit.habitReminders === false) continue;
 
       const reminderTime = habit.reminderTime || DEFAULT_HABIT_REMINDER_TIME;
-      if (!isWithinWindow(reminderTime)) continue;
-      if (!isDueToday(habit.daysOfWeek)) continue;
+      if (!isWithinWindow(reminderTime, habit.reminderTimezoneOffset)) continue;
+      if (!isDueToday(habit.daysOfWeek, habit.reminderTimezoneOffset)) continue;
 
       // Skip if already completed today
       const [done] = await db

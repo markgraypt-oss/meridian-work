@@ -76,6 +76,37 @@ function startOfToday(): Date {
   return d;
 }
 
+/**
+ * Returns true if today falls between the habit's startDate and
+ * (startDate + duration weeks). Mirrors the mobile UI bucketing in
+ * app/habits.tsx so the scheduler doesn't fire reminders for habits the
+ * user already considers "Past" or hasn't started yet ("Scheduled").
+ */
+function isHabitWithinDurationWindow(
+  startDate: Date | string | null | undefined,
+  durationWeeks: number | null | undefined,
+  tzOffsetMinutes?: number | null,
+): boolean {
+  if (!startDate) return true; // legacy rows with no start date — be permissive
+  const start = new Date(startDate);
+  if (isNaN(start.getTime())) return true;
+  const weeks = typeof durationWeeks === "number" && durationWeeks > 0 ? durationWeeks : 3;
+  const end = new Date(start.getTime());
+  end.setDate(end.getDate() + weeks * 7);
+
+  // Compare against "now" in the user's local time so a habit ending tonight
+  // still fires this morning.
+  const nowMs = typeof tzOffsetMinutes === "number"
+    ? Date.now() - tzOffsetMinutes * 60 * 1000
+    : Date.now();
+  const now = new Date(nowMs);
+  // Strip time-of-day for inclusive day-based comparison.
+  const startDay = Date.UTC(start.getUTCFullYear(), start.getUTCMonth(), start.getUTCDate());
+  const endDay = Date.UTC(end.getUTCFullYear(), end.getUTCMonth(), end.getUTCDate());
+  const todayDay = Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate());
+  return todayDay >= startDay && todayDay < endDay;
+}
+
 // ── Habit Reminders ──────────────────────────────────────────────────────────
 
 async function runHabitReminders(): Promise<void> {
@@ -87,6 +118,8 @@ async function runHabitReminders(): Promise<void> {
       reminderTime: habits.reminderTime,
       reminderTimezoneOffset: habits.reminderTimezoneOffset,
       daysOfWeek: habits.daysOfWeek,
+      startDate: habits.startDate,
+      duration: habits.duration,
       habitReminders: notificationPreferences.habitReminders,
     })
     .from(habits)
@@ -104,6 +137,7 @@ async function runHabitReminders(): Promise<void> {
       const reminderTime = habit.reminderTime || DEFAULT_HABIT_REMINDER_TIME;
       if (!isWithinWindow(reminderTime, habit.reminderTimezoneOffset)) continue;
       if (!isDueToday(habit.daysOfWeek, habit.reminderTimezoneOffset)) continue;
+      if (!isHabitWithinDurationWindow(habit.startDate, habit.duration, habit.reminderTimezoneOffset)) continue;
 
       // Skip if already completed today
       const [done] = await db

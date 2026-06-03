@@ -180,6 +180,11 @@ const SELF_HEAL_DDL: string[] = [
    )`,
   `CREATE UNIQUE INDEX IF NOT EXISTS idx_daily_readiness_user_date ON daily_readiness_history (user_id, date)`,
   `CREATE INDEX IF NOT EXISTS idx_daily_readiness_user ON daily_readiness_history (user_id)`,
+  `ALTER TABLE daily_readiness_history ADD COLUMN IF NOT EXISTS sleep_raw real`,
+  `ALTER TABLE daily_readiness_history ADD COLUMN IF NOT EXISTS energy_raw real`,
+  `ALTER TABLE daily_readiness_history ADD COLUMN IF NOT EXISTS hrv_raw real`,
+  `ALTER TABLE daily_readiness_history ADD COLUMN IF NOT EXISTS rhr_raw real`,
+  `ALTER TABLE daily_readiness_history ADD COLUMN IF NOT EXISTS training_load_raw real`,
 
   // Workouts: new fields to align with programme builder vocabulary.
   // - goal mirrors the programmes goal vocabulary (strength, hypertrophy, etc.)

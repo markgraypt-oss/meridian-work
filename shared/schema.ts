@@ -3569,6 +3569,24 @@ export const dailyReadinessHistory = pgTable("daily_readiness_history", {
   trainingLoadInput: real("training_load_input"),  // v2: backward-looking load stress (inverted: high load = lower score)
   hrvInput: real("hrv_input"),                     // v2: HRV normalised 0-10 (higher = better)
   rhrInput: real("rhr_input"),                     // v2: RHR normalised 0-10 (lower bpm = higher score)
+  // Raw input values, kept alongside the normalised 0-10 `*Input` values
+  // so the per-user readiness detail page can show real units (HRV in ms,
+  // RHR in bpm, sleep score 0-100, energy 1-5, etc.) rather than the
+  // 0-10 values used internally by the composite formula.
+  //
+  //   sleepRaw         - sleep score 0-100, OR minutes of sleep, OR check-in 1-5
+  //                      (presentation layer picks the right interpretation
+  //                      based on which `sources` field is non-null)
+  //   energyRaw        - check-in energy score 1-5
+  //   hrvRaw           - HRV in milliseconds (wearable)
+  //   rhrRaw           - resting heart rate in beats per minute (wearable)
+  //   trainingLoadRaw  - WHOOP strain 0-21, OR averaged 0-10 activity score,
+  //                      OR yesterday's steps, OR workout duration in minutes
+  sleepRaw: real("sleep_raw"),
+  energyRaw: real("energy_raw"),
+  hrvRaw: real("hrv_raw"),
+  rhrRaw: real("rhr_raw"),
+  trainingLoadRaw: real("training_load_raw"),
   inputCount: integer("input_count").notNull().default(0),
   // 0-100. Null when fewer than the minimum required inputs were available.
   score: integer("score"),

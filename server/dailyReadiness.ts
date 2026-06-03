@@ -121,8 +121,27 @@ export function toDateKey(d: Date): string {
   return `${y}-${m}-${day}`;
 }
 
-/** Today's local-day key. */
-export function todayKey(): string {
+/**
+ * Today's YYYY-MM-DD key. If a user IANA timezone is provided, computes in
+ * that timezone. Otherwise falls back to the server's local time (legacy).
+ * Always pass `tz` for user-scoped reads — the server-local fallback is only
+ * for batches or contexts where no specific user is in scope.
+ */
+export function todayKey(tz?: string | null): string {
+  if (tz) {
+    try {
+      const fmt = new Intl.DateTimeFormat("en-CA", {
+        timeZone: tz,
+        year: "numeric",
+        month: "2-digit",
+        day: "2-digit",
+      });
+      // en-CA produces YYYY-MM-DD natively.
+      return fmt.format(new Date());
+    } catch {
+      // fall through
+    }
+  }
   return toDateKey(new Date());
 }
 

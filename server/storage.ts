@@ -3953,11 +3953,28 @@ export class DatabaseStorage implements IStorage {
     return checkIn;
   }
 
-  async getTodayCheckIn(userId: string): Promise<CheckIn | undefined> {
-    const today = new Date();
-    today.setHours(0, 0, 0, 0);
-    const tomorrow = new Date(today);
-    tomorrow.setDate(tomorrow.getDate() + 1);
+  async getTodayCheckIn(userId: string, userTz?: string | null): Promise<CheckIn | undefined> {
+    // Compute "today" in the user's local timezone if provided, otherwise
+    // server local time (legacy fallback).
+    const now = new Date();
+    let today: Date;
+    if (userTz) {
+      try {
+        const fmt = new Intl.DateTimeFormat("en-CA", {
+          timeZone: userTz,
+          year: "numeric",
+          month: "2-digit",
+          day: "2-digit",
+        });
+        const [y, m, d] = fmt.format(now).split("-").map(s => parseInt(s, 10));
+        today = new Date(Date.UTC(y, m - 1, d));
+      } catch {
+        today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+      }
+    } else {
+      today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+    }
+    const tomorrow = new Date(today.getTime() + 24 * 60 * 60 * 1000);
 
     // Order by created_at DESC and limit 1 as defence-in-depth. The DB now
     // enforces one check-in per user per day via a unique index, but if any

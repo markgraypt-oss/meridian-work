@@ -123,6 +123,25 @@ const aiTtsRateLimit = rateLimit({
   message: { message: "You've hit the hourly voice playback limit. Try again later." },
 });
 
+/**
+ * Parse a "YYYY-MM-DD" date string from the client as user-local-midnight.
+ * `new Date("2026-06-03")` parses as UTC midnight, which is the wrong day
+ * for any user not on UTC. This produces midnight in the IANA tz provided.
+ */
+function parseUserLocalDate(dateStr: string, userTz: string | null): Date {
+  const match = /^(\d{4})-(\d{2})-(\d{2})/.exec(dateStr);
+  if (!match) return new Date(dateStr); // fall back to native parse
+  const [, y, m, d] = match;
+  const year = parseInt(y, 10);
+  const month = parseInt(m, 10) - 1;
+  const day = parseInt(d, 10);
+  // We want midnight on this calendar day in the user's tz. Build it as a
+  // UTC-midnight Date for that calendar date — the day-window queries in
+  // storage compare against the column value, and ±13h offsets won't move
+  // it out of the day because the storage layer adds 24h to get the end.
+  return new Date(Date.UTC(year, month, day));
+}
+
 // Parse a positive integer route param. Returns null on NaN / negative / zero.
 /** Map a programme-style goal value onto the legacy non-null `workouts.category` column. */
 function goalToLegacyCategory(goal: string): string {
@@ -6284,7 +6303,9 @@ Rules:
         return res.status(400).json({ message: "Date parameter is required" });
       }
       
-      const targetDate = new Date(date as string);
+      const userTzRow = await db.select({ timezone: users.timezone }).from(users).where(eq(users.id, userId)).limit(1);
+      const userTz = userTzRow[0]?.timezone ?? null;
+      const targetDate = parseUserLocalDate(date as string, userTz);
       if (isNaN(targetDate.getTime())) {
         return res.status(400).json({ message: "Invalid date format" });
       }
@@ -11928,7 +11949,9 @@ Rules:
       // If date parameter is provided, include completion status for that date
       const dateParam = req.query.date;
       if (dateParam) {
-        const selectedDate = new Date(dateParam as string);
+        const userTzRow = await db.select({ timezone: users.timezone }).from(users).where(eq(users.id, userId)).limit(1);
+        const userTz = userTzRow[0]?.timezone ?? null;
+        const selectedDate = parseUserLocalDate(dateParam as string, userTz);
         const completions = await storage.getHabitCompletionsForDate(userId, selectedDate);
         const completionMap = new Set(completions.map(c => c.habitId));
         
@@ -12057,7 +12080,21 @@ Rules:
       const id = parseInt(req.params.id);
       const userId = req.user.claims.sub;
       const dateStr = req.query.date as string;
-      const date = dateStr ? new Date(dateStr) : new Date();
+      const userTzRow = await db.select({ timezone: users.timezone }).from(users).where(eq(users.id, userId)).limit(1);
+      const userTz = userTzRow[0]?.timezone ?? null;
+      const date = dateStr
+        ? parseUserLocalDate(dateStr, userTz)
+        : (() => {
+            const now = new Date();
+            if (userTz) {
+              try {
+                const fmt = new Intl.DateTimeFormat("en-CA", { timeZone: userTz, year: "numeric", month: "2-digit", day: "2-digit" });
+                const [y, m, d] = fmt.format(now).split("-").map(s => parseInt(s, 10));
+                return new Date(Date.UTC(y, m - 1, d));
+              } catch {}
+            }
+            return new Date(now.getFullYear(), now.getMonth(), now.getDate());
+          })();
       await storage.uncompleteHabit(id, userId, date);
       res.json({ success: true });
     } catch (error) {
@@ -13134,15 +13171,26 @@ Rules:
     try {
       const userId = req.user.claims.sub;
       const days = parseInt(req.query.days as string) || 14;
-      
+
+      const userTzRow = await db.select({ timezone: users.timezone }).from(users).where(eq(users.id, userId)).limit(1);
+      const userTz = userTzRow[0]?.timezone ?? null;
+      const todayLocal = (() => {
+        const now = new Date();
+        if (userTz) {
+          try {
+            const fmt = new Intl.DateTimeFormat("en-CA", { timeZone: userTz, year: "numeric", month: "2-digit", day: "2-digit" });
+            const [y, m, d] = fmt.format(now).split("-").map(s => parseInt(s, 10));
+            return new Date(Date.UTC(y, m - 1, d));
+          } catch {}
+        }
+        return new Date(now.getFullYear(), now.getMonth(), now.getDate());
+      })();
+
       const history: { date: string; totalMl: number; goalMl: number }[] = [];
-      const today = new Date();
-      
+
       for (let i = days - 1; i >= 0; i--) {
-        const date = new Date(today);
-        date.setDate(date.getDate() - i);
-        date.setHours(0, 0, 0, 0);
-        
+        const date = new Date(todayLocal.getTime() - i * 24 * 60 * 60 * 1000);
+
         const logs = await storage.getHydrationLogs(userId, date);
         const goal = await storage.getHydrationGoal(userId, date);
         
@@ -13168,10 +13216,25 @@ Rules:
       const userId = req.user.claims.sub;
       const { goalMl, baselineGoal, adjustmentReason, weight, trainingIntensity, climate, isManuallySet } = req.body;
 
+      // Compute today's date at the user's local midnight so the row keys to
+      // the user's local day, not the server's.
+      const userTzRow = await db.select({ timezone: users.timezone }).from(users).where(eq(users.id, userId)).limit(1);
+      const userTz = userTzRow[0]?.timezone ?? null;
+      const localToday = (() => {
+        const now = new Date();
+        if (userTz) {
+          try {
+            const fmt = new Intl.DateTimeFormat("en-CA", { timeZone: userTz, year: "numeric", month: "2-digit", day: "2-digit" });
+            const [y, m, d] = fmt.format(now).split("-").map(s => parseInt(s, 10));
+            return new Date(Date.UTC(y, m - 1, d));
+          } catch {}
+        }
+        return new Date(now.getFullYear(), now.getMonth(), now.getDate());
+      })();
       const schema = insertHydrationGoalSchema;
       const validated = schema.parse({
         userId,
-        date: new Date(),
+        date: localToday,
         goalMl: goalMl || 3000,
         baselineGoal: baselineGoal || 3000,
         adjustmentReason: adjustmentReason || null,

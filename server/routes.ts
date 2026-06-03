@@ -19066,8 +19066,32 @@ Respond as the coach. Be personalised, reference their actual data and specific 
       const userId = req.user.claims.sub;
       const id = parseIdParam(req.params.id);
       if (!id) return res.status(400).json({ message: "Invalid id" });
-      const row = await storage.markCoachBriefingRead(id, userId);
+      const row: any = await storage.markCoachBriefingRead(id, userId);
       if (!row) return res.status(404).json({ message: "Not found" });
+
+      if (row.conversationId) return res.json(row);
+
+      const c = (row.content || {}) as any;
+      const parts: string[] = [];
+      if (c.opener) parts.push(String(c.opener).trim());
+      if (Array.isArray(c.deepDive)) for (const d of c.deepDive) {
+        if (d?.title || d?.body) parts.push(`${d.title ? d.title + '\n' : ''}${d.body || ''}`.trim());
+      }
+      if (Array.isArray(c.recommendations)) for (const r of c.recommendations) {
+        if (r?.title || r?.body) parts.push(`${r.title ? r.title + '\n' : ''}${r.body || ''}`.trim());
+      }
+      if (c.closingQuestion) parts.push(String(c.closingQuestion).trim());
+      const content = parts.filter(Boolean).join('\n\n');
+
+      if (content) {
+        const dateLabel = new Date((row.briefingDate || '') + 'T12:00:00')
+          .toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric', month: 'short' });
+        const typeLabel = row.type === 'evening' ? 'Evening briefing' : 'Morning briefing';
+        const title = `${typeLabel}, ${dateLabel}`.slice(0, 60);
+        const conversation = await storage.createCoachConversation(userId, title, [{ role: 'assistant', content }]);
+        await storage.linkCoachBriefingConversation(id, userId, conversation.id);
+        row.conversationId = conversation.id;
+      }
       res.json(row);
     } catch (error) {
       console.error("Error marking briefing read:", error);

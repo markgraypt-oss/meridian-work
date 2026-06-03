@@ -1129,6 +1129,7 @@ export interface IStorage {
   getCoachConversations(userId: string): Promise<CoachConversation[]>;
   getCoachConversation(id: number, userId: string): Promise<CoachConversation | undefined>;
   createCoachConversation(userId: string, title: string, messages: any[]): Promise<CoachConversation>;
+  linkCoachBriefingConversation(briefingId: number, userId: string, conversationId: number): Promise<void>;
   updateCoachConversation(id: number, userId: string, data: { messages?: any[]; title?: string }): Promise<CoachConversation | undefined>;
   deleteCoachConversation(id: number, userId: string): Promise<void>;
 
@@ -12301,6 +12302,12 @@ export class DatabaseStorage implements IStorage {
       messages,
     }).returning();
     return conversation;
+  }
+
+  async linkCoachBriefingConversation(briefingId: number, userId: string, conversationId: number): Promise<void> {
+    await db.update(coachBriefings)
+      .set({ conversationId })
+      .where(and(eq(coachBriefings.id, briefingId), eq(coachBriefings.userId, userId)));
   }
 
   async updateCoachConversation(id: number, userId: string, data: { messages?: any[]; title?: string }): Promise<CoachConversation | undefined> {

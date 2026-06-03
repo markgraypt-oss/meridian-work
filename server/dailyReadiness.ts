@@ -59,9 +59,34 @@ export type ReadinessInputSource =
 
 export type ReadinessInputSources = Record<keyof ReadinessInputs, ReadinessInputSource | null>;
 
+/**
+ * Raw input values in their native units, captured during input gathering
+ * so the readiness detail page can display real units (HRV in ms, RHR in
+ * bpm, sleep score 0-100, energy 1-5, etc.) rather than the 0-10 values
+ * used by the composite formula. Interpretation depends on the matching
+ * `sources` value:
+ *   sleep:        if source=wearable/sleep-log → 0-100 score OR minutes
+ *                 if source=check-in           → 1-5
+ *   energy:       always 1-5 (check-in only)
+ *   hrv:          milliseconds (wearable only)
+ *   rhr:          beats per minute (wearable only)
+ *   trainingLoad: if source=wearable WHOOP strain → 0-21
+ *                 if source=wearable activity avg → 0-10
+ *                 if source=workout-log          → minutes
+ *                 if source=step-log             → step count
+ */
+export interface ReadinessRawValues {
+  sleep: number | null;
+  energy: number | null;
+  trainingLoad: number | null;
+  hrv: number | null;
+  rhr: number | null;
+}
+
 export interface ReadinessInputsWithSources {
   inputs: ReadinessInputs;
   sources: ReadinessInputSources;
+  raws: ReadinessRawValues;
 }
 
 export interface ReadinessResult {
@@ -258,6 +283,14 @@ export async function gatherInputsForDay(
     rhr: null,
   };
 
+  const raws: ReadinessRawValues = {
+    sleep: null,
+    energy: null,
+    trainingLoad: null,
+    hrv: null,
+    rhr: null,
+  };
+
   // -----------------------------------------------------------------------
   // Sleep — wearable sleepScore (0-100 → /10) preferred; else sleep log;
   //         else check-in sleepScore (1-5 → *2)
@@ -267,9 +300,11 @@ export async function gatherInputsForDay(
   if (wear?.sleepScore != null) {
     sleep = clamp(wear.sleepScore / 10, 0, 10);
     sources.sleep = "wearable";
+    raws.sleep = wear.sleepScore;
   } else if (wear?.sleepMinutes != null) {
     sleep = clamp((wear.sleepMinutes / 60 / 8) * 10, 0, 10);
     sources.sleep = "wearable";
+    raws.sleep = wear.sleepMinutes;
   } else {
     const sleepRows = await db
       .select()
@@ -287,14 +322,17 @@ export async function gatherInputsForDay(
       if (se.sleepScore != null) {
         sleep = clamp(se.sleepScore / 10, 0, 10);
         sources.sleep = "sleep-log";
+        raws.sleep = se.sleepScore;
       } else if (se.durationMinutes != null) {
         sleep = clamp((se.durationMinutes / 60 / 8) * 10, 0, 10);
         sources.sleep = "sleep-log";
+        raws.sleep = se.durationMinutes;
       }
     }
     if (sleep == null && ci?.sleepScore != null) {
       sleep = clamp(ci.sleepScore * 2, 0, 10);
       sources.sleep = "check-in";
+      raws.sleep = ci.sleepScore;
     }
   }
 
@@ -305,6 +343,7 @@ export async function gatherInputsForDay(
   if (ci?.energyScore != null) {
     energy = clamp(ci.energyScore * 2, 0, 10);
     sources.energy = "check-in";
+    raws.energy = ci.energyScore;
   }
 
   // -----------------------------------------------------------------------
@@ -315,6 +354,7 @@ export async function gatherInputsForDay(
   if (wear?.hrvMs != null) {
     hrv = clamp((wear.hrvMs - 20) / 80, 0, 1) * 10;
     sources.hrv = "wearable";
+    raws.hrv = wear.hrvMs;
   }
 
   // -----------------------------------------------------------------------
@@ -324,6 +364,7 @@ export async function gatherInputsForDay(
   if (wear?.restingHrBpm != null) {
     rhr = clamp((100 - wear.restingHrBpm) / 60, 0, 1) * 10;
     sources.rhr = "wearable";
+    raws.rhr = wear.restingHrBpm;
   }
 
   // -----------------------------------------------------------------------
@@ -356,6 +397,7 @@ export async function gatherInputsForDay(
   if (yw?.strainScore != null) {
     yesterdayStress = clamp(yw.strainScore / 210, 0, 1) * 10;
     sources.trainingLoad = "wearable";
+    raws.trainingLoad = yw.strainScore / 10; // 0-21 real strain
   }
 
   // Step 2: Wearable steps + active minutes + calories burned (averaged)
@@ -367,6 +409,7 @@ export async function gatherInputsForDay(
     if (factors.length > 0) {
       yesterdayStress = factors.reduce((s, v) => s + v, 0) / factors.length;
       sources.trainingLoad = "wearable";
+      raws.trainingLoad = yesterdayStress; // 0-10 averaged activity score
     }
   }
 
@@ -387,6 +430,7 @@ export async function gatherInputsForDay(
     const boost = clamp(totalSeconds / 3600 * 2, 0, 3);
     yesterdayStress = clamp((yesterdayStress ?? 0) + boost, 0, 10);
     if (sources.trainingLoad == null) sources.trainingLoad = "workout-log";
+    if (sources.trainingLoad === "workout-log") raws.trainingLoad = totalSeconds / 60; // minutes
   }
 
   // Step 4: 7-day vs 30-day baseline trend adjustment (wearable data only)
@@ -442,6 +486,7 @@ export async function gatherInputsForDay(
     if (yStepRows[0]?.steps != null) {
       yesterdayStress = clamp(yStepRows[0].steps / 15000, 0, 1) * 10;
       sources.trainingLoad = "step-log";
+      raws.trainingLoad = yStepRows[0].steps; // step count
     }
   }
 
@@ -458,7 +503,7 @@ export async function gatherInputsForDay(
     hrv: r(hrv),
     rhr: r(rhr),
   };
-  return { inputs, sources };
+  return { inputs, sources, raws };
 }
 
 /**
@@ -507,7 +552,7 @@ export async function computeAndStoreForUserDay(
     }
   }
 
-  const { inputs, sources } = await gatherInputsForDay(userId, dateKey);
+  const { inputs, sources, raws } = await gatherInputsForDay(userId, dateKey);
 
   // Gamification gate: no check-in today → no score today.
   // (Historic dates skip this — nightly job backfills regardless.)
@@ -524,6 +569,11 @@ export async function computeAndStoreForUserDay(
         trainingLoadInput: inputs.trainingLoad,
         hrvInput: inputs.hrv,
         rhrInput: inputs.rhr,
+        sleepRaw: raws.sleep,
+        energyRaw: raws.energy,
+        trainingLoadRaw: raws.trainingLoad,
+        hrvRaw: raws.hrv,
+        rhrRaw: raws.rhr,
         inputCount: 0,
         score: null,
         algorithmVersion: ALGORITHM_VERSION,
@@ -537,6 +587,11 @@ export async function computeAndStoreForUserDay(
           trainingLoadInput: inputs.trainingLoad,
           hrvInput: inputs.hrv,
           rhrInput: inputs.rhr,
+          sleepRaw: raws.sleep,
+          energyRaw: raws.energy,
+          trainingLoadRaw: raws.trainingLoad,
+          hrvRaw: raws.hrv,
+          rhrRaw: raws.rhr,
           inputCount: 0,
           score: null,
           algorithmVersion: ALGORITHM_VERSION,
@@ -564,6 +619,11 @@ export async function computeAndStoreForUserDay(
       trainingLoadInput: inputs.trainingLoad,
       hrvInput: inputs.hrv,
       rhrInput: inputs.rhr,
+      sleepRaw: raws.sleep,
+      energyRaw: raws.energy,
+      trainingLoadRaw: raws.trainingLoad,
+      hrvRaw: raws.hrv,
+      rhrRaw: raws.rhr,
       inputCount: result.inputCount,
       score: result.score,
       algorithmVersion: ALGORITHM_VERSION,
@@ -579,6 +639,11 @@ export async function computeAndStoreForUserDay(
         trainingLoadInput: inputs.trainingLoad,
         hrvInput: inputs.hrv,
         rhrInput: inputs.rhr,
+        sleepRaw: raws.sleep,
+        energyRaw: raws.energy,
+        trainingLoadRaw: raws.trainingLoad,
+        hrvRaw: raws.hrv,
+        rhrRaw: raws.rhr,
         inputCount: result.inputCount,
         score: result.score,
         algorithmVersion: ALGORITHM_VERSION,

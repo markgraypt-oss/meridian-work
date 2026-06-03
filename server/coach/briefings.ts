@@ -169,7 +169,7 @@ async function buildWeatherText(lat: number | null | undefined, lng: number | nu
       uv >= 6 ? "high UV, consider timing outdoor sessions outside peak sun" :
       uv >= 3 ? "moderate UV" :
       "low UV";
-    return `\nTODAY'S WEATHER (use ONLY in the morning opener, never invent if absent):\n- Range: ${tMin}-${tMax}\u00B0C, ${conditions}, humidity ${humidity}%\n- UV index: ${uv} (${uvNote})`;
+    return `\nTODAY'S WEATHER (context only, NOT for the opener. Use ONLY to shape a movement suggestion when relevant, see INTENT. Never invent if absent):\n- Range: ${tMin}-${tMax}\u00B0C, ${conditions}, humidity ${humidity}%\n- UV index: ${uv} (${uvNote})`;
   } catch {
     return "";
   }
@@ -420,7 +420,9 @@ THE FOUR VERDICTS (pick the one that fits, do not name the colour):
 - RED (multiple markers suppressed, workout planned): tell the user the body is asking for less. Suggest considering an easier session, scaling back intensity, or moving the workout to tomorrow. Never order them to skip.
 - REST DAY (no workout planned today): describe how recovery looks and suggest the kind of day that fits (active recovery, mobility, prioritising sleep).
 
-If there is no readiness score yet (building baseline), give a softer snapshot of overnight metrics and link to the planned workout if any, without making a strong verdict.`;
+If there is no readiness score yet (building baseline), give a softer snapshot of overnight metrics and link to the planned workout if any, without making a strong verdict.
+
+WEATHER USAGE: Weather is supporting context only, never the headline and never the opener. Only bring weather into a movement recommendation: on a day with no scheduled workout, suggest an outdoor walk, run or cardio if conditions are good, or an indoor or treadmill option to keep steps up if it is cold or wet. High UV can adjust the timing of an outdoor session, nothing more.`;
 
       const intentEvening = `AN EVENING DAY REVIEW. The day has now happened. Reference today's actual data: steps, active minutes, workouts completed, hydration, check-in if logged. Do NOT preview tomorrow as the main focus, this is a review of today.
 
@@ -448,13 +450,13 @@ If a workout was scheduled but not completed, do NOT scold. Acknowledge neutrall
 
 OUTPUT JSON SHAPE (strict):
 {
-  "opener": string (greeting + light context. Morning: friendly greeting addressing ${userName} by name, optional weather note if provided, optional one-line nod to yesterday or the user's recent context. Evening: friendly greeting addressing ${userName} by name, one-line frame for the day just lived. Max 400 chars. 2-4 short sentences max. No emojis.),
+  "opener": string (greeting + light context. Morning: friendly greeting addressing ${userName} by name, then lead with the overnight readiness signal (sleep, HRV, resting HR, or readiness score). Optional one-line nod to yesterday or recent context. Do NOT lead with or centre the weather. Weather never belongs in the opener. Evening: friendly greeting addressing ${userName} by name, one-line frame for the day just lived. Max 400 chars. 2-4 short sentences max. No emojis.),
   "deepDive": [
     { "title": string (4-8 words, e.g. "Nervous system is primed", "Load is high even on rest"), "body": string (1-3 short sentences interpreting one specific aspect of the data, max 400 chars) }
   ] (2-3 items, each on a DIFFERENT aspect of the body's state. Morning aspects to choose from: recovery/nervous system, load history, healthspan trend, sleep quality, baseline deviation. Evening aspects to choose from: output level, recovery cost, check-in alignment, sleep debt, trend signal.),
   "recommendations": [
     { "title": string (e.g. the scheduled workout name, or "Active recovery", "Mobility session"), "body": string (1-2 sentences on WHY this fits today's recovery state. Tie it explicitly to the verdict from deepDive. Max 300 chars.) }
-  ] (0-2 items. Morning: today's scheduled workout from USER HEALTH DATA CONTEXT, framed against the recovery verdict, plus optional stretching/yoga if recovery is suppressed or no session is planned. Evening: usually empty or a single wind-down/recovery suggestion. NEVER invent workouts that are not in the user's scheduled data. If no workout is scheduled and no recovery work is needed, return an empty array.),
+  ] (Morning: if a workout is scheduled today in USER HEALTH DATA CONTEXT, it MUST appear here, framed against the recovery verdict. This is required, never omit a scheduled workout. If NO workout is scheduled today, you MUST instead recommend movement that fits the day: active recovery or mobility, an outdoor walk, run or cardio if the weather is good, or an indoor or treadmill option to keep step count up if it is cold or wet. Morning recommendations are never empty. Evening: usually empty or a single wind-down suggestion. NEVER invent workouts that are not in the user's scheduled data.),
   "closingQuestion": string (one open question that invites the user to chat with the coach. Should connect to the day's most interesting signal. Max 280 chars. Examples: "How recovered do your legs actually feel today on a 1-10 scale, and what kind of session are you most excited for?", "How did today's run feel compared to last week's?", "Anything you'd like to dig into about today's recovery numbers?"),
   "suggestedReplies": [string] (2-3 short tappable replies, each max 80 chars, that the user might plausibly send in response to the closingQuestion. They should be concrete and varied, like Whoop's reply chips. Examples: "Legs feel around 7, excited to run", "Tired today, prefer strength", "Tell me more about my recovery").
 }

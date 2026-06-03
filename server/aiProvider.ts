@@ -464,6 +464,23 @@ export async function getUserDataContext(userId: string, feature: string): Promi
       }
     }
 
+    if (domains.includes('workouts')) {
+      try {
+        const today = new Date();
+        const scheduled = await storage.getScheduledWorkoutsForDate(userId, today);
+        context += "\n\n--- Today's Scheduled Workout ---";
+        if (scheduled && scheduled.length > 0) {
+          for (const w of scheduled) {
+            context += `\n- "${(w as any).workoutName || 'Workout'}" (${(w as any).workoutType || 'workout'}), scheduled for today`;
+          }
+        } else {
+          context += "\nNo workout is scheduled for today.";
+        }
+      } catch (e) {
+        console.error('[ai-context] scheduled workout fetch failed', e);
+      }
+    }
+
     if (domains.includes('workout_logs')) {
       const logs = await storage.getUserWorkoutLogs(userId, 20);
       if (logs.length > 0) {

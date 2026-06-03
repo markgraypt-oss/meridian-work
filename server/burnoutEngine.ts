@@ -715,10 +715,10 @@ function enrichDriverExplanation(
   if (aggregate && aggregate.analysisCount > 0) {
     if (aggregate.recurringPhrases.length > 0) {
       const top = aggregate.recurringPhrases[0];
-      enrichment = ` You've described "${top}" in multiple recent check-ins.`;
+      enrichment = ` You've described "${top.phrase}" in multiple recent check-ins.`;
     } else if (aggregate.recurringCategories.length > 0) {
       const top = aggregate.recurringCategories[0];
-      enrichment = ` You've mentioned ${top} pressure in multiple recent check-ins.`;
+      enrichment = ` You've mentioned ${top.category} pressure in multiple recent check-ins.`;
     } else if (aggregate.redFlagCount > 0) {
       enrichment = ` Your recent notes include phrases worth paying attention to.`;
     }

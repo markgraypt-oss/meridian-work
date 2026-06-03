@@ -273,6 +273,7 @@ const SELF_HEAL_DDL: string[] = [
   `ALTER TABLE users ADD COLUMN IF NOT EXISTS last_lng double precision`,
   `ALTER TABLE users ADD COLUMN IF NOT EXISTS location_updated_at timestamp`,
   `ALTER TABLE users ADD COLUMN IF NOT EXISTS location_permission_status text DEFAULT 'never_asked'`,
+  `ALTER TABLE users ADD COLUMN IF NOT EXISTS timezone varchar`,
 ];
 
 export async function runSchemaSelfHealOnce(): Promise<void> {

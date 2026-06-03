@@ -1738,6 +1738,69 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  /**
+   * Admin/self backfill of readiness raws.
+   *
+   * Re-runs computeAndStoreForUserDay for every day in [days] ago..today
+   * for the target user. Existing rows get their raw columns populated;
+   * the compute path is idempotent and will skip locked rows.
+   *
+   * Body: { userId?: string, days?: number }
+   *   - userId: defaults to caller's own id
+   *   - days:   defaults to 30, capped at 365
+   *
+   * Requires the caller to be an admin OR to be backfilling their own
+   * data. No cross-user backfill for non-admins.
+   */
+  app.post('/api/daily-readiness/backfill', isAuthenticated, async (req: any, res) => {
+    try {
+      const callerId = req.user.claims.sub;
+      const me = await storage.getUser(callerId);
+      const targetUserId = (req.body?.userId as string) || callerId;
+      if (targetUserId !== callerId && !me?.isAdmin) {
+        return res.status(403).json({ message: "Admin only for cross-user backfill" });
+      }
+      const requested = parseInt(String(req.body?.days ?? 30), 10);
+      const days = Math.min(Math.max(isNaN(requested) ? 30 : requested, 1), 365);
+      const dr = await import("./dailyReadiness");
+      if (!dr.isFeatureEnabled()) {
+        return res.status(400).json({ message: "Readiness feature disabled" });
+      }
+      // Use the target user's timezone so date keys align with their local
+      // days, not server local.
+      const tzRow = await db.select({ timezone: users.timezone }).from(users).where(eq(users.id, targetUserId)).limit(1);
+      const userTz = tzRow[0]?.timezone ?? null;
+      const todayLocal = dr.todayKey(userTz);
+      // Walk back `days` days from today; recompute each.
+      const results: { date: string; ok: boolean; error?: string }[] = [];
+      const today = new Date(todayLocal + "T12:00:00Z"); // anchor noon UTC to avoid DST drift
+      for (let i = 0; i < days; i++) {
+        const d = new Date(today);
+        d.setUTCDate(today.getUTCDate() - i);
+        const dateKey = d.toISOString().slice(0, 10);
+        try {
+          await dr.computeAndStoreForUserDay(targetUserId, dateKey);
+          results.push({ date: dateKey, ok: true });
+        } catch (e: any) {
+          results.push({ date: dateKey, ok: false, error: e?.message || String(e) });
+        }
+      }
+      const succeeded = results.filter(r => r.ok).length;
+      const failed = results.filter(r => !r.ok).length;
+      res.json({
+        ok: true,
+        userId: targetUserId,
+        days,
+        succeeded,
+        failed,
+        results,
+      });
+    } catch (error: any) {
+      console.error("Error backfilling readiness:", error?.message);
+      res.status(500).json({ message: "Failed to backfill" });
+    }
+  });
+
   app.post('/api/admin/users', isAuthenticated, async (req: any, res) => {
     try {
       const userId = req.user.claims.sub;

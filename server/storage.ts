@@ -3153,10 +3153,22 @@ export class DatabaseStorage implements IStorage {
     let computedDay = currentDayNumber || 1;
 
     if (enrollment.length > 0 && enrollment[0].startDate) {
-      const start = new Date(enrollment[0].startDate);
-      const now = new Date();
-      start.setHours(0, 0, 0, 0);
-      now.setHours(0, 0, 0, 0);
+      // Derive the enrollment owner's timezone so week/day boundaries align
+      // with the user's local day, not server local.
+      let userTzForWeek: string | null = null;
+      const ownerUserId = (enrollment[0] as any).userId;
+      if (ownerUserId) {
+        userTzForWeek = await this.getUserTz(ownerUserId);
+      } else {
+        const [ownerRow] = await db
+          .select({ userId: userProgramEnrollments.userId })
+          .from(userProgramEnrollments)
+          .where(eq(userProgramEnrollments.id, enrollmentId))
+          .limit(1);
+        userTzForWeek = ownerRow?.userId ? await this.getUserTz(ownerRow.userId) : null;
+      }
+      const start = new Date(this.bucketToUserLocalDay(enrollment[0].startDate as any, userTzForWeek));
+      const now = this.todayInUserTz(userTzForWeek);
       const diffMs = now.getTime() - start.getTime();
       const diffDays = Math.floor(diffMs / (1000 * 60 * 60 * 24));
       computedWeek = Math.max(1, Math.floor(diffDays / 7) + 1);

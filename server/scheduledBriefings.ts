@@ -197,7 +197,7 @@ async function sweepCoachBriefings(
         hour >= 6 && hour < 12 ? "morning" : hour >= 20 ? "evening" : null;
       if (!type) continue;
 
-      const dateKey = mod.todayKeyForUser();
+      const dateKey = mod.todayKeyForUser(row.timezone);
       const existing = await storage.getCoachBriefingForDay(row.id, dateKey, type);
       if (existing) continue;
       await mod.getOrGenerateBriefing(row.id, type);

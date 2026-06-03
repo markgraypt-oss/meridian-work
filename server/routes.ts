@@ -18391,9 +18391,11 @@ Keep your response concise, practical, and evidence-based. Do not use em dashes.
       }
       const userId = req.user.claims.sub;
       // Compute on-demand for "today" so the card reflects the latest inputs
-      // even before the nightly job runs. Use the shared local-day helper
-      // so /today and the nightly job agree on date boundaries.
-      const today = dr.todayKey();
+      // even before the nightly job runs. Use the user's local day so a user
+      // in LA at 11pm doesn't see "tomorrow's" empty card.
+      const userTzRow = await db.select({ timezone: users.timezone }).from(users).where(eq(users.id, userId)).limit(1);
+      const userTz = userTzRow[0]?.timezone ?? null;
+      const today = dr.todayKey(userTz);
       await dr.computeAndStoreForUserDay(userId, today);
       const data = await dr.getTodayForUser(userId);
       res.json({ enabled: true, ...data });

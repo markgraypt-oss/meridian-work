@@ -6165,7 +6165,9 @@ Rules:
       // instead of inserting a duplicate. The DB unique index on
       // (user_id, DATE(check_in_date)) is the safety net so even in a race
       // condition only one row can ever exist per user per day.
-      const existingToday = await storage.getTodayCheckIn(userId);
+      const _ciTzRow = await db.select({ timezone: users.timezone }).from(users).where(eq(users.id, userId)).limit(1);
+      const _ciUserTz = _ciTzRow[0]?.timezone ?? null;
+      const existingToday = await storage.getTodayCheckIn(userId, _ciUserTz);
       let checkIn;
       if (existingToday) {
         const updated = await storage.updateCheckIn(existingToday.id, {
@@ -14320,7 +14322,9 @@ Keep your response concise, practical, and evidence-based. Do not use em dashes.
   app.get('/api/check-ins/today', isAuthenticated, async (req: any, res) => {
     try {
       const userId = req.user.claims.sub;
-      const checkIn = await storage.getTodayCheckIn(userId);
+      const userTzRow = await db.select({ timezone: users.timezone }).from(users).where(eq(users.id, userId)).limit(1);
+      const userTz = userTzRow[0]?.timezone ?? null;
+      const checkIn = await storage.getTodayCheckIn(userId, userTz);
       res.json(checkIn || null);
     } catch (error) {
       console.error("Error fetching today's check-in:", error);

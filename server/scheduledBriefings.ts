@@ -27,9 +27,6 @@ interface BriefingUser {
 }
 
 function localHourFor(_userId: string, tz: string | null): number {
-  // No per-user timezone column exists yet; honor `tz` if provided, otherwise
-  // use the server's local time. Done this way so we can wire a real column
-  // later without changing callers.
   const d = new Date();
   if (tz) {
     try {
@@ -109,7 +106,6 @@ function composeBriefing(
   const name = firstName ? firstName : "there";
   const pending = workouts.filter((w) => !w.isCompleted);
   if (pending.length === 0) {
-    // No pending workouts — caller should have already skipped, but be safe.
     return {
       title: `Good morning, ${name}`,
       body: "You're all caught up for today. Take a walk, stretch, or rest well.",
@@ -127,7 +123,6 @@ function composeBriefing(
 }
 
 async function dispatchForUser(u: BriefingUser, tz: string | null): Promise<void> {
-  // Opt-out: if all three training channels are off, skip entirely.
   if (!u.inAppTraining && !u.emailTraining && !u.pushTraining) return;
 
   const hour = localHourFor(u.id, tz);
@@ -155,12 +150,6 @@ async function dispatchForUser(u: BriefingUser, tz: string | null): Promise<void
       disableEmail: true,
       prefKey: "morningBriefing",
     });
-    // Idempotency contract: alreadyBriefedToday() looks for a notifications
-    // row with data.briefing=true. notify() only inserts an in-app row when
-    // inAppTraining is enabled. If the user has inApp off but email/push on,
-    // we'd otherwise re-send every tick. Persist a hidden marker row so the
-    // next tick sees it and skips. Hidden rows are filtered from the bell by
-    // storage.listUserNotifications/countUnreadNotifications.
     if (!result.notification) {
       try {
         await db.insert(notifications).values({
@@ -181,22 +170,15 @@ async function dispatchForUser(u: BriefingUser, tz: string | null): Promise<void
   }
 }
 
-// Sweep coach_briefings for any user who is "due" but does not yet have a
-// row for today. Runs alongside the existing notification briefing tick so
-// no new background worker is introduced. Generation itself is idempotent
-// at the DB level (unique on user/date/type) and cheap when the row exists.
-async function sweepCoachBriefings(userIds: string[]): Promise<void> {
-  if (userIds.length === 0) return;
-  const hour = new Date().getHours();
-  // Generate morning briefings during the morning window (06:00-11:59) and
-  // evening briefings from 20:00 onward (most people are done with work and
-  // training by 8pm, so the recap reflects a full day). Outside these
-  // windows we leave the on-demand path to handle requests so we don't spend
-  // tokens on users who are unlikely to open the app. These windows must
-  // stay aligned with the /api/coach/briefing/today route.
-  const type: "morning" | "evening" | null =
-    hour >= 6 && hour < 12 ? "morning" : hour >= 20 ? "evening" : null;
-  if (!type) return;
+/**
+ * Sweep coach_briefings for any user who is "due" but does not yet have a
+ * row for today. Per-user timezone aware: morning briefings (06:00-11:59 local)
+ * and evening briefings (20:00+ local) determined against each user's local time.
+ */
+async function sweepCoachBriefings(
+  userRows: Array<{ id: string; timezone: string | null }>,
+): Promise<void> {
+  if (userRows.length === 0) return;
 
   let mod: typeof import("./coach/briefings");
   try {
@@ -206,32 +188,40 @@ async function sweepCoachBriefings(userIds: string[]): Promise<void> {
     return;
   }
 
-  let generated = 0;
-  for (const userId of userIds) {
+  let generatedMorning = 0;
+  let generatedEvening = 0;
+  for (const row of userRows) {
     try {
+      const hour = localHourFor(row.id, row.timezone);
+      const type: "morning" | "evening" | null =
+        hour >= 6 && hour < 12 ? "morning" : hour >= 20 ? "evening" : null;
+      if (!type) continue;
+
       const dateKey = mod.todayKeyForUser();
-      const existing = await storage.getCoachBriefingForDay(userId, dateKey, type);
+      const existing = await storage.getCoachBriefingForDay(row.id, dateKey, type);
       if (existing) continue;
-      await mod.getOrGenerateBriefing(userId, type);
-      generated++;
+      await mod.getOrGenerateBriefing(row.id, type);
+      if (type === "morning") generatedMorning++;
+      else generatedEvening++;
     } catch (e) {
-      console.error(`[coach-briefings-sweep] failed for ${userId}:`, e);
+      console.error(`[coach-briefings-sweep] failed for ${row.id}:`, e);
     }
   }
-  if (generated > 0) {
-    console.log(`[coach-briefings-sweep] generated ${generated} ${type} briefing(s)`);
+  if (generatedMorning > 0) {
+    console.log(`[coach-briefings-sweep] generated ${generatedMorning} morning briefing(s)`);
+  }
+  if (generatedEvening > 0) {
+    console.log(`[coach-briefings-sweep] generated ${generatedEvening} evening briefing(s)`);
   }
 }
 
 async function tick(): Promise<void> {
   try {
-    // Pull users joined with their training-channel preferences. Users with no
-    // preferences row default to "training enabled" (matches the column
-    // defaults in the schema), so missing rows still get a briefing.
     const rows = await db
       .select({
         id: users.id,
         firstName: users.firstName,
+        timezone: users.timezone,
         inAppTraining: notificationPreferences.inAppTraining,
         emailTraining: notificationPreferences.emailTraining,
         pushTraining: notificationPreferences.pushTraining,
@@ -246,23 +236,17 @@ async function tick(): Promise<void> {
       const u: BriefingUser = {
         id: row.id,
         firstName: row.firstName ?? null,
-        // When the prefs row is missing, default to true for inApp/push so
-        // briefings still fan out (matches schema defaults).
         inAppTraining: row.inAppTraining ?? true,
         emailTraining: row.emailTraining ?? false,
         pushTraining: row.pushTraining ?? true,
       };
-      // No per-user timezone column yet — use server tz. The helper accepts
-      // an explicit tz so this can be swapped in later without refactoring.
-      await dispatchForUser(u, null);
+      await dispatchForUser(u, row.timezone);
     }
 
-    // Piggy-back the proactive coach briefing sweep on this tick.
-    await sweepCoachBriefings(rows.map((r) => r.id));
+    await sweepCoachBriefings(
+      rows.map((r) => ({ id: r.id, timezone: r.timezone })),
+    );
 
-    // Piggy-back the nightly Daily Readiness compute (feature-flagged).
-    // Runs once per local-night window (02:00-04:00). The compute itself is
-    // upsert-based and idempotent, so re-running within the window is safe.
     await maybeRunNightlyReadiness();
   } catch (err) {
     console.error("[briefings] tick error:", err);
@@ -278,8 +262,6 @@ async function maybeRunNightlyReadiness(): Promise<void> {
     if (hour < READINESS_HOUR_START || hour >= READINESS_HOUR_END) return;
     const mod = await import("./dailyReadiness");
     if (!mod.isFeatureEnabled()) return;
-    // Local-day key (not UTC) so the once-per-day guard aligns with the
-    // 02:00-04:00 LOCAL window above.
     const today = mod.todayKey();
     if (readinessLastRunDate === today) return;
     await mod.runNightlyReadinessCompute();
@@ -292,22 +274,21 @@ async function maybeRunNightlyReadiness(): Promise<void> {
 export function startBriefingScheduler(): void {
   if (started) return;
   started = true;
-  // First tick after 90s so we don't compete with boot work; then every 30m.
   setTimeout(() => {
     tick().catch(() => {});
     setInterval(() => tick().catch(() => {}), TICK_INTERVAL_MS);
   }, 90_000);
   console.log(
-    `[briefings] scheduler started (every ${TICK_INTERVAL_MS / 60000}m, window ${BRIEFING_HOUR_START}:00-${BRIEFING_HOUR_END}:00 local)`,
+    `[briefings] scheduler started (every ${TICK_INTERVAL_MS / 60000}m, window ${BRIEFING_HOUR_START}:00-${BRIEFING_HOUR_END}:00 per-user local)`,
   );
 }
 
-// Exposed for tests / admin endpoints to trigger a single user's briefing.
 export async function runBriefingForUserNow(userId: string): Promise<void> {
   const [row] = await db
     .select({
       id: users.id,
       firstName: users.firstName,
+      timezone: users.timezone,
       inAppTraining: notificationPreferences.inAppTraining,
       emailTraining: notificationPreferences.emailTraining,
       pushTraining: notificationPreferences.pushTraining,
@@ -327,6 +308,6 @@ export async function runBriefingForUserNow(userId: string): Promise<void> {
       emailTraining: row.emailTraining ?? false,
       pushTraining: row.pushTraining ?? true,
     },
-    null,
+    row.timezone,
   );
 }

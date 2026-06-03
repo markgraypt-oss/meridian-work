@@ -1,4 +1,7 @@
 import type { AiCoachingSetting } from "@shared/schema";
+import { users } from "@shared/schema";
+import { eq } from "drizzle-orm";
+import { db } from "./db";
 
 export interface VisionAnalysisRequest {
   imageBase64: string;
@@ -720,8 +723,21 @@ export async function getUserDataContext(userId: string, feature: string): Promi
     }
 
     if (domains.includes('hydration')) {
-      const today = new Date();
-      today.setHours(0, 0, 0, 0);
+      const userTzRow = await db.select({ timezone: users.timezone }).from(users).where(eq(users.id, userId)).limit(1);
+      const userTz = userTzRow[0]?.timezone ?? null;
+      const now = new Date();
+      let today: Date;
+      if (userTz) {
+        try {
+          const fmt = new Intl.DateTimeFormat("en-CA", { timeZone: userTz, year: "numeric", month: "2-digit", day: "2-digit" });
+          const [y, m, d] = fmt.format(now).split("-").map(s => parseInt(s, 10));
+          today = new Date(Date.UTC(y, m - 1, d));
+        } catch {
+          today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+        }
+      } else {
+        today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+      }
       const logs = await storage.getHydrationLogs(userId, today);
       const goal = await storage.getHydrationGoal(userId, today);
       if (logs.length > 0 || goal) {

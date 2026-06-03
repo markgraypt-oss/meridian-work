@@ -75,6 +75,11 @@ export const users = pgTable("users", {
   lastLng: doublePrecision("last_lng"),
   locationUpdatedAt: timestamp("location_updated_at"),
   locationPermissionStatus: varchar("location_permission_status").default("never_asked"),
+  // IANA timezone string (e.g. "Europe/Tirane", "America/Los_Angeles") written by the
+  // mobile app on login and every authed boot via POST /api/users/me/timezone.
+  // Used by server-side schedulers to compute reminder windows and day boundaries
+  // in the user's local time rather than the server's. Null = treat as UTC (legacy).
+  timezone: varchar("timezone"),
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow(),
 });

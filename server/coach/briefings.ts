@@ -188,11 +188,16 @@ async function buildReadinessAndBaselineText(userId: string, dateKey: string): P
       lines.push(`- Daily Readiness Score: ${dr.score}/100 (based on ${dr.daysOfHistory} days of history)`);
       if (dr.inputs) {
         const ip = dr.inputs as any;
-        if (ip.sleep != null) lines.push(`- Readiness input: sleep contribution ${ip.sleep}`);
-        if (ip.energy != null) lines.push(`- Readiness input: energy contribution ${ip.energy}`);
-        if (ip.trainingLoad != null) lines.push(`- Readiness input: training load contribution ${ip.trainingLoad}`);
-        if (ip.hrv != null) lines.push(`- Readiness input: HRV contribution ${ip.hrv}`);
-        if (ip.rhr != null) lines.push(`- Readiness input: RHR contribution ${ip.rhr}`);
+        // These are INTERNAL diagnostic sub-scores on an arbitrary scale. They
+        // exist only to tell the model WHICH factor is dragging readiness up or
+        // down. They are NOT user-facing numbers and must never be quoted. The
+        // prompt has a hard rule forbidding their appearance in any output.
+        lines.push("- INTERNAL readiness driver scores (DO NOT quote these numbers or the word 'contribution' to the user. Use them ONLY to decide which factor to talk about, then describe it in plain words. Higher = that factor is helping recovery, lower = it is hurting it):");
+        if (ip.sleep != null) lines.push(`  - sleep driver: ${ip.sleep}`);
+        if (ip.energy != null) lines.push(`  - energy driver: ${ip.energy}`);
+        if (ip.trainingLoad != null) lines.push(`  - recent training load driver: ${ip.trainingLoad}`);
+        if (ip.hrv != null) lines.push(`  - HRV driver: ${ip.hrv}`);
+        if (ip.rhr != null) lines.push(`  - resting HR driver: ${ip.rhr}`);
       }
     } else if (dr && dr.daysOfHistory < 14) {
       lines.push(`- Daily Readiness Score: not yet available (building baseline, ${dr.daysOfHistory}/14 days collected)`);
@@ -483,6 +488,7 @@ RULES:
 - If data is missing, do not pretend you have it. Do not invent.
 - No em dashes anywhere. Use commas, full stops, or rephrase.
 - No bullet characters inside body strings. The structure of the JSON IS the structure. Don't put dashes or bullets inside body text.
+- PLAIN LANGUAGE, NO INTERNAL JARGON. Never use the word "contribution", "driver", "input", "score" (except the Daily Readiness Score itself out of 100), or any internal sub-score number. Never write things like "HRV contribution is 6.1", "energy contribution is 4", "training load is sitting at 9.3", "sleep contribution 9.1". Those internal numbers are meaningless to the user and must never appear. Instead, translate what the number tells you into plain coaching language a normal person understands. Examples of the rewrite: instead of "HRV contribution is 6.1" write "your HRV is a touch below where it usually sits"; instead of "energy contribution is just 4" write "your energy is running low"; instead of "training load is sitting at 9.3" write "your body is still carrying a fair bit of load from recent days"; instead of "sleep contribution is 9.1" write "your sleep is doing its job". Only ever quote REAL measured values with their natural units (HRV in ms, resting HR in bpm, sleep as 7h 17m, steps as a number, the readiness score out of 100). Everything else gets described, not numbered.
 - Warm but direct. No corporate fluff. No motivational filler.
 - Build on the recent briefings below so you don't repeat yourself.
 - Do not include any prose outside the JSON.

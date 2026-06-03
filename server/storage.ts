@@ -2813,13 +2813,12 @@ export class DatabaseStorage implements IStorage {
     const mainEnrollments = enrichedEnrollments.filter(e => e.programType === 'main');
     const supplementaryEnrollments = enrichedEnrollments.filter(e => e.programType === 'supplementary');
     
-    // Auto-expire enrollments whose end date has passed
-    const today = new Date();
-    today.setHours(0, 0, 0, 0);
+    // Auto-expire enrollments whose end date has passed (in the user's local day)
+    const userTzForExpire = await this.getUserTz(userId);
+    const today = this.todayInUserTz(userTzForExpire);
     for (const enrollment of enrichedEnrollments) {
       if (enrollment.status === 'active' && enrollment.endDate) {
-        const endDate = new Date(enrollment.endDate);
-        endDate.setHours(0, 0, 0, 0);
+        const endDate = new Date(this.bucketToUserLocalDay(enrollment.endDate as any, userTzForExpire));
         if (today > endDate) {
           await db.update(userProgramEnrollments)
             .set({ status: 'completed' })

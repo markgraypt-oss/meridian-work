@@ -1163,6 +1163,34 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  app.post('/api/users/me/timezone', isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = req.user.claims.sub;
+      const { timezone } = req.body as { timezone?: unknown };
+
+      if (typeof timezone !== 'string' || timezone.length === 0 || timezone.length > 100) {
+        return res.status(400).json({ message: 'timezone must be a non-empty string' });
+      }
+
+      // Validate it's a real IANA zone the Node runtime recognises.
+      try {
+        new Intl.DateTimeFormat('en-US', { timeZone: timezone });
+      } catch {
+        return res.status(400).json({ message: 'invalid IANA timezone' });
+      }
+
+      await db
+        .update(users)
+        .set({ timezone, updatedAt: new Date() })
+        .where(eq(users.id, userId));
+
+      res.json({ ok: true, timezone });
+    } catch (error) {
+      console.error('Error updating user timezone:', error);
+      res.status(500).json({ message: 'Failed to update timezone' });
+    }
+  });
+
   // Onboarding routes
   app.patch('/api/onboarding/progress', isAuthenticated, async (req: any, res) => {
     try {

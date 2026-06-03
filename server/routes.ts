@@ -142,6 +142,34 @@ function parseUserLocalDate(dateStr: string, userTz: string | null): Date {
   return new Date(Date.UTC(year, month, day));
 }
 
+/**
+ * Today's midnight (as a UTC Date) in the user's IANA timezone, or
+ * server-local midnight if `userTz` is null. Use this anywhere a route
+ * needs "today" boundaries for a user.
+ */
+function todayInUserTz(userTz: string | null): Date {
+  const now = new Date();
+  if (userTz) {
+    try {
+      const fmt = new Intl.DateTimeFormat("en-CA", {
+        timeZone: userTz,
+        year: "numeric",
+        month: "2-digit",
+        day: "2-digit",
+      });
+      const [y, m, d] = fmt.format(now).split("-").map(s => parseInt(s, 10));
+      return new Date(Date.UTC(y, m - 1, d));
+    } catch {}
+  }
+  return new Date(now.getFullYear(), now.getMonth(), now.getDate());
+}
+
+/** Fetch a user's IANA timezone in one query. Returns null if not set. */
+async function fetchUserTz(userId: string): Promise<string | null> {
+  const [row] = await db.select({ timezone: users.timezone }).from(users).where(eq(users.id, userId)).limit(1);
+  return row?.timezone ?? null;
+}
+
 // Parse a positive integer route param. Returns null on NaN / negative / zero.
 /** Map a programme-style goal value onto the legacy non-null `workouts.category` column. */
 function goalToLegacyCategory(goal: string): string {
@@ -10532,9 +10560,9 @@ Rules:
         .where(eq(programs.id, enrollment.programId));
       
       const totalWeeks = program?.weeks || 4;
+      const userTz = await fetchUserTz(userId);
       const startDate = new Date(enrollment.startDate);
-      const today = new Date();
-      today.setHours(0, 0, 0, 0);
+      const today = todayInUserTz(userTz);
       
       // Calculate all dates for this day position across all weeks
       const scheduledDates: string[] = [];
@@ -10544,7 +10572,7 @@ Rules:
         const daysOffset = ((week - 1) * 7) + (dayNum - 1);
         const workoutDate = new Date(startDate);
         workoutDate.setDate(workoutDate.getDate() + daysOffset);
-        workoutDate.setHours(0, 0, 0, 0);
+        workoutDate.setUTCHours(0, 0, 0, 0);
         
         const dateStr = workoutDate.toISOString().split('T')[0];
         scheduledDates.push(dateStr);
@@ -10570,7 +10598,7 @@ Rules:
       // Count extra sessions that are upcoming
       extraSessions.forEach(s => {
         const extraDate = new Date(s.scheduledDate);
-        extraDate.setHours(0, 0, 0, 0);
+        extraDate.setUTCHours(0, 0, 0, 0);
         if (extraDate >= today) {
           upcomingCount++;
         }
@@ -10614,7 +10642,7 @@ Rules:
           if (!scheduledDates.includes(dateStr) && !extraDates.includes(dateStr)) {
             extraDates.push(dateStr);
             const extraDate = new Date(s.scheduledDate);
-            extraDate.setHours(0, 0, 0, 0);
+            extraDate.setUTCHours(0, 0, 0, 0);
             if (extraDate >= today) {
               upcomingCount++;
             }
@@ -11636,14 +11664,14 @@ Rules:
       // Check if user already has an active bodyweight goal
       if (goalDataRest.type === 'bodyweight') {
         const existingGoals = await storage.getActiveBodyweightGoals(userId);
-        const today = new Date();
-        today.setHours(0, 0, 0, 0);
+        const userTz = await fetchUserTz(userId);
+        const today = todayInUserTz(userTz);
         
         // Archive any past bodyweight goals (deadline has passed)
         for (const existingGoal of existingGoals) {
           if (existingGoal.deadline) {
             const deadline = new Date(existingGoal.deadline);
-            deadline.setHours(0, 0, 0, 0);
+            deadline.setUTCHours(0, 0, 0, 0);
             if (deadline < today) {
               await storage.archiveGoal(existingGoal.id);
             }
@@ -13261,9 +13289,9 @@ Rules:
   app.get('/api/nutrition/today', isAuthenticated, async (req: any, res) => {
     try {
       const userId = req.user.claims.sub;
+      const userTz = await fetchUserTz(userId);
       const dateParam = req.query.date as string | undefined;
-      const today = dateParam ? new Date(dateParam) : new Date();
-      today.setHours(0, 0, 0, 0);
+      const today = dateParam ? parseUserLocalDate(dateParam, userTz) : todayInUserTz(userTz);
       
       const [legacyGoal, activeNutritionGoals, oldLogs, mealLogs] = await Promise.all([
         storage.getNutritionGoal(userId),
@@ -13458,8 +13486,8 @@ Rules:
       const userId = req.user.claims.sub;
       const { mealCategory, foodName, calories, protein, carbs, fat, notes, source } = req.body;
 
-      const today = new Date();
-      today.setHours(0, 0, 0, 0);
+      const userTz = await fetchUserTz(userId);
+      const today = todayInUserTz(userTz);
 
       const validated = insertFoodLogSchema.parse({
         userId,
@@ -14082,9 +14110,9 @@ Rules:
     try {
       const userId = req.user.claims.sub;
       const supplements = await storage.getUserSupplements(userId);
-      
-      const today = new Date();
-      today.setHours(0, 0, 0, 0);
+
+      const userTz = await fetchUserTz(userId);
+      const today = todayInUserTz(userTz);
       
       const todayLogs = await storage.getSupplementLogsForDate(userId, today);
       
@@ -14363,9 +14391,9 @@ Keep your response concise, practical, and evidence-based. Do not use em dashes.
     try {
       const userId = req.user.claims.sub;
       const { id } = req.params;
-      
-      const today = new Date();
-      today.setHours(0, 0, 0, 0);
+
+      const userTz = await fetchUserTz(userId);
+      const today = todayInUserTz(userTz);
 
       const result = await storage.toggleSupplementTaken(userId, parseInt(id), today);
       
@@ -20494,13 +20522,13 @@ Respond as the Recovery Coach. Reference their specific assessment data and prov
   app.get("/api/burnout/current", isAuthenticated, async (req: any, res) => {
     try {
       const userId = req.user.claims.sub;
-      const today = new Date();
-      today.setHours(0, 0, 0, 0);
+      const userTz = await fetchUserTz(userId);
+      const today = todayInUserTz(userTz);
 
       const existing = await storage.getBurnoutScore(userId);
       if (existing) {
         const existingDate = new Date(existing.computedDate);
-        existingDate.setHours(0, 0, 0, 0);
+        existingDate.setUTCHours(0, 0, 0, 0);
         if (existingDate.getTime() === today.getTime()) {
           return res.json(existing);
         }
@@ -21161,10 +21189,9 @@ RULES:
   app.post("/api/burnout/clear-cache", isAuthenticated, async (req: any, res) => {
     try {
       const userId = req.user.claims.sub;
-      const today = new Date();
-      today.setHours(0, 0, 0, 0);
-      const tomorrow = new Date(today);
-      tomorrow.setDate(tomorrow.getDate() + 1);
+      const userTz = await fetchUserTz(userId);
+      const today = todayInUserTz(userTz);
+      const tomorrow = new Date(today.getTime() + 24 * 60 * 60 * 1000);
       const deleted = await db.delete(burnoutScores)
         .where(and(
           eq(burnoutScores.userId, userId),

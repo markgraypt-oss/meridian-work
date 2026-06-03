@@ -467,11 +467,21 @@ export async function getUserDataContext(userId: string, feature: string): Promi
     if (domains.includes('workouts')) {
       try {
         const today = new Date();
-        const scheduled = await storage.getScheduledWorkoutsForDate(userId, today);
+        // Today's workouts come from two sources: one-off scheduled workouts
+        // and programme enrollments. The calendar merges both, so the briefing
+        // must too, or programme sessions get missed.
+        const [oneOff, programme] = await Promise.all([
+          storage.getScheduledWorkoutsForDate(userId, today),
+          storage.getProgrammeWorkoutsInRange(userId, today, today),
+        ]);
+        const all = [
+          ...((oneOff || []).map((w: any) => ({ name: w.workoutName, type: w.workoutType || 'workout' }))),
+          ...((programme || []).map((w: any) => ({ name: w.workoutName, type: 'programme' }))),
+        ].filter((w) => w.name);
         context += "\n\n--- Today's Scheduled Workout ---";
-        if (scheduled && scheduled.length > 0) {
-          for (const w of scheduled) {
-            context += `\n- "${(w as any).workoutName || 'Workout'}" (${(w as any).workoutType || 'workout'}), scheduled for today`;
+        if (all.length > 0) {
+          for (const w of all) {
+            context += `\n- "${w.name}" (${w.type}), scheduled for today`;
           }
         } else {
           context += "\nNo workout is scheduled for today.";

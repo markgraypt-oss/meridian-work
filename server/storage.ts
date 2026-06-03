@@ -1260,6 +1260,63 @@ export interface IStorage {
 }
 
 export class DatabaseStorage implements IStorage {
+  /**
+   * Resolve a user's IANA timezone from the DB. Returns null if not set.
+   * Cheap single-column lookup; safe to call inside streak/lookup paths.
+   */
+  private async getUserTz(userId: string): Promise<string | null> {
+    const [row] = await db
+      .select({ timezone: users.timezone })
+      .from(users)
+      .where(eq(users.id, userId))
+      .limit(1);
+    return row?.timezone ?? null;
+  }
+
+  /**
+   * Returns midnight of the user's *current local day* as a UTC Date.
+   * Use this anywhere a streak/window calculation needs "today" for a user.
+   */
+  private todayInUserTz(userTz: string | null): Date {
+    const now = new Date();
+    if (userTz) {
+      try {
+        const fmt = new Intl.DateTimeFormat("en-CA", {
+          timeZone: userTz,
+          year: "numeric",
+          month: "2-digit",
+          day: "2-digit",
+        });
+        const [y, m, d] = fmt.format(now).split("-").map(s => parseInt(s, 10));
+        return new Date(Date.UTC(y, m - 1, d));
+      } catch {}
+    }
+    return new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  }
+
+  /**
+   * Bucket a completion timestamp to midnight of the day it falls on in
+   * the user's local timezone. Used when comparing completion dates
+   * against today/yesterday for streak counting.
+   */
+  private bucketToUserLocalDay(d: Date | string, userTz: string | null): number {
+    const date = typeof d === "string" ? new Date(d) : d;
+    if (userTz) {
+      try {
+        const fmt = new Intl.DateTimeFormat("en-CA", {
+          timeZone: userTz,
+          year: "numeric",
+          month: "2-digit",
+          day: "2-digit",
+        });
+        const [y, m, dd] = fmt.format(date).split("-").map(s => parseInt(s, 10));
+        return Date.UTC(y, m - 1, dd);
+      } catch {}
+    }
+    const local = new Date(date.getFullYear(), date.getMonth(), date.getDate());
+    return local.getTime();
+  }
+
   // User operations - mandatory for Replit Auth
   async getUser(id: string): Promise<User | undefined> {
     const [user] = await db.select().from(users).where(eq(users.id, id));
@@ -5439,12 +5496,14 @@ export class DatabaseStorage implements IStorage {
     return archived;
   }
 
-  private countCurrentStreak(sortedAscDates: string[]): number {
+  private countCurrentStreak(sortedAscDates: string[], userTz: string | null = null): number {
     if (sortedAscDates.length === 0) return 0;
     const unique = [...new Set(sortedAscDates)].sort().reverse();
-    const today = new Date(); today.setHours(0, 0, 0, 0);
-    const todayStr = today.toISOString().split('T')[0];
-    const yestStr = new Date(today.getTime() - 86400000).toISOString().split('T')[0];
+    const todayMidnight = this.todayInUserTz(userTz);
+    // todayInUserTz returns UTC-midnight of the user's local day, so
+    // toISOString().split('T')[0] safely yields the user's local YYYY-MM-DD.
+    const todayStr = todayMidnight.toISOString().split('T')[0];
+    const yestStr = new Date(todayMidnight.getTime() - 86400000).toISOString().split('T')[0];
     if (unique[0] !== todayStr && unique[0] !== yestStr) return 0;
     let streak = 1;
     for (let i = 1; i < unique.length; i++) {
@@ -5457,6 +5516,7 @@ export class DatabaseStorage implements IStorage {
   async getGoalProgress(goalId: number, userId: string): Promise<{ current: number; target: number; label: string; percentage: number } | null> {
     const goal = await this.getGoalById(goalId);
     if (!goal?.templateId) return null;
+    const userTz = await this.getUserTz(userId);
     const templateId = goal.templateId;
     const startDate = new Date(goal.startDate);
     const endDate = goal.deadline ? new Date(goal.deadline) : new Date();
@@ -5478,7 +5538,7 @@ export class DatabaseStorage implements IStorage {
       const rows = await db.select({ date: checkIns.checkInDate }).from(checkIns)
         .where(and(eq(checkIns.userId, userId), gte(checkIns.checkInDate, startDate)))
         .orderBy(asc(checkIns.checkInDate));
-      const current = this.countCurrentStreak(rows.map(r => toDateStr(r.date)));
+      const current = this.countCurrentStreak(rows.map(r => toDateStr(r.date)), userTz);
       return { current, target: 30, label: "day streak", percentage: Math.min((current / 30) * 100, 100) };
     }
 
@@ -5501,7 +5561,7 @@ export class DatabaseStorage implements IStorage {
         .where(and(eq(mealLogs.userId, userId), gte(mealLogs.date, startDate)))
         .groupBy(mealLogs.date).orderBy(asc(mealLogs.date));
       const metDays = dailyProtein.filter(d => Number(d.total) >= proteinTarget).map(d => toDateStr(d.date));
-      const current = this.countCurrentStreak(metDays);
+      const current = this.countCurrentStreak(metDays, userTz);
       return { current, target: 30, label: "day streak", percentage: Math.min((current / 30) * 100, 100) };
     }
 
@@ -5515,7 +5575,7 @@ export class DatabaseStorage implements IStorage {
         .where(and(eq(habitCompletions.userId, userId), gte(habitCompletions.completedDate, startDate), inArray(habitCompletions.habitId, habitIds)))
         .groupBy(habitCompletions.completedDate).orderBy(asc(habitCompletions.completedDate));
       const fullDays = byDay.filter(d => Number(d.cnt) >= habitCount).map(d => toDateStr(d.date));
-      const current = this.countCurrentStreak(fullDays);
+      const current = this.countCurrentStreak(fullDays, userTz);
       return { current, target: 14, label: "day streak", percentage: Math.min((current / 14) * 100, 100) };
     }
 
@@ -5784,22 +5844,18 @@ export class DatabaseStorage implements IStorage {
   async getValidatedHabitStreak(habitId: number): Promise<number> {
     const completions = await this.getHabitCompletions(habitId);
     if (completions.length === 0) return 0;
-    
+
+    // Look up the habit's owning user to get their timezone — streaks must
+    // bucket completions against the user's local day, not server local.
+    const [habitRow] = await db.select({ userId: habits.userId }).from(habits).where(eq(habits.id, habitId)).limit(1);
+    const userTz = habitRow?.userId ? await this.getUserTz(habitRow.userId) : null;
+
     const uniqueDates = [...new Set(
-      completions.map(c => {
-        const d = new Date(c.completedDate);
-        d.setHours(0, 0, 0, 0);
-        return d.getTime();
-      })
+      completions.map(c => this.bucketToUserLocalDay(c.completedDate as any, userTz))
     )].sort((a, b) => b - a);
-    
-    const today = new Date();
-    today.setHours(0, 0, 0, 0);
-    const todayTime = today.getTime();
-    
-    const yesterday = new Date(today);
-    yesterday.setDate(yesterday.getDate() - 1);
-    const yesterdayTime = yesterday.getTime();
+
+    const todayTime = this.todayInUserTz(userTz).getTime();
+    const yesterdayTime = todayTime - 24 * 60 * 60 * 1000;
     
     let currentStreak = 0;
     if (uniqueDates.includes(todayTime)) {
@@ -5935,22 +5991,16 @@ export class DatabaseStorage implements IStorage {
       return;
     }
 
+    // Resolve the user's timezone — streaks bucket against the user's local day.
+    const userTz = habit.userId ? await this.getUserTz(habit.userId) : null;
+
     // Get unique completion dates, sorted from newest to oldest
     const uniqueDates = [...new Set(
-      completions.map(c => {
-        const d = new Date(c.completedDate);
-        d.setHours(0, 0, 0, 0);
-        return d.getTime();
-      })
+      completions.map(c => this.bucketToUserLocalDay(c.completedDate as any, userTz))
     )].sort((a, b) => b - a);
 
-    const today = new Date();
-    today.setHours(0, 0, 0, 0);
-    const todayTime = today.getTime();
-    
-    const yesterday = new Date(today);
-    yesterday.setDate(yesterday.getDate() - 1);
-    const yesterdayTime = yesterday.getTime();
+    const todayTime = this.todayInUserTz(userTz).getTime();
+    const yesterdayTime = todayTime - 24 * 60 * 60 * 1000;
 
     // Calculate CURRENT streak - must include today or yesterday
     let currentStreak = 0;

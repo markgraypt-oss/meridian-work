@@ -1,4 +1,7 @@
 import { z } from "zod";
+import { eq } from "drizzle-orm";
+import { db } from "../db";
+import { users } from "@shared/schema";
 import { storage } from "../storage";
 import { aiCall } from "../ai";
 import { getUserDataContext, getFeatureConfig } from "../aiProvider";
@@ -71,8 +74,20 @@ export type BriefingContent = z.infer<typeof briefingSchema>;
 
 export type BriefingType = "morning" | "evening";
 
-export function todayKeyForUser(date: Date = new Date()): string {
-  // ISO yyyy-mm-dd in server timezone (the app currently has no per-user TZ stored)
+export function todayKeyForUser(tz?: string | null, date: Date = new Date()): string {
+  if (tz) {
+    try {
+      const fmt = new Intl.DateTimeFormat("en-CA", {
+        timeZone: tz,
+        year: "numeric",
+        month: "2-digit",
+        day: "2-digit",
+      });
+      return fmt.format(date);
+    } catch {
+      // fall through
+    }
+  }
   const y = date.getFullYear();
   const m = String(date.getMonth() + 1).padStart(2, "0");
   const d = String(date.getDate()).padStart(2, "0");
@@ -89,7 +104,11 @@ export async function getOrGenerateBriefing(
   type: BriefingType,
   date: Date = new Date(),
 ) {
-  const dateKey = todayKeyForUser(date);
+  // Look up the user's timezone once at the top so all date-key calls inside
+  // this function agree on the user's local "today".
+  const userRow = await db.select({ timezone: users.timezone }).from(users).where(eq(users.id, userId)).limit(1);
+  const userTz = userRow[0]?.timezone ?? null;
+  const dateKey = todayKeyForUser(userTz, date);
   const existing = await storage.getCoachBriefingForDay(userId, dateKey, type);
 
   // Drift contract: a stored briefing is only served if the wearable
@@ -559,7 +578,7 @@ Return only the JSON object now.`;
   // yet. Quiet hours, daily cap, and per-channel preferences are honored
   // by notify(). Only fire when the briefing is for *today* - skip any
   // historical backfill so users aren't pinged about old days.
-  const todayKey = todayKeyForUser(new Date());
+  const todayKey = todayKeyForUser(userTz, new Date());
   if (briefing.briefingDate === todayKey) {
     const isEvening = type === "evening";
     // Lock-screen title is the briefing label. Section titles belong INSIDE

@@ -18516,6 +18516,30 @@ Keep your response concise, practical, and evidence-based. Do not use em dashes.
     }
   });
 
+  app.get('/api/daily-readiness/detail', isAuthenticated, async (req: any, res) => {
+    try {
+      const dr = await import("./dailyReadiness");
+      if (!dr.isFeatureEnabled()) {
+        return res.json({ enabled: false, days: [], hasWearable: false });
+      }
+      const userId = req.user.claims.sub;
+      // Map range param → days. Mobile sends 7d/30d/90d/1y; default 30d.
+      const rangeParam = String(req.query.range || "30d").toLowerCase();
+      const days = (
+        rangeParam === "7d"  ? 7   :
+        rangeParam === "30d" ? 30  :
+        rangeParam === "90d" ? 90  :
+        rangeParam === "1y"  ? 365 :
+        30
+      );
+      const data = await dr.getDetailHistoryForUser(userId, days);
+      res.json({ enabled: true, range: rangeParam, ...data });
+    } catch (error: any) {
+      console.error("Error fetching daily readiness detail:", error?.message);
+      res.status(500).json({ message: "Failed to load readiness detail" });
+    }
+  });
+
   // Read tunables (admin only).
   app.get('/api/admin/engagement/config', isAuthenticated, async (req: any, res) => {
     try {

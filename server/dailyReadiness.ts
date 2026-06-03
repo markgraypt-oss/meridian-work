@@ -684,6 +684,102 @@ export async function getHistoryForUser(
   return rows;
 }
 
+/**
+ * Fetch detailed readiness history for the detail page. Returns per-day
+ * raw + normalised values + sources, plus a `hasWearable` flag derived
+ * from the presence of any wearableMetricsDaily rows in the range — used
+ * by the mobile detail page to decide whether to show HRV/RHR tabs.
+ *
+ * `days` is clamped to [1, 730] so 1-year and 2-year ranges remain cheap.
+ */
+export async function getDetailHistoryForUser(
+  userId: string,
+  days: number,
+): Promise<{
+  days: Array<{
+    date: string;
+    score: number | null;
+    inputCount: number;
+    inputs: ReadinessInputs;
+    raws: ReadinessRawValues;
+    sources: ReadinessInputSources;
+  }>;
+  hasWearable: boolean;
+}> {
+  const safeDays = clamp(Math.floor(days || 30), 1, 730);
+  const cutoff = new Date();
+  cutoff.setHours(0, 0, 0, 0);
+  cutoff.setDate(cutoff.getDate() - (safeDays - 1));
+  const cutoffKey = toDateKey(cutoff);
+
+  const rows = await db
+    .select({
+      date: dailyReadinessHistory.date,
+      score: dailyReadinessHistory.score,
+      inputCount: dailyReadinessHistory.inputCount,
+      sleepInput: dailyReadinessHistory.sleepInput,
+      energyInput: dailyReadinessHistory.energyInput,
+      trainingLoadInput: dailyReadinessHistory.trainingLoadInput,
+      hrvInput: dailyReadinessHistory.hrvInput,
+      rhrInput: dailyReadinessHistory.rhrInput,
+      sleepRaw: dailyReadinessHistory.sleepRaw,
+      energyRaw: dailyReadinessHistory.energyRaw,
+      trainingLoadRaw: dailyReadinessHistory.trainingLoadRaw,
+      hrvRaw: dailyReadinessHistory.hrvRaw,
+      rhrRaw: dailyReadinessHistory.rhrRaw,
+      sourcesSnapshot: dailyReadinessHistory.sourcesSnapshot,
+    })
+    .from(dailyReadinessHistory)
+    .where(
+      and(
+        eq(dailyReadinessHistory.userId, userId),
+        gte(dailyReadinessHistory.date, cutoffKey),
+      ),
+    )
+    .orderBy(asc(dailyReadinessHistory.date));
+
+  // hasWearable: any wearableMetricsDaily row with non-null hrvMs OR
+  // restingHrBpm tells us the user has a wearable capable of producing
+  // the HRV/RHR-specific tabs.
+  const wearableProbe = await db
+    .select({ id: wearableMetricsDaily.id })
+    .from(wearableMetricsDaily)
+    .where(
+      and(
+        eq(wearableMetricsDaily.userId, userId),
+        sql`(${wearableMetricsDaily.hrvMs} IS NOT NULL OR ${wearableMetricsDaily.restingHrBpm} IS NOT NULL)`,
+      ),
+    )
+    .limit(1);
+  const hasWearable = wearableProbe.length > 0;
+
+  const empty: ReadinessInputSources = { sleep: null, energy: null, trainingLoad: null, hrv: null, rhr: null };
+
+  return {
+    days: rows.map(r => ({
+      date: r.date,
+      score: r.score,
+      inputCount: r.inputCount ?? 0,
+      inputs: {
+        sleep: r.sleepInput,
+        energy: r.energyInput,
+        trainingLoad: r.trainingLoadInput,
+        hrv: r.hrvInput,
+        rhr: r.rhrInput,
+      },
+      raws: {
+        sleep: r.sleepRaw,
+        energy: r.energyRaw,
+        trainingLoad: r.trainingLoadRaw,
+        hrv: r.hrvRaw,
+        rhr: r.rhrRaw,
+      },
+      sources: (r.sourcesSnapshot as ReadinessInputSources) ?? empty,
+    })),
+    hasWearable,
+  };
+}
+
 /** Single-row helper used by the dashboard card. */
 export async function getTodayForUser(userId: string): Promise<{
   date: string;

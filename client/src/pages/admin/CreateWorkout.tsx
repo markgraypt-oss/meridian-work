@@ -114,6 +114,11 @@ export default function CreateWorkoutPage() {
         } else if (!data.blocks) {
           data.blocks = [];
         }
+        // Safety fallbacks for fields that may be missing in older session data
+        if (!Array.isArray(data.categories)) data.categories = [];
+        if (!Array.isArray(data.targetAreas)) data.targetAreas = [];
+        if (!data.goal) data.goal = "strength";
+        if (!data.equipmentLevel) data.equipmentLevel = "full_gym";
         setFormData(data);
         // Set initial form state for dirty tracking AFTER loading from session storage
         initialFormRef.current = JSON.stringify(data);

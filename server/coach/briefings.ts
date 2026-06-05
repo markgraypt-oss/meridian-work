@@ -132,7 +132,7 @@ export async function getOrGenerateBriefing(
 
   const work = (async () => {
     try {
-      return await generateAndStoreBriefing(userId, type, dateKey, !!existing);
+      return await generateAndStoreBriefing(userId, type, dateKey, !!existing, userTz);
     } finally {
       inflight.delete(lockKey);
     }
@@ -444,6 +444,7 @@ async function generateAndStoreBriefing(
   type: BriefingType,
   dateKey: string,
   forceRegenerate = false,
+  userTz: string | null = null,
 ) {
   // Re-check after acquiring the lock to avoid a race. Skip legacy fallback
   // rows so they get replaced on a successful generation. When forceRegenerate

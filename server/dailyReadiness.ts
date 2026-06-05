@@ -369,6 +369,46 @@ export async function gatherInputsForDay(
   }
 
   // -----------------------------------------------------------------------
+  // Cycle phase corrections — HRV and RHR subscores only.
+  //
+  // Progesterone in luteal and late_luteal phases naturally suppresses HRV
+  // and elevates RHR. Without correction the algorithm misreads normal
+  // hormonal variation as degraded readiness. Corrections apply to the
+  // 0-10 subscores only — raw ms/bpm values shown in the UI are untouched.
+  // -----------------------------------------------------------------------
+  try {
+    const { db: cDb } = await import("./db");
+    const { cycleSettings: cSettingsTable, cycleLogs: cLogsTable } = await import("../shared/schema");
+    const { eq: cEq, desc: cDesc } = await import("drizzle-orm");
+    const [cSettings] = await cDb.select().from(cSettingsTable)
+      .where(cEq(cSettingsTable.userId, userId)).limit(1);
+    if (cSettings?.enabled) {
+      const [cLog] = await cDb.select().from(cLogsTable)
+        .where(cEq(cLogsTable.userId, userId))
+        .orderBy(cDesc(cLogsTable.periodStart)).limit(1);
+      if (cLog) {
+        const { computeCyclePhase } = await import("./cyclePhase");
+        const cPhase = computeCyclePhase(
+          new Date((cLog.periodStart as string) + "T00:00:00"),
+          cSettings.avgCycleLength,
+          cSettings.avgPeriodLength
+        );
+        let hrvAdj = 0;
+        let rhrAdj = 0;
+        if (cPhase.phase === "late_luteal") { hrvAdj = 2.0; rhrAdj = 1.5; }
+        else if (cPhase.phase === "luteal")  { hrvAdj = 1.5; rhrAdj = 1.2; }
+        else if (cPhase.phase === "menstrual") {
+          const taper = cPhase.cycleDay <= 2 ? 1.0 : 0.5;
+          hrvAdj = 1.5 * taper;
+          rhrAdj = 1.0 * taper;
+        }
+        if (hrvAdj > 0 && hrv != null) hrv = clamp(hrv + hrvAdj, 0, 10);
+        if (rhrAdj > 0 && rhr != null) rhr = clamp(rhr + rhrAdj, 0, 10);
+      }
+    }
+  } catch { /* cycle data unavailable — score runs as normal */ }
+
+  // -----------------------------------------------------------------------
   // Training Load — backward-looking (yesterday's stress), then INVERTED
   // so high load → lower readiness contribution.
   //

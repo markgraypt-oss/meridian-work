@@ -194,6 +194,52 @@ async function buildWeatherText(lat: number | null | undefined, lng: number | nu
   }
 }
 
+async function buildCycleContextText(userId: string): Promise<string> {
+  try {
+    const { db: cDb } = await import("../db");
+    const { cycleSettings: cSettings, cycleLogs: cLogs } = await import("../../shared/schema");
+    const { eq: cEq, desc: cDesc } = await import("drizzle-orm");
+
+    const [settings] = await cDb.select().from(cSettings)
+      .where(cEq(cSettings.userId, userId)).limit(1);
+    if (!settings?.enabled) return "";
+
+    const [latestLog] = await cDb.select().from(cLogs)
+      .where(cEq(cLogs.userId, userId))
+      .orderBy(cDesc(cLogs.periodStart)).limit(1);
+    if (!latestLog) return "";
+
+    const { computeCyclePhase } = await import("../cyclePhase");
+    const phase = computeCyclePhase(
+      new Date((latestLog.periodStart as string) + "T00:00:00"),
+      settings.avgCycleLength,
+      settings.avgPeriodLength
+    );
+
+    const phaseDescriptions: Record<string, string> = {
+      menstrual:   "Menstrual phase (days 1-5). Energy typically lower. Rest and gentle movement most appropriate.",
+      follicular:  "Follicular phase (post-period). Energy rising. Good window for challenge and higher intensity.",
+      ovulatory:   "Ovulatory phase (mid-cycle peak). Peak energy and strength. Body tolerates high intensity well.",
+      luteal:      "Luteal phase (post-ovulation). Progesterone rising. Energy more variable. Consistency over intensity.",
+      late_luteal: "Late luteal phase (final days before period). Body approaching next cycle. Prioritise recovery and lower-intensity movement.",
+    };
+
+    const symptoms = Array.isArray(latestLog.symptoms) && latestLog.symptoms.length
+      ? `\n- Recently logged symptoms: ${latestLog.symptoms.join(", ")}` : "";
+    const notes = latestLog.notes
+      ? `\n- User notes: "${latestLog.notes}"` : "";
+    const flow = latestLog.flow
+      ? `\n- Flow: ${latestLog.flow}` : "";
+
+    return `\nCYCLE TRACKER DATA (use to contextualise recovery, energy expectations, and training recommendations. Never make it the headline. Never ask about it in the closing question. Treat as supporting physiological context only):
+- Current phase: ${phase.phase} — cycle day ${phase.cycleDay} of ${settings.avgCycleLength}
+- Phase context: ${phaseDescriptions[phase.phase] || ""}
+- Days until next period: ${phase.daysUntilNextPeriod > 0 ? phase.daysUntilNextPeriod : "due"}${flow}${symptoms}${notes}`;
+  } catch {
+    return "";
+  }
+}
+
 async function buildReadinessAndBaselineText(userId: string, dateKey: string): Promise<string> {
   try {
     const [dr, baselines] = await Promise.all([
@@ -430,6 +476,7 @@ async function generateAndStoreBriefing(
       const userLat = (user as any)?.lastLat ?? null;
       const userLng = (user as any)?.lastLng ?? null;
       const weatherText = await buildWeatherText(userLat, userLng);
+      const cycleText = await buildCycleContextText(userId);
 
       const intentMorning = `A MORNING READINESS PREVIEW. The day has not happened yet, so do NOT reference today's steps, today's active minutes, or any activity that would only exist after the user has lived the day. The ONLY today-data you may reference in the morning is OVERNIGHT data: last night's sleep, this morning's HRV, this morning's resting HR, and today's Daily Readiness Score if available, plus today's weather if provided.
 
@@ -509,6 +556,8 @@ RULES:
 - No bullet characters inside body strings. The structure of the JSON IS the structure. Don't put dashes or bullets inside body text.
 - PLAIN LANGUAGE, NO INTERNAL JARGON. Never use the word "contribution", "driver", "input", "score" (except the Daily Readiness Score itself out of 100), or any internal sub-score number. Never write things like "HRV contribution is 6.1", "energy contribution is 4", "training load is sitting at 9.3", "sleep contribution 9.1". Those internal numbers are meaningless to the user and must never appear. Instead, translate what the number tells you into plain coaching language a normal person understands. Examples of the rewrite: instead of "HRV contribution is 6.1" write "your HRV is a touch below where it usually sits"; instead of "energy contribution is just 4" write "your energy is running low"; instead of "training load is sitting at 9.3" write "your body is still carrying a fair bit of load from recent days"; instead of "sleep contribution is 9.1" write "your sleep is doing its job". Only ever quote REAL measured values with their natural units (HRV in ms, resting HR in bpm, sleep as 7h 17m, steps as a number, the readiness score out of 100). Everything else gets described, not numbered.
 - Warm but direct. No corporate fluff. No motivational filler.
+- If CYCLE TRACKER DATA is present, use the phase to contextualise HRV, RHR, and energy readings. In luteal and late_luteal phases, HRV is naturally suppressed and RHR naturally elevated due to progesterone — these are expected hormonal variations, not alarm signals. In menstrual phase, lower energy and higher fatigue are expected. In follicular and ovulatory phases, metrics may run above the user's typical baseline. Reference cycle phase only when it materially changes the interpretation of the data. Do not make the briefing about the cycle. Mention it as natural supporting context only.
+- Never directly ask the user about their cycle, their period, or their symptoms in the closing question or anywhere in the briefing.
 - Build on the recent briefings below so you don't repeat yourself.
 - Do not include any prose outside the JSON.
 
@@ -517,6 +566,7 @@ ${intent}
 ${memoryText ? `\nUSER MEMORY (durable facts about this user, use to personalise):\n${memoryText}` : ""}${recentText}
 ${readinessText}
 ${weatherText}
+${cycleText}
 ${dataContext}
 
 Return only the JSON object now.`;

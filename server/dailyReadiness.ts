@@ -20,6 +20,7 @@ import {
   pointsTransactions,
   sleepEntries,
   stepEntries,
+  userPhysiologicalBaselines,
   users,
   wearableMetricsDaily,
   workoutLogs,
@@ -400,12 +401,56 @@ export async function gatherInputsForDay(
     raws.trainingLoad = yw.strainScore / 10; // 0-21 real strain
   }
 
-  // Step 2: Wearable steps + active minutes + calories burned (averaged)
+  // Step 2: Wearable steps + active minutes + calories burned.
+  // Uses personalised z-score where the metric is calibrated (≥14 samples, stddev > 0);
+  // falls back to fixed thresholds per-metric where not yet calibrated.
+  // Formula: subScore = clamp(5 + ((value - median) / stddev) * 2, 0, 10)
   if (yesterdayStress == null && yw) {
+    // Load user's activity baselines (null if no row yet)
+    const [baselineRow] = await db
+      .select()
+      .from(userPhysiologicalBaselines)
+      .where(eq(userPhysiologicalBaselines.userId, userId))
+      .limit(1);
+
     const factors: number[] = [];
-    if (yw.steps != null) factors.push(clamp(yw.steps / 15000, 0, 1) * 10);
-    if (yw.activeMinutes != null) factors.push(clamp(yw.activeMinutes / 120, 0, 1) * 10);
-    if (yw.caloriesBurned != null) factors.push(clamp(yw.caloriesBurned / 800, 0, 1) * 10);
+
+    if (yw.steps != null) {
+      const usePersonal =
+        baselineRow &&
+        (baselineRow.stepsSampleCount ?? 0) >= 14 &&
+        (baselineRow.stepsStdDev ?? 0) > 0;
+      if (usePersonal) {
+        factors.push(clamp(5 + ((yw.steps - baselineRow.stepsBaseline!) / baselineRow.stepsStdDev!) * 2, 0, 10));
+      } else {
+        factors.push(clamp(yw.steps / 15000, 0, 1) * 10);
+      }
+    }
+
+    if (yw.activeMinutes != null) {
+      const usePersonal =
+        baselineRow &&
+        (baselineRow.activeMinutesSampleCount ?? 0) >= 14 &&
+        (baselineRow.activeMinutesStdDev ?? 0) > 0;
+      if (usePersonal) {
+        factors.push(clamp(5 + ((yw.activeMinutes - baselineRow.activeMinutesBaseline!) / baselineRow.activeMinutesStdDev!) * 2, 0, 10));
+      } else {
+        factors.push(clamp(yw.activeMinutes / 120, 0, 1) * 10);
+      }
+    }
+
+    if (yw.caloriesBurned != null) {
+      const usePersonal =
+        baselineRow &&
+        (baselineRow.caloriesBurnedSampleCount ?? 0) >= 14 &&
+        (baselineRow.caloriesBurnedStdDev ?? 0) > 0;
+      if (usePersonal) {
+        factors.push(clamp(5 + ((yw.caloriesBurned - baselineRow.caloriesBurnedBaseline!) / baselineRow.caloriesBurnedStdDev!) * 2, 0, 10));
+      } else {
+        factors.push(clamp(yw.caloriesBurned / 800, 0, 1) * 10);
+      }
+    }
+
     if (factors.length > 0) {
       yesterdayStress = factors.reduce((s, v) => s + v, 0) / factors.length;
       sources.trainingLoad = "wearable";
@@ -413,7 +458,9 @@ export async function gatherInputsForDay(
     }
   }
 
-  // Step 3: Add workout duration boost from yesterday's logged workouts
+  // Step 3: Add workout duration boost — only when there is no wearable activity data.
+  // When wearable data is present, activeMinutes already captures workout effort;
+  // applying the boost on top would double-count it.
   const yWorkouts = await db
     .select({ duration: workoutLogs.duration })
     .from(workoutLogs)
@@ -424,50 +471,13 @@ export async function gatherInputsForDay(
         lt(workoutLogs.completedAt, yesterdayEnd),
       ),
     );
-  if (yWorkouts.length > 0) {
+  if (yWorkouts.length > 0 && sources.trainingLoad !== "wearable") {
     const totalSeconds = yWorkouts.reduce((s, w) => s + (w.duration || 0), 0);
     // 1 hour workout ≈ +2 stress points; cap boost at 3
     const boost = clamp(totalSeconds / 3600 * 2, 0, 3);
     yesterdayStress = clamp((yesterdayStress ?? 0) + boost, 0, 10);
     if (sources.trainingLoad == null) sources.trainingLoad = "workout-log";
     if (sources.trainingLoad === "workout-log") raws.trainingLoad = totalSeconds / 60; // minutes
-  }
-
-  // Step 4: 7-day vs 30-day baseline trend adjustment (wearable data only)
-  if (yesterdayStress != null && sources.trainingLoad === "wearable") {
-    const sevenDaysAgo = new Date(dayStart);
-    sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
-    const thirtyDaysAgo = new Date(dayStart);
-    thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
-
-    const [weekRows, baselineRows] = await Promise.all([
-      db
-        .select({ steps: wearableMetricsDaily.steps, activeMinutes: wearableMetricsDaily.activeMinutes, caloriesBurned: wearableMetricsDaily.caloriesBurned })
-        .from(wearableMetricsDaily)
-        .where(and(eq(wearableMetricsDaily.userId, userId), gte(wearableMetricsDaily.date, toDateKey(sevenDaysAgo)), lt(wearableMetricsDaily.date, dateKey))),
-      db
-        .select({ steps: wearableMetricsDaily.steps, activeMinutes: wearableMetricsDaily.activeMinutes, caloriesBurned: wearableMetricsDaily.caloriesBurned })
-        .from(wearableMetricsDaily)
-        .where(and(eq(wearableMetricsDaily.userId, userId), gte(wearableMetricsDaily.date, toDateKey(thirtyDaysAgo)), lt(wearableMetricsDaily.date, dateKey))),
-    ]);
-
-    if (weekRows.length >= 3 && baselineRows.length >= 7) {
-      const avg = (rows: typeof weekRows, field: keyof typeof weekRows[0]) =>
-        rows.reduce((s, r) => s + (Number(r[field]) || 0), 0) / rows.length;
-
-      const weekSteps = avg(weekRows, "steps");
-      const weekActive = avg(weekRows, "activeMinutes");
-      const weekCals = avg(weekRows, "caloriesBurned");
-      const baseSteps = avg(baselineRows, "steps") || 8000;
-      const baseActive = avg(baselineRows, "activeMinutes") || 30;
-      const baseCals = avg(baselineRows, "caloriesBurned") || 300;
-
-      const ratio =
-        ((weekSteps / baseSteps) + (weekActive / baseActive) + (weekCals / baseCals)) / 3;
-
-      if (ratio > 1.2) yesterdayStress = clamp(yesterdayStress * 1.1, 0, 10);
-      else if (ratio < 0.8) yesterdayStress = clamp(yesterdayStress * 0.9, 0, 10);
-    }
   }
 
   // Step 5: Fallback — manual step log for yesterday

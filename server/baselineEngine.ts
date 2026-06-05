@@ -27,6 +27,7 @@ import { eq, and, gte, isNotNull, sql } from "drizzle-orm";
 const HRV_WINDOW_DAYS = 60;
 const RHR_WINDOW_DAYS = 28;
 const SLEEP_WINDOW_DAYS = 28;
+const ACTIVITY_WINDOW_DAYS = 28;
 const MIN_SAMPLES_FOR_CALIBRATION = 14;
 
 // Wearable priority: when multiple providers report the same day, use the highest-priority one.
@@ -77,7 +78,7 @@ function stdDev(values: number[], centre: number): number {
 // Fetch one metric type for a user over a date window, deduped by provider priority.
 async function fetchMetricValues(
   userId: string,
-  metricColumn: 'hrvMs' | 'restingHrBpm' | 'sleepMinutes',
+  metricColumn: 'hrvMs' | 'restingHrBpm' | 'sleepMinutes' | 'steps' | 'activeMinutes' | 'caloriesBurned',
   windowDays: number,
 ): Promise<number[]> {
   const cutoffDate = new Date();
@@ -117,13 +118,25 @@ export async function computeUserBaselines(userId: string): Promise<{
   sleepDurationBaselineMinutes: number | null;
   sleepDurationStdDevMinutes: number | null;
   sleepDurationSampleCount: number;
+  stepsBaseline: number | null;
+  stepsStdDev: number | null;
+  stepsSampleCount: number;
+  activeMinutesBaseline: number | null;
+  activeMinutesStdDev: number | null;
+  activeMinutesSampleCount: number;
+  caloriesBurnedBaseline: number | null;
+  caloriesBurnedStdDev: number | null;
+  caloriesBurnedSampleCount: number;
   isCalibrated: boolean;
   daysUntilCalibrated: number | null;
 }> {
-  const [hrvValues, rhrValues, sleepValues] = await Promise.all([
+  const [hrvValues, rhrValues, sleepValues, stepsValues, activeMinutesValues, caloriesBurnedValues] = await Promise.all([
     fetchMetricValues(userId, 'hrvMs', HRV_WINDOW_DAYS),
     fetchMetricValues(userId, 'restingHrBpm', RHR_WINDOW_DAYS),
     fetchMetricValues(userId, 'sleepMinutes', SLEEP_WINDOW_DAYS),
+    fetchMetricValues(userId, 'steps', ACTIVITY_WINDOW_DAYS),
+    fetchMetricValues(userId, 'activeMinutes', ACTIVITY_WINDOW_DAYS),
+    fetchMetricValues(userId, 'caloriesBurned', ACTIVITY_WINDOW_DAYS),
   ]);
 
   const hrvMedian = hrvValues.length > 0 ? median(hrvValues) : null;
@@ -135,16 +148,23 @@ export async function computeUserBaselines(userId: string): Promise<{
   const sleepMedian = sleepValues.length > 0 ? median(sleepValues) : null;
   const sleepSd = sleepMedian !== null ? stdDev(sleepValues, sleepMedian) : null;
 
-  // Calibration gate: all three metrics must have at least 14 samples.
-  // Why all three? Because the physiological readiness score combines them.
-  // A partial baseline (e.g. HRV calibrated but RHR not) would give a misleading signal.
+  const stepsMedian = stepsValues.length > 0 ? median(stepsValues) : null;
+  const stepsSd = stepsMedian !== null ? stdDev(stepsValues, stepsMedian) : null;
+
+  const activeMinutesMedian = activeMinutesValues.length > 0 ? median(activeMinutesValues) : null;
+  const activeMinutesSd = activeMinutesMedian !== null ? stdDev(activeMinutesValues, activeMinutesMedian) : null;
+
+  const caloriesBurnedMedian = caloriesBurnedValues.length > 0 ? median(caloriesBurnedValues) : null;
+  const caloriesBurnedSd = caloriesBurnedMedian !== null ? stdDev(caloriesBurnedValues, caloriesBurnedMedian) : null;
+
+  // Calibration gate: all three physiological metrics must have at least 14 samples.
+  // Activity baselines are independent — each is "ready" when its own sample count ≥ 14.
   const allCalibrated =
     hrvValues.length >= MIN_SAMPLES_FOR_CALIBRATION &&
     rhrValues.length >= MIN_SAMPLES_FOR_CALIBRATION &&
     sleepValues.length >= MIN_SAMPLES_FOR_CALIBRATION;
 
-  // Days until calibration: the largest gap across all three metrics.
-  // If a user has 10 HRV / 14 RHR / 14 sleep samples, they need 4 more HRV days.
+  // Days until calibration: the largest gap across all three physiological metrics.
   const daysUntilCalibrated = allCalibrated
     ? null
     : Math.max(
@@ -163,6 +183,15 @@ export async function computeUserBaselines(userId: string): Promise<{
     sleepDurationBaselineMinutes: sleepMedian,
     sleepDurationStdDevMinutes: sleepSd,
     sleepDurationSampleCount: sleepValues.length,
+    stepsBaseline: stepsMedian,
+    stepsStdDev: stepsSd,
+    stepsSampleCount: stepsValues.length,
+    activeMinutesBaseline: activeMinutesMedian,
+    activeMinutesStdDev: activeMinutesSd,
+    activeMinutesSampleCount: activeMinutesValues.length,
+    caloriesBurnedBaseline: caloriesBurnedMedian,
+    caloriesBurnedStdDev: caloriesBurnedSd,
+    caloriesBurnedSampleCount: caloriesBurnedValues.length,
     isCalibrated: allCalibrated,
     daysUntilCalibrated,
   };

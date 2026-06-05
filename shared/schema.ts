@@ -2871,6 +2871,21 @@ export const userPhysiologicalBaselines = pgTable("user_physiological_baselines"
   sleepDurationStdDevMinutes: real("sleep_duration_std_dev_minutes"),
   sleepDurationSampleCount: integer("sleep_duration_sample_count").notNull().default(0),
 
+  // Steps baseline (28-day rolling median + standard deviation)
+  stepsBaseline: real("steps_baseline"),
+  stepsStdDev: real("steps_std_dev"),
+  stepsSampleCount: integer("steps_sample_count").notNull().default(0),
+
+  // Active minutes baseline (28-day rolling median + standard deviation)
+  activeMinutesBaseline: real("active_minutes_baseline"),
+  activeMinutesStdDev: real("active_minutes_std_dev"),
+  activeMinutesSampleCount: integer("active_minutes_sample_count").notNull().default(0),
+
+  // Calories burned baseline (28-day rolling median + standard deviation)
+  caloriesBurnedBaseline: real("calories_burned_baseline"),
+  caloriesBurnedStdDev: real("calories_burned_std_dev"),
+  caloriesBurnedSampleCount: integer("calories_burned_sample_count").notNull().default(0),
+
   // Calibration state - gates whether physiological readiness contributes to score
   isCalibrated: boolean("is_calibrated").notNull().default(false),
   calibrationStartedAt: timestamp("calibration_started_at"),

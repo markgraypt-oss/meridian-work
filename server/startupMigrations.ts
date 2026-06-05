@@ -279,6 +279,24 @@ const SELF_HEAL_DDL: string[] = [
   `ALTER TABLE users ADD COLUMN IF NOT EXISTS location_updated_at timestamp`,
   `ALTER TABLE users ADD COLUMN IF NOT EXISTS location_permission_status text DEFAULT 'never_asked'`,
   `ALTER TABLE users ADD COLUMN IF NOT EXISTS timezone varchar`,
+
+  // Custom check-in questions — user-defined Y/N questions for daily check-in
+  `CREATE TABLE IF NOT EXISTS custom_check_in_questions (id SERIAL PRIMARY KEY, user_id VARCHAR NOT NULL REFERENCES users(id), label TEXT NOT NULL, sort_order INTEGER DEFAULT 0, is_active BOOLEAN DEFAULT true, created_at TIMESTAMP DEFAULT NOW())`,
+  `ALTER TABLE check_ins ADD COLUMN IF NOT EXISTS custom_responses JSONB`,
+
+  // Physiological baselines table — ensure it exists before adding columns
+  `CREATE TABLE IF NOT EXISTS user_physiological_baselines (id SERIAL PRIMARY KEY, user_id VARCHAR NOT NULL REFERENCES users(id) ON DELETE CASCADE, hrv_baseline_ms REAL, hrv_std_dev_ms REAL, hrv_sample_count INTEGER NOT NULL DEFAULT 0, rhr_baseline_bpm REAL, rhr_std_dev_bpm REAL, rhr_sample_count INTEGER NOT NULL DEFAULT 0, sleep_duration_baseline_minutes REAL, sleep_duration_std_dev_minutes REAL, sleep_duration_sample_count INTEGER NOT NULL DEFAULT 0, is_calibrated BOOLEAN NOT NULL DEFAULT false, calibration_started_at TIMESTAMP, calibration_completed_at TIMESTAMP, days_until_calibrated INTEGER, last_computed_at TIMESTAMP DEFAULT NOW(), created_at TIMESTAMP DEFAULT NOW(), updated_at TIMESTAMP DEFAULT NOW())`,
+
+  // Activity baselines — personalised training-load scoring
+  `ALTER TABLE user_physiological_baselines ADD COLUMN IF NOT EXISTS steps_baseline real`,
+  `ALTER TABLE user_physiological_baselines ADD COLUMN IF NOT EXISTS steps_std_dev real`,
+  `ALTER TABLE user_physiological_baselines ADD COLUMN IF NOT EXISTS steps_sample_count integer NOT NULL DEFAULT 0`,
+  `ALTER TABLE user_physiological_baselines ADD COLUMN IF NOT EXISTS active_minutes_baseline real`,
+  `ALTER TABLE user_physiological_baselines ADD COLUMN IF NOT EXISTS active_minutes_std_dev real`,
+  `ALTER TABLE user_physiological_baselines ADD COLUMN IF NOT EXISTS active_minutes_sample_count integer NOT NULL DEFAULT 0`,
+  `ALTER TABLE user_physiological_baselines ADD COLUMN IF NOT EXISTS calories_burned_baseline real`,
+  `ALTER TABLE user_physiological_baselines ADD COLUMN IF NOT EXISTS calories_burned_std_dev real`,
+  `ALTER TABLE user_physiological_baselines ADD COLUMN IF NOT EXISTS calories_burned_sample_count integer NOT NULL DEFAULT 0`,
 ];
 
 export async function runSchemaSelfHealOnce(): Promise<void> {

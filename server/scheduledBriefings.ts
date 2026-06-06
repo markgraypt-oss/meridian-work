@@ -200,6 +200,16 @@ async function sweepCoachBriefings(
       const dateKey = mod.todayKeyForUser(row.timezone);
       const existing = await storage.getCoachBriefingForDay(row.id, dateKey, type);
       if (existing) continue;
+
+      // Morning briefing waits for the user's daily check-in. Before 10:00
+      // local time, skip if the user hasn't checked in yet - the check-in
+      // POST endpoint will trigger the briefing immediately when they do.
+      // From 10:00 local onwards we fire without it. Evening unchanged.
+      if (type === "morning") {
+        const todayCheckIn = await storage.getTodayCheckIn(row.id, row.timezone);
+        if (!todayCheckIn && hour < 10) continue;
+      }
+
       await mod.getOrGenerateBriefing(row.id, type);
       if (type === "morning") generatedMorning++;
       else generatedEvening++;

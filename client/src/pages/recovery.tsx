@@ -199,7 +199,7 @@ function BurnoutEntryCard({ onClick }: { onClick: () => void }) {
                 <div className="p-1.5 rounded-lg bg-[#0cc9a9]/10">
                   <Zap className="h-5 w-5 text-[#0cc9a9]" />
                 </div>
-                <span className="text-base font-bold text-foreground">Burnout Early Warning</span>
+                <span className="text-base font-bold text-foreground">Burnout Index</span>
                 {settings?.recoveryModeEnabled && (
                   <span className="flex items-center gap-1 bg-emerald-100 dark:bg-emerald-950/60 border border-emerald-200 dark:border-emerald-800/40 rounded-full px-2 py-0.5">
                     <Shield className="h-3 w-3 text-emerald-600 dark:text-emerald-400" />
@@ -269,7 +269,7 @@ function BurnoutEntryCard({ onClick }: { onClick: () => void }) {
                 <Zap className="h-5 w-5 text-[#0cc9a9]" />
               </div>
               <div>
-                <span className="text-base font-bold text-foreground block">Burnout Early Warning</span>
+                <span className="text-base font-bold text-foreground block">Burnout Index</span>
                 <span className="text-sm text-muted-foreground">Check in daily to unlock insights</span>
               </div>
             </div>

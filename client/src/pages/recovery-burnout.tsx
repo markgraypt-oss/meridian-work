@@ -325,7 +325,7 @@ export default function RecoveryBurnout() {
 
   return (
     <div className="min-h-screen bg-background pb-24">
-      <TopHeader title="Burnout Early Warning" onBack={() => navigate("/recovery")} />
+      <TopHeader title="Burnout Index" onBack={() => navigate("/recovery")} />
 
       <div className="px-5 pt-14 space-y-5 max-w-2xl mx-auto">
         <p className="text-sm text-muted-foreground leading-relaxed">

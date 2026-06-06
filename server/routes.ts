@@ -6327,6 +6327,45 @@ Rules:
         console.error('[Check-In] Error auto-completing check-in habit:', habitError);
       }
 
+      // Trigger morning briefing immediately if the user is inside the
+      // morning window (06:00-11:59 local) and no morning briefing exists
+      // yet for today. The scheduler sweep skips morning briefings before
+      // 10:00 local until a check-in is logged - this endpoint is the
+      // signal that the user has checked in, so we generate now rather
+      // than waiting up to 30 minutes for the next sweep tick.
+      // Fire-and-forget so AI generation does not block the response.
+      (async () => {
+        try {
+          const briefingsMod = await import('./coach/briefings');
+          const now = new Date();
+          let localHour: number;
+          if (_ciUserTz) {
+            try {
+              const fmt = new Intl.DateTimeFormat('en-GB', {
+                timeZone: _ciUserTz,
+                hour: 'numeric',
+                hour12: false,
+              });
+              localHour = parseInt(fmt.format(now), 10);
+            } catch {
+              localHour = now.getHours();
+            }
+          } else {
+            localHour = now.getHours();
+          }
+          if (localHour >= 6 && localHour < 12) {
+            const dateKey = briefingsMod.todayKeyForUser(_ciUserTz);
+            const existing = await storage.getCoachBriefingForDay(userId, dateKey, 'morning');
+            if (!existing) {
+              await briefingsMod.getOrGenerateBriefing(userId, 'morning');
+              console.log(`[check-ins] Triggered morning briefing for ${userId} after check-in`);
+            }
+          }
+        } catch (err) {
+          console.error('[check-ins] Briefing trigger failed:', err);
+        }
+      })().catch(() => {});
+
       res.status(201).json(checkIn);
     } catch (error) {
       console.error("Error creating check-in:", error);

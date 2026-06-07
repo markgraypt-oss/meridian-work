@@ -11355,9 +11355,13 @@ export class DatabaseStorage implements IStorage {
     }
 
     // Candidate pool: master/admin library plus (optionally) the user's own custom recipes.
+    // Admin-library AI-generated recipes are excluded — those are orphaned gap-fill
+    // recipes from previous plan generations and shouldn't be reused as library content.
+    // The user's own AI-generated recipes (e.g. photo-based) are kept available.
+    const adminLibrary = and(isNull(recipes.userId), eq(recipes.aiGenerated, false))!;
     const ownershipFilter = options.includeUserId
-      ? or(isNull(recipes.userId), eq(recipes.userId, options.includeUserId))!
-      : isNull(recipes.userId);
+      ? or(adminLibrary, eq(recipes.userId, options.includeUserId))!
+      : adminLibrary;
 
     let allRecipes: Recipe[];
     if (conditions.length > 0) {

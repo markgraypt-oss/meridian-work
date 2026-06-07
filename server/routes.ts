@@ -16778,7 +16778,15 @@ Keep your response concise, practical, and evidence-based. Do not use em dashes.
       res.json(result);
     } catch (error: any) {
       console.error("Error creating meal plan:", error?.message || error);
-      res.status(500).json({ message: "Failed to create meal plan" });
+      // DEBUG: surface the real error to the client until we have prod logs.
+      res.status(500).json({
+        message: "Failed to create meal plan",
+        debug: {
+          error: error?.message || String(error),
+          name: error?.name,
+          stack: (error?.stack || '').split('\n').slice(0, 8),
+        },
+      });
     }
   });
 

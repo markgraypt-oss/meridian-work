@@ -33,6 +33,40 @@ export function getMealEntries(slots: { type: string; sides?: number }[]): MealE
   return entries;
 }
 
+// Per-slot weight for allocating daily calories across the user's meal mix.
+// Effective kcal per slot = (weight / sum of weights) * dailyTarget.
+const SLOT_WEIGHTS: Record<string, number> = {
+  breakfast: 22,
+  main: 35,
+  snack: 10,
+  dessert: 8,
+  side: 7,
+};
+
+export interface SlotBudget {
+  slotIndex: number;
+  isSide: boolean;
+  calories: number;
+}
+
+// Computes per-meal kcal targets from the daily total and meal mix.
+// Used by the full-plan AI prompt and by single-meal regeneration so a
+// regenerated breakfast targets the same calories the original budget used.
+export function computeSlotBudgets(
+  mealSlots: { type: string; sides?: number }[],
+  dailyTarget: number,
+): SlotBudget[] {
+  const entries = getMealEntries(mealSlots);
+  if (entries.length === 0) return [];
+  const weights = entries.map((e) => SLOT_WEIGHTS[e.isSide ? "side" : e.type] ?? 20);
+  const totalWeight = weights.reduce((sum, w) => sum + w, 0) || 1;
+  return entries.map((e, i) => ({
+    slotIndex: e.slotIndex,
+    isSide: e.isSide,
+    calories: Math.round((weights[i] / totalWeight) * dailyTarget),
+  }));
+}
+
 const AiGeneratedRecipeSchema = z.object({
   title: z.string().min(2).max(120),
   category: z.string().min(2).max(40),
@@ -78,6 +112,7 @@ export interface AiPlanInput {
 export async function generateAiPlan(input: AiPlanInput): Promise<AiPlan | null> {
   const entries = getMealEntries(input.mealSlots);
   if (entries.length === 0) return null;
+  const budgets = computeSlotBudgets(input.mealSlots, input.caloriesPerDay);
   // Empty catalog is allowed: in that case the AI must fully gap-fill every
   // slot using the `aiRecipe` field. The schema/validator below enforce the
   // resulting shape and completeness either way.
@@ -115,7 +150,12 @@ export async function generateAiPlan(input: AiPlanInput): Promise<AiPlan | null>
     "",
     "Generate exactly 7 days. For each day include one meal per slot (and a 'side' entry for each side, with isSide=true and the same slotIndex as its main).",
     "Vary recipes across the week (avoid repeating the same recipe more than twice).",
-    "Stay close to the daily kcal target (within +/-10%).",
+    "",
+    "PER-MEAL CALORIE BUDGETS. Each entry below is the target kcal for one meal. Pick a recipe (or invent one) whose calories land close to that target. Do not under-budget the day by picking small recipes everywhere.",
+    "Match each meal in your output to a budget entry by (slotIndex, isSide). Format: [{slotIndex, isSide, calories}]:",
+    JSON.stringify(budgets),
+    "",
+    `Each day's total calories MUST sum to within +/-15% of ${input.caloriesPerDay} kcal. If catalog recipes are too small, invent a larger aiRecipe rather than leaving the day short.`,
     "",
     lockedDescription
       ? `The following meals are LOCKED by the user — you MUST include them with the exact recipeId at the exact (dayIndex, slotIndex, isSide) position; do NOT replace them:\n${lockedDescription}`
@@ -165,6 +205,30 @@ export async function generateAiPlan(input: AiPlanInput): Promise<AiPlan | null>
     }
   }
   if (seenDayIndexes.size !== 7) return null;
+
+  // Log days that miss the daily target. Info-only so we can see how often
+  // the AI under-budgets in production. No retry yet — if these warnings
+  // turn out to be frequent we'll add a single retry pass.
+  const recipeById = new Map<number, Recipe>(input.recipes.map((r) => [r.id, r]));
+  const target = input.caloriesPerDay;
+  const tolerance = target * 0.15;
+  for (const day of result.data.days) {
+    let total = 0;
+    for (const meal of day.meals) {
+      if (meal.recipeId !== undefined) {
+        total += recipeById.get(meal.recipeId)?.calories ?? 0;
+      } else if (meal.aiRecipe) {
+        total += meal.aiRecipe.calories;
+      }
+    }
+    if (Math.abs(total - target) > tolerance) {
+      const pct = ((total / target) * 100).toFixed(0);
+      console.warn(
+        `[meal_plan] Day ${day.dayIndex} kcal miss: ${total} vs target ${target} (${pct}% of target)`
+      );
+    }
+  }
+
   return result.data;
 }
 

@@ -16896,6 +16896,27 @@ Keep your response concise, practical, and evidence-based. Do not use em dashes.
         includeUserId: req.user.claims.sub,
       });
 
+      // Calorie-aware pick: compute the budget for this exact slot from the
+      // saved plan's mealSlots, then pick from the 5 candidates closest to
+      // the target so the regenerated meal lands on-budget rather than
+      // anywhere in the matching category.
+      const { computeSlotBudgets } = await import('./mealPlanAi');
+      const savedSlots = (fullPlan.plan.mealSlots as Array<{ type: string; sides?: number }>) || [];
+      const budgets = computeSlotBudgets(savedSlots, fullPlan.plan.caloriesPerDay);
+      // mealType is stored as "<type>_<slotIndex>" (e.g. "breakfast_0", "side_1").
+      const mealTypeParts = currentMeal.mealType.split('_');
+      const isSide = (mealTypeParts[0] || '') === 'side';
+      const parsedSlotIndex = parseInt(mealTypeParts[1] || '0', 10);
+      const slotIndex = Number.isFinite(parsedSlotIndex) ? parsedSlotIndex : 0;
+      const budget = budgets.find((b) => b.slotIndex === slotIndex && b.isSide === isSide)?.calories
+        ?? Math.round(fullPlan.plan.caloriesPerDay / Math.max(1, savedSlots.length));
+
+      const pickClosest = (pool: typeof recipes) => {
+        const ranked = [...pool].sort((a, b) => Math.abs(a.calories - budget) - Math.abs(b.calories - budget));
+        const top = ranked.slice(0, Math.min(5, ranked.length));
+        return top[Math.floor(Math.random() * top.length)];
+      };
+
       let newRecipe;
       if (recipes.length === 0) {
         const fallback = await storage.getRecipesForMealPlan({
@@ -16907,9 +16928,9 @@ Keep your response concise, practical, and evidence-based. Do not use em dashes.
           includeUserId: req.user.claims.sub,
         });
         if (fallback.length === 0) return res.status(400).json({ message: "No alternative available" });
-        newRecipe = fallback[Math.floor(Math.random() * fallback.length)];
+        newRecipe = pickClosest(fallback);
       } else {
-        newRecipe = recipes[Math.floor(Math.random() * recipes.length)];
+        newRecipe = pickClosest(recipes);
       }
 
       await storage.updateMealPlanMeal(mealId, {
@@ -17248,7 +17269,15 @@ Keep your response concise, practical, and evidence-based. Do not use em dashes.
         }
       }
       const expectedSlots = mealEntries.map((e) => ({ slotIndex: e.slotIndex, isSide: e.isSide, type: e.type }));
-      const slotKcal = Math.max(150, Math.round(caloriesPerDay / Math.max(1, mealEntries.length)));
+      // Per-slot budgets so a breakfast targets the breakfast share, a side
+      // targets the side share, etc. — instead of naive daily/mealCount which
+      // overshoots small slots and undershoots mains.
+      const { computeSlotBudgets: _csb } = await import('./mealPlanAi');
+      const gapBudgets = _csb(slots, caloriesPerDay);
+      const gapBudgetMap = new Map<string, number>();
+      for (const b of gapBudgets) {
+        gapBudgetMap.set(`${b.slotIndex}:${b.isSide ? 1 : 0}`, b.calories);
+      }
       // Try a real per-slot AI gap-fill first when the user opted into AI.
       // For each missing (day × slot × isSide) we ask the model to invent a
       // single recipe matching the user's filters, persist it as an
@@ -17268,7 +17297,8 @@ Keep your response concise, practical, and evidence-based. Do not use em dashes.
           const k = `${dayIndex}:${exp.slotIndex}:${exp.isSide ? 1 : 0}`;
           if (seen.has(k)) continue;
 
-          const targetCal = exp.isSide ? Math.round(slotKcal * 0.4) : slotKcal;
+          const targetCal = gapBudgetMap.get(`${exp.slotIndex}:${exp.isSide ? 1 : 0}`)
+            ?? Math.max(150, Math.round(caloriesPerDay / Math.max(1, mealEntries.length)));
           const mealTypeWithSlot = exp.isSide ? `side_${exp.slotIndex}` : `${exp.type}_${exp.slotIndex}`;
 
           let recipeRow: { id: number; calories: number; protein: number; carbs: number; fat: number } | null = null;

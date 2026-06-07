@@ -88,11 +88,11 @@ const PlannedMealSchema = z.object({
   { message: "Provide exactly one of recipeId or aiRecipe" },
 );
 const PlannedDaySchema = z.object({
-  dayIndex: z.number().int().min(1).max(7),
+  dayIndex: z.number().int().min(1).max(3),
   meals: z.array(PlannedMealSchema),
 });
 export const AiPlanSchema = z.object({
-  days: z.array(PlannedDaySchema).length(7),
+  days: z.array(PlannedDaySchema).length(3),
 });
 export type AiPlan = z.infer<typeof AiPlanSchema>;
 export type AiGeneratedRecipe = z.infer<typeof AiGeneratedRecipeSchema>;
@@ -148,8 +148,8 @@ export async function generateAiPlan(input: AiPlanInput): Promise<AiPlan | null>
     "Each day has these slots in order (slotIndex starts at 0):",
     JSON.stringify(input.mealSlots),
     "",
-    "Generate exactly 7 days. For each day include one meal per slot (and a 'side' entry for each side, with isSide=true and the same slotIndex as its main).",
-    "Vary recipes across the week (avoid repeating the same recipe more than twice).",
+    "Generate exactly 3 days. For each day include one meal per slot (and a 'side' entry for each side, with isSide=true and the same slotIndex as its main).",
+    "Vary recipes across the 3 days (avoid repeating the same recipe).",
     "",
     "PER-MEAL CALORIE BUDGETS. Each entry below is the target kcal for one meal. Pick a recipe (or invent one) whose calories land close to that target. Do not under-budget the day by picking small recipes everywhere.",
     "Match each meal in your output to a budget entry by (slotIndex, isSide). Format: [{slotIndex, isSide, calories}]:",
@@ -170,7 +170,7 @@ export async function generateAiPlan(input: AiPlanInput): Promise<AiPlan | null>
     "Recipe catalog (id, title, category, kcal, protein, carbs, fat, time minutes):",
     JSON.stringify(catalog),
     "",
-    'Respond ONLY with raw JSON of shape: {"days":[{"dayIndex":1,"meals":[{"slotIndex":0,"isSide":false,"recipeId":123}, {"slotIndex":1,"isSide":false,"aiRecipe":{"title":"...","category":"lunch","calories":500,"protein":30,"carbs":50,"fat":15,"ingredients":["..."],"instructions":["..."]}}]}, ... 7 entries]}',
+    'Respond ONLY with raw JSON of shape: {"days":[{"dayIndex":1,"meals":[{"slotIndex":0,"isSide":false,"recipeId":123}, {"slotIndex":1,"isSide":false,"aiRecipe":{"title":"...","category":"lunch","calories":500,"protein":30,"carbs":50,"fat":15,"ingredients":["..."],"instructions":["..."]}}]}, ... 3 entries]}',
   ]
     .filter(Boolean)
     .join("\n");
@@ -186,7 +186,7 @@ export async function generateAiPlan(input: AiPlanInput): Promise<AiPlan | null>
 
   if (!result.data) return null;
 
-  // Validate completeness: each of the 7 days must have exactly one meal entry
+  // Validate completeness: each of the 3 days must have exactly one meal entry
   // for every expected (slotIndex, isSide) pair from `entries`. If anything is
   // missing or duplicated, treat as a failure so the caller falls back.
   const expectedPerDay = entries.map((e) => ({ slotIndex: e.slotIndex, isSide: e.isSide }));
@@ -204,7 +204,7 @@ export async function generateAiPlan(input: AiPlanInput): Promise<AiPlan | null>
       if (meal.recipeId !== undefined && !allowed.has(meal.recipeId)) return null;
     }
   }
-  if (seenDayIndexes.size !== 7) return null;
+  if (seenDayIndexes.size !== 3) return null;
 
   // Log days that miss the daily target. Info-only so we can see how often
   // the AI under-budgets in production. No retry yet — if these warnings

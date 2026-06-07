@@ -17200,7 +17200,7 @@ Keep your response concise, practical, and evidence-based. Do not use em dashes.
     } else {
       // Fallback: existing scoring-based generator
       const usedRecipeIds: number[] = [];
-      for (let dayIndex = 1; dayIndex <= 7; dayIndex++) {
+      for (let dayIndex = 1; dayIndex <= 3; dayIndex++) {
         const day = await storage.createMealPlanDay({ mealPlanId: plan.id, dayIndex, totalCalories: 0 });
         let dayCalories = 0;
         for (let i = 0; i < mealEntries.length; i++) {
@@ -17285,7 +17285,7 @@ Keep your response concise, practical, and evidence-based. Do not use em dashes.
       // call fails for a slot we fall back to a deterministic placeholder
       // (also flagged aiGenerated) so the plan is never left incomplete.
       const { generateGapFillRecipe } = await import('./mealPlanAi');
-      for (let dayIndex = 1; dayIndex <= 7; dayIndex++) {
+      for (let dayIndex = 1; dayIndex <= 3; dayIndex++) {
         // Make sure the day row exists
         let dayRec = dayIdByIndex.get(dayIndex);
         if (!dayRec) {

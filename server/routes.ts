@@ -16778,15 +16778,7 @@ Keep your response concise, practical, and evidence-based. Do not use em dashes.
       res.json(result);
     } catch (error: any) {
       console.error("Error creating meal plan:", error?.message || error);
-      // DEBUG: surface the real error to the client until we have prod logs.
-      res.status(500).json({
-        message: "Failed to create meal plan",
-        debug: {
-          error: error?.message || String(error),
-          name: error?.name,
-          stack: (error?.stack || '').split('\n').slice(0, 8),
-        },
-      });
+      res.status(500).json({ message: "Failed to create meal plan" });
     }
   });
 
@@ -17097,28 +17089,14 @@ Keep your response concise, practical, and evidence-based. Do not use em dashes.
     const mealEntries = getMealEntries(slots);
     const dailyMax = Math.round(caloriesPerDay * 1.10);
 
-    let aiPlan: Awaited<ReturnType<typeof generateAiPlan>> | null = null;
-    let aiCandidates: Awaited<ReturnType<typeof storage.getRecipesForMealPlan>> = [];
-    if (useAi) {
-      try {
-        aiCandidates = await storage.getRecipesForMealPlan({
-          caloriesPerDay, macroSplit, mealsPerDay: slots.length, dietaryPreference,
-          excludedIngredients, maxPrepTime,
-          includeUserId: userId,
-        });
-        // Always attempt AI (even with empty catalog — the model may fully gap-fill).
-        aiPlan = await generateAiPlan({
-          userId, caloriesPerDay, macroSplit, dietaryPreference,
-          excludedIngredients, maxPrepTime, mealSlots: slots, recipes: aiCandidates,
-          lockedMeals: lockedMeals.map((l) => ({
-            dayIndex: l.dayIndex, slotIndex: l.slotIndex, isSide: l.isSide,
-            recipeId: l.recipeId, recipeTitle: l.recipeTitle,
-          })),
-        });
-      } catch (err: any) {
-        console.error('[meal_plan_generation] AI failed, falling back:', err?.message);
-      }
-    }
+    // Library-first: skip the AI plan call and always use the deterministic
+    // builder below. With ~200 library recipes the builder produces fast,
+    // varied, on-target plans. AI is retained as gap-fill (further down) for
+    // slots the deterministic builder can't fill due to restrictive filters.
+    // The `useAi` flag still controls whether gap-fill may invent recipes.
+    const aiPlan: Awaited<ReturnType<typeof generateAiPlan>> | null = null;
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars
+    const _aiUnused = generateAiPlan;
 
     // Insert as INACTIVE so the user's currently-active plan stays intact
     // until we've persisted every day/meal/shopping-list. We activate at the

@@ -11412,9 +11412,13 @@ export class DatabaseStorage implements IStorage {
         return [];
       }
 
-      // Then prefer recipes within ±20% of target
-      const minCals = targetCals * 0.80;
-      const maxCals = targetCals * 1.20;
+      // Then prefer recipes within ±25% of target. Slightly wider than
+      // ±20% so library mains that sit just below the preferred band still
+      // make the scoring pool — combined with the asymmetric calorie
+      // scoring, the picker tends toward the upper end of the band so day
+      // totals land closer to budget.
+      const minCals = targetCals * 0.75;
+      const maxCals = targetCals * 1.25;
       const preferredRecipes = filteredRecipes.filter(r => r.calories >= minCals && r.calories <= maxCals);
       
       // Use preferred if available, otherwise use all filtered

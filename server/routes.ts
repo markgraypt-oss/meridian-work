@@ -19237,7 +19237,21 @@ Respond as the coach. Be personalised, reference their actual data and specific 
   app.get('/api/coach/briefing/today', isAuthenticated, async (req: any, res) => {
     try {
       const userId = req.user.claims.sub;
-      const hour = new Date().getHours();
+      // Resolve hour in the user's timezone (matches scheduledBriefings.ts).
+      const _tzRow = await db.select({ timezone: users.timezone }).from(users).where(eq(users.id, userId)).limit(1);
+      const _userTz = _tzRow[0]?.timezone ?? null;
+      const _now = new Date();
+      let hour: number;
+      if (_userTz) {
+        try {
+          const fmt = new Intl.DateTimeFormat('en-GB', { timeZone: _userTz, hour: 'numeric', hour12: false });
+          hour = parseInt(fmt.format(_now), 10);
+        } catch {
+          hour = _now.getHours();
+        }
+      } else {
+        hour = _now.getHours();
+      }
       // Two GENERATION windows (local server time):
       //   Morning Briefing — 06:00 to 11:59
       //   Evening Debrief  — 20:00 onwards
@@ -19299,6 +19313,16 @@ Respond as the coach. Be personalised, reference their actual data and specific 
         (requested === 'morning' || requested === 'evening') && requested === windowType
           ? requested
           : windowType;
+
+      // Morning briefing gate: before 10:00 local, do NOT generate if the
+      // user has not yet logged today's check-in. The check-in POST handler
+      // will trigger generation immediately when they check in. From 10:00
+      // local onwards we fall through and generate without it. Evening
+      // unchanged. Mirrors the scheduler sweep rule in scheduledBriefings.ts.
+      if (type === 'morning' && hour < 10) {
+        const todayCheckIn = await storage.getTodayCheckIn(userId, _userTz);
+        if (!todayCheckIn) return res.status(204).end();
+      }
 
       const { getOrGenerateBriefing } = await import('./coach/briefings');
       const briefing = await getOrGenerateBriefing(userId, type);

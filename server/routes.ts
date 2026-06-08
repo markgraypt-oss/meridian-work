@@ -17184,7 +17184,17 @@ Keep your response concise, practical, and evidence-based. Do not use em dashes.
         await storage.updateMealPlanDay(day.id, { totalCalories: dayCalories });
       }
     } else {
-      // Fallback: existing scoring-based generator
+      // Fallback: existing scoring-based generator.
+      // Per-slot calorie budgets computed from the user's meal mix so each
+      // slot targets its proper share (e.g. snacks ~10%, mains ~35%) rather
+      // than naive caloriesPerDay/mealCount which gives every slot the same
+      // share and forces snacks to overshoot or mains to undershoot.
+      const { computeSlotBudgets } = await import('./mealPlanAi');
+      const slotBudgets = computeSlotBudgets(slots, caloriesPerDay);
+      const slotBudgetMap = new Map<string, number>();
+      for (const b of slotBudgets) {
+        slotBudgetMap.set(`${b.slotIndex}:${b.isSide ? 1 : 0}`, b.calories);
+      }
       const usedRecipeIds: number[] = [];
       for (let dayIndex = 1; dayIndex <= 3; dayIndex++) {
         const day = await storage.createMealPlanDay({ mealPlanId: plan.id, dayIndex, totalCalories: 0 });
@@ -17202,13 +17212,14 @@ Keep your response concise, practical, and evidence-based. Do not use em dashes.
             dayCalories += lock.calories;
             continue;
           }
-          const mealsRemaining = mealEntries.length - i;
           if (dayCalories >= dailyMax) break;
           const roomUntilMax = dailyMax - dayCalories;
           if (roomUntilMax < 50) continue;
-          const targetCaloriesPerMeal = entry.isSide
-            ? Math.round((roomUntilMax / mealsRemaining) * 0.4)
-            : Math.round(roomUntilMax / mealsRemaining);
+          // Use the per-slot budget for the target. Falls back to a naive
+          // share only if the lookup misses (defensive — shouldn't happen).
+          const mealsRemaining = mealEntries.length - i;
+          const targetCaloriesPerMeal = slotBudgetMap.get(`${entry.slotIndex}:${entry.isSide ? 1 : 0}`)
+            ?? Math.round(roomUntilMax / mealsRemaining);
           const mealTypeForSearch = entry.type === 'side' ? 'main' : entry.type;
           const recipes = await storage.getRecipesForMealPlan({
             caloriesPerDay, macroSplit, mealsPerDay: slots.length, dietaryPreference,

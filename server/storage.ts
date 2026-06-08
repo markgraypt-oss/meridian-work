@@ -11422,9 +11422,16 @@ export class DatabaseStorage implements IStorage {
 
       // Score each recipe
       const scoredRecipes = recipesToScore.map((recipe) => {
-        // Calorie score: how close to target (0-100, higher is better)
-        const calorieDiff = Math.abs(recipe.calories - targetCals);
-        const calorieScore = Math.max(0, 100 - (calorieDiff / targetCals) * 100);
+        // Calorie score: how close to target (0-100, higher is better).
+        // Asymmetric: under-target picks are penalised 2x harder than over-target
+        // ones. With a library that skews lower than typical calorie targets,
+        // symmetric scoring biased every meal downward; this favours recipes at
+        // or slightly above target so day totals land on budget.
+        const calorieDiff = recipe.calories - targetCals;
+        const normalisedDiff = calorieDiff < 0
+          ? Math.abs(calorieDiff) / targetCals * 2
+          : Math.abs(calorieDiff) / targetCals;
+        const calorieScore = Math.max(0, 100 - normalisedDiff * 100);
         
         // Macro score: use CALORIC ratios, not gram ratios
         // Protein: 4 cal/g, Carbs: 4 cal/g, Fat: 9 cal/g

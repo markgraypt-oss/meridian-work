@@ -17217,8 +17217,13 @@ Keep your response concise, practical, and evidence-based. Do not use em dashes.
             includeUserId: userId,
           });
           if (recipes.length > 0) {
-            const validRecipe = recipes.find((r) => dayCalories + r.calories <= dailyMax);
-            if (validRecipe) {
+            // Pick randomly from the top 5 valid candidates so regenerates
+            // produce visibly different plans. Top-N keeps fit-to-target;
+            // the random pick adds variety.
+            const validPool = recipes.filter((r) => dayCalories + r.calories <= dailyMax);
+            if (validPool.length > 0) {
+              const topN = validPool.slice(0, Math.min(5, validPool.length));
+              const validRecipe = topN[Math.floor(Math.random() * topN.length)];
               usedRecipeIds.push(validRecipe.id);
               const mealTypeWithSlot = entry.isSide ? `side_${entry.slotIndex}` : `${entry.type}_${entry.slotIndex}`;
               await storage.createMealPlanMeal({

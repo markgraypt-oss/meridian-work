@@ -99,8 +99,8 @@ export function registerWearableRoutes(app: Express) {
     const stored = req.session?.wearableOauth as OAuthState | undefined;
 
     const closeWindow = (msg: string, ok: boolean) => {
-      res.setHeader("Content-Type", "text/html");
-      res.send(`<!doctype html><html><body style="font-family:system-ui;padding:24px;background:#0a0a0a;color:#fff;text-align:center"><h2>${ok ? "Connected" : "Connection failed"}</h2><p>${msg}</p><script>setTimeout(()=>{window.close(); if(window.opener){window.opener.postMessage({type:'wearable_oauth_done', provider:'${provider}', ok:${ok}}, '*');}}, 1500)</script></body></html>`);
+      const deepLink = `meridian://wearables/callback?provider=${provider}&ok=${ok}&msg=${encodeURIComponent(msg)}`;
+      res.redirect(deepLink);
     };
 
     if (error) {

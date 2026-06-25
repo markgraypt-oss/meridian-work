@@ -2,7 +2,7 @@ import type { WearableAdapter, OAuthTokens, NormalisedDailyMetrics } from "./typ
 
 const AUTH_URL = "https://api.prod.whoop.com/oauth/oauth2/auth";
 const TOKEN_URL = "https://api.prod.whoop.com/oauth/oauth2/token";
-const API_BASE = "https://api.prod.whoop.com/developer/v1";
+const API_BASE = "https://api.prod.whoop.com/developer/v2";
 
 export const whoopAdapter: WearableAdapter = {
   provider: "whoop",

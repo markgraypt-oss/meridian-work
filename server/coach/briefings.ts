@@ -351,21 +351,16 @@ interface BriefingContextSnapshot {
 
 async function buildWearableSnapshot(userId: string): Promise<WearableDaySnapshot[]> {
   try {
-    const { getRecentWearableMetrics } = await import("../wearables");
-    const { rows } = await getRecentWearableMetrics(userId, 14);
-    const PRIORITY: Record<string, number> = { oura: 4, whoop: 3, apple_health: 2, google_fit: 1 };
-    const byDate = new Map<string, any>();
-    for (const r of rows) {
-      const cur = byDate.get(r.date);
-      if (!cur || (PRIORITY[r.provider] || 0) > (PRIORITY[cur.provider] || 0)) {
-        byDate.set(r.date, r);
-      }
-    }
-    return Array.from(byDate.values())
+    const { getMergedDailyMetrics } = await import("../wearables");
+    const merged = await getMergedDailyMetrics(userId, 14);
+    return merged
       .sort((a, b) => b.date.localeCompare(a.date))
       .map((r) => ({
         date: r.date,
-        provider: r.provider,
+        // Per-metric merge: a day can mix sources. Label with the sleep/HRV
+        // source (the physiological provider these snapshots are about),
+        // falling back to the steps source, then any source present.
+        provider: r._sources.sleepMinutes || r._sources.hrvMs || r._sources.steps || r.provider,
         steps: r.steps ?? null,
         sleepMinutes: r.sleepMinutes ?? null,
         sleepDeepMinutes: r.sleepDeepMinutes != null ? Math.round(r.sleepDeepMinutes) : null,

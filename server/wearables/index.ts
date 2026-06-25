@@ -268,7 +268,7 @@ async function refreshIfNeeded(conn: WearableConnection, adapter: WearableAdapte
 export async function syncProvider(userId: string, provider: WearableProvider, opts: { days?: number; trigger?: string } = {}): Promise<{ daysSynced: number; status: "ok" | "error"; error?: string }> {
   const adapter = getAdapter(provider);
   // 30-day backfill on initial OAuth, 7-day rolling window on scheduled/manual
-  const defaultDays = opts.trigger === "oauth_callback" ? 30 : 7;
+  const defaultDays = opts.trigger === "oauth_callback" ? 90 : 7;
   const days = opts.days ?? defaultDays;
   const trigger = opts.trigger || "manual";
 
@@ -415,4 +415,92 @@ export async function getRecentWearableMetrics(userId: string, days = 30): Promi
     }
   }
   return { rows, bestProviderByDate };
+}
+
+// Per-metric provider priority. Different metrics trust different sources:
+//  - Physiological signals (HRV, RHR, sleep, VO2, readiness) are most accurate
+//    from dedicated wearables: oura > whoop, then apple/google as fallback.
+//  - Activity signals (steps, energy, exercise minutes) are most complete from
+//    the phone/watch all-day tracking: apple/google > oura/whoop as fallback.
+//  - Strain is a WHOOP-only metric.
+const PHYSIO_PRIORITY: Record<string, number> = { oura: 4, whoop: 3, apple_health: 2, google_fit: 1 };
+const ACTIVITY_PRIORITY: Record<string, number> = { apple_health: 4, google_fit: 3, oura: 2, whoop: 1 };
+
+// Which priority table each metric field uses.
+const PHYSIO_FIELDS = ['hrvMs', 'restingHrBpm', 'sleepMinutes', 'sleepDeepMinutes', 'sleepRemMinutes', 'sleepLightMinutes', 'sleepAwakeMinutes', 'sleepScore', 'vo2MaxMlKgMin', 'readinessScore'] as const;
+const ACTIVITY_FIELDS = ['steps', 'caloriesBurned', 'activeMinutes', 'workoutCount'] as const;
+// strainScore is WHOOP-only, taken from whichever row has it.
+
+export interface MergedDailyMetric extends WearableMetricsDaily {
+  // Map of metric field -> provider it was sourced from, for provenance labelling.
+  _sources: Record<string, string>;
+}
+
+// Merge all provider rows into ONE row per date, selecting each metric field
+// independently from the highest-priority provider that has a non-null value
+// for that specific field. This means a single day's merged row can mix e.g.
+// WHOOP HRV + Apple steps + WHOOP strain. Gaps fill from the next provider
+// down automatically.
+export function mergeMetricsPerDay(rows: WearableMetricsDaily[]): MergedDailyMetric[] {
+  const byDate = new Map<string, WearableMetricsDaily[]>();
+  for (const r of rows) {
+    const arr = byDate.get(r.date) ?? [];
+    arr.push(r);
+    byDate.set(r.date, arr);
+  }
+
+  const pickField = (dayRows: WearableMetricsDaily[], field: string, priority: Record<string, number>): { value: any; provider: string | null } => {
+    let best: any = null;
+    let bestProvider: string | null = null;
+    let bestRank = -1;
+    for (const r of dayRows) {
+      const v = (r as any)[field];
+      if (v === null || v === undefined) continue;
+      if (typeof v === 'number' && !Number.isFinite(v)) continue;
+      const rank = priority[r.provider] || 0;
+      if (rank > bestRank) {
+        bestRank = rank;
+        best = v;
+        bestProvider = r.provider;
+      }
+    }
+    return { value: best, provider: bestProvider };
+  };
+
+  const out: MergedDailyMetric[] = [];
+  for (const [date, dayRows] of byDate) {
+    // Seed the merged row off the highest physio-priority provider's row so
+    // non-metric fields (id, userId, raw, timestamps) have sensible values.
+    const seed = dayRows.slice().sort((a, b) => (PHYSIO_PRIORITY[b.provider] || 0) - (PHYSIO_PRIORITY[a.provider] || 0))[0];
+    const merged: any = { ...seed, _sources: {} as Record<string, string> };
+
+    for (const field of PHYSIO_FIELDS) {
+      const { value, provider } = pickField(dayRows, field, PHYSIO_PRIORITY);
+      merged[field] = value;
+      if (provider) merged._sources[field] = provider;
+    }
+    for (const field of ACTIVITY_FIELDS) {
+      const { value, provider } = pickField(dayRows, field, ACTIVITY_PRIORITY);
+      merged[field] = value;
+      if (provider) merged._sources[field] = provider;
+    }
+    // Strain: WHOOP-only. Take it from any row that has it (only WHOOP will).
+    const strainRow = dayRows.find((r) => r.strainScore != null);
+    merged.strainScore = strainRow ? strainRow.strainScore : null;
+    if (strainRow) merged._sources.strainScore = strainRow.provider;
+
+    out.push(merged as MergedDailyMetric);
+  }
+
+  out.sort((a, b) => a.date.localeCompare(b.date));
+  return out;
+}
+
+// Convenience: fetch + merge in one call. Returns one clean row per date with
+// per-metric source selection already applied.
+export async function getMergedDailyMetrics(userId: string, days = 30): Promise<MergedDailyMetric[]> {
+  const cutoff = dateOnly(new Date(Date.now() - days * 24 * 60 * 60 * 1000));
+  const rows = await db.select().from(wearableMetricsDaily)
+    .where(and(eq(wearableMetricsDaily.userId, userId), sql`${wearableMetricsDaily.date} >= ${cutoff}`));
+  return mergeMetricsPerDay(rows);
 }

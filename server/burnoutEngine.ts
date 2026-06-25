@@ -42,15 +42,30 @@ interface BurnoutDataSources {
 }
 
 // Convert wearable_metrics_daily rows into the SleepEntry/StepEntry shapes
-// the existing scoring functions already understand. We pick the highest-priority
-// provider per day (oura > whoop > apple_health > google_fit).
-const WEARABLE_PRIORITY: Record<string, number> = { oura: 4, whoop: 3, apple_health: 2, google_fit: 1 };
+// the existing scoring functions already understand.
+//
+// Source priority differs by metric type:
+//  - Sleep is a physiological signal: oura > whoop > apple > google.
+//  - Steps/activity are all-day tracking signals: apple > google > oura > whoop.
+// Each converter picks the best provider per day for ITS metric, filling gaps
+// from the next provider down.
+const PHYSIO_PRIORITY: Record<string, number> = { oura: 4, whoop: 3, apple_health: 2, google_fit: 1 };
+const ACTIVITY_PRIORITY: Record<string, number> = { apple_health: 4, google_fit: 3, oura: 2, whoop: 1 };
+// Back-compat: the HRV/RHR composite block below references WEARABLE_PRIORITY.
+// Those are physiological metrics, so it maps to the physio order.
+const WEARABLE_PRIORITY = PHYSIO_PRIORITY;
 
-function pickBestPerDay(metrics: WearableMetricsDaily[]): WearableMetricsDaily[] {
+// Pick the best row per day for a specific field, by the given provider order.
+// Returns one row per date: the highest-priority provider that has a non-null
+// value for `field` that day.
+function bestRowsForField(metrics: WearableMetricsDaily[], field: string, priority: Record<string, number>): WearableMetricsDaily[] {
   const byDate = new Map<string, WearableMetricsDaily>();
+  const rank = (p: string) => priority[p] || 0;
   for (const m of metrics) {
+    const v = (m as any)[field];
+    if (v === null || v === undefined) continue;
     const cur = byDate.get(m.date);
-    if (!cur || (WEARABLE_PRIORITY[m.provider] || 0) > (WEARABLE_PRIORITY[cur.provider] || 0)) {
+    if (!cur || rank(m.provider) > rank(cur.provider)) {
       byDate.set(m.date, m);
     }
   }
@@ -58,7 +73,7 @@ function pickBestPerDay(metrics: WearableMetricsDaily[]): WearableMetricsDaily[]
 }
 
 function wearablesToSleepEntries(metrics: WearableMetricsDaily[]): SleepEntry[] {
-  return pickBestPerDay(metrics)
+  return bestRowsForField(metrics, 'sleepMinutes', PHYSIO_PRIORITY)
     .filter((m) => m.sleepMinutes != null)
     .map((m) => ({
       id: 0, userId: m.userId,
@@ -75,7 +90,7 @@ function wearablesToSleepEntries(metrics: WearableMetricsDaily[]): SleepEntry[] 
 }
 
 function wearablesToStepEntries(metrics: WearableMetricsDaily[]): StepEntry[] {
-  return pickBestPerDay(metrics)
+  return bestRowsForField(metrics, 'steps', ACTIVITY_PRIORITY)
     .filter((m) => m.steps != null)
     .map((m) => ({
       id: 0, userId: m.userId,

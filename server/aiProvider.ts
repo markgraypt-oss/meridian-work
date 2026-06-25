@@ -565,23 +565,17 @@ export async function getUserDataContext(userId: string, feature: string): Promi
     };
     const PROVIDER_PRIORITY: Record<string, number> = { oura: 4, whoop: 3, apple_health: 2, google_fit: 1 };
     let wearableRows: any[] = [];
-    let wearableByDate = new Map<string, any>();
+    let bestWearableDays: any[] = [];
     if (domains.includes('sleep') || domains.includes('steps') || domains.includes('resting_hr')) {
       try {
-        const { getRecentWearableMetrics } = await import('./wearables');
-        const w = await getRecentWearableMetrics(userId, 14);
-        wearableRows = w.rows;
-        for (const r of wearableRows) {
-          const cur = wearableByDate.get(r.date);
-          if (!cur || (PROVIDER_PRIORITY[r.provider] || 0) > (PROVIDER_PRIORITY[cur.provider] || 0)) {
-            wearableByDate.set(r.date, r);
-          }
-        }
+        const { getMergedDailyMetrics } = await import('./wearables');
+        // Per-metric merge: each field already sourced from its best provider.
+        bestWearableDays = (await getMergedDailyMetrics(userId, 14)).sort((a, b) => b.date.localeCompare(a.date));
+        wearableRows = bestWearableDays;
       } catch (e) {
         console.error('[ai-context] wearable fetch failed', e);
       }
     }
-    const bestWearableDays = Array.from(wearableByDate.values()).sort((a, b) => b.date.localeCompare(a.date));
 
     if (domains.includes('sleep')) {
       // Format sleep durations as "Xh Ym" (e.g. "6h 54m") — never decimal
@@ -598,10 +592,11 @@ export async function getUserDataContext(userId: string, feature: string): Promi
       if (wSleep.length > 0) {
         const avgDuration = wSleep.reduce((s, e) => s + (e.sleepMinutes || 0), 0) / wSleep.length;
         const latest = wSleep[0];
-        const src = PROVIDER_LABEL[latest.provider] || latest.provider;
+        const latestSrc = latest._sources?.sleepMinutes || latest.provider;
+        const src = PROVIDER_LABEL[latestSrc] || latestSrc;
         context += `\n\n--- Sleep (last ${wSleep.length} days, from ${src}) ---`;
         context += `\nAvg duration: ${formatHM(avgDuration)}`;
-        context += `\nMost recent (${latest.date}, from ${PROVIDER_LABEL[latest.provider] || latest.provider}): ${formatHM(latest.sleepMinutes)}${latest.sleepScore ? `, score ${latest.sleepScore}/100` : ''}${latest.sleepDeepMinutes ? `, deep ${Math.round(latest.sleepDeepMinutes)}min` : ''}${latest.sleepRemMinutes ? `, REM ${Math.round(latest.sleepRemMinutes)}min` : ''}`;
+        context += `\nMost recent (${latest.date}, from ${PROVIDER_LABEL[latestSrc] || latestSrc}): ${formatHM(latest.sleepMinutes)}${latest.sleepScore ? `, score ${latest.sleepScore}/100` : ''}${latest.sleepDeepMinutes ? `, deep ${Math.round(latest.sleepDeepMinutes)}min` : ''}${latest.sleepRemMinutes ? `, REM ${Math.round(latest.sleepRemMinutes)}min` : ''}`;
         if (latest.hrvMs) context += `, HRV ${Math.round(latest.hrvMs)}ms`;
       } else {
         const sleepEntries = await storage.getSleepEntries(userId, 14);
@@ -623,10 +618,11 @@ export async function getUserDataContext(userId: string, feature: string): Promi
       if (wSteps.length > 0) {
         const avgSteps = wSteps.reduce((s, e) => s + (e.steps || 0), 0) / wSteps.length;
         const latest = wSteps[0];
-        const src = PROVIDER_LABEL[latest.provider] || latest.provider;
+        const latestSrc = latest._sources?.steps || latest.provider;
+        const src = PROVIDER_LABEL[latestSrc] || latestSrc;
         context += `\n\n--- Activity (last ${wSteps.length} days, from ${src}) ---`;
         context += `\nAvg daily steps: ${Math.round(avgSteps).toLocaleString()}`;
-        context += `\nMost recent (${latest.date}, from ${PROVIDER_LABEL[latest.provider] || latest.provider}): ${latest.steps.toLocaleString()} steps${latest.activeMinutes ? `, ${latest.activeMinutes} active min` : ''}${latest.caloriesBurned ? `, ${latest.caloriesBurned} kcal` : ''}`;
+        context += `\nMost recent (${latest.date}, from ${PROVIDER_LABEL[latestSrc] || latestSrc}): ${latest.steps.toLocaleString()} steps${latest.activeMinutes ? `, ${latest.activeMinutes} active min` : ''}${latest.caloriesBurned ? `, ${latest.caloriesBurned} kcal` : ''}`;
       } else {
         const stepEntries = await storage.getStepEntries(userId, 14);
         if (stepEntries.length > 0) {
@@ -646,10 +642,11 @@ export async function getUserDataContext(userId: string, feature: string): Promi
       if (wHr.length > 0) {
         const avgBpm = wHr.reduce((s, e) => s + (e.restingHrBpm || 0), 0) / wHr.length;
         const latest = wHr[0];
-        const src = PROVIDER_LABEL[latest.provider] || latest.provider;
+        const latestSrc = latest._sources?.restingHrBpm || latest.provider;
+        const src = PROVIDER_LABEL[latestSrc] || latestSrc;
         context += `\n\n--- Resting Heart Rate (last ${wHr.length} days, from ${src}) ---`;
         context += `\nAvg resting HR: ${Math.round(avgBpm)} bpm`;
-        context += `\nMost recent (${latest.date}, from ${PROVIDER_LABEL[latest.provider] || latest.provider}): ${latest.restingHrBpm} bpm${latest.hrvMs ? `, HRV ${Math.round(latest.hrvMs)}ms` : ''}${latest.readinessScore ? `, readiness ${latest.readinessScore}/100` : ''}`;
+        context += `\nMost recent (${latest.date}, from ${PROVIDER_LABEL[latestSrc] || latestSrc}): ${latest.restingHrBpm} bpm${latest.hrvMs ? `, HRV ${Math.round(latest.hrvMs)}ms` : ''}${latest.readinessScore ? `, readiness ${latest.readinessScore}/100` : ''}`;
         if (wHr.length >= 7) {
           const recentAvg = wHr.slice(0, 7).reduce((s, e) => s + e.restingHrBpm, 0) / 7;
           const olderAvg = wHr.slice(7).reduce((s, e) => s + e.restingHrBpm, 0) / (wHr.length - 7);

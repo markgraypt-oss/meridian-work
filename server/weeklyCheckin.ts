@@ -363,32 +363,19 @@ export async function aggregateWeekV2(userId: string, weekStart: Date): Promise<
     return d >= weekStart && d < weekEnd;
   });
 
-  // Prefer the row from the highest-priority provider for each date
-  // (oura > whoop > apple_health > google_fit). If that row has no value
-  // for the requested metric, fall back to any other provider's value.
-  const bestProviderByDate = wearable.bestProviderByDate as Map<string, string>;
+  // Per-metric merge: each field (HRV, calories, readiness, strain, etc.) is
+  // independently sourced from its best provider — physiological signals from
+  // oura/whoop, activity signals from apple/google, strain from whoop. One
+  // merged row per date, so bestByDay simply reads the field off that row.
+  const { mergeMetricsPerDay } = await import("./wearables");
+  const weekMergedRows = mergeMetricsPerDay(weekWearableRows);
   const bestByDay = <T,>(extract: (r: any) => T | null | undefined): T[] => {
-    const byDate = new Map<string, any[]>();
-    for (const r of weekWearableRows) {
-      const arr = byDate.get(r.date) ?? [];
-      arr.push(r);
-      byDate.set(r.date, arr);
-    }
     const out: T[] = [];
-    for (const [date, rows] of byDate) {
-      const preferred = bestProviderByDate.get(date);
-      const ordered = rows.slice().sort((a, b) => {
-        if (a.provider === preferred && b.provider !== preferred) return -1;
-        if (b.provider === preferred && a.provider !== preferred) return 1;
-        return 0;
-      });
-      for (const r of ordered) {
-        const v = extract(r);
-        if (v === null || v === undefined) continue;
-        if (typeof v === "number" && !Number.isFinite(v)) continue;
-        out.push(v);
-        break;
-      }
+    for (const r of weekMergedRows) {
+      const v = extract(r);
+      if (v === null || v === undefined) continue;
+      if (typeof v === "number" && !Number.isFinite(v)) continue;
+      out.push(v);
     }
     return out;
   };

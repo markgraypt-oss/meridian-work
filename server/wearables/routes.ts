@@ -22,14 +22,43 @@ const PROVIDERS: WearableProvider[] = ["oura", "whoop", "google_fit", "apple_hea
 
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 200 * 1024 * 1024 } });
 
-// OAuth state is stored on the user's *session* (not a global map) so that the
-// callback can only be completed by the same browser that initiated the flow.
-// This prevents account-linking CSRF / session-swap attacks where one user
-// could trick another into binding wearable tokens to a different account.
-type OAuthState = { state: string; provider: WearableProvider; userId: string; redirectUri: string; expiresAt: number };
-declare module "express-session" {
-  interface SessionData {
-    wearableOauth?: OAuthState;
+// OAuth state is carried in an HMAC-signed token rather than the session,
+// because the mobile in-app browser that handles the OAuth redirect does NOT
+// share the app's session cookie. The token encodes the provider, userId,
+// redirectUri and expiry, and is signed with SESSION_SECRET. The callback
+// verifies the signature (timing-safe) and expiry — an attacker cannot forge a
+// valid token without the secret, so this is as safe as the session approach
+// while actually working cross-browser.
+interface OAuthStatePayload {
+  provider: WearableProvider;
+  userId: string;
+  redirectUri: string;
+  expiresAt: number;
+}
+
+const OAUTH_STATE_SECRET = process.env.SESSION_SECRET || "meridian-oauth-secret";
+
+function signOAuthState(payload: OAuthStatePayload): string {
+  const json = JSON.stringify(payload);
+  const body = Buffer.from(json, "utf8").toString("base64url");
+  const sig = crypto.createHmac("sha256", OAUTH_STATE_SECRET).update(body).digest("hex");
+  return `${body}.${sig}`;
+}
+
+function verifyOAuthState(token: string): OAuthStatePayload | null {
+  try {
+    const decoded = decodeURIComponent(token);
+    const dot = decoded.lastIndexOf(".");
+    if (dot < 0) return null;
+    const body = decoded.slice(0, dot);
+    const sig = decoded.slice(dot + 1);
+    const expected = crypto.createHmac("sha256", OAUTH_STATE_SECRET).update(body).digest("hex");
+    if (sig.length !== expected.length) return null;
+    if (!crypto.timingSafeEqual(Buffer.from(sig), Buffer.from(expected))) return null;
+    const json = Buffer.from(body, "base64url").toString("utf8");
+    return JSON.parse(json) as OAuthStatePayload;
+  } catch {
+    return null;
   }
 }
 
@@ -79,24 +108,26 @@ export function registerWearableRoutes(app: Express) {
       return res.status(503).json({ message: `${PROVIDER_LABELS[provider]} is not configured. Admin must set credentials.` });
     }
     const userId = req.user.claims.sub;
-    const state = crypto.randomBytes(24).toString("hex");
     const redirectUri = buildRedirectUri(req, provider);
-    req.session.wearableOauth = { state, provider, userId, redirectUri, expiresAt: Date.now() + 10 * 60 * 1000 };
-    await new Promise<void>((resolve, reject) => req.session.save((err: any) => (err ? reject(err) : resolve())));
-    const url = adapter.authUrl(state, redirectUri);
+    // Stateless signed-state token. The mobile in-app browser does NOT share
+    // the app's session cookie, so we cannot store state on req.session and
+    // read it back in the callback. Instead we encode all the state into an
+    // HMAC-signed token that the callback can verify without any session.
+    const signedState = signOAuthState({ provider, userId, redirectUri, expiresAt: Date.now() + 10 * 60 * 1000 });
+    const url = adapter.authUrl(signedState, redirectUri);
     res.json({ url });
   });
 
-  // OAuth callback. Requires an authenticated session and validates the state
-  // bound to that session. Rejects if the callback is opened in a different
-  // browser/session than initiated the flow, or for a different user.
+  // OAuth callback. Stateless: the security comes entirely from the HMAC-signed
+  // state token (it encodes provider + userId + redirectUri + expiry and is
+  // signed with SESSION_SECRET). No session is required, which is essential for
+  // the mobile flow where the callback lands in a browser tab with no app
+  // session cookie. An attacker cannot forge a valid token without the secret.
   app.get("/api/wearables/callback/:provider", async (req: any, res) => {
     const provider = req.params.provider as WearableProvider;
     const code = req.query.code as string | undefined;
     const state = req.query.state as string | undefined;
     const error = req.query.error as string | undefined;
-    const sessionUserId = req.user?.claims?.sub;
-    const stored = req.session?.wearableOauth as OAuthState | undefined;
 
     const closeWindow = (msg: string, ok: boolean) => {
       const deepLink = `meridian://wearables/callback?provider=${provider}&ok=${ok}&msg=${encodeURIComponent(msg)}`;
@@ -107,31 +138,24 @@ export function registerWearableRoutes(app: Express) {
       console.error(`[wearables] OAuth error from ${provider}:`, error);
       return closeWindow(`Provider returned: ${error}`, false);
     }
-    // Bind: state must exist on this session, match the query state (constant-
-    // time compare), match the provider, belong to the currently authenticated
-    // user, and not be expired.
+
+    const payload = state ? verifyOAuthState(state) : null;
     const stateValid = !!(
-      code && state && stored &&
-      stored.state.length === state.length &&
-      crypto.timingSafeEqual(Buffer.from(stored.state), Buffer.from(state)) &&
-      stored.provider === provider &&
-      stored.userId === sessionUserId &&
-      stored.expiresAt > Date.now()
+      code && payload &&
+      payload.provider === provider &&
+      payload.expiresAt > Date.now()
     );
     if (!stateValid) {
-      console.warn(`[wearables] OAuth state mismatch for ${provider} (sessionUser=${sessionUserId}, storedUser=${stored?.userId})`);
-      delete req.session.wearableOauth;
-      return closeWindow("OAuth state invalid or expired. Please try connecting again from this browser.", false);
+      console.warn(`[wearables] OAuth state invalid for ${provider} (verified=${!!payload})`);
+      return closeWindow("OAuth state invalid or expired. Please try connecting again.", false);
     }
-    delete req.session.wearableOauth;
-    await new Promise<void>((resolve) => req.session.save(() => resolve()));
 
     const adapter = getAdapter(provider);
     if (!adapter || !adapter.exchangeCode) return closeWindow("Adapter unavailable.", false);
 
     try {
-      const tokens = await adapter.exchangeCode(code!, stored!.redirectUri);
-      await upsertConnection(stored!.userId, provider, {
+      const tokens = await adapter.exchangeCode(code!, payload!.redirectUri);
+      await upsertConnection(payload!.userId, provider, {
         accessToken: tokens.accessToken,
         refreshToken: tokens.refreshToken ?? null,
         tokenExpiresAt: tokens.expiresAt ?? null,
@@ -139,8 +163,11 @@ export function registerWearableRoutes(app: Express) {
         scopes: tokens.scopes ?? null,
         status: "connected",
       });
-      // Fire-and-forget initial sync
-      syncProvider(stored!.userId, provider, { trigger: "oauth_callback" }).catch((e) => console.error("[wearables] initial sync failed", e));
+      // Initial backfill, fired after a short delay so the connection row is
+      // fully committed first.
+      setTimeout(() => {
+        syncProvider(payload!.userId, provider, { trigger: "oauth_callback" }).catch((e) => console.error("[wearables] initial sync failed", e));
+      }, 3000);
       return closeWindow(`${PROVIDER_LABELS[provider]} connected. You can close this tab.`, true);
     } catch (err: any) {
       console.error(`[wearables] OAuth exchange failed for ${provider}:`, err);

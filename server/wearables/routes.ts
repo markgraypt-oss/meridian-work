@@ -108,6 +108,22 @@ export function registerWearableRoutes(app: Express) {
       return res.status(503).json({ message: `${PROVIDER_LABELS[provider]} is not configured. Admin must set credentials.` });
     }
     const userId = req.user.claims.sub;
+
+    // Mutual exclusion: Oura and WHOOP are both full physiological providers
+    // (sleep, HRV, recovery). Allowing both at once would mean two competing
+    // sources for the same signals. Only one may be connected at a time — the
+    // user must disconnect one before connecting the other.
+    if (provider === "oura" || provider === "whoop") {
+      const other = provider === "oura" ? "whoop" : "oura";
+      const conns = await getConnections(userId);
+      const otherConn = conns.find((c) => c.provider === other && c.status === "connected");
+      if (otherConn) {
+        return res.status(409).json({
+          message: `Disconnect ${PROVIDER_LABELS[other]} first. You can only connect one of Oura or WHOOP at a time.`,
+        });
+      }
+    }
+
     const redirectUri = buildRedirectUri(req, provider);
     // Stateless signed-state token. The mobile in-app browser does NOT share
     // the app's session cookie, so we cannot store state on req.session and

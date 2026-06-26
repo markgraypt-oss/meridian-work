@@ -125,9 +125,9 @@ export const whoopAdapter: WearableAdapter = {
       const day = dayOf(r.created_at || "");
       if (!day) continue;
       const d = ensure(day);
-      d.readinessScore = r.score?.recovery_score ?? null;
-      d.hrvMs = r.score?.hrv_rmssd_milli ?? null;
-      d.restingHrBpm = r.score?.resting_heart_rate ?? null;
+      d.readinessScore = r.score?.recovery_score != null ? Math.max(0, Math.round(r.score.recovery_score)) : null;
+      d.hrvMs = r.score?.hrv_rmssd_milli != null ? Math.max(0, Math.round(r.score.hrv_rmssd_milli)) : null;
+      d.restingHrBpm = r.score?.resting_heart_rate != null ? Math.max(0, Math.round(r.score.resting_heart_rate)) : null;
       (d.raw as any).recovery = r;
     }
     for (const w of workoutJson.records || []) {

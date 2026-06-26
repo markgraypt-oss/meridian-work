@@ -106,10 +106,10 @@ export const ouraAdapter: WearableAdapter = {
     }
     for (const r of activityJson.data || []) {
       const d = ensure(r.day);
-      d.steps = r.steps ?? null;
+      d.steps = r.steps != null ? Math.max(0, Math.round(r.steps)) : null;
       d.activeMinutes = (r.high_activity_time || 0) / 60 + (r.medium_activity_time || 0) / 60;
       d.activeMinutes = d.activeMinutes ? Math.round(d.activeMinutes) : null;
-      d.caloriesBurned = r.active_calories ?? null;
+      d.caloriesBurned = r.active_calories != null ? Math.max(0, Math.round(r.active_calories)) : null;
       (d.raw as any).activity = r;
     }
     // Aggregate sleep periods per day for HRV/RHR/duration
@@ -129,8 +129,8 @@ export const ouraAdapter: WearableAdapter = {
         d.sleepRemMinutes = longest.rem_sleep_duration ? Math.round(longest.rem_sleep_duration / 60) : null;
         d.sleepLightMinutes = longest.light_sleep_duration ? Math.round(longest.light_sleep_duration / 60) : null;
         d.sleepAwakeMinutes = longest.awake_time ? Math.round(longest.awake_time / 60) : null;
-        d.hrvMs = longest.average_hrv ?? null;
-        d.restingHrBpm = longest.lowest_heart_rate ?? null;
+        d.hrvMs = longest.average_hrv != null ? Math.max(0, Math.round(longest.average_hrv)) : null;
+        d.restingHrBpm = longest.lowest_heart_rate != null ? Math.max(0, Math.round(longest.lowest_heart_rate)) : null;
       }
     }
     for (const w of workoutJson.data || []) {

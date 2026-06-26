@@ -90,7 +90,7 @@ export function registerWearableRoutes(app: Express) {
   // OAuth callback. Requires an authenticated session and validates the state
   // bound to that session. Rejects if the callback is opened in a different
   // browser/session than initiated the flow, or for a different user.
-  app.get("/api/wearables/callback/:provider", isAuthenticated, async (req: any, res) => {
+  app.get("/api/wearables/callback/:provider", async (req: any, res) => {
     const provider = req.params.provider as WearableProvider;
     const code = req.query.code as string | undefined;
     const state = req.query.state as string | undefined;

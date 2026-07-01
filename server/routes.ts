@@ -200,7 +200,7 @@ function parseIdParam(s: string | undefined): number | null {
   return Number.isFinite(n) && n > 0 ? n : null;
 }
 import { eq, and, like, inArray, desc, or, isNull, asc, gte, lte, lt, sql } from "drizzle-orm";
-import { users, userProgramEnrollments, programWeeks, programDays, programmeWorkouts, programmeWorkoutBlocks, pathContentItems, topicContentItems, learningPaths, programmeModificationRecords, exerciseSubstitutionMappings, programmeBlockExercises, enrollmentWorkouts, enrollmentWorkoutBlocks, enrollmentBlockExercises, programs, userExtraWorkoutSessions, scheduledWorkouts, workoutLogs, learnContentLibrary, exerciseLibrary, workoutExerciseLogs, workoutSetLogs, aiFeedback, workouts, workoutBlocks, blockExercises, stepEntries, sleepEntries, bodyweightEntries, bodyFatEntries, restingHREntries, caloricBurnEntries, exerciseMinutesEntries, bloodPressureEntries, leanBodyMassEntries, caloricIntakeEntries, hydrationLogs, habitCompletions, habits, wearableMetricsDaily } from "@shared/schema";
+import { users, userProgramEnrollments, programWeeks, programDays, programmeWorkouts, programmeWorkoutBlocks, pathContentItems, topicContentItems, learningPaths, programmeModificationRecords, exerciseSubstitutionMappings, programmeBlockExercises, enrollmentWorkouts, enrollmentWorkoutBlocks, enrollmentBlockExercises, programs, userExtraWorkoutSessions, scheduledWorkouts, workoutLogs, learnContentLibrary, exerciseLibrary, workoutExerciseLogs, workoutSetLogs, aiFeedback, workouts, workoutBlocks, blockExercises, stepEntries, sleepEntries, bodyweightEntries, bodyFatEntries, restingHREntries, caloricBurnEntries, exerciseMinutesEntries, bloodPressureEntries, leanBodyMassEntries, caloricIntakeEntries, hydrationLogs, habitCompletions, habits, wearableMetricsDaily, wearableConnections } from "@shared/schema";
 import { calculateProgramEquipment, updateProgramEquipmentAuto } from "./equipmentDetection";
 import multer from "multer";
 import path from "path";
@@ -6295,6 +6295,30 @@ Rules:
           ...checkInData,
           notesAnalysis,
         } as any);
+      }
+
+      // Real-time wearable pull: sync the user's connected OAuth wearable
+      // (WHOOP/Oura) synchronously BEFORE the briefing fires and before the
+      // client refetches readiness, so morning recovery/HRV/sleep land the
+      // instant the user checks in instead of waiting on the hourly scheduler.
+      // Failure-safe: a sync error never blocks the check-in.
+      try {
+        const oauthConn = await db
+          .select({ provider: wearableConnections.provider })
+          .from(wearableConnections)
+          .where(and(
+            eq(wearableConnections.userId, userId),
+            eq(wearableConnections.status, "connected"),
+            inArray(wearableConnections.provider, ["whoop", "oura"]),
+          ))
+          .limit(1);
+        if (oauthConn.length > 0) {
+          const { syncProvider } = await import("./wearables");
+          await syncProvider(userId, oauthConn[0].provider as any, { trigger: "checkin", days: 2 });
+          console.log(`[check-ins] Synced ${oauthConn[0].provider} for ${userId} on check-in`);
+        }
+      } catch (syncErr) {
+        console.error("[check-ins] Wearable sync on check-in failed (non-fatal):", (syncErr as any)?.message);
       }
 
       // Update user streak after check-in (non-blocking)

@@ -9692,15 +9692,17 @@ export class DatabaseStorage implements IStorage {
       .where(eq(restingHREntries.userId, userId))
       .orderBy(desc(restingHREntries.date));
 
-    const wearRows = await db
-      .select()
-      .from(wearableMetricsDaily)
-      .where(and(eq(wearableMetricsDaily.userId, userId), sql`${wearableMetricsDaily.restingHrBpm} IS NOT NULL`))
-      .orderBy(desc(wearableMetricsDaily.date));
+    // Merge multi-provider rows to ONE per day via the per-metric hierarchy
+    // (oura > whoop > apple > google) BEFORE mapping. Previously the raw rows
+    // were deduped by insertion order, so on days with two providers an
+    // arbitrary provider won instead of the highest-priority one.
+    const { getMergedDailyMetrics } = await import("./wearables");
+    const mergedWear = await getMergedDailyMetrics(userId, 400);
 
     const byDate = new Map<string, RestingHREntryWithSource>();
 
-    for (const w of wearRows) {
+    for (const w of mergedWear) {
+      if (w.restingHrBpm === null || w.restingHrBpm === undefined) continue;
       const d = w.date;
       byDate.set(d, {
         id: 0, userId: w.userId,
@@ -9760,17 +9762,19 @@ export class DatabaseStorage implements IStorage {
   // ============================================
 
   async getHRVEntries(userId: string): Promise<{ id: number; date: string; hrvMs: number }[]> {
-    const rows = await db
-      .select()
-      .from(wearableMetricsDaily)
-      .where(and(eq(wearableMetricsDaily.userId, userId), sql`${wearableMetricsDaily.hrvMs} IS NOT NULL`))
-      .orderBy(desc(wearableMetricsDaily.date));
-
-    return rows.map(r => ({
-      id: r.id,
-      date: r.date,
-      hrvMs: r.hrvMs ?? 0,
-    }));
+    // Collapse multi-provider rows to ONE per day using the per-metric
+    // hierarchy (oura > whoop > apple > google). Returning raw rows produced
+    // duplicate points per day when two providers were connected.
+    const { getMergedDailyMetrics } = await import("./wearables");
+    const merged = await getMergedDailyMetrics(userId, 400);
+    return merged
+      .filter(r => r.hrvMs !== null && r.hrvMs !== undefined)
+      .sort((a, b) => b.date.localeCompare(a.date))
+      .map(r => ({
+        id: r.id,
+        date: r.date,
+        hrvMs: r.hrvMs ?? 0,
+      }));
   }
 
   // ============================================

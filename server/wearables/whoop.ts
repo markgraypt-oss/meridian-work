@@ -113,7 +113,15 @@ export const whoopAdapter: WearableAdapter = {
       if (!day) continue;
       const d = ensure(day);
       const stage = s.score?.stage_summary || {};
-      d.sleepMinutes = stage.total_in_bed_time_milli ? Math.round((stage.total_in_bed_time_milli - (stage.total_awake_time_milli || 0)) / 60000) : null;
+      // Time asleep = light + deep + REM. This matches WHOOP's own "Hours of
+      // Sleep" figure. Do NOT use (in_bed - awake): WHOOP buckets sleep latency
+      // and no-data gaps outside total_awake_time_milli, so that formula runs
+      // several minutes short of the real asleep total.
+      const _light = stage.total_light_sleep_time_milli || 0;
+      const _deep = stage.total_slow_wave_sleep_time_milli || 0;
+      const _rem = stage.total_rem_sleep_time_milli || 0;
+      const _asleepMilli = _light + _deep + _rem;
+      d.sleepMinutes = _asleepMilli > 0 ? Math.round(_asleepMilli / 60000) : null;
       d.sleepDeepMinutes = stage.total_slow_wave_sleep_time_milli ? Math.round(stage.total_slow_wave_sleep_time_milli / 60000) : null;
       d.sleepRemMinutes = stage.total_rem_sleep_time_milli ? Math.round(stage.total_rem_sleep_time_milli / 60000) : null;
       d.sleepLightMinutes = stage.total_light_sleep_time_milli ? Math.round(stage.total_light_sleep_time_milli / 60000) : null;

@@ -12,9 +12,19 @@ let started = false;
 async function tick() {
   try {
     const cutoff = new Date(Date.now() - SYNC_STALE_MS);
+    // Include BOTH "connected" and "needs_reauth" connections. A single failed
+    // token refresh previously flipped a row to needs_reauth and the scheduler
+    // then skipped it forever, so the token chain never recovered on its own and
+    // the app silently fell back to a lower-priority source (e.g. Apple). We now
+    // retry needs_reauth rows too; syncProvider -> refreshIfNeeded will recover
+    // them when the refresh token is still valid, and only a genuine invalid_grant
+    // keeps them parked.
     const due = await db.select().from(wearableConnections).where(
       and(
-        eq(wearableConnections.status, "connected"),
+        or(
+          eq(wearableConnections.status, "connected"),
+          eq(wearableConnections.status, "needs_reauth"),
+        ),
         or(isNull(wearableConnections.lastSyncAt), lt(wearableConnections.lastSyncAt, cutoff)),
       ),
     );

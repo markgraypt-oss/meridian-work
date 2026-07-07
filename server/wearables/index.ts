@@ -256,9 +256,23 @@ async function refreshIfNeeded(conn: WearableConnection, adapter: WearableAdapte
       });
       accessToken = fresh.accessToken;
     } catch (err: any) {
-      await db.update(wearableConnections)
-        .set({ status: "needs_reauth", lastSyncStatus: "error", lastSyncError: String(err?.message || err) })
-        .where(eq(wearableConnections.id, conn.id));
+      const msg = String(err?.message || err);
+      // Only condemn the connection when WHOOP/Oura actually rejected the refresh
+      // token itself (invalid_grant / invalid_token / 400 / 401). Transient
+      // failures (network, 5xx, timeouts) must NOT flip the row to needs_reauth,
+      // or one blip kills auto-sync until the user manually reconnects. On a
+      // transient error we leave status untouched so the next scheduled tick
+      // retries with the SAME refresh token.
+      const fatal = /invalid_grant|invalid_token|unauthorized|\b400\b|\b401\b/i.test(msg);
+      if (fatal) {
+        await db.update(wearableConnections)
+          .set({ status: "needs_reauth", lastSyncStatus: "error", lastSyncError: msg })
+          .where(eq(wearableConnections.id, conn.id));
+      } else {
+        await db.update(wearableConnections)
+          .set({ lastSyncStatus: "error", lastSyncError: msg })
+          .where(eq(wearableConnections.id, conn.id));
+      }
       return null;
     }
   }

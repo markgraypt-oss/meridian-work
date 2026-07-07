@@ -37,11 +37,26 @@ export const ouraAdapter: WearableAdapter = {
     });
     if (!res.ok) throw new Error(`Oura token exchange failed: ${res.status} ${await res.text()}`);
     const json: any = await res.json();
+    // Capture Oura's account id now. Webhooks reference data by user, so we need
+    // this stored to map an incoming event back to our user.
+    let providerUserId: string | null = null;
+    try {
+      const infoRes = await fetch("https://api.ouraring.com/v2/usercollection/personal_info", {
+        headers: { Authorization: `Bearer ${json.access_token}` },
+      });
+      if (infoRes.ok) {
+        const info: any = await infoRes.json();
+        if (info?.id != null) providerUserId = String(info.id);
+      }
+    } catch {
+      // Non-fatal: connection still works.
+    }
     return {
       accessToken: json.access_token,
       refreshToken: json.refresh_token,
       expiresAt: json.expires_in ? new Date(Date.now() + json.expires_in * 1000) : null,
       scopes: json.scope ? String(json.scope).split(" ") : null,
+      providerUserId,
     };
   },
 

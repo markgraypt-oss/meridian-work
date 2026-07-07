@@ -12,6 +12,7 @@ import {
   getConnections,
   syncProvider,
   getConnectionByProviderUser,
+  getConnectionsByProvider,
   upsertConnection,
   upsertWearableWorkouts,
   getWearableWorkouts,
@@ -65,6 +66,102 @@ function verifyOAuthState(token: string): OAuthStatePayload | null {
 }
 
 export function registerWearableRoutes(app: Express) {
+
+  // ── Oura webhook ──────────────────────────────────────────────────────────
+  // Oura's flow differs from WHOOP's:
+  //  1) SUBSCRIPTION VERIFICATION (GET): when we create a subscription, Oura
+  //     sends a GET with a `verification_token` + `challenge`; we must echo the
+  //     challenge back as JSON to activate the subscription.
+  //  2) EVENT (POST): Oura POSTs { event_type, data_type, object_id, user_id? }
+  //     signed with x-oura-signature (HMAC-SHA256 of the raw body using the
+  //     client secret). Events do NOT reliably carry our app user, so we re-sync
+  //     all connected Oura users over a short window. Fine at launch scale.
+  app.get("/api/wearables/oura/webhook", (req: any, res) => {
+    const challenge = req.query.challenge;
+    if (challenge) {
+      console.log("[oura-webhook] verification challenge received");
+      return res.status(200).json({ challenge });
+    }
+    return res.status(400).json({ message: "Missing challenge" });
+  });
+
+  app.post(
+    "/api/wearables/oura/webhook",
+    express.raw({ type: "*/*" }),
+    async (req: any, res) => {
+      try {
+        const secret = process.env.OURA_CLIENT_SECRET || "";
+        const sig = req.header("x-oura-signature");
+        const raw: Buffer = Buffer.isBuffer(req.body) ? req.body : Buffer.from(req.body || "");
+        if (!secret || !sig) {
+          return res.status(401).json({ message: "Missing signature" });
+        }
+        const expected = crypto.createHmac("sha256", secret).update(raw).digest("hex");
+        const a = Buffer.from(sig);
+        const b = Buffer.from(expected);
+        if (a.length !== b.length || !crypto.timingSafeEqual(a, b)) {
+          console.warn("[oura-webhook] signature mismatch");
+          return res.status(401).json({ message: "Bad signature" });
+        }
+
+        // Ack immediately, sync in background.
+        res.status(200).json({ ok: true });
+
+        const evt = JSON.parse(raw.toString("utf8"));
+        // Only bother re-syncing for data types we actually store.
+        const dt = String(evt?.data_type || "");
+        const relevant = ["sleep", "daily_sleep", "daily_readiness", "daily_activity", "workout"];
+        if (dt && !relevant.includes(dt)) {
+          console.log(`[oura-webhook] ignoring data_type ${dt}`);
+          return;
+        }
+
+        const conns = await getConnectionsByProvider("oura");
+        for (const conn of conns) {
+          if (conn.status !== "connected" && conn.status !== "needs_reauth") continue;
+          syncProvider(conn.userId, "oura", { trigger: "webhook", days: 2 })
+            .then(() => console.log(`[oura-webhook] synced ${conn.userId} (${dt || evt?.event_type})`))
+            .catch((e) => console.error("[oura-webhook] sync failed:", e?.message));
+        }
+      } catch (err: any) {
+        console.error("[oura-webhook] handler error:", err?.message);
+        if (!res.headersSent) res.status(200).json({ ok: true });
+      }
+    },
+  );
+
+  // One-time admin route to CREATE the Oura subscription. Oura has no dashboard
+  // toggle; the subscription is created via an authenticated API call. Call this
+  // once per data type after deploy. Admin-gated.
+  app.post("/api/wearables/oura/subscribe", isAuthenticated, async (req: any, res) => {
+    try {
+      const me = await import("../storage").then((m) => m.storage.getUser(req.user.claims.sub));
+      if (!me?.isAdmin) return res.status(403).json({ message: "Admin only" });
+
+      const dataType = String(req.body?.dataType || "daily_readiness");
+      const callbackUrl = "https://the-paradigm-project-coachmarkgray.replit.app/api/wearables/oura/webhook";
+      const verificationToken = process.env.OURA_CLIENT_SECRET || "";
+
+      const resp = await fetch("https://api.ouraring.com/v2/webhook/subscription", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "x-client-id": process.env.OURA_CLIENT_ID || "",
+          "x-client-secret": process.env.OURA_CLIENT_SECRET || "",
+        },
+        body: JSON.stringify({
+          callback_url: callbackUrl,
+          verification_token: verificationToken,
+          event_type: "update",
+          data_type: dataType,
+        }),
+      });
+      const text = await resp.text();
+      return res.status(resp.ok ? 200 : 400).json({ status: resp.status, body: text });
+    } catch (err: any) {
+      return res.status(500).json({ message: err?.message });
+    }
+  });
 
   // WHOOP webhook. WHOOP POSTs { user_id, id, type, trace_id } when new data is
   // computed (e.g. recovery.updated, sleep.updated). We verify the HMAC-SHA256

@@ -74,6 +74,15 @@ export async function getConnections(userId: string): Promise<WearableConnection
   return db.select().from(wearableConnections).where(eq(wearableConnections.userId, userId));
 }
 
+export async function getConnectionByProviderUser(provider: WearableProvider, providerUserId: string): Promise<WearableConnection | undefined> {
+  const [row] = await db.select().from(wearableConnections)
+    .where(and(
+      eq(wearableConnections.provider, provider),
+      eq(wearableConnections.providerUserId, providerUserId),
+    ));
+  return row;
+}
+
 export async function getConnection(userId: string, provider: string): Promise<WearableConnection | undefined> {
   const [row] = await db.select().from(wearableConnections)
     .where(and(eq(wearableConnections.userId, userId), eq(wearableConnections.provider, provider)));

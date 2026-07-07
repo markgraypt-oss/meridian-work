@@ -37,11 +37,26 @@ export const whoopAdapter: WearableAdapter = {
     });
     if (!res.ok) throw new Error(`Whoop token exchange failed: ${res.status} ${await res.text()}`);
     const json: any = await res.json();
+    // Capture WHOOP's numeric account user_id now. Webhooks identify the user
+    // by this id, so without it we can't map an incoming event to our user.
+    let providerUserId: string | null = null;
+    try {
+      const profRes = await fetch(`${API_BASE}/user/profile/basic`, {
+        headers: { Authorization: `Bearer ${json.access_token}` },
+      });
+      if (profRes.ok) {
+        const prof: any = await profRes.json();
+        if (prof?.user_id != null) providerUserId = String(prof.user_id);
+      }
+    } catch {
+      // Non-fatal: connection still works, webhook mapping falls back to a scan.
+    }
     return {
       accessToken: json.access_token,
       refreshToken: json.refresh_token,
       expiresAt: json.expires_in ? new Date(Date.now() + json.expires_in * 1000) : null,
       scopes: json.scope ? String(json.scope).split(" ") : null,
+      providerUserId,
     };
   },
 

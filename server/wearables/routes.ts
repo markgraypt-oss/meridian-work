@@ -1,4 +1,5 @@
 import type { Express } from "express";
+import express from "express";
 import multer from "multer";
 import crypto from "crypto";
 import { isAuthenticated } from "../replitAuth";
@@ -10,6 +11,7 @@ import {
   getAdapter,
   getConnections,
   syncProvider,
+  getConnectionByProviderUser,
   upsertConnection,
   upsertWearableWorkouts,
   getWearableWorkouts,
@@ -63,6 +65,62 @@ function verifyOAuthState(token: string): OAuthStatePayload | null {
 }
 
 export function registerWearableRoutes(app: Express) {
+
+  // WHOOP webhook. WHOOP POSTs { user_id, id, type, trace_id } when new data is
+  // computed (e.g. recovery.updated, sleep.updated). We verify the HMAC-SHA256
+  // signature over (X-WHOOP-Signature-Timestamp + raw body) using the app's
+  // client secret, map user_id -> our connection, and re-sync a short window.
+  // express.raw is required so the signature is computed over the exact bytes.
+  app.post(
+    "/api/wearables/whoop/webhook",
+    express.raw({ type: "*/*" }),
+    async (req: any, res) => {
+      try {
+        const secret = process.env.WHOOP_CLIENT_SECRET || "";
+        const sig = req.header("X-WHOOP-Signature");
+        const ts = req.header("X-WHOOP-Signature-Timestamp");
+        const raw: Buffer = Buffer.isBuffer(req.body) ? req.body : Buffer.from(req.body || "");
+        if (!secret || !sig || !ts) {
+          return res.status(401).json({ message: "Missing signature" });
+        }
+        // Reject stale timestamps (>5 min) to blunt replay.
+        const tsNum = parseInt(ts, 10);
+        if (isNaN(tsNum) || Math.abs(Date.now() - tsNum) > 5 * 60 * 1000) {
+          return res.status(401).json({ message: "Stale timestamp" });
+        }
+        const expected = crypto
+          .createHmac("sha256", secret)
+          .update(ts + raw.toString("utf8"))
+          .digest("base64");
+        const a = Buffer.from(sig);
+        const b = Buffer.from(expected);
+        if (a.length !== b.length || !crypto.timingSafeEqual(a, b)) {
+          console.warn("[whoop-webhook] signature mismatch");
+          return res.status(401).json({ message: "Bad signature" });
+        }
+
+        // Ack immediately; do the sync in the background so WHOOP doesn't retry
+        // on our processing time.
+        res.status(200).json({ ok: true });
+
+        const evt = JSON.parse(raw.toString("utf8"));
+        const whoopUserId = evt?.user_id != null ? String(evt.user_id) : null;
+        if (!whoopUserId) return;
+
+        const conn = await getConnectionByProviderUser("whoop", whoopUserId);
+        if (!conn) {
+          console.warn(`[whoop-webhook] no connection for whoop user_id ${whoopUserId}`);
+          return;
+        }
+        syncProvider(conn.userId, "whoop", { trigger: "webhook", days: 2 })
+          .then(() => console.log(`[whoop-webhook] synced ${conn.userId} (${evt?.type})`))
+          .catch((e) => console.error("[whoop-webhook] sync failed:", e?.message));
+      } catch (err: any) {
+        console.error("[whoop-webhook] handler error:", err?.message);
+        if (!res.headersSent) res.status(200).json({ ok: true });
+      }
+    },
+  );
   // Catalog: providers + whether configured
   app.get("/api/wearables/providers", isAuthenticated, async (_req, res) => {
     const out = PROVIDERS.map((p) => {

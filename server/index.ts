@@ -165,6 +165,10 @@ app.use((req, res, next) => {
     import("./wearables/scheduler").then(({ startWearableScheduler }) => {
       startWearableScheduler();
     }).catch((e) => console.error("[startup] wearables scheduler failed:", e));
+    // Start Oura webhook subscription auto-renewer (subscriptions expire ~90d)
+    import("./ouraSubscriptionScheduler").then(({ startOuraSubscriptionScheduler }) => {
+      startOuraSubscriptionScheduler();
+    }).catch((e) => console.error("[startup] oura subscription scheduler failed:", e));
     // Start nightly physiological baseline recomputation scheduler
     import("./baselineScheduler").then(({ startBaselineScheduler }) => {
       startBaselineScheduler();

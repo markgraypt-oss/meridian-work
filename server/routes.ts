@@ -15615,6 +15615,35 @@ Keep your response concise, practical, and evidence-based. Do not use em dashes.
     }
   });
 
+  // Turn a stored image_url into something the mobile <Image> can load.
+  //  - data: URLs (legacy base64)  -> returned unchanged
+  //  - /uploads/... (legacy disk)  -> returned unchanged
+  //  - /objects/... (new private)  -> signed, short-lived GET url
+  const signPictureUrl = async (stored: string): Promise<string> => {
+    if (!stored || !stored.startsWith('/objects/')) return stored;
+    try {
+      const svc = new ObjectStorageService();
+      const objectFile = await svc.getObjectEntityFile(stored);
+      const bucketId = process.env.DEFAULT_OBJECT_STORAGE_BUCKET_ID
+        || 'replit-objstore-deb212d3-bb3d-41c5-b53a-2fdbdc2253dd';
+      const signRes = await fetch('http://127.0.0.1:1106/object-storage/signed-object-url', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          bucket_name: bucketId,
+          object_name: objectFile.name,
+          method: 'GET',
+          expires_at: new Date(Date.now() + 3600 * 1000).toISOString(),
+        }),
+      });
+      if (!signRes.ok) return stored;
+      const { signed_url } = await signRes.json() as any;
+      return signed_url || stored;
+    } catch {
+      return stored;
+    }
+  };
+
   app.get('/api/progress/pictures', isAuthenticated, async (req: any, res) => {
     try {
       const userId = req.user.claims.sub;
@@ -15644,7 +15673,7 @@ Keep your response concise, practical, and evidence-based. Do not use em dashes.
         groupedMap.get(setId)!.photos.push({
           id: pic.id,
           category: pic.category || 'front',
-          imageUrl: pic.imageUrl,
+          imageUrl: await signPictureUrl(pic.imageUrl),
         });
       }
       

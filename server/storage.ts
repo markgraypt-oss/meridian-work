@@ -2922,9 +2922,14 @@ export class DatabaseStorage implements IStorage {
 
     const workouts: any[] = [];
 
+    // One query for every block, one for every exercise, instead of two per workout.
+    const blocksByWorkout = await this.getEnrollmentWorkoutBlocksBatch(
+      enrolledWorkoutsList.map(ew => ew.id),
+    );
+
     for (const ew of enrolledWorkoutsList) {
       // Get blocks for this enrollment workout
-      let blocks = await this.getEnrollmentWorkoutBlocks(ew.id);
+      let blocks = blocksByWorkout.get(ew.id) || [];
       
       // Apply substitutions to blocks
       if (substitutions.size > 0) {
@@ -3066,6 +3071,67 @@ export class DatabaseStorage implements IStorage {
   }
 
   // Get blocks and exercises for an enrollment workout (from snapshot tables)
+  /**
+   * Batch version of getEnrollmentWorkoutBlocks. Fetches the blocks and exercises
+   * for MANY enrollment workouts in two queries rather than two per workout.
+   * Returns a map of enrollmentWorkoutId -> blocks[], each block carrying its
+   * exercises, ordered exactly as the per-workout function orders them.
+   */
+  async getEnrollmentWorkoutBlocksBatch(enrollmentWorkoutIds: number[]): Promise<Map<number, any[]>> {
+    const result = new Map<number, any[]>();
+    if (enrollmentWorkoutIds.length === 0) return result;
+
+    const blocks = await db
+      .select()
+      .from(enrollmentWorkoutBlocks)
+      .where(inArray(enrollmentWorkoutBlocks.enrollmentWorkoutId, enrollmentWorkoutIds))
+      .orderBy(enrollmentWorkoutBlocks.position);
+
+    if (blocks.length === 0) {
+      for (const id of enrollmentWorkoutIds) result.set(id, []);
+      return result;
+    }
+
+    const exercises = await db
+      .select({
+        id: enrollmentBlockExercises.id,
+        enrollmentBlockId: enrollmentBlockExercises.enrollmentBlockId,
+        templateExerciseId: enrollmentBlockExercises.templateExerciseId,
+        exerciseLibraryId: enrollmentBlockExercises.exerciseLibraryId,
+        position: enrollmentBlockExercises.position,
+        sets: enrollmentBlockExercises.sets,
+        durationType: enrollmentBlockExercises.durationType,
+        tempo: enrollmentBlockExercises.tempo,
+        load: enrollmentBlockExercises.load,
+        notes: enrollmentBlockExercises.notes,
+        exerciseName: exerciseLibrary.name,
+        exerciseLevel: exerciseLibrary.level,
+        exerciseMuscle: exerciseLibrary.mainMuscle,
+        exerciseEquipment: exerciseLibrary.equipment,
+        muxPlaybackId: exerciseLibrary.muxPlaybackId,
+        imageUrl: exerciseLibrary.imageUrl,
+      })
+      .from(enrollmentBlockExercises)
+      .leftJoin(exerciseLibrary, eq(enrollmentBlockExercises.exerciseLibraryId, exerciseLibrary.id))
+      .where(inArray(enrollmentBlockExercises.enrollmentBlockId, blocks.map(b => b.id)))
+      .orderBy(enrollmentBlockExercises.position);
+
+    const exercisesByBlock = new Map<number, any[]>();
+    for (const ex of exercises) {
+      const list = exercisesByBlock.get(ex.enrollmentBlockId);
+      if (list) list.push(ex);
+      else exercisesByBlock.set(ex.enrollmentBlockId, [ex]);
+    }
+
+    for (const id of enrollmentWorkoutIds) result.set(id, []);
+    for (const block of blocks) {
+      const list = result.get(block.enrollmentWorkoutId);
+      if (list) list.push({ ...block, exercises: exercisesByBlock.get(block.id) || [] });
+    }
+
+    return result;
+  }
+
   async getEnrollmentWorkoutBlocks(enrollmentWorkoutId: number): Promise<any[]> {
     const blocks = await db
       .select()

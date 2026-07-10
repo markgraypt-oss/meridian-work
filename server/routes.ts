@@ -15647,7 +15647,7 @@ Keep your response concise, practical, and evidence-based. Do not use em dashes.
   // TEMPORARY one-time migration: move existing base64 progress photos into
   // private object storage. Idempotent — rows already on /objects/ are skipped.
   // Only touches the calling user's own rows. Remove after running once.
-  app.post('/api/_migrate-my-pictures', isAuthenticated, async (req: any, res) => {
+  app.get('/api/_migrate-my-pictures', isAuthenticated, async (req: any, res) => {
     const userId = req.user.claims.sub;
     const report: any[] = [];
     try {

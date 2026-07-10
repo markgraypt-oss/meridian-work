@@ -15644,6 +15644,40 @@ Keep your response concise, practical, and evidence-based. Do not use em dashes.
     }
   };
 
+  // TEMPORARY one-time migration: move existing base64 progress photos into
+  // private object storage. Idempotent — rows already on /objects/ are skipped.
+  // Only touches the calling user's own rows. Remove after running once.
+  app.post('/api/_migrate-my-pictures', isAuthenticated, async (req: any, res) => {
+    const userId = req.user.claims.sub;
+    const report: any[] = [];
+    try {
+      const pics = await storage.getProgressPictures(userId);
+      for (const pic of pics) {
+        const url = pic.imageUrl || '';
+        if (!url.startsWith('data:image')) {
+          report.push({ id: pic.id, skipped: 'not base64' });
+          continue;
+        }
+        const match = url.match(/^data:(image\/[a-zA-Z0-9.+-]+);base64,(.*)$/);
+        if (!match) {
+          report.push({ id: pic.id, error: 'malformed data url' });
+          continue;
+        }
+        try {
+          const buffer = Buffer.from(match[2], 'base64');
+          const objectPath = await uploadProgressPhotoBufferToStorage(buffer, match[1], userId);
+          await storage.updateProgressPictureUrl(pic.id, objectPath);
+          report.push({ id: pic.id, migrated: objectPath, bytes: buffer.length });
+        } catch (e: any) {
+          report.push({ id: pic.id, error: e?.message });
+        }
+      }
+      res.json({ userId, count: report.length, report });
+    } catch (e: any) {
+      res.status(500).json({ error: e?.message, report });
+    }
+  });
+
   app.get('/api/progress/pictures', isAuthenticated, async (req: any, res) => {
     try {
       const userId = req.user.claims.sub;

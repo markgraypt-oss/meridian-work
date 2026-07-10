@@ -663,6 +663,7 @@ export interface IStorage {
   createWeeklyCheckin(checkIn: InsertWeeklyCheckin): Promise<WeeklyCheckin>;
   updateWeeklyCheckinSuggestions(id: number, accepted: string[], dismissed: string[]): Promise<WeeklyCheckin>;
   updateWeeklyCheckinPayload(id: number, payload: any): Promise<WeeklyCheckin>;
+  updateProgressPictureUrl(id: number, imageUrl: string): Promise<void>;
 
   // Body map operations
   getBodyMapLogs(userId: string): Promise<BodyMapLog[]>;
@@ -12826,6 +12827,12 @@ export class DatabaseStorage implements IStorage {
       .where(eq(weeklyCheckins.id, id))
       .returning();
     return updated;
+  }
+
+  async updateProgressPictureUrl(id: number, imageUrl: string): Promise<void> {
+    await db.update(progressPictures)
+      .set({ imageUrl })
+      .where(eq(progressPictures.id, id));
   }
 
   // Burnout Early Warning operations

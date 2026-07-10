@@ -15555,66 +15555,6 @@ Keep your response concise, practical, and evidence-based. Do not use em dashes.
   });
 
   // Progress Pictures - returns grouped by photoSetId
-  // TEMPORARY: proves @replit/object-storage can authenticate inside the
-  // deployed Autoscale container, not just the workspace. Remove after use.
-  app.get('/api/_storage-test', isAuthenticated, async (req: any, res) => {
-    const steps: string[] = [];
-    try {
-      const { Client } = await import('@replit/object-storage');
-      steps.push('imported');
-      const client = new Client();
-      steps.push('client created');
-
-      const key = `.private/_test/${Date.now()}.txt`;
-      const up = await client.uploadFromText(key, 'hello from meridianwork');
-      steps.push(`upload ok=${up.ok}${up.ok ? '' : ' err=' + JSON.stringify(up.error)}`);
-      if (!up.ok) return res.json({ steps, verdict: 'UPLOAD FAILED' });
-
-      const down = await client.downloadAsText(key);
-      steps.push(`download ok=${down.ok}${down.ok ? ' value=' + down.value : ' err=' + JSON.stringify(down.error)}`);
-
-      // Can we sign a GET url? This is what private progress photos will need:
-      // React Native's <Image> cannot send a session header, so it must fetch a
-      // self-authorising, short-lived URL instead.
-      let signVerdict = 'not attempted';
-      try {
-        const bucketId = process.env.DEFAULT_OBJECT_STORAGE_BUCKET_ID
-          || 'replit-objstore-deb212d3-bb3d-41c5-b53a-2fdbdc2253dd';
-        const signRes = await fetch('http://127.0.0.1:1106/object-storage/signed-object-url', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            bucket_name: bucketId,
-            object_name: key,
-            method: 'GET',
-            expires_at: new Date(Date.now() + 900 * 1000).toISOString(),
-          }),
-        });
-        if (!signRes.ok) {
-          signVerdict = `sidecar returned ${signRes.status}`;
-        } else {
-          const { signed_url } = await signRes.json() as any;
-          const fetched = await fetch(signed_url);
-          const body = fetched.ok ? await fetched.text() : '';
-          signVerdict = fetched.ok && body === 'hello from meridianwork'
-            ? 'SIGNED GET WORKS'
-            : `signed url fetch status ${fetched.status}`;
-        }
-      } catch (e: any) {
-        signVerdict = 'threw: ' + e?.message;
-      }
-      steps.push(`signed GET: ${signVerdict}`);
-
-      const del = await client.delete(key);
-      steps.push(`delete ok=${del.ok}`);
-
-      res.json({ steps, verdict: down.ok ? 'WORKS' : 'DOWNLOAD FAILED' });
-    } catch (e: any) {
-      steps.push('threw: ' + e?.message);
-      res.json({ steps, verdict: 'THREW' });
-    }
-  });
-
   // Turn a stored image_url into something the mobile <Image> can load.
   //  - data: URLs (legacy base64)  -> returned unchanged
   //  - /uploads/... (legacy disk)  -> returned unchanged
@@ -15644,49 +15584,11 @@ Keep your response concise, practical, and evidence-based. Do not use em dashes.
     }
   };
 
-  // TEMPORARY one-time migration: move existing base64 progress photos into
-  // private object storage. Idempotent — rows already on /objects/ are skipped.
-  // Only touches the calling user's own rows. Remove after running once.
-  app.get('/api/_migrate-my-pictures', isAuthenticated, async (req: any, res) => {
-    const userId = req.user.claims.sub;
-    const report: any[] = [];
-    try {
-      const pics = await storage.getProgressPictures(userId);
-      for (const pic of pics) {
-        const url = pic.imageUrl || '';
-        if (!url.startsWith('data:image')) {
-          report.push({ id: pic.id, skipped: 'not base64' });
-          continue;
-        }
-        const match = url.match(/^data:(image\/[a-zA-Z0-9.+-]+);base64,(.*)$/);
-        if (!match) {
-          report.push({ id: pic.id, error: 'malformed data url' });
-          continue;
-        }
-        try {
-          const buffer = Buffer.from(match[2], 'base64');
-          const objectPath = await uploadProgressPhotoBufferToStorage(buffer, match[1], userId);
-          await storage.updateProgressPictureUrl(pic.id, objectPath);
-          report.push({ id: pic.id, migrated: objectPath, bytes: buffer.length });
-        } catch (e: any) {
-          report.push({ id: pic.id, error: e?.message });
-        }
-      }
-      res.json({ userId, count: report.length, report });
-    } catch (e: any) {
-      res.status(500).json({ error: e?.message, report });
-    }
-  });
-
   app.get('/api/progress/pictures', isAuthenticated, async (req: any, res) => {
     try {
       const userId = req.user.claims.sub;
       const limit = req.query.limit ? parseInt(req.query.limit as string) : undefined;
-      const __q0 = Date.now();
       const pictures = await storage.getProgressPictures(userId, limit);
-      const __qms = Date.now() - __q0;
-      const __bytes = pictures.reduce((n, p) => n + (p.imageUrl?.length || 0), 0);
-      res.setHeader('X-Debug-Pics', `rows=${pictures.length} queryMs=${__qms} imageBytes=${__bytes}`);
       
       // Group pictures by photoSetId
       const groupedMap = new Map<string, {

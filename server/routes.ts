@@ -15521,6 +15521,34 @@ Keep your response concise, practical, and evidence-based. Do not use em dashes.
   });
 
   // Progress Pictures - returns grouped by photoSetId
+  // TEMPORARY: proves @replit/object-storage can authenticate inside the
+  // deployed Autoscale container, not just the workspace. Remove after use.
+  app.get('/api/_storage-test', isAuthenticated, async (req: any, res) => {
+    const steps: string[] = [];
+    try {
+      const { Client } = await import('@replit/object-storage');
+      steps.push('imported');
+      const client = new Client();
+      steps.push('client created');
+
+      const key = `.private/_test/${Date.now()}.txt`;
+      const up = await client.uploadFromText(key, 'hello from meridianwork');
+      steps.push(`upload ok=${up.ok}${up.ok ? '' : ' err=' + JSON.stringify(up.error)}`);
+      if (!up.ok) return res.json({ steps, verdict: 'UPLOAD FAILED' });
+
+      const down = await client.downloadAsText(key);
+      steps.push(`download ok=${down.ok}${down.ok ? ' value=' + down.value : ' err=' + JSON.stringify(down.error)}`);
+
+      const del = await client.delete(key);
+      steps.push(`delete ok=${del.ok}`);
+
+      res.json({ steps, verdict: down.ok ? 'WORKS' : 'DOWNLOAD FAILED' });
+    } catch (e: any) {
+      steps.push('threw: ' + e?.message);
+      res.json({ steps, verdict: 'THREW' });
+    }
+  });
+
   app.get('/api/progress/pictures', isAuthenticated, async (req: any, res) => {
     try {
       const userId = req.user.claims.sub;

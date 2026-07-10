@@ -241,6 +241,40 @@ async function uploadProfileImageBufferToStorage(
   return `/objects/${entityId}`;
 }
 
+/**
+ * Upload a progress-photo buffer to Object Storage with a PRIVATE ACL owned by
+ * the user, and return a /objects/<entityId> path. Unlike profile images these
+ * are never public: the /objects route requires the owning user, and the GET
+ * pictures endpoint hands the app a short-lived signed URL to actually load it.
+ */
+async function uploadProgressPhotoBufferToStorage(
+  buffer: Buffer,
+  contentType: string,
+  ownerUserId: string,
+): Promise<string> {
+  const svc = new ObjectStorageService();
+  const privateDir = svc.getPrivateObjectDir();
+  const trimmedDir = privateDir.endsWith('/') ? privateDir.slice(0, -1) : privateDir;
+  const entityId = `progress-photos/${randomUUID()}`;
+  const fullPath = `${trimmedDir}/${entityId}`;
+  const parts = fullPath.replace(/^\//, '').split('/');
+  const bucketName = parts[0];
+  const objectName = parts.slice(1).join('/');
+
+  const file = objectStorageClient.bucket(bucketName).file(objectName);
+  await file.save(buffer, {
+    contentType,
+    metadata: {
+      contentType,
+      metadata: {
+        'custom:aclPolicy': JSON.stringify({ owner: ownerUserId, visibility: 'private' }),
+      },
+    },
+    resumable: false,
+  });
+  return `/objects/${entityId}`;
+}
+
 // Configure multer for video uploads
 const videoStorage = multer.diskStorage({
   destination: (req, file, cb) => {
@@ -15633,8 +15667,16 @@ Keep your response concise, practical, and evidence-based. Do not use em dashes.
       if (req.file) {
         imageUrl = `/uploads/images/${req.file.filename}`;
       } else if (base64Image && base64Image.startsWith('data:image')) {
-        // Store base64 image directly for now (in production, you'd save to file)
-        imageUrl = base64Image;
+        // Decode the data URL and push the bytes to private object storage,
+        // storing only the /objects/<id> path. No more megabytes of base64 in
+        // the database.
+        const match = base64Image.match(/^data:(image\/[a-zA-Z0-9.+-]+);base64,(.*)$/);
+        if (!match) {
+          return res.status(400).json({ message: "Malformed image data" });
+        }
+        const mime = match[1];
+        const buffer = Buffer.from(match[2], 'base64');
+        imageUrl = await uploadProgressPhotoBufferToStorage(buffer, mime, userId);
       } else {
         return res.status(400).json({ message: "Missing image" });
       }

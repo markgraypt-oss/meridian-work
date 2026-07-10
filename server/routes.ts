@@ -21644,12 +21644,34 @@ RULES:
       try {
         const userId = req.user.claims.sub;
         const limit = Math.min(Number(req.query.limit) || 12, 52);
-        // Ensure the current week's row exists and is fresh before returning the list
-        await getOrCreateCurrentWeeklyCheckinV2(userId);
+
         const list = await storage.getUserWeeklyCheckins(userId, limit);
-        // Upgrade any stale current-week row served via the list (no-op for past weeks)
-        const upgraded = await Promise.all(list.map((r) => upgradeWeeklyCheckinIfStale(r)));
-        res.json(upgraded);
+
+        // If the user has no row for the current week at all, we have nothing to
+        // show, so we must build it before responding. Otherwise serve what we
+        // have and refresh behind the response: regeneration calls Claude and
+        // takes several seconds, which is far too long to block a page load on.
+        if (list.length === 0) {
+          await getOrCreateCurrentWeeklyCheckinV2(userId);
+          const seeded = await storage.getUserWeeklyCheckins(userId, limit);
+          res.json(seeded);
+          return;
+        }
+
+        res.json(list);
+
+        // Fire and forget. Must never throw: an unhandled rejection takes the
+        // process down. Errors are logged and swallowed.
+        void (async () => {
+          try {
+            await getOrCreateCurrentWeeklyCheckinV2(userId);
+            for (const row of list) {
+              await upgradeWeeklyCheckinIfStale(row);
+            }
+          } catch (e: any) {
+            console.error("[weekly-checkin-v2] background refresh failed:", e?.message);
+          }
+        })();
       } catch (error: any) {
         console.error("Error fetching weekly check-ins:", error?.message);
         res.status(500).json({ message: "Failed to load weekly check-ins" });

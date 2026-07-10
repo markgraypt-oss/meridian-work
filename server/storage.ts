@@ -12756,7 +12756,7 @@ export class DatabaseStorage implements IStorage {
 
   async updateWeeklyCheckinPayload(id: number, payload: any): Promise<WeeklyCheckin> {
     const [updated] = await db.update(weeklyCheckins)
-      .set({ payload })
+      .set({ payload, generatedAt: new Date() })
       .where(eq(weeklyCheckins.id, id))
       .returning();
     return updated;

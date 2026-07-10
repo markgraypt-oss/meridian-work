@@ -15539,6 +15539,38 @@ Keep your response concise, practical, and evidence-based. Do not use em dashes.
       const down = await client.downloadAsText(key);
       steps.push(`download ok=${down.ok}${down.ok ? ' value=' + down.value : ' err=' + JSON.stringify(down.error)}`);
 
+      // Can we sign a GET url? This is what private progress photos will need:
+      // React Native's <Image> cannot send a session header, so it must fetch a
+      // self-authorising, short-lived URL instead.
+      let signVerdict = 'not attempted';
+      try {
+        const bucketId = process.env.DEFAULT_OBJECT_STORAGE_BUCKET_ID
+          || 'replit-objstore-deb212d3-bb3d-41c5-b53a-2fdbdc2253dd';
+        const signRes = await fetch('http://127.0.0.1:1106/object-storage/signed-object-url', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            bucket_name: bucketId,
+            object_name: key,
+            method: 'GET',
+            expires_at: new Date(Date.now() + 900 * 1000).toISOString(),
+          }),
+        });
+        if (!signRes.ok) {
+          signVerdict = `sidecar returned ${signRes.status}`;
+        } else {
+          const { signed_url } = await signRes.json() as any;
+          const fetched = await fetch(signed_url);
+          const body = fetched.ok ? await fetched.text() : '';
+          signVerdict = fetched.ok && body === 'hello from meridianwork'
+            ? 'SIGNED GET WORKS'
+            : `signed url fetch status ${fetched.status}`;
+        }
+      } catch (e: any) {
+        signVerdict = 'threw: ' + e?.message;
+      }
+      steps.push(`signed GET: ${signVerdict}`);
+
       const del = await client.delete(key);
       steps.push(`delete ok=${del.ok}`);
 

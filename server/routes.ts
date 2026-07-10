@@ -15529,7 +15529,7 @@ Keep your response concise, practical, and evidence-based. Do not use em dashes.
       const pictures = await storage.getProgressPictures(userId, limit);
       const __qms = Date.now() - __q0;
       const __bytes = pictures.reduce((n, p) => n + (p.imageUrl?.length || 0), 0);
-      console.log(`[PICS] limit=${limit} rows=${pictures.length} queryMs=${__qms} imageBytes=${__bytes}`);
+      res.setHeader('X-Debug-Pics', `rows=${pictures.length} queryMs=${__qms} imageBytes=${__bytes}`);
       
       // Group pictures by photoSetId
       const groupedMap = new Map<string, {

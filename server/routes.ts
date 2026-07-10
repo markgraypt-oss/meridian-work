@@ -15525,7 +15525,11 @@ Keep your response concise, practical, and evidence-based. Do not use em dashes.
     try {
       const userId = req.user.claims.sub;
       const limit = req.query.limit ? parseInt(req.query.limit as string) : undefined;
+      const __q0 = Date.now();
       const pictures = await storage.getProgressPictures(userId, limit);
+      const __qms = Date.now() - __q0;
+      const __bytes = pictures.reduce((n, p) => n + (p.imageUrl?.length || 0), 0);
+      console.log(`[PICS] limit=${limit} rows=${pictures.length} queryMs=${__qms} imageBytes=${__bytes}`);
       
       // Group pictures by photoSetId
       const groupedMap = new Map<string, {

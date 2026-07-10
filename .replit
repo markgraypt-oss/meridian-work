@@ -42,6 +42,9 @@ outputType = "webview"
 [agent]
 integrations = ["javascript_log_in_with_replit:1.0.0", "javascript_anthropic_ai_integrations:2.0.0", "javascript_openai_ai_integrations:2.0.0", "javascript_object_storage:2.0.0"]
 
+[objectStorage]
+defaultBucketID = "replit-objstore-deb212d3-bb3d-41c5-b53a-2fdbdc2253dd"
+
 [postMerge]
 path = "scripts/post-merge.sh"
 timeoutMs = 120000

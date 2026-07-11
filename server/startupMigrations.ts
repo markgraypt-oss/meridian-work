@@ -297,6 +297,30 @@ const SELF_HEAL_DDL: string[] = [
   `ALTER TABLE user_physiological_baselines ADD COLUMN IF NOT EXISTS calories_burned_baseline real`,
   `ALTER TABLE user_physiological_baselines ADD COLUMN IF NOT EXISTS calories_burned_std_dev real`,
   `ALTER TABLE user_physiological_baselines ADD COLUMN IF NOT EXISTS calories_burned_sample_count integer NOT NULL DEFAULT 0`,
+
+  // Cycle tracker — private, opt-in, per-user only. Never surfaced in
+  // company reports. Tables required by /api/cycle/* routes.
+  `CREATE TABLE IF NOT EXISTS cycle_settings (
+    id serial PRIMARY KEY,
+    user_id varchar NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    enabled boolean NOT NULL DEFAULT false,
+    avg_cycle_length integer NOT NULL DEFAULT 28,
+    avg_period_length integer NOT NULL DEFAULT 5,
+    updated_at timestamp DEFAULT NOW()
+  )`,
+  `CREATE UNIQUE INDEX IF NOT EXISTS cycle_settings_user_idx ON cycle_settings (user_id)`,
+  `CREATE TABLE IF NOT EXISTS cycle_logs (
+    id serial PRIMARY KEY,
+    user_id varchar NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    period_start text NOT NULL,
+    period_end text,
+    flow varchar,
+    symptoms text[],
+    notes text,
+    created_at timestamp DEFAULT NOW(),
+    updated_at timestamp DEFAULT NOW()
+  )`,
+  `CREATE INDEX IF NOT EXISTS cycle_logs_user_start_idx ON cycle_logs (user_id, period_start DESC)`,
 ];
 
 export async function runSchemaSelfHealOnce(): Promise<void> {

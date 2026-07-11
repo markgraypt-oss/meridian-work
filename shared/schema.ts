@@ -3721,5 +3721,42 @@ export type AiInsightRead = typeof aiInsightReads.$inferSelect;
 export type InsertAiInsightRead = typeof aiInsightReads.$inferInsert;
 export const insertAiInsightReadSchema = createInsertSchema(aiInsightReads).omit({ id: true, createdAt: true });
 
+// ====================================================================
+// CYCLE TRACKER
+// ====================================================================
+// Private, opt-in menstrual cycle tracking. Mobile-only feature.
+// PRIVACY INVARIANT: this data must never appear in company reports,
+// leadership dashboards, or any aggregated output. Per-user API access only.
+
+export const cycleSettings = pgTable("cycle_settings", {
+  id: serial("id").primaryKey(),
+  userId: varchar("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+  enabled: boolean("enabled").notNull().default(false),
+  avgCycleLength: integer("avg_cycle_length").notNull().default(28),
+  avgPeriodLength: integer("avg_period_length").notNull().default(5),
+  updatedAt: timestamp("updated_at").defaultNow(),
+});
+
+export type CycleSettings = typeof cycleSettings.$inferSelect;
+export type InsertCycleSettings = typeof cycleSettings.$inferInsert;
+
+// One row per logged period. Dates stored as plain YYYY-MM-DD text (local
+// date, no timezone) — same pattern as wearable_metrics_daily.date, and
+// avoids the UTC one-day-back shift with timestamp columns.
+export const cycleLogs = pgTable("cycle_logs", {
+  id: serial("id").primaryKey(),
+  userId: varchar("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+  periodStart: text("period_start").notNull(), // YYYY-MM-DD
+  periodEnd: text("period_end"), // YYYY-MM-DD, null while ongoing
+  flow: varchar("flow"), // 'light' | 'medium' | 'heavy' | null
+  symptoms: text("symptoms").array(),
+  notes: text("notes"),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+});
+
+export type CycleLog = typeof cycleLogs.$inferSelect;
+export type InsertCycleLog = typeof cycleLogs.$inferInsert;
+
 // Chat models for AI conversations
 export * from "./models/chat";

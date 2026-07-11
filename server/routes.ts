@@ -387,8 +387,9 @@ const uploadDoc = multer({
 });
 
 import { computeBurnoutScore } from './burnoutEngine';
+import { computeCyclePhase } from './cyclePhase';
 import { trackCalibrationEvent, trackRecoveryModeActivation, generateCalibrationReport, getLevel as getBurnoutLevel, writePhysiologicalSnapshot } from './burnoutCalibration';
-import { burnoutScores, insertCompanySchema, insertCompanyBenefitSchema, checkIns, bodyMapLogs, departments, companyInvites, usageAlerts, insertAiPromptSchema, workdayBreakLogs, aiInsightReads, recoveryModePeriods, physiologicalSnapshots } from "@shared/schema";
+import { burnoutScores, insertCompanySchema, insertCompanyBenefitSchema, checkIns, bodyMapLogs, departments, companyInvites, usageAlerts, insertAiPromptSchema, workdayBreakLogs, aiInsightReads, recoveryModePeriods, physiologicalSnapshots, cycleSettings, cycleLogs } from "@shared/schema";
 
 import {
   insertExerciseLibraryItemSchema,
@@ -2996,6 +2997,179 @@ export async function registerRoutes(app: Express): Promise<Server> {
     } catch (error) {
       console.error("Update preferences error:", error);
       res.status(500).json({ message: "Failed to update preferences" });
+    }
+  });
+
+  // ====================================================================
+  // CYCLE TRACKER
+  // ====================================================================
+  // Private, opt-in. PRIVACY INVARIANT: per-user access only — this data
+  // must never feed company reports or any aggregated output.
+
+  const CYCLE_DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
+
+  const cycleSettingsPatchSchema = z.object({
+    enabled: z.boolean().optional(),
+    avgCycleLength: z.number().int().min(21).max(40).optional(),
+    avgPeriodLength: z.number().int().min(2).max(10).optional(),
+  });
+
+  const cycleLogCreateSchema = z.object({
+    periodStart: z.string().regex(CYCLE_DATE_RE),
+    flow: z.enum(["light", "medium", "heavy"]).nullable().optional(),
+    symptoms: z.array(z.string()).nullable().optional(),
+    notes: z.string().max(2000).nullable().optional(),
+  });
+
+  const cycleLogPatchSchema = z.object({
+    periodStart: z.string().regex(CYCLE_DATE_RE).optional(),
+    periodEnd: z.string().regex(CYCLE_DATE_RE).nullable().optional(),
+    flow: z.enum(["light", "medium", "heavy"]).nullable().optional(),
+    symptoms: z.array(z.string()).nullable().optional(),
+    notes: z.string().max(2000).nullable().optional(),
+  });
+
+  const CYCLE_SETTINGS_DEFAULTS = { enabled: false, avgCycleLength: 28, avgPeriodLength: 5 };
+
+  async function getCycleSettingsOrDefaults(userId: string) {
+    const [row] = await db.select().from(cycleSettings).where(eq(cycleSettings.userId, userId)).limit(1);
+    if (!row) return { ...CYCLE_SETTINGS_DEFAULTS };
+    return { enabled: row.enabled, avgCycleLength: row.avgCycleLength, avgPeriodLength: row.avgPeriodLength };
+  }
+
+  app.get("/api/cycle/today", isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = req.user.claims.sub;
+      const settings = await getCycleSettingsOrDefaults(userId);
+
+      if (!settings.enabled) {
+        return res.json({ settings, phase: null });
+      }
+
+      const [latestLog] = await db.select()
+        .from(cycleLogs)
+        .where(eq(cycleLogs.userId, userId))
+        .orderBy(desc(cycleLogs.periodStart))
+        .limit(1);
+
+      const phase = latestLog
+        ? computeCyclePhase(new Date(latestLog.periodStart + "T00:00:00"), settings.avgCycleLength, settings.avgPeriodLength)
+        : null;
+
+      res.json({ settings, phase });
+    } catch (error) {
+      console.error("Get cycle today error:", error);
+      res.status(500).json({ message: "Failed to get cycle data" });
+    }
+  });
+
+  app.get("/api/cycle/history", isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = req.user.claims.sub;
+      const logs = await db.select()
+        .from(cycleLogs)
+        .where(eq(cycleLogs.userId, userId))
+        .orderBy(desc(cycleLogs.periodStart));
+      res.json(logs.map(l => ({
+        id: l.id,
+        periodStart: l.periodStart,
+        periodEnd: l.periodEnd,
+        flow: l.flow,
+        symptoms: l.symptoms,
+        notes: l.notes,
+      })));
+    } catch (error) {
+      console.error("Get cycle history error:", error);
+      res.status(500).json({ message: "Failed to get cycle history" });
+    }
+  });
+
+  app.patch("/api/cycle/settings", isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = req.user.claims.sub;
+      const parsed = cycleSettingsPatchSchema.safeParse(req.body);
+      if (!parsed.success) {
+        return res.status(400).json({ message: "Invalid cycle settings", errors: parsed.error.errors });
+      }
+
+      const updates: any = {};
+      if (parsed.data.enabled !== undefined) updates.enabled = parsed.data.enabled;
+      if (parsed.data.avgCycleLength !== undefined) updates.avgCycleLength = parsed.data.avgCycleLength;
+      if (parsed.data.avgPeriodLength !== undefined) updates.avgPeriodLength = parsed.data.avgPeriodLength;
+
+      const [existing] = await db.select().from(cycleSettings).where(eq(cycleSettings.userId, userId)).limit(1);
+      if (existing) {
+        await db.update(cycleSettings)
+          .set({ ...updates, updatedAt: new Date() })
+          .where(eq(cycleSettings.id, existing.id));
+      } else {
+        await db.insert(cycleSettings).values({ userId, ...CYCLE_SETTINGS_DEFAULTS, ...updates });
+      }
+
+      res.json(await getCycleSettingsOrDefaults(userId));
+    } catch (error) {
+      console.error("Update cycle settings error:", error);
+      res.status(500).json({ message: "Failed to update cycle settings" });
+    }
+  });
+
+  app.post("/api/cycle/log", isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = req.user.claims.sub;
+      const parsed = cycleLogCreateSchema.safeParse(req.body);
+      if (!parsed.success) {
+        return res.status(400).json({ message: "Invalid period log", errors: parsed.error.errors });
+      }
+
+      const [created] = await db.insert(cycleLogs).values({
+        userId,
+        periodStart: parsed.data.periodStart,
+        flow: parsed.data.flow ?? null,
+        symptoms: parsed.data.symptoms ?? null,
+        notes: parsed.data.notes ?? null,
+      }).returning();
+
+      res.json(created);
+    } catch (error) {
+      console.error("Create cycle log error:", error);
+      res.status(500).json({ message: "Failed to save period log" });
+    }
+  });
+
+  app.patch("/api/cycle/log/:id", isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = req.user.claims.sub;
+      const logId = parseInt(req.params.id, 10);
+      if (isNaN(logId)) return res.status(400).json({ message: "Invalid log id" });
+
+      const parsed = cycleLogPatchSchema.safeParse(req.body);
+      if (!parsed.success) {
+        return res.status(400).json({ message: "Invalid period log", errors: parsed.error.errors });
+      }
+
+      // Ownership check — users can only touch their own logs.
+      const [existing] = await db.select()
+        .from(cycleLogs)
+        .where(and(eq(cycleLogs.id, logId), eq(cycleLogs.userId, userId)))
+        .limit(1);
+      if (!existing) return res.status(404).json({ message: "Log not found" });
+
+      const updates: any = {};
+      if (parsed.data.periodStart !== undefined) updates.periodStart = parsed.data.periodStart;
+      if (parsed.data.periodEnd !== undefined) updates.periodEnd = parsed.data.periodEnd;
+      if (parsed.data.flow !== undefined) updates.flow = parsed.data.flow;
+      if (parsed.data.symptoms !== undefined) updates.symptoms = parsed.data.symptoms;
+      if (parsed.data.notes !== undefined) updates.notes = parsed.data.notes;
+
+      const [updated] = await db.update(cycleLogs)
+        .set({ ...updates, updatedAt: new Date() })
+        .where(eq(cycleLogs.id, logId))
+        .returning();
+
+      res.json(updated);
+    } catch (error) {
+      console.error("Update cycle log error:", error);
+      res.status(500).json({ message: "Failed to update period log" });
     }
   });
 

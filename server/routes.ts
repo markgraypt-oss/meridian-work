@@ -21846,11 +21846,27 @@ RULES:
     } = await import("./weeklyCheckin");
 
     // V2 endpoint — used by the new weekly check-in UI (clean API, mobile-consumable later)
+    // Serve the stored weekly check-in row for a week immediately, and refresh
+    // it behind the response. Regeneration calls Claude and can take seconds —
+    // never block a page load on it. Only when no row exists at all do we build
+    // one before responding, because there is nothing to serve.
+    const serveWeeklyRowFast = async (res: any, userId: string, weekStart: Date) => {
+      const existing = await storage.getWeeklyCheckin(userId, weekStart);
+      if (existing) {
+        res.json(existing);
+        void getOrCreateCurrentWeeklyCheckinV2(userId, weekStart).catch((e: any) =>
+          console.error("[weekly-checkin-v2] background refresh failed:", e?.message),
+        );
+        return;
+      }
+      const built = await getOrCreateCurrentWeeklyCheckinV2(userId, weekStart);
+      res.json(built);
+    };
+
     app.get("/api/weekly-checkins/v2/current", isAuthenticated, async (req: any, res) => {
       try {
         const userId = req.user.claims.sub;
-        const weekly = await getOrCreateCurrentWeeklyCheckinV2(userId);
-        res.json(weekly);
+        await serveWeeklyRowFast(res, userId, getIsoWeekStart());
       } catch (error: any) {
         console.error("Error fetching v2 weekly check-in:", error?.message);
         res.status(500).json({ message: "Failed to load weekly check-in" });
@@ -21860,8 +21876,7 @@ RULES:
     app.get("/api/weekly-checkins/current", isAuthenticated, async (req: any, res) => {
       try {
         const userId = req.user.claims.sub;
-        const weekly = await getOrCreateCurrentWeeklyCheckinV2(userId);
-        res.json(weekly);
+        await serveWeeklyRowFast(res, userId, getIsoWeekStart());
       } catch (error: any) {
         console.error("Error fetching current weekly check-in:", error?.message);
         res.status(500).json({ message: "Failed to load weekly check-in" });
@@ -21873,8 +21888,7 @@ RULES:
         const userId = req.user.claims.sub;
         const currentWeekStart = getIsoWeekStart();
         const lastWeekStart = getPreviousIsoWeekStart(currentWeekStart);
-        const row = await getOrCreateCurrentWeeklyCheckinV2(userId, lastWeekStart);
-        res.json(row);
+        await serveWeeklyRowFast(res, userId, lastWeekStart);
       } catch (error: any) {
         console.error("Error fetching last completed weekly check-in:", error?.message);
         res.status(500).json({ message: "Failed to load weekly check-in" });

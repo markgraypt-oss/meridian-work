@@ -5837,6 +5837,50 @@ Return format: {"category": "strength|cardio|hiit|mobility|recovery", "difficult
     }
   });
 
+  // Add many exercises to a workout log in one request. Same per-exercise
+  // behaviour as the single route above, but the mobile app previously called
+  // that route once per exercise when starting a workout — a full network
+  // round trip each. Creation order follows array order, so positions are
+  // preserved exactly as the sequential calls produced them.
+  app.post('/api/workout-logs/:logId/exercises/batch', isAuthenticated, async (req, res) => {
+    try {
+      const logId = parseInt(req.params.logId);
+      const items = req.body?.exercises;
+      if (!Array.isArray(items)) {
+        return res.status(400).json({ message: "exercises must be an array" });
+      }
+
+      const created: any[] = [];
+      for (const exerciseData of items) {
+        const exerciseLog = await storage.createWorkoutExerciseLog({
+          workoutLogId: logId,
+          ...exerciseData,
+        });
+
+        if (exerciseData.sets && Array.isArray(exerciseData.sets)) {
+          const setLogs = await Promise.all(
+            exerciseData.sets.map(async (set: any, index: number) => {
+              return storage.createWorkoutSetLog({
+                exerciseLogId: exerciseLog.id,
+                setNumber: index + 1,
+                targetReps: set.reps || null,
+                targetDuration: set.duration || null,
+              });
+            })
+          );
+          created.push({ ...exerciseLog, sets: setLogs });
+        } else {
+          created.push(exerciseLog);
+        }
+      }
+
+      res.status(201).json(created);
+    } catch (error) {
+      console.error("Error batch adding exercises to workout log:", error);
+      res.status(500).json({ message: "Failed to add exercises" });
+    }
+  });
+
   // Update exercise log
   app.patch('/api/exercise-logs/:id', isAuthenticated, async (req, res) => {
     try {

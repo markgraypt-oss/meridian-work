@@ -3013,23 +3013,78 @@ export class DatabaseStorage implements IStorage {
   // Read enrolled program details from template tables (legacy fallback)
   private async getEnrolledProgramDetailsFromTemplate(enrollment: any): Promise<any> {
     const programId = enrollment.program.id;
+
+    // Batch pattern (same approach as getEnrollmentWorkoutBlocksBatch): fetch
+    // each level of the template hierarchy in one query and group in memory,
+    // replacing the previous weeks -> days -> workouts -> blocks nested loops
+    // that issued queries at every level.
     const weeks = await db.select().from(programWeeks).where(eq(programWeeks.programId, programId));
-    
-    const workouts: any[] = [];
-    
-    for (const week of weeks) {
-      const days = await db.select().from(programDays).where(eq(programDays.weekId, week.id));
-      
-      for (const day of days) {
-        const dayWorkouts = await db
+    if (weeks.length === 0) return { ...enrollment, workouts: [] };
+
+    const days = await db
+      .select()
+      .from(programDays)
+      .where(inArray(programDays.weekId, weeks.map(w => w.id)));
+
+    const allWorkouts = days.length === 0
+      ? []
+      : await db
           .select()
           .from(programmeWorkouts)
-          .where(eq(programmeWorkouts.dayId, day.id));
-        
-        for (const workout of dayWorkouts) {
-          // Fetch blocks - now uses ONLY block-based tables with template sharing
-          const blocks = await this.getProgrammeWorkoutBlocks(workout.id);
-          
+          .where(inArray(programmeWorkouts.dayId, days.map(d => d.id)));
+
+    const blocksByWorkout = await this.getProgrammeWorkoutBlocksBatch(allWorkouts.map(w => w.id));
+
+    // Same-name sibling fallback (template mirroring for admin programmes),
+    // resolved in memory: every workout in the programme is already loaded
+    // here, so the sibling search space getProgrammeWorkoutBlocks queries for
+    // is exactly `allWorkouts`. Skipped for user-created programmes, mirroring
+    // getProgrammeWorkoutBlocks (name collisions there would bleed one day's
+    // blocks onto a sibling's deliberately empty day).
+    const hasExercises = (blocks: any[]) => blocks.some(b => (b.exercises || []).length > 0);
+    let isUserCreated = false;
+    const anyWorkoutEmpty = allWorkouts.some(w => !hasExercises(blocksByWorkout.get(w.id) || []));
+    if (anyWorkoutEmpty && allWorkouts.length > 0) {
+      const parentProgram = await db
+        .select({ sourceType: programs.sourceType })
+        .from(programs)
+        .where(eq(programs.id, programId))
+        .limit(1);
+      isUserCreated = parentProgram.length > 0 && parentProgram[0].sourceType === 'user_created';
+    }
+
+    const resolveBlocks = (workout: any): any[] => {
+      const own = blocksByWorkout.get(workout.id) || [];
+      if (hasExercises(own)) return own;
+      if (isUserCreated) return [];
+      for (const sibling of allWorkouts) {
+        if (sibling.id === workout.id || sibling.name !== workout.name) continue;
+        const siblingBlocks = blocksByWorkout.get(sibling.id) || [];
+        if (hasExercises(siblingBlocks)) return siblingBlocks;
+      }
+      return [];
+    };
+
+    const daysByWeek = new Map<number, any[]>();
+    for (const day of days) {
+      const list = daysByWeek.get(day.weekId);
+      if (list) list.push(day);
+      else daysByWeek.set(day.weekId, [day]);
+    }
+    const workoutsByDay = new Map<number, any[]>();
+    for (const w of allWorkouts) {
+      const list = workoutsByDay.get(w.dayId);
+      if (list) list.push(w);
+      else workoutsByDay.set(w.dayId, [w]);
+    }
+
+    const workouts: any[] = [];
+
+    for (const week of weeks) {
+      for (const day of daysByWeek.get(week.id) || []) {
+        for (const workout of workoutsByDay.get(day.id) || []) {
+          const blocks = resolveBlocks(workout);
+
           // Flatten exercises from blocks for backward compatibility
           let exercises: any[] = [];
           for (const block of blocks) {
@@ -3047,7 +3102,7 @@ export class DatabaseStorage implements IStorage {
               });
             }
           }
-          
+
           workouts.push({
             week: week.weekNumber,
             day: day.position,
@@ -7663,6 +7718,64 @@ export class DatabaseStorage implements IStorage {
   }
 
   // Programme workout block methods - uses ONLY block-based tables (legacy removed)
+  /**
+   * Batch version of the primary path of getProgrammeWorkoutBlocks: blocks and
+   * exercises for MANY programme workouts in two queries rather than one per
+   * workout plus one per block. Returns a map of workoutId -> blocks[], each
+   * block carrying its exercises in the same shape and order as the
+   * per-workout function. No same-name sibling fallback here — callers that
+   * need it (getEnrolledProgramDetailsFromTemplate) resolve it in memory from
+   * this map, since they already hold every workout in the programme.
+   */
+  async getProgrammeWorkoutBlocksBatch(workoutIds: number[]): Promise<Map<number, any[]>> {
+    const result = new Map<number, any[]>();
+    if (workoutIds.length === 0) return result;
+
+    const blocks = await db
+      .select()
+      .from(programmeWorkoutBlocks)
+      .where(inArray(programmeWorkoutBlocks.workoutId, workoutIds))
+      .orderBy(asc(programmeWorkoutBlocks.position));
+
+    for (const id of workoutIds) result.set(id, []);
+    if (blocks.length === 0) return result;
+
+    const exercises = await db
+      .select({
+        id: programmeBlockExercises.id,
+        blockId: programmeBlockExercises.blockId,
+        exerciseLibraryId: programmeBlockExercises.exerciseLibraryId,
+        position: programmeBlockExercises.position,
+        sets: programmeBlockExercises.sets,
+        durationType: programmeBlockExercises.durationType,
+        tempo: programmeBlockExercises.tempo,
+        load: programmeBlockExercises.load,
+        notes: programmeBlockExercises.notes,
+        exerciseName: exerciseLibrary.name,
+        imageUrl: exerciseLibrary.imageUrl,
+        muxPlaybackId: exerciseLibrary.muxPlaybackId,
+        equipment: exerciseLibrary.equipment,
+      })
+      .from(programmeBlockExercises)
+      .leftJoin(exerciseLibrary, eq(programmeBlockExercises.exerciseLibraryId, exerciseLibrary.id))
+      .where(inArray(programmeBlockExercises.blockId, blocks.map(b => b.id)))
+      .orderBy(asc(programmeBlockExercises.position));
+
+    const exercisesByBlock = new Map<number, any[]>();
+    for (const ex of exercises) {
+      const list = exercisesByBlock.get(ex.blockId);
+      if (list) list.push(ex);
+      else exercisesByBlock.set(ex.blockId, [ex]);
+    }
+
+    for (const block of blocks) {
+      const list = result.get(block.workoutId);
+      if (list) list.push({ ...block, exercises: exercisesByBlock.get(block.id) || [] });
+    }
+
+    return result;
+  }
+
   async getProgrammeWorkoutBlocks(workoutId: number): Promise<any[]> {
     // Helper function to get blocks with exercises for a workout
     const getBlocksWithExercises = async (wId: number) => {

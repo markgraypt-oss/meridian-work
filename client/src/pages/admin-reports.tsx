@@ -496,7 +496,7 @@ function exportReportToCSV(report: CompanyReport, timeWindow: string, showMonthO
     html += `<tr><td ${labelStyle}>Average Severity</td><td ${cellStyle}>${report.bodyMapStats.avgSeverity !== null ? report.bodyMapStats.avgSeverity + " / 10" : "---"}</td><td ${cellStyle}>${report.bodyMapStats.severityTrend ? report.bodyMapStats.severityTrend.charAt(0).toUpperCase() + report.bodyMapStats.severityTrend.slice(1) : "---"}</td><td ${emptyStyle}></td></tr>`;
     if (report.bodyMapStats.topBodyAreas.length > 0) {
       html += emptyRow();
-      html += `<tr><td ${colHeaderStyle}>Top Body Areas</td><td ${colHeaderStyle}>Reports</td><td ${colHeaderStyle}>Avg Severity</td><td ${colHeaderStyle}>Trend</td></tr>`;
+      html += `<tr><td ${colHeaderStyle}>Top Body Areas</td><td ${colHeaderStyle}>People</td><td ${colHeaderStyle}>Avg Severity</td><td ${colHeaderStyle}>Trend</td></tr>`;
       for (const area of report.bodyMapStats.topBodyAreas) {
         html += `<tr><td ${labelStyle}>${e(formatBodyPart(area.bodyPart))}</td><td ${cellStyle}>${area.count}</td><td ${cellStyle}>${area.avgSeverity} / 10</td><td ${cellStyle}>${area.trend ? area.trend.charAt(0).toUpperCase() + area.trend.slice(1) : "---"}</td></tr>`;
       }
@@ -1697,7 +1697,7 @@ export default function AdminReports() {
                                   {area.trend && <TrendIcon direction={area.trend} />}
                                 </div>
                                 <div className="flex items-center gap-3">
-                                  <span className="text-xs text-muted-foreground">{area.count} reports</span>
+                                  <span className="text-xs text-muted-foreground">{area.count} people</span>
                                   <span className={`text-sm font-semibold ${area.avgSeverity >= 7 ? "text-red-400" : area.avgSeverity >= 5 ? "text-[#0cc9a9]" : "text-foreground"}`}>
                                     {area.avgSeverity}/10
                                   </span>

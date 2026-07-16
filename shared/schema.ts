@@ -3346,6 +3346,7 @@ export const reportSettings = pgTable("report_settings", {
   id: serial("id").primaryKey(),
   companyName: varchar("company_name"), // null = global default
   minCohortSize: integer("min_cohort_size").notNull().default(5),
+  minActiveUsers: integer("min_active_users").notNull().default(10),
   severityThreshold: integer("severity_threshold").notNull().default(4),
   trendThreshold: real("trend_threshold").notNull().default(0.2),
   burnoutBands: jsonb("burnout_bands").notNull().$type<number[]>().default([20, 40, 60, 80] as any),

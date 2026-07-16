@@ -16,6 +16,24 @@ let hasRunDedupeCheckIns = false;
  * Each statement uses IF NOT EXISTS so it's safe to run on every boot.
  */
 const SELF_HEAL_DDL: string[] = [
+  // Admin report settings: table + anonymity-floor columns. This table was
+  // never added to the self-heal, so create-if-missing here, then ensure the
+  // min_active_users column exists on already-created tables.
+  `CREATE TABLE IF NOT EXISTS report_settings (
+     id serial PRIMARY KEY,
+     company_name varchar,
+     min_cohort_size integer NOT NULL DEFAULT 5,
+     min_active_users integer NOT NULL DEFAULT 10,
+     severity_threshold integer NOT NULL DEFAULT 4,
+     trend_threshold real NOT NULL DEFAULT 0.2,
+     burnout_bands jsonb NOT NULL DEFAULT '[20,40,60,80]'::jsonb,
+     narrative_max_age_minutes integer NOT NULL DEFAULT 60,
+     updated_at timestamp DEFAULT now()
+   )`,
+  `CREATE UNIQUE INDEX IF NOT EXISTS idx_report_settings_company ON report_settings (company_name)`,
+  `CREATE UNIQUE INDEX IF NOT EXISTS idx_report_settings_global_singleton ON report_settings (company_name) WHERE company_name IS NULL`,
+  `ALTER TABLE report_settings ADD COLUMN IF NOT EXISTS min_active_users integer NOT NULL DEFAULT 10`,
+
   // workday rotation: pause-without-remove
   `ALTER TABLE workday_user_profiles ADD COLUMN IF NOT EXISTS active_positions text[]`,
   `ALTER TABLE habits ADD COLUMN IF NOT EXISTS reminder_timezone_offset integer`,

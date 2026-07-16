@@ -18713,6 +18713,7 @@ Keep your response concise, practical, and evidence-based. Do not use em dashes.
       const SettingsSchema = z.object({
         companyName: z.string().nullable().optional(),
         minCohortSize: z.number().int().min(2).max(1000).optional(),
+        minActiveUsers: z.number().int().min(2).max(1000).optional(),
         severityThreshold: z.number().int().min(1).max(10).optional(),
         trendThreshold: z.number().min(0).max(5).optional(),
         burnoutBands: z.array(z.number().int().min(0).max(100)).length(4).refine(
@@ -18730,6 +18731,7 @@ Keep your response concise, practical, and evidence-based. Do not use em dashes.
       const existing = await db.select().from(reportSettingsTable).where(where).limit(1);
       const updateValues: any = { updatedAt: new Date() };
       if (parsed.minCohortSize !== undefined) updateValues.minCohortSize = parsed.minCohortSize;
+      if (parsed.minActiveUsers !== undefined) updateValues.minActiveUsers = parsed.minActiveUsers;
       if (parsed.severityThreshold !== undefined) updateValues.severityThreshold = parsed.severityThreshold;
       if (parsed.trendThreshold !== undefined) updateValues.trendThreshold = parsed.trendThreshold;
       if (parsed.burnoutBands !== undefined) updateValues.burnoutBands = parsed.burnoutBands;
@@ -19057,10 +19059,10 @@ Keep your response concise, practical, and evidence-based. Do not use em dashes.
       // Reuse the company user-id resolver from reportingEngine.
       const { getCompanyUserIds } = await import("./reportingEngine");
       const userIds = await getCompanyUserIds(decodeURIComponent(companyName));
-      if (userIds.length < settings.minCohortSize) {
+      if (userIds.length < settings.minActiveUsers) {
         return res.json({
           eligible: false,
-          reason: `Minimum ${settings.minCohortSize} users required for anonymous engagement metrics.`,
+          reason: `Minimum ${settings.minActiveUsers} active members required for anonymous engagement metrics.`,
           cohortSize: userIds.length,
         });
       }
@@ -19069,11 +19071,11 @@ Keep your response concise, practical, and evidence-based. Do not use em dashes.
       const start = new Date();
       start.setDate(start.getDate() - windowDays);
       start.setHours(0, 0, 0, 0);
-      const data = await computeEngagementIndex(userIds, start, end, settings.minCohortSize);
+      const data = await computeEngagementIndex(userIds, start, end, settings.minActiveUsers);
       if (!data) {
         return res.json({
           eligible: false,
-          reason: `Active cohort below minimum size of ${settings.minCohortSize}.`,
+          reason: `Fewer than ${settings.minActiveUsers} active members in the window.`,
           cohortSize: userIds.length,
         });
       }

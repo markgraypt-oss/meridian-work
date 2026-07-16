@@ -11,11 +11,16 @@ import { eq, and, gte, lte, sql, count, avg, sum, isNotNull, ne, inArray, desc, 
 // Defaults, used as a fallback when no row exists in `report_settings`.
 const DEFAULT_REPORT_SETTINGS = {
   minCohortSize: 5,
+  minActiveUsers: 10,
   severityThreshold: 4,
   trendThreshold: 0.2,
   burnoutBands: [20, 40, 60, 80] as number[],
   narrativeMaxAgeMinutes: 60,
 };
+
+// Body-part breakdown is hidden unless at least this many DISTINCT people
+// report a part (at severity >= threshold). Matches privacy policy 5.1.
+const MIN_AREA_REPORTERS = 5;
 
 export type EffectiveReportSettings = typeof DEFAULT_REPORT_SETTINGS;
 
@@ -35,6 +40,7 @@ export async function getEffectiveReportSettings(companyName?: string): Promise<
     const value: EffectiveReportSettings = row
       ? {
           minCohortSize: row.minCohortSize ?? DEFAULT_REPORT_SETTINGS.minCohortSize,
+          minActiveUsers: row.minActiveUsers ?? DEFAULT_REPORT_SETTINGS.minActiveUsers,
           severityThreshold: row.severityThreshold ?? DEFAULT_REPORT_SETTINGS.severityThreshold,
           trendThreshold: row.trendThreshold ?? DEFAULT_REPORT_SETTINGS.trendThreshold,
           burnoutBands: Array.isArray(row.burnoutBands) && (row.burnoutBands as number[]).length === 4
@@ -391,7 +397,7 @@ async function computeBodyMapStats(
   const topAreasResult = await db.execute(sql`
     SELECT
       body_part,
-      COUNT(*)::int AS report_count,
+      COUNT(DISTINCT user_id)::int AS reporter_count,
       AVG(severity)::float AS avg_severity
     FROM body_map_logs
     WHERE user_id IN (${parameterizedIds})
@@ -399,7 +405,8 @@ async function computeBodyMapStats(
       AND created_at <= ${endDate}
       AND severity >= ${SEVERITY_THRESHOLD}
     GROUP BY body_part
-    ORDER BY report_count DESC
+    HAVING COUNT(DISTINCT user_id) >= ${MIN_AREA_REPORTERS}
+    ORDER BY reporter_count DESC
     LIMIT 5
   `);
 
@@ -408,7 +415,7 @@ async function computeBodyMapStats(
   const prevTopAreasResult = await db.execute(sql`
     SELECT
       body_part,
-      COUNT(*)::int AS report_count,
+      COUNT(DISTINCT user_id)::int AS reporter_count,
       AVG(severity)::float AS avg_severity
     FROM body_map_logs
     WHERE user_id IN (${parameterizedIds})
@@ -420,7 +427,7 @@ async function computeBodyMapStats(
   const prevTopAreas = ((prevTopAreasResult as any).rows || prevTopAreasResult) as any[];
   const prevAreaMap: Record<string, { count: number; avgSeverity: number }> = {};
   prevTopAreas.forEach((a: any) => {
-    prevAreaMap[a.body_part] = { count: Number(a.report_count), avgSeverity: Number(a.avg_severity) };
+    prevAreaMap[a.body_part] = { count: Number(a.reporter_count), avgSeverity: Number(a.avg_severity) };
   });
 
   const currentPainPct = totalUsers > 0
@@ -458,7 +465,7 @@ async function computeBodyMapStats(
       const prev = prevAreaMap[a.body_part];
       let trend: TrendDirection;
       if (prev) {
-        const countDiff = Number(a.report_count) - prev.count;
+        const countDiff = Number(a.reporter_count) - prev.count;
         if (Math.abs(countDiff) <= 1) trend = "stable";
         else trend = countDiff > 0 ? "declining" : "improving";
       } else {
@@ -466,7 +473,7 @@ async function computeBodyMapStats(
       }
       return {
         bodyPart: a.body_part,
-        count: Number(a.report_count),
+        count: Number(a.reporter_count),
         avgSeverity: Math.round(Number(a.avg_severity) * 10) / 10,
         trend,
       };
@@ -557,6 +564,8 @@ async function computeBurnoutStats(
 ): Promise<BurnoutStats | null> {
   if (userIds.length === 0) return null;
 
+  const burnoutSettings = await getEffectiveReportSettings(companyName);
+
   const latestScoresSubquery = db
     .select({
       userId: burnoutScores.userId,
@@ -580,7 +589,9 @@ async function computeBurnoutStats(
     .from(latestScoresSubquery)
     .where(eq(latestScoresSubquery.rn, 1));
 
-  if (currentRows.length === 0) return null;
+  // Anonymity floor: hide the burnout section unless at least
+  // `minActiveUsers` people have a score in the window.
+  if (currentRows.length < burnoutSettings.minActiveUsers) return null;
 
   const scores = currentRows.map(r => r.score);
   const avgScore = Math.round(scores.reduce((a, b) => a + b, 0) / scores.length);
@@ -592,7 +603,6 @@ async function computeBurnoutStats(
   });
 
   const riskBands = { optimal: 0, mild: 0, moderate: 0, high: 0, severe: 0 };
-  const burnoutSettings = await getEffectiveReportSettings(companyName);
   const [b1, b2, b3, b4] = burnoutSettings.burnoutBands;
   scores.forEach(s => {
     if (s <= b1) riskBands.optimal++;
@@ -683,23 +693,9 @@ export async function getCompanyReport(
   const totalUsersInCompany = userIds.length;
   const settings = await getEffectiveReportSettings(companyName);
 
-  if (totalUsersInCompany < settings.minCohortSize) {
-    return {
-      companyName,
-      window: `${windowDays}d`,
-      eligible: false,
-      reason: `Minimum ${settings.minCohortSize} non-admin users required for anonymous reporting. Currently ${totalUsersInCompany} user(s).`,
-      totalUsersInCompany,
-      metrics: null,
-      previousMetrics: null,
-      trends: null,
-      risks: null,
-      participation: null,
-      monthOverMonth: null,
-      bodyMapStats: null,
-      burnoutStats: null,
-    };
-  }
+  // Anonymity floor is enforced AFTER metrics are computed, on the number of
+  // people who actually checked in during the window (uniqueUsers), not on
+  // how many accounts exist. See the active-user gate below.
 
   const { start, end } = customStart && customEnd
     ? { start: customStart, end: customEnd }
@@ -717,6 +713,28 @@ export async function getCompanyReport(
 
   const currentMetrics = await computeMetrics(userIds, start, end);
   const previousMetrics = await computeMetrics(userIds, prevStart, prevEnd);
+
+  // Anonymity floor: no report unless at least `minActiveUsers` distinct
+  // people checked in during the window. uniqueUsers is that distinct
+  // check-in count; it is 0 when nobody checked in (metrics null).
+  const activeInWindow = currentMetrics?.uniqueUsers ?? 0;
+  if (activeInWindow < settings.minActiveUsers) {
+    return {
+      companyName,
+      window: `${windowDays}d`,
+      eligible: false,
+      reason: `Minimum ${settings.minActiveUsers} active members required for anonymous reporting. Currently ${activeInWindow} checked in.`,
+      totalUsersInCompany,
+      metrics: null,
+      previousMetrics: null,
+      trends: null,
+      risks: null,
+      participation: null,
+      monthOverMonth: null,
+      bodyMapStats: null,
+      burnoutStats: null,
+    };
+  }
 
   const trends = computeTrends(currentMetrics, previousMetrics, settings.trendThreshold);
   const risks = computeRiskSignals(currentMetrics);

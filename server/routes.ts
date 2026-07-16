@@ -12655,7 +12655,13 @@ Rules:
         category: topic.slug || 'general',
         estimatedDuration: 0, // Will be calculated from content
       }).returning();
-      
+
+      // Fire-and-forget AI tagging of the path's "helps with" (struggles)
+      // list. Feeds the coach's education search; never blocks the response.
+      import('./coach/contentTagger')
+        .then(m => m.tagNewLearningPathAsync(newPath.id))
+        .catch(() => {});
+
       res.status(201).json(newPath);
     } catch (error) {
       console.error("Error creating learning path:", error);
@@ -13309,6 +13315,11 @@ Rules:
   app.post('/api/content-library', isAuthenticated, async (req: any, res) => {
     try {
       const item = await storage.createContentLibraryItem(req.body);
+      // Fire-and-forget AI tagging (skips items created with tags already
+      // set). Feeds the coach's education search; never blocks the response.
+      import('./coach/contentTagger')
+        .then(m => m.tagNewLibraryItemAsync(item.id))
+        .catch(() => {});
       res.status(201).json(item);
     } catch (error) {
       console.error("Error creating library item:", error);
@@ -19467,6 +19478,33 @@ Keep your response concise, practical, and evidence-based. Do not use em dashes.
         ? `\n\nUSER MEMORY (durable facts about this user, use to personalise — do not contradict):\n${memoryText}`
         : '';
 
+      // Education content retrieval: a small intent call decides whether
+      // learn content could help this message, a DB search pulls the matching
+      // videos/paths, and only that shortlist (with stable IDs + the marker
+      // rules) enters the prompt. Scales to any library size. Failure here
+      // must never block the chat.
+      let educationContext = '';
+      try {
+        const { extractContentIntent, searchEducationContent, buildEducationBlock } = await import('./coach/contentSearch');
+        const intentHistory = (conversationHistory || [])
+          .slice(-4)
+          .map((m: any) => `${m.role === 'user' ? 'User' : 'Coach'}: ${String(m.content || '').slice(0, 300)}`)
+          .join('\n');
+        const intent = await extractContentIntent(userId, message, intentHistory, config.provider, config.model);
+        if (intent.wantsContent) {
+          const candidates = await searchEducationContent({
+            terms: intent.searchTerms,
+            contentType: intent.contentType,
+            limit: 8,
+          });
+          if (candidates.length > 0) {
+            educationContext = await buildEducationBlock(userId, candidates);
+          }
+        }
+      } catch (e) {
+        console.error('[coach-chat] education retrieval failed:', e);
+      }
+
       const user = await storage.getUser(userId);
       const userName = user?.firstName || user?.name?.split(' ')[0] || 'there';
 
@@ -19530,7 +19568,7 @@ PLATFORM KNOWLEDGE RULES:
 - When asked about exercises, reference their target muscles, equipment needed, and movement patterns
 - If a user asks for something that does not exist in the library, say so honestly and suggest the closest alternative
 - Consider the user's equipment access, experience level, time availability, and any movement screening flags when recommending programmes or workouts
-${coachingContext}${userDataContext}${onboardingContext}${crossCoachContext}${memoryContext}
+${coachingContext}${userDataContext}${onboardingContext}${crossCoachContext}${memoryContext}${educationContext}
 
 The user's name is ${userName}.${historyText}
 
@@ -19547,17 +19585,71 @@ Respond as the coach. Be personalised, reference their actual data and specific 
         model: config.model,
       });
 
-      res.json({ response: response.text, memoriesUsed });
+      // Strip recommendation markers from the reply and validate them against
+      // the DB — the client only ever receives real, tappable content. Marker
+      // parsing always runs so stray markers can never leak to users.
+      let replyText = response.text;
+      let recommendations: any[] = [];
+      try {
+        const { parseRecMarkers, resolveRecommendations } = await import('./coach/contentSearch');
+        const parsed = parseRecMarkers(replyText);
+        replyText = parsed.cleanText;
+        if (parsed.refs.length > 0) {
+          recommendations = await resolveRecommendations(userId, parsed.refs, 'chat');
+        }
+      } catch (e) {
+        console.error('[coach-chat] recommendation resolution failed:', e);
+      }
+
+      res.json({ response: replyText, memoriesUsed, recommendations });
 
       // Fire-and-forget memory extraction. Never block the response.
-      if (response.text && response.text.trim()) {
-        extractAndStoreMemories(userId, message, response.text).catch((e) => {
+      if (replyText && replyText.trim()) {
+        extractAndStoreMemories(userId, message, replyText).catch((e) => {
           console.error("[coach-memory] background extract failed:", e);
         });
       }
     } catch (error) {
       console.error("Error in coach chat:", error);
       res.status(500).json({ message: "Failed to get coach response" });
+    }
+  });
+
+  // Marks a coach education recommendation as tapped (fired when the user
+  // opens a recommended video/path card from the chat). Feeds engagement
+  // reporting and gamification.
+  app.post('/api/coach/recommendations/:id/tap', isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = req.user.claims.sub;
+      const recId = parseInt(req.params.id, 10);
+      if (!Number.isFinite(recId) || recId <= 0) {
+        return res.status(400).json({ message: 'Invalid recommendation id' });
+      }
+      const { logRecommendationTap } = await import('./coach/contentSearch');
+      const ok = await logRecommendationTap(userId, recId);
+      if (!ok) return res.status(404).json({ message: 'Recommendation not found' });
+      res.json({ success: true });
+    } catch (error) {
+      console.error('Error logging recommendation tap:', error);
+      res.status(500).json({ message: 'Failed to log recommendation tap' });
+    }
+  });
+
+  // Admin: AI-tag the whole education library (learn items get tags, paths
+  // get their "helps with" list) using the canonical vocabulary in
+  // server/coach/contentVocab.ts. Skips already-tagged content unless
+  // force=true, so hand-set tags are never clobbered. Returns a full report
+  // incl. thin-content flags and suggested new vocabulary labels.
+  // Also runnable from the terminal: npx tsx scripts/tag-content.ts
+  app.post('/api/admin/content-tags/backfill', isAuthenticated, requireAdmin, async (req: any, res) => {
+    try {
+      const force = req.body?.force === true;
+      const { runContentTagBackfill } = await import('./coach/contentTagger');
+      const report = await runContentTagBackfill({ force });
+      res.json(report);
+    } catch (error) {
+      console.error('Error running content tag backfill:', error);
+      res.status(500).json({ message: 'Failed to run content tag backfill' });
     }
   });
 

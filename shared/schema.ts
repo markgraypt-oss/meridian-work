@@ -2714,6 +2714,23 @@ export const coachConversations = pgTable("coach_conversations", {
 export type CoachConversation = typeof coachConversations.$inferSelect;
 export type InsertCoachConversation = typeof coachConversations.$inferInsert;
 
+// Coach education recommendations — one row per video/path card the coach
+// shows in chat, with tap-through recorded in tapped_at. Feeds engagement
+// reporting and the gamification system (points for watching recommended
+// content).
+export const coachRecommendations = pgTable("coach_recommendations", {
+  id: serial("id").primaryKey(),
+  userId: varchar("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+  itemType: text("item_type").notNull(), // 'video' (learn_content_library item) | 'path'
+  itemId: integer("item_id").notNull(), // learn_content_library.id or learning_paths.id
+  source: text("source").notNull().default("chat"), // 'chat' now; 'briefing' etc. later
+  shownAt: timestamp("shown_at").defaultNow(),
+  tappedAt: timestamp("tapped_at"),
+});
+
+export type CoachRecommendationRow = typeof coachRecommendations.$inferSelect;
+export type InsertCoachRecommendationRow = typeof coachRecommendations.$inferInsert;
+
 // Proactive coach briefings (morning + evening)
 export const coachBriefings = pgTable("coach_briefings", {
   id: serial("id").primaryKey(),

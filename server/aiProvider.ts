@@ -330,8 +330,8 @@ export const FEATURE_DATA_SOURCES: Record<string, { domains: DataDomain[]; descr
     description: 'Recent check-ins, sleep and stress/burnout signals (incl. recovery-mode flag), current body-map issues, workout cadence, habit compliance, active goals, and dietary preferences for ranking meditations / recipes / videos that fit the user right now',
   },
   coach_chat: {
-    domains: ['body_map', 'programs', 'workouts', 'workout_logs', 'exercises', 'learning_paths', 'check_ins', 'sleep', 'steps', 'resting_hr', 'stress', 'bodyweight', 'body_fat', 'blood_pressure', 'hydration', 'nutrition', 'goals', 'habits', 'programme_library', 'workout_library', 'recipe_library', 'video_library', 'learn_library', 'exercise_library'],
-    description: 'Complete platform knowledge: all user health data plus full content libraries (programmes, workouts, exercises, recipes, videos, learning paths) for personalised recommendations',
+    domains: ['body_map', 'programs', 'workouts', 'workout_logs', 'exercises', 'learning_paths', 'check_ins', 'sleep', 'steps', 'resting_hr', 'stress', 'bodyweight', 'body_fat', 'blood_pressure', 'hydration', 'nutrition', 'goals', 'habits', 'programme_library', 'workout_library', 'recipe_library', 'video_library', 'exercise_library'],
+    description: 'Complete platform knowledge: all user health data plus full content libraries (programmes, workouts, exercises, recipes, videos) for personalised recommendations. Education content (learn videos + learning paths) is retrieved per message by coach/contentSearch and injected with tappable-recommendation IDs, so it is no longer bulk-injected here.',
   },
   coach_briefing: {
     domains: ['body_map', 'programs', 'workouts', 'workout_logs', 'check_ins', 'sleep', 'steps', 'resting_hr', 'stress', 'hydration', 'nutrition', 'goals', 'habits'],

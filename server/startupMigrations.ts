@@ -39,6 +39,18 @@ const SELF_HEAL_DDL: string[] = [
   `ALTER TABLE habits ADD COLUMN IF NOT EXISTS reminder_timezone_offset integer`,
   `ALTER TABLE coach_briefings ADD COLUMN IF NOT EXISTS conversation_id integer`,
 
+  // Coach chat education recommendations (tappable video/path cards)
+  `CREATE TABLE IF NOT EXISTS coach_recommendations (
+     id serial PRIMARY KEY,
+     user_id varchar NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+     item_type text NOT NULL,
+     item_id integer NOT NULL,
+     source text NOT NULL DEFAULT 'chat',
+     shown_at timestamp DEFAULT now(),
+     tapped_at timestamp
+   )`,
+  `CREATE INDEX IF NOT EXISTS idx_coach_recommendations_user ON coach_recommendations (user_id, shown_at)`,
+
   // Wearables: required by burnout score computation
   `CREATE TABLE IF NOT EXISTS wearable_connections (
      id serial PRIMARY KEY,

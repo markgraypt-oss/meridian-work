@@ -102,22 +102,74 @@ export class ObjectStorageService {
       // Get the ACL policy for the object.
       const aclPolicy = await getObjectAclPolicy(file);
       const isPublic = aclPolicy?.visibility === "public";
-      // Set appropriate headers
+      const contentType = metadata.contentType || "application/octet-stream";
+      const size = Number(metadata.size);
+      const cacheControl = `${isPublic ? "public" : "private"}, max-age=${cacheTtlSec}`;
+
+      // Honor HTTP Range requests so that audio/video can stream and seek.
+      // Media elements (<audio>/<video>) issue Range requests and stall if the
+      // server always returns the full body with a 200. Images never needed
+      // this, which is why it went unnoticed until meditation audio was added.
+      const rangeHeader = (res.req?.headers?.range) as string | undefined;
+
+      if (rangeHeader && Number.isFinite(size) && size > 0) {
+        const match = /^bytes=(\d*)-(\d*)$/.exec(rangeHeader.trim());
+        if (match) {
+          let start = match[1] === "" ? undefined : parseInt(match[1], 10);
+          let end = match[2] === "" ? undefined : parseInt(match[2], 10);
+          if (start === undefined && end !== undefined) {
+            // Suffix range: bytes=-N -> last N bytes
+            start = Math.max(size - end, 0);
+            end = size - 1;
+          } else {
+            if (start === undefined) start = 0;
+            if (end === undefined || end >= size) end = size - 1;
+          }
+          if (start > end || start >= size) {
+            res
+              .status(416)
+              .set({ "Content-Range": `bytes */${size}`, "Accept-Ranges": "bytes" })
+              .end();
+            return;
+          }
+          const chunkSize = end - start + 1;
+          res.status(206).set({
+            "Content-Type": contentType,
+            "Content-Length": String(chunkSize),
+            "Content-Range": `bytes ${start}-${end}/${size}`,
+            "Accept-Ranges": "bytes",
+            "Cache-Control": cacheControl,
+          });
+          const rangeStream = file.createReadStream({ start, end });
+          rangeStream.on("error", (err) => {
+            console.error("Stream error (range):", err);
+            if (!res.headersSent) {
+              res.status(500).json({ error: "Error streaming file" });
+            } else {
+              res.destroy();
+            }
+          });
+          rangeStream.pipe(res);
+          return;
+        }
+      }
+
+      // Full response (also advertise range support for the next request).
       res.set({
-        "Content-Type": metadata.contentType || "application/octet-stream",
-        "Content-Length": metadata.size,
-        "Cache-Control": `${
-          isPublic ? "public" : "private"
-        }, max-age=${cacheTtlSec}`,
+        "Content-Type": contentType,
+        "Content-Length": String(size),
+        "Accept-Ranges": "bytes",
+        "Cache-Control": cacheControl,
       });
 
-      // Stream the file to the response
       const stream = file.createReadStream();
 
       stream.on("error", (err) => {
         console.error("Stream error:", err);
         if (!res.headersSent) {
           res.status(500).json({ error: "Error streaming file" });
+        } else {
+          res.destroy();
         }
       });
 

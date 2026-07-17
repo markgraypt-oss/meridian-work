@@ -444,6 +444,7 @@ import {
   insertWorkdayDeskScanSchema,
   insertUserDeskFixTaskSchema,
   insertMeditationSessionLogSchema,
+  insertMeditationSchema,
   insertGratitudeEntrySchema,
   insertMindfulnessToolSchema,
   mindfulnessTools,
@@ -22378,6 +22379,48 @@ RULES:
     } catch (err) {
       console.error("GET /api/meditations failed", err);
       res.status(500).json({ message: "Failed to load meditations" });
+    }
+  });
+
+  // Meditations - Admin CRUD
+  app.get('/api/admin/meditations', isAuthenticated, requireAdmin, async (_req: any, res) => {
+    try {
+      const meds = await storage.getAllMeditations();
+      res.json(meds);
+    } catch (error) {
+      console.error("Error fetching meditations (admin):", error);
+      res.status(500).json({ message: "Failed to fetch meditations" });
+    }
+  });
+
+  app.post('/api/admin/meditations', isAuthenticated, requireAdmin, async (req: any, res) => {
+    try {
+      const validated = insertMeditationSchema.parse(req.body);
+      const med = await storage.createMeditation(validated);
+      res.json(med);
+    } catch (error) {
+      console.error("Error creating meditation:", error);
+      res.status(500).json({ message: "Failed to create meditation" });
+    }
+  });
+
+  app.patch('/api/admin/meditations/:id', isAuthenticated, requireAdmin, async (req: any, res) => {
+    try {
+      const med = await storage.updateMeditation(parseInt(req.params.id), req.body);
+      res.json(med);
+    } catch (error) {
+      console.error("Error updating meditation:", error);
+      res.status(500).json({ message: "Failed to update meditation" });
+    }
+  });
+
+  app.delete('/api/admin/meditations/:id', isAuthenticated, requireAdmin, async (req: any, res) => {
+    try {
+      await storage.deleteMeditation(parseInt(req.params.id));
+      res.json({ message: "Meditation deleted" });
+    } catch (error) {
+      console.error("Error deleting meditation:", error);
+      res.status(500).json({ message: "Failed to delete meditation" });
     }
   });
 

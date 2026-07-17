@@ -24,13 +24,23 @@ export default function MeditationPlayer() {
     durationMin: 5,
     category: "Focus",
     description: "",
+    audioUrl: null,
   };
-  const totalSeconds = meditation.durationMin * 60;
+
+  const audioRef = useRef<HTMLAudioElement | null>(null);
+  const hasAudio = !!meditation.audioUrl;
 
   const [isPlaying, setIsPlaying] = useState(false);
   const [elapsed, setElapsed] = useState(0);
   const [completed, setCompleted] = useState(false);
+  const [audioDuration, setAudioDuration] = useState(0);
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
+  // Total length: prefer the real audio duration once known, otherwise fall
+  // back to the configured minutes (also used for the silent-timer mode).
+  const totalSeconds = hasAudio && audioDuration > 0
+    ? Math.round(audioDuration)
+    : meditation.durationMin * 60;
 
   const catStyle = getCategoryStyle(meditation.category);
 
@@ -67,7 +77,11 @@ export default function MeditationPlayer() {
     }
   }, [isAuthenticated, authLoading, toast]);
 
+  // Silent-timer mode: only run the interval when there is no audio to drive
+  // progress. When audio is present, the <audio> element's timeupdate events
+  // update `elapsed` instead.
   useEffect(() => {
+    if (hasAudio) return;
     if (isPlaying && elapsed < totalSeconds) {
       intervalRef.current = setInterval(() => {
         setElapsed((prev) => {
@@ -83,22 +97,44 @@ export default function MeditationPlayer() {
     return () => {
       if (intervalRef.current) clearInterval(intervalRef.current);
     };
-  }, [isPlaying, elapsed, totalSeconds]);
+  }, [isPlaying, elapsed, totalSeconds, hasAudio]);
+
+  // Keep the audio element in sync when the meditation changes.
+  useEffect(() => {
+    setIsPlaying(false);
+    setElapsed(0);
+    setCompleted(false);
+    setAudioDuration(0);
+  }, [meditationId]);
 
   const togglePlay = useCallback(() => {
-    if (elapsed >= totalSeconds) return;
+    if (elapsed >= totalSeconds && totalSeconds > 0) return;
+    if (hasAudio && audioRef.current) {
+      if (audioRef.current.paused) {
+        audioRef.current.play().catch(() => {
+          toast({ title: "Playback error", description: "Could not play this audio.", variant: "destructive" });
+        });
+      } else {
+        audioRef.current.pause();
+      }
+      return;
+    }
     setIsPlaying((prev) => !prev);
-  }, [elapsed, totalSeconds]);
+  }, [elapsed, totalSeconds, hasAudio, toast]);
 
   const reset = useCallback(() => {
     setIsPlaying(false);
     setElapsed(0);
     setCompleted(false);
     if (intervalRef.current) clearInterval(intervalRef.current);
-  }, []);
+    if (hasAudio && audioRef.current) {
+      audioRef.current.pause();
+      audioRef.current.currentTime = 0;
+    }
+  }, [hasAudio]);
 
-  const progress = Math.min(elapsed / totalSeconds, 1);
-  const remaining = totalSeconds - elapsed;
+  const progress = totalSeconds > 0 ? Math.min(elapsed / totalSeconds, 1) : 0;
+  const remaining = Math.max(totalSeconds - elapsed, 0);
   const mins = Math.floor(remaining / 60);
   const secs = remaining % 60;
 
@@ -119,6 +155,25 @@ export default function MeditationPlayer() {
   return (
     <div className="min-h-screen bg-background pb-20">
       <TopHeader title={meditation.title} onBack={() => navigate("/recovery/mindfulness")} />
+
+      {hasAudio && (
+        <audio
+          ref={audioRef}
+          src={meditation.audioUrl || undefined}
+          preload="metadata"
+          onLoadedMetadata={(e) => {
+            const d = e.currentTarget.duration;
+            if (Number.isFinite(d) && d > 0) setAudioDuration(d);
+          }}
+          onPlay={() => setIsPlaying(true)}
+          onPause={() => setIsPlaying(false)}
+          onTimeUpdate={(e) => setElapsed(Math.floor(e.currentTarget.currentTime))}
+          onEnded={() => {
+            setIsPlaying(false);
+            setElapsed(totalSeconds);
+          }}
+        />
+      )}
 
       <div className="px-5 pt-20 pb-6">
         <div className="max-w-md mx-auto">

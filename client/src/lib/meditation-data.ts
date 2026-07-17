@@ -13,6 +13,7 @@ export interface MeditationItem {
   durationMin: number;
   category: string;
   description: string | null;
+  audioUrl?: string | null;
 }
 
 export const meditationCategories = ["All", "Focus", "Relaxation", "Awareness", "Sleep", "Emotional"];

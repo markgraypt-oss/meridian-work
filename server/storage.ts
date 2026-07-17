@@ -1243,6 +1243,9 @@ export interface IStorage {
   getMeditationsByIds(ids: number[]): Promise<Meditation[]>;
   getMeditationById(id: number): Promise<Meditation | undefined>;
   createMeditation(med: InsertMeditation): Promise<Meditation>;
+  getAllMeditations(): Promise<Meditation[]>;
+  updateMeditation(id: number, med: Partial<InsertMeditation>): Promise<Meditation>;
+  deleteMeditation(id: number): Promise<void>;
 
   // Smart Recommendations
   getRecommendations(userId: string): Promise<Recommendation[]>;
@@ -13221,6 +13224,20 @@ export class DatabaseStorage implements IStorage {
   async createMeditation(med: InsertMeditation): Promise<Meditation> {
     const [created] = await db.insert(meditations).values(med).returning();
     return created;
+  }
+
+  async getAllMeditations(): Promise<Meditation[]> {
+    return await db.select().from(meditations)
+      .orderBy(asc(meditations.orderIndex), asc(meditations.id));
+  }
+
+  async updateMeditation(id: number, med: Partial<InsertMeditation>): Promise<Meditation> {
+    const [updated] = await db.update(meditations).set(med).where(eq(meditations.id, id)).returning();
+    return updated;
+  }
+
+  async deleteMeditation(id: number): Promise<void> {
+    await db.delete(meditations).where(eq(meditations.id, id));
   }
 
   // ============================================

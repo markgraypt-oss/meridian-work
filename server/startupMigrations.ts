@@ -38,6 +38,7 @@ const SELF_HEAL_DDL: string[] = [
   `ALTER TABLE workday_user_profiles ADD COLUMN IF NOT EXISTS active_positions text[]`,
   `ALTER TABLE habits ADD COLUMN IF NOT EXISTS reminder_timezone_offset integer`,
   `ALTER TABLE coach_briefings ADD COLUMN IF NOT EXISTS conversation_id integer`,
+  `ALTER TABLE meditations ADD COLUMN IF NOT EXISTS cover_image_url text`,
 
   // Coach chat education recommendations (tappable video/path cards)
   `CREATE TABLE IF NOT EXISTS coach_recommendations (

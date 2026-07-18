@@ -9,8 +9,9 @@ import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Plus, Pencil, Trash2, X, Music, Loader2, Check } from "lucide-react";
+import { Plus, Pencil, Trash2, X, Music, Loader2, Check, Image as ImageIcon } from "lucide-react";
 import { uploadAudioFile, uploadErrorMessage } from "@/lib/uploadAudio";
+import { uploadImageFile } from "@/lib/uploadImage";
 import type { Meditation } from "@shared/schema";
 
 interface MeditationFormData {
@@ -19,6 +20,7 @@ interface MeditationFormData {
   category: string;
   durationMin: number | null;
   audioUrl: string;
+  coverImageUrl: string;
   tags: string;
   orderIndex: number;
   isActive: boolean;
@@ -30,6 +32,7 @@ const defaultFormData: MeditationFormData = {
   category: "Relaxation",
   durationMin: null,
   audioUrl: "",
+  coverImageUrl: "",
   tags: "",
   orderIndex: 0,
   isActive: true,
@@ -47,6 +50,8 @@ export default function AdminMeditations() {
   const [isUploading, setIsUploading] = useState(false);
   const [uploadPct, setUploadPct] = useState(0);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
+  const [isCoverUploading, setIsCoverUploading] = useState(false);
+  const coverInputRef = useRef<HTMLInputElement | null>(null);
 
   const { data: meditations = [], isLoading } = useQuery<Meditation[]>({
     queryKey: ["/api/admin/meditations"],
@@ -58,6 +63,7 @@ export default function AdminMeditations() {
     durationMin: Number(data.durationMin) || 0,
     description: data.description.trim() || null,
     audioUrl: data.audioUrl.trim() || null,
+    coverImageUrl: data.coverImageUrl.trim() || null,
     tags: data.tags.split(",").map((t) => t.trim()).filter(Boolean),
     orderIndex: Number(data.orderIndex) || 0,
     isActive: data.isActive,
@@ -110,6 +116,8 @@ export default function AdminMeditations() {
     setUploadPct(0);
     setIsUploading(false);
     if (fileInputRef.current) fileInputRef.current.value = "";
+    setIsCoverUploading(false);
+    if (coverInputRef.current) coverInputRef.current.value = "";
   };
 
   const handleEdit = (m: Meditation) => {
@@ -119,6 +127,7 @@ export default function AdminMeditations() {
       category: m.category,
       durationMin: m.durationMin,
       audioUrl: m.audioUrl || "",
+      coverImageUrl: m.coverImageUrl || "",
       tags: (m.tags || []).join(", "),
       orderIndex: m.orderIndex || 0,
       isActive: m.isActive ?? true,
@@ -143,6 +152,21 @@ export default function AdminMeditations() {
       toast({ title: "Upload failed", description: uploadErrorMessage(err), variant: "destructive" });
     } finally {
       setIsUploading(false);
+    }
+  };
+
+  const handleCoverSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setIsCoverUploading(true);
+    try {
+      const objectPath = await uploadImageFile(file, { visibility: "public" });
+      setFormData((prev) => ({ ...prev, coverImageUrl: objectPath }));
+      toast({ title: "Cover uploaded" });
+    } catch (err) {
+      toast({ title: "Upload failed", description: uploadErrorMessage(err), variant: "destructive" });
+    } finally {
+      setIsCoverUploading(false);
     }
   };
 
@@ -252,6 +276,38 @@ export default function AdminMeditations() {
               )}
               <p className="text-xs text-muted-foreground">
                 mp3, m4a, wav, aac or ogg (up to 200MB). Uploaded to secure storage; no audio means the player falls back to a silent timer.
+              </p>
+            </div>
+
+            {/* Cover image (optional — overrides the category orb in the app) */}
+            <div className="space-y-2">
+              <Label>Cover image (optional)</Label>
+              <input
+                ref={coverInputRef}
+                type="file"
+                accept="image/*"
+                className="hidden"
+                onChange={handleCoverSelect}
+              />
+              <div className="flex items-center gap-3">
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={() => coverInputRef.current?.click()}
+                  disabled={isCoverUploading}
+                >
+                  {isCoverUploading ? (
+                    <><Loader2 className="h-4 w-4 mr-2 animate-spin" />Uploading…</>
+                  ) : (
+                    <><ImageIcon className="h-4 w-4 mr-2" />{formData.coverImageUrl ? "Replace cover" : "Upload cover"}</>
+                  )}
+                </Button>
+                {formData.coverImageUrl && !isCoverUploading && (
+                  <img src={formData.coverImageUrl} alt="cover" className="h-12 w-12 rounded-lg object-cover border border-border" />
+                )}
+              </div>
+              <p className="text-xs text-muted-foreground">
+                Optional. A square image works best. If left empty, the app shows a designed cover based on the category.
               </p>
             </div>
 

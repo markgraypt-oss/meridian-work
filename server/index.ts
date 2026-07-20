@@ -6,6 +6,20 @@ import { setupVite, serveStatic, log } from "./vite";
 import { video } from "./mux";
 import { runProfileImageMigrationOnce, seedMeditationsOnce, runSchemaSelfHealOnce, seedAiPromptsOnce, repairBodyweightGoalUnitsOnce, normalizeRecipeMacrosOnce, seedBadgesV2Once, retireDroppedDeskBadgesOnce, seedReadinessBadgesOnce, fixHabitTemplateDescriptionsOnce, dedupeCheckInsOnce } from "./startupMigrations";
 
+// Process-level safety net. Node 20 kills the entire process on any unhandled
+// promise rejection. This server runs many fire-and-forget background jobs
+// (wearable syncs, briefing/baseline/push schedulers, streak updates) — if any
+// of them ever rejects without a .catch, the whole process dies and every
+// in-flight API request is dropped, surfacing to clients as an opaque
+// proxy-level 500 "Internal Server Error" (e.g. a lost daily check-in
+// submission). Log loudly and keep serving instead.
+process.on("unhandledRejection", (reason) => {
+  console.error("[process] Unhandled promise rejection (kept alive):", reason);
+});
+process.on("uncaughtException", (err) => {
+  console.error("[process] Uncaught exception (kept alive):", err);
+});
+
 const app = express();
 
 app.use(cors({ origin: true, credentials: true }));

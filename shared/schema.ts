@@ -3449,6 +3449,7 @@ export const meditations = pgTable("meditations", {
   description: text("description"),
   category: text("category").notNull(),
   durationMin: integer("duration_min").notNull(),
+  durationSec: integer("duration_sec"),
   audioUrl: text("audio_url"),
   coverImageUrl: text("cover_image_url"),
   tags: text("tags").array(),

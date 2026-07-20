@@ -63,6 +63,7 @@ export type UserStateSnapshot = {
     meditationSessions30d: number;
     breathSessionsTotal: number;
   };
+  nutrition: { hasActiveMealPlan: boolean };
 };
 
 function daysAgo(d: Date | string | null | undefined): number | null {
@@ -94,6 +95,7 @@ export async function getUserStateSnapshot(userId: string): Promise<UserStateSna
     goals,
     meditationSessions,
     breathLogs,
+    mealPlan,
   ] = await Promise.all([
     storage.getWorkdayUserProfile(userId).catch(() => undefined),
     storage.getWorkdayDeskScans(userId).catch(() => []),
@@ -108,6 +110,7 @@ export async function getUserStateSnapshot(userId: string): Promise<UserStateSna
     storage.getGoals(userId).catch(() => []),
     storage.getMeditationSessions(userId, 50).catch(() => []),
     storage.getBreathWorkSessionLogs(userId, 1_000).catch(() => []),
+    storage.getUserMealPlan(userId).catch(() => undefined),
   ]);
 
   // Workday
@@ -214,6 +217,7 @@ export async function getUserStateSnapshot(userId: string): Promise<UserStateSna
       meditationSessions30d: meditation30d,
       breathSessionsTotal: (breathLogs || []).length,
     },
+    nutrition: { hasActiveMealPlan: !!mealPlan },
   };
 }
 
@@ -264,6 +268,7 @@ export function formatUserStateBlock(s: UserStateSnapshot): string {
   if (s.goals.activeCount > 0) lines.push(`- Active goals: ${s.goals.activeCount}`);
   if (s.recovery.meditationSessions30d > 0) lines.push(`- Meditation sessions last 30d: ${s.recovery.meditationSessions30d}`);
   if (s.recovery.breathSessionsTotal > 0) lines.push(`- Breathwork sessions logged: ${s.recovery.breathSessionsTotal}`);
+  if (s.nutrition.hasActiveMealPlan) lines.push(`- Active meal plan: yes`);
 
   return lines.join("\n");
 }

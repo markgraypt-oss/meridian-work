@@ -1,11 +1,17 @@
 import { and, desc, eq, ilike, or, sql } from "drizzle-orm";
 import { db } from "../db";
 import {
+  breathTechniques,
   coachRecommendations,
+  exerciseLibrary,
+  habitTemplates,
+  meditations,
   programs,
+  recipes,
   workdayAchesFixes,
   workdayMicroResets,
   workdayPositions,
+  workouts,
 } from "@shared/schema";
 import type { UserStateSnapshot } from "./userState";
 
@@ -33,7 +39,11 @@ export type DomainKey =
   | "ache_fix"
   | "programme"
   | "workout"
+  | "exercise"
   | "recipe"
+  | "meditation"
+  | "breath"
+  | "habit"
   | "action";
 
 export type RecRef = { domain: DomainKey; id: number | null; key: string | null };
@@ -62,7 +72,7 @@ export type ResolvedRec = {
 };
 
 export type DomainCandidate = {
-  domain: Exclude<DomainKey, "video" | "path" | "workout" | "recipe" | "action">;
+  domain: Exclude<DomainKey, "video" | "path" | "action">;
   id: number;
   title: string;
   promptLine: string; // full shortlist line, including the [domain:id] ref
@@ -332,6 +342,378 @@ export async function searchProgrammes(
   return out.slice(0, limit);
 }
 
+
+// --- checkpoint B domains: workout, exercise, recipe, meditation, breath, habit
+
+/**
+ * Pain gating maps: with an active body-map issue at severity >= 4, workouts
+ * and exercises whose target areas / main muscles plausibly load that body
+ * part are hard-filtered out of the shortlist. Deliberately conservative
+ * (narrow keyword sets) — the coach also sees the pain in USER STATE and is
+ * instructed to work around it; this filter just guarantees the worst
+ * mismatches can never even be offered.
+ */
+// Keys match the body-map area ids used by the mobile app (BODY_AREAS in
+// app/body-map.tsx): neck, shoulder, elbow, wrist_hand, upper_back,
+// lower_back, hip, quadriceps, hamstrings, knee, calf, ankle_foot. Matching
+// is substring-based (see severePainBlockSets) so side-prefixed values like
+// "left_shoulder" (older/seed data) still hit the "shoulder" entry.
+const PAIN_TO_WORKOUT_AREAS: Record<string, string[]> = {
+  neck: ["upper_body", "push", "pull"],
+  shoulder: ["upper_body", "push", "pull"],
+  elbow: ["upper_body", "push", "pull"],
+  wrist_hand: ["push", "upper_body"],
+  wrist: ["push", "upper_body"],
+  upper_back: ["upper_body", "pull"],
+  lower_back: ["core", "lower_body", "legs", "glutes"],
+  hip: ["lower_body", "legs", "glutes"],
+  quadriceps: ["lower_body", "legs"],
+  hamstrings: ["lower_body", "legs", "glutes"],
+  knee: ["lower_body", "legs"],
+  calf: ["lower_body", "legs"],
+  ankle_foot: ["lower_body", "legs"],
+};
+
+const PAIN_TO_MUSCLE_TERMS: Record<string, string[]> = {
+  neck: ["neck", "trap"],
+  shoulder: ["shoulder", "delt"],
+  elbow: ["bicep", "tricep", "forearm"],
+  wrist_hand: ["forearm", "wrist", "grip"],
+  wrist: ["forearm", "wrist", "grip"],
+  upper_back: ["upper back", "lat", "trap", "rhomboid"],
+  lower_back: ["lower back", "erector", "back"],
+  hip: ["hip", "glute"],
+  quadriceps: ["quad"],
+  hamstrings: ["hamstring"],
+  knee: ["quad", "hamstring", "calf"],
+  calf: ["calf"],
+  ankle_foot: ["calf", "ankle"],
+};
+
+/**
+ * Body parts with an active issue at severity >= 4, matched against the
+ * gating maps by substring so side-prefixed or spaced variants still hit
+ * ("left_shoulder" → shoulder; "Lower Back" → lower_back).
+ */
+function severePainBlockSets(state: UserStateSnapshot | null): {
+  blockedAreas: Set<string>;
+  blockedMuscleTerms: string[];
+} {
+  const blockedAreas = new Set<string>();
+  const blockedMuscleTerms: string[] = [];
+  for (const issue of state?.pain.activeIssues || []) {
+    if (issue.severity < 4) continue;
+    const part = issue.bodyPart.toLowerCase().replace(/\s+/g, "_");
+    for (const key of Object.keys(PAIN_TO_WORKOUT_AREAS)) {
+      if (part === key || part.includes(key)) {
+        for (const a of PAIN_TO_WORKOUT_AREAS[key]) blockedAreas.add(a);
+      }
+    }
+    for (const key of Object.keys(PAIN_TO_MUSCLE_TERMS)) {
+      if (part === key || part.includes(key)) {
+        blockedMuscleTerms.push(...PAIN_TO_MUSCLE_TERMS[key]);
+      }
+    }
+  }
+  return { blockedAreas, blockedMuscleTerms };
+}
+
+export async function searchWorkouts(
+  rawTerms: string[],
+  state: UserStateSnapshot | null,
+  limit: number = 5,
+): Promise<DomainCandidate[]> {
+  const terms = normaliseTerms(rawTerms);
+  const out: DomainCandidate[] = [];
+  try {
+    const conds = terms.length
+      ? or(
+          ...ilikeConds(terms, [
+            workouts.title,
+            workouts.description,
+            workouts.category,
+            workouts.goal,
+            (pat: string) => sql`${workouts.targetAreas}::text ILIKE ${pat}`,
+            (pat: string) => sql`${workouts.categories}::text ILIKE ${pat}`,
+          ]),
+        )
+      : undefined;
+    let rows = await db
+      .select()
+      .from(workouts)
+      .where(conds ? and(sql`${workouts.userId} IS NULL`, conds) : sql`${workouts.userId} IS NULL`)
+      .limit(150);
+    if (rows.length === 0 && terms.length > 0) {
+      rows = await db
+        .select()
+        .from(workouts)
+        .where(sql`${workouts.userId} IS NULL`)
+        .orderBy(desc(workouts.id))
+        .limit(30);
+    }
+
+    const { blockedAreas } = severePainBlockSets(state);
+
+    for (const r of rows) {
+      if (state?.burnout.recoveryMode && r.goal && HIGH_INTENSITY_GOALS.has(r.goal)) continue;
+      const areas = Array.isArray(r.targetAreas) ? r.targetAreas : [];
+      if (blockedAreas.size > 0 && areas.some((a) => blockedAreas.has(a))) continue;
+      const score =
+        terms.length === 0
+          ? 1
+          : fieldScore(terms, [
+              { v: r.title, w: 3 },
+              { v: (r.goal || r.category || "").replace(/_/g, " "), w: 2.5 },
+              { v: areas.join(" ").replace(/_/g, " "), w: 2 },
+              { v: r.description, w: 1 },
+            ]);
+      if (score <= 0) continue;
+      const bits = [
+        `[workout:${r.id}] "${r.title}"`,
+        `${(r.goal || r.category || "").replace(/_/g, " ")}`,
+        `${r.duration} min`,
+        r.difficulty,
+        r.equipmentLevel ? `equipment: ${r.equipmentLevel.replace(/_/g, " ")}` : null,
+        areas.length ? `targets: ${areas.join(", ").replace(/_/g, " ")}` : null,
+      ].filter(Boolean);
+      out.push({ domain: "workout", id: r.id, title: r.title, score, promptLine: `- ${bits.join(" | ")}` });
+    }
+  } catch (e: any) {
+    console.error("[coach-recs] workout search failed:", e?.message || e);
+  }
+  out.sort((a, b) => b.score - a.score);
+  return out.slice(0, limit);
+}
+
+export async function searchExercises(
+  rawTerms: string[],
+  state: UserStateSnapshot | null,
+  limit: number = 5,
+): Promise<DomainCandidate[]> {
+  const terms = normaliseTerms(rawTerms);
+  if (terms.length === 0) return []; // exercises only make sense with a query
+  const out: DomainCandidate[] = [];
+  try {
+    const conds = or(
+      ...ilikeConds(terms, [
+        exerciseLibrary.name,
+        (pat: string) => sql`${exerciseLibrary.mainMuscle}::text ILIKE ${pat}`,
+        (pat: string) => sql`${exerciseLibrary.equipment}::text ILIKE ${pat}`,
+        (pat: string) => sql`${exerciseLibrary.movement}::text ILIKE ${pat}`,
+      ]),
+    );
+    const rows = await db.select().from(exerciseLibrary).where(conds).limit(150);
+
+    const { blockedMuscleTerms: blockedTerms } = severePainBlockSets(state);
+
+    for (const r of rows) {
+      const muscles = Array.isArray(r.mainMuscle) ? r.mainMuscle : [];
+      const muscleText = muscles.join(" ").toLowerCase();
+      if (blockedTerms.length > 0 && blockedTerms.some((t) => muscleText.includes(t))) continue;
+      const score = fieldScore(terms, [
+        { v: r.name, w: 3 },
+        { v: muscles.join(" "), w: 2.5 },
+        { v: Array.isArray(r.movement) ? r.movement.join(" ") : null, w: 2 },
+        { v: Array.isArray(r.equipment) ? r.equipment.join(" ") : null, w: 1.5 },
+      ]);
+      if (score <= 0) continue;
+      const bits = [
+        `[exercise:${r.id}] "${r.name}"`,
+        muscles.length ? `muscles: ${muscles.slice(0, 3).join(", ")}` : null,
+        r.level,
+        Array.isArray(r.equipment) && r.equipment.length ? `equipment: ${r.equipment.slice(0, 3).join(", ")}` : null,
+      ].filter(Boolean);
+      out.push({ domain: "exercise", id: r.id, title: r.name, score, promptLine: `- ${bits.join(" | ")}` });
+    }
+  } catch (e: any) {
+    console.error("[coach-recs] exercise search failed:", e?.message || e);
+  }
+  out.sort((a, b) => b.score - a.score);
+  return out.slice(0, limit);
+}
+
+export async function searchRecipes(rawTerms: string[], limit: number = 5): Promise<DomainCandidate[]> {
+  const terms = normaliseTerms(rawTerms);
+  const out: DomainCandidate[] = [];
+  try {
+    const conds = terms.length
+      ? or(
+          ...ilikeConds(terms, [
+            recipes.title,
+            recipes.description,
+            recipes.category,
+            (pat: string) => sql`${recipes.tags}::text ILIKE ${pat}`,
+            (pat: string) => sql`${recipes.dietaryPreferences}::text ILIKE ${pat}`,
+            (pat: string) => sql`${recipes.keyIngredients}::text ILIKE ${pat}`,
+          ]),
+        )
+      : undefined;
+    let rows = await db
+      .select()
+      .from(recipes)
+      .where(conds ? and(sql`${recipes.userId} IS NULL`, conds) : sql`${recipes.userId} IS NULL`)
+      .limit(150);
+    if (rows.length === 0 && terms.length > 0) {
+      rows = await db.select().from(recipes).where(sql`${recipes.userId} IS NULL`).orderBy(desc(recipes.id)).limit(30);
+    }
+    for (const r of rows) {
+      const tagsText = Array.isArray(r.tags) ? r.tags.join(" ") : "";
+      const score =
+        terms.length === 0
+          ? 1
+          : fieldScore(terms, [
+              { v: r.title, w: 3 },
+              { v: tagsText, w: 2.5 },
+              { v: r.category, w: 2 },
+              { v: Array.isArray(r.keyIngredients) ? r.keyIngredients.join(" ") : null, w: 2 },
+              { v: Array.isArray(r.dietaryPreferences) ? r.dietaryPreferences.join(" ") : null, w: 1.5 },
+              { v: r.description, w: 1 },
+            ]);
+      if (score <= 0) continue;
+      const bits = [
+        `[recipe:${r.id}] "${r.title}"`,
+        r.category,
+        `${r.totalTime} min`,
+        `${r.calories} cal, ${r.protein}g protein per serving`,
+        Array.isArray(r.dietaryPreferences) && r.dietaryPreferences.length
+          ? r.dietaryPreferences.slice(0, 3).join(", ")
+          : null,
+      ].filter(Boolean);
+      out.push({ domain: "recipe", id: r.id, title: r.title, score, promptLine: `- ${bits.join(" | ")}` });
+    }
+  } catch (e: any) {
+    console.error("[coach-recs] recipe search failed:", e?.message || e);
+  }
+  out.sort((a, b) => b.score - a.score);
+  return out.slice(0, limit);
+}
+
+export async function searchMeditations(rawTerms: string[], limit: number = 4): Promise<DomainCandidate[]> {
+  const terms = normaliseTerms(rawTerms);
+  const out: DomainCandidate[] = [];
+  try {
+    const conds = terms.length
+      ? or(
+          ...ilikeConds(terms, [
+            meditations.title,
+            meditations.description,
+            meditations.category,
+            (pat: string) => sql`${meditations.tags}::text ILIKE ${pat}`,
+          ]),
+        )
+      : undefined;
+    const rows = await db
+      .select()
+      .from(meditations)
+      .where(conds ? and(eq(meditations.isActive, true), conds) : eq(meditations.isActive, true))
+      .limit(100);
+    for (const r of rows) {
+      const score =
+        terms.length === 0
+          ? 1
+          : fieldScore(terms, [
+              { v: r.title, w: 3 },
+              { v: Array.isArray(r.tags) ? r.tags.join(" ") : null, w: 2.5 },
+              { v: r.category, w: 2 },
+              { v: r.description, w: 1 },
+            ]);
+      if (score <= 0) continue;
+      out.push({
+        domain: "meditation",
+        id: r.id,
+        title: r.title,
+        score,
+        promptLine: `- [meditation:${r.id}] "${r.title}" | guided meditation | ${r.category} | ${r.durationMin} min`,
+      });
+    }
+  } catch (e: any) {
+    console.error("[coach-recs] meditation search failed:", e?.message || e);
+  }
+  out.sort((a, b) => b.score - a.score);
+  return out.slice(0, limit);
+}
+
+export async function searchBreathTechniques(rawTerms: string[], limit: number = 4): Promise<DomainCandidate[]> {
+  const terms = normaliseTerms(rawTerms);
+  const out: DomainCandidate[] = [];
+  try {
+    const conds = terms.length
+      ? or(
+          ...ilikeConds(terms, [
+            breathTechniques.name,
+            breathTechniques.description,
+            breathTechniques.category,
+            (pat: string) => sql`${breathTechniques.benefits}::text ILIKE ${pat}`,
+          ]),
+        )
+      : undefined;
+    const rows = await db
+      .select()
+      .from(breathTechniques)
+      .where(conds ? and(eq(breathTechniques.isActive, true), conds) : eq(breathTechniques.isActive, true))
+      .limit(50);
+    for (const r of rows) {
+      const score =
+        terms.length === 0
+          ? 1
+          : fieldScore(terms, [
+              { v: r.name, w: 3 },
+              { v: Array.isArray(r.benefits) ? r.benefits.join(" ") : null, w: 2.5 },
+              { v: r.category, w: 2 },
+              { v: r.description, w: 1 },
+            ]);
+      if (score <= 0) continue;
+      out.push({
+        domain: "breath",
+        // Breath cards are slug-keyed; id kept for sorting/dedupe only.
+        id: r.id,
+        title: r.name,
+        score,
+        promptLine: `- [breath:${r.slug}] "${r.name}" | breathing technique | ${r.category} | ${r.difficulty} | ${r.defaultDurationMinutes} min`,
+      });
+    }
+  } catch (e: any) {
+    console.error("[coach-recs] breath search failed:", e?.message || e);
+  }
+  out.sort((a, b) => b.score - a.score);
+  return out.slice(0, limit);
+}
+
+export async function searchHabitTemplates(rawTerms: string[], limit: number = 4): Promise<DomainCandidate[]> {
+  const terms = normaliseTerms(rawTerms);
+  if (terms.length === 0) return [];
+  const out: DomainCandidate[] = [];
+  try {
+    const conds = or(
+      ...ilikeConds(terms, [habitTemplates.title, habitTemplates.description, habitTemplates.category]),
+    );
+    const rows = await db
+      .select()
+      .from(habitTemplates)
+      .where(and(eq(habitTemplates.isActive, true), conds))
+      .limit(80);
+    for (const r of rows) {
+      const score = fieldScore(terms, [
+        { v: r.title, w: 3 },
+        { v: r.category, w: 2 },
+        { v: r.shortDescription || r.description, w: 1 },
+      ]);
+      if (score <= 0) continue;
+      out.push({
+        domain: "habit",
+        id: r.id,
+        title: r.title,
+        score,
+        promptLine: `- [habit:${r.id}] "${r.title}" | trackable habit | ${r.category} | ${(r.shortDescription || r.description || "").slice(0, 80)}`,
+      });
+    }
+  } catch (e: any) {
+    console.error("[coach-recs] habit search failed:", e?.message || e);
+  }
+  out.sort((a, b) => b.score - a.score);
+  return out.slice(0, limit);
+}
+
 // --- action registry ------------------------------------------------------
 
 export type RecAction = {
@@ -386,6 +768,31 @@ export const ACTION_REGISTRY: RecAction[] = [
     route: "/training/create-programme",
     eligible: (s) => !s.training.activeEnrollment,
     matches: (_terms, domains) => domains.includes("programme"),
+  },
+  {
+    key: "set_goal",
+    title: "Set a goal",
+    description: "create a tracked goal (bodyweight, nutrition, habit or custom) with milestones",
+    route: "/goals/new",
+    eligible: (s) => s.goals.activeCount === 0,
+    matches: (terms) => termsHaveAny(terms, ["goal", "target", "motivation", "accountability", "goal setting"]),
+  },
+  {
+    key: "breath_builder",
+    title: "Build a custom breathing routine",
+    description: "compose a personal multi-phase breathing routine (for users already familiar with breathwork)",
+    route: "/recovery/breath/builder",
+    eligible: (s) => s.recovery.breathSessionsTotal >= 3,
+    matches: (terms, domains) => domains.includes("breath") || termsHaveAny(terms, ["breathwork", "breathing"]),
+  },
+  {
+    key: "meal_plan_setup",
+    title: "Set up a meal plan",
+    description: "weekly meal plan matched to calorie/macro targets, with a shopping list",
+    route: "/nutrition/meal-plan-settings",
+    eligible: (s) => !s.nutrition.hasActiveMealPlan,
+    matches: (terms, domains) =>
+      domains.includes("recipe") || termsHaveAny(terms, ["meal planning", "meal plan", "meal prep", "what to eat"]),
   },
   {
     key: "weekly_checkin",
@@ -518,6 +925,91 @@ export async function resolveDomainRef(
           contentType: null,
           durationMins: r.duration ?? null,
           difficulty: r.difficulty ?? null,
+          route,
+        };
+      }
+      case "exercise": {
+        if (!ref.id) return null;
+        const [r] = await db.select().from(exerciseLibrary).where(eq(exerciseLibrary.id, ref.id)).limit(1);
+        if (!r) return null;
+        const route = `/exercise-detail/${r.id}`;
+        const recId = await logShown(userId, "exercise", r.id, null, route, source);
+        const muscles = Array.isArray(r.mainMuscle) ? r.mainMuscle : [];
+        return {
+          recId,
+          domain: "exercise",
+          type: "exercise",
+          id: r.id,
+          key: null,
+          title: r.name,
+          subtitle: ["Exercise", muscles.slice(0, 2).join(", ") || null].filter(Boolean).join(" · "),
+          topic: muscles[0] ?? null,
+          contentType: null,
+          durationMins: null,
+          difficulty: r.level ?? null,
+          route,
+        };
+      }
+      case "meditation": {
+        if (!ref.id) return null;
+        const [r] = await db.select().from(meditations).where(eq(meditations.id, ref.id)).limit(1);
+        if (!r || r.isActive === false) return null;
+        const route = `/recovery/mindfulness/meditation/${r.id}`;
+        const recId = await logShown(userId, "meditation", r.id, null, route, source);
+        return {
+          recId,
+          domain: "meditation",
+          type: "meditation",
+          id: r.id,
+          key: null,
+          title: r.title,
+          subtitle: `Meditation · ${r.category}`,
+          topic: r.category ?? null,
+          contentType: null,
+          durationMins: r.durationMin ?? null,
+          difficulty: null,
+          route,
+        };
+      }
+      case "breath": {
+        if (!ref.key) return null;
+        const [r] = await db.select().from(breathTechniques).where(eq(breathTechniques.slug, ref.key)).limit(1);
+        if (!r || r.isActive === false) return null;
+        const route = `/recovery/breath/technique/${r.slug}`;
+        const recId = await logShown(userId, "breath", null, r.slug, route, source);
+        return {
+          recId,
+          domain: "breath",
+          type: "breath",
+          id: r.id,
+          key: r.slug,
+          title: r.name,
+          subtitle: `Breathwork · ${r.category}`,
+          topic: r.category ?? null,
+          contentType: null,
+          durationMins: r.defaultDurationMinutes ?? null,
+          difficulty: r.difficulty ?? null,
+          route,
+        };
+      }
+      case "habit": {
+        if (!ref.id) return null;
+        const [r] = await db.select().from(habitTemplates).where(eq(habitTemplates.id, ref.id)).limit(1);
+        if (!r || r.isActive === false) return null;
+        const route = `/habit-selection`;
+        const recId = await logShown(userId, "habit", r.id, null, route, source);
+        return {
+          recId,
+          domain: "habit",
+          type: "habit",
+          id: r.id,
+          key: null,
+          title: r.title,
+          subtitle: `Habit · ${r.category}`,
+          topic: r.category ?? null,
+          contentType: null,
+          durationMins: null,
+          difficulty: null,
           route,
         };
       }

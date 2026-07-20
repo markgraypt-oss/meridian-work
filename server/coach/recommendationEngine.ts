@@ -10,8 +10,14 @@ import {
 import {
   relevantActions,
   resolveDomainRef,
+  searchBreathTechniques,
+  searchExercises,
+  searchHabitTemplates,
+  searchMeditations,
   searchProgrammes,
+  searchRecipes,
   searchWorkday,
+  searchWorkouts,
   type DomainCandidate,
   type DomainKey,
   type RecAction,
@@ -43,17 +49,30 @@ import { buildLifeStageBrief, getLifeStageSearchTerms } from "./lifeStage";
 // recommendations, exactly like the original education pipeline.
 // ---------------------------------------------------------------------------
 
+export const REC_INTENT_DOMAINS = [
+  "learn",
+  "workday",
+  "programme",
+  "workout",
+  "exercise",
+  "recipe",
+  "meditation",
+  "breath",
+  "habit",
+] as const;
+export type RecIntentDomain = (typeof REC_INTENT_DOMAINS)[number];
+
 export type RecIntent = {
   wantsRecs: boolean;
   searchTerms: string[];
-  domains: Array<"learn" | "workday" | "programme">;
+  domains: RecIntentDomain[];
   contentType: "video" | "path" | "any";
 };
 
 const recIntentSchema = z.object({
   wantsRecs: z.boolean(),
   searchTerms: z.array(z.string()).max(8).default([]),
-  domains: z.array(z.enum(["learn", "workday", "programme"])).max(3).default([]),
+  domains: z.array(z.enum(REC_INTENT_DOMAINS)).max(3).default([]),
   contentType: z.enum(["video", "path", "any"]).default("any"),
 });
 
@@ -82,6 +101,12 @@ Available recommendation domains:
 - "learn": short educational videos, guides and learning paths (sleep, stress, nutrition habits, posture, breathwork, recovery, training principles, burnout, focus).
 - "workday": desk health content — 2-minute micro-reset movements for desk aches (neck, upper back, lower back, hips, wrists), desk working positions, ache/fix guides, rotation planning. Choose when the user mentions desk work, sitting, posture, stiffness or aches from working.
 - "programme": structured multi-week training programmes. Choose when the user wants a new training plan, asks what programme to do, or wants structure for their training.
+- "workout": single one-off workouts (strength, conditioning, mobility, stretching, corrective). Choose when the user wants something to do today or a quick session, not a multi-week plan.
+- "exercise": individual exercises with video tutorials. Choose when the user asks about a specific movement, muscle, or exercise alternatives.
+- "recipe": recipes with per-serving macros. Choose ONLY when the user explicitly asks about food, meals, recipes, or nutrition.
+- "meditation": guided audio meditations (sleep, stress, focus, recovery). Choose for stress, racing mind, poor sleep, or when the user asks to relax or unwind.
+- "breath": guided breathing techniques (relaxation, energy, focus, recovery). Choose for acute stress, pre-sleep wind-down, energy dips, or breathwork requests.
+- "habit": small trackable daily habits. Choose when the user wants to build consistency or asks how to make something stick.
 
 Set wantsRecs=true when the user asks a how/why/what-should-I question about a health or performance topic, describes a struggle (poor sleep, stress, desk aches, low energy), or asks for content, exercises, or a plan. Set wantsRecs=false for app/logistics questions, greetings, pure data lookups ("what was my HRV yesterday"), scheduling, app feedback, or emotional venting where suggestions would feel dismissive.
 
@@ -178,23 +203,41 @@ export async function gatherRecommendationContext(
       return { block: "", stateBlock, state };
     }
 
-    const wantLearn = intent.domains.includes("learn");
-    const wantWorkday = intent.domains.includes("workday");
-    const wantProgramme = intent.domains.includes("programme");
+    const want = (d: RecIntentDomain) => intent.domains.includes(d);
+    const none = Promise.resolve([] as DomainCandidate[]);
 
-    const [education, workday, programmes] = await Promise.all([
-      wantLearn
-        ? searchEducationContent({ terms: intent.searchTerms, contentType: intent.contentType, limit: 6 }).catch(
-            () => [] as EducationCandidate[],
-          )
-        : Promise.resolve([] as EducationCandidate[]),
-      wantWorkday ? searchWorkday(intent.searchTerms, 6) : Promise.resolve([] as DomainCandidate[]),
-      wantProgramme ? searchProgrammes(intent.searchTerms, state, 5) : Promise.resolve([] as DomainCandidate[]),
-    ]);
+    const [education, workday, programmes, workoutsFound, exercises, recipesFound, meditationsFound, breath, habits] =
+      await Promise.all([
+        want("learn")
+          ? searchEducationContent({ terms: intent.searchTerms, contentType: intent.contentType, limit: 6 }).catch(
+              () => [] as EducationCandidate[],
+            )
+          : Promise.resolve([] as EducationCandidate[]),
+        want("workday") ? searchWorkday(intent.searchTerms, 6) : none,
+        want("programme") ? searchProgrammes(intent.searchTerms, state, 5) : none,
+        want("workout") ? searchWorkouts(intent.searchTerms, state, 5) : none,
+        want("exercise") ? searchExercises(intent.searchTerms, state, 5) : none,
+        want("recipe") ? searchRecipes(intent.searchTerms, 5) : none,
+        want("meditation") ? searchMeditations(intent.searchTerms, 4) : none,
+        want("breath") ? searchBreathTechniques(intent.searchTerms, 4) : none,
+        want("habit") ? searchHabitTemplates(intent.searchTerms, 4) : none,
+      ]);
 
     const actions = state ? relevantActions(state, intent.searchTerms, intent.domains) : [];
 
-    block = await buildRecommendationBlock(userId, { education, workday, programmes, actions, state });
+    block = await buildRecommendationBlock(userId, {
+      education,
+      workday,
+      programmes,
+      workouts: workoutsFound,
+      exercises,
+      recipes: recipesFound,
+      meditations: meditationsFound,
+      breath,
+      habits,
+      actions,
+      state,
+    });
   } catch (e: any) {
     console.error("[coach-recs] gather failed:", e?.message || e);
   }
@@ -208,6 +251,12 @@ async function buildRecommendationBlock(
     education: EducationCandidate[];
     workday: DomainCandidate[];
     programmes: DomainCandidate[];
+    workouts: DomainCandidate[];
+    exercises: DomainCandidate[];
+    recipes: DomainCandidate[];
+    meditations: DomainCandidate[];
+    breath: DomainCandidate[];
+    habits: DomainCandidate[];
     actions: RecAction[];
     state: UserStateSnapshot | null;
   },
@@ -230,6 +279,24 @@ async function buildRecommendationBlock(
   if (parts.programmes.length > 0) {
     sections.push("Training programmes:\n" + parts.programmes.map((c) => c.promptLine).join("\n"));
   }
+  if (parts.workouts.length > 0) {
+    sections.push("Single workouts:\n" + parts.workouts.map((c) => c.promptLine).join("\n"));
+  }
+  if (parts.exercises.length > 0) {
+    sections.push("Exercises (with video tutorials):\n" + parts.exercises.map((c) => c.promptLine).join("\n"));
+  }
+  if (parts.recipes.length > 0) {
+    sections.push("Recipes (macros are per serving):\n" + parts.recipes.map((c) => c.promptLine).join("\n"));
+  }
+  if (parts.meditations.length > 0) {
+    sections.push("Guided meditations:\n" + parts.meditations.map((c) => c.promptLine).join("\n"));
+  }
+  if (parts.breath.length > 0) {
+    sections.push("Breathing techniques:\n" + parts.breath.map((c) => c.promptLine).join("\n"));
+  }
+  if (parts.habits.length > 0) {
+    sections.push("Trackable habits:\n" + parts.habits.map((c) => c.promptLine).join("\n"));
+  }
   if (parts.actions.length > 0) {
     sections.push(
       "App actions (features this user has NOT set up or done yet — only suggest when genuinely relevant):\n" +
@@ -246,7 +313,7 @@ async function buildRecommendationBlock(
   const header =
     "\n\nIN-APP RECOMMENDATIONS RETRIEVED FOR THIS MESSAGE (the only items you may recommend as cards):";
   const rules = `RECOMMENDATION RULES:
-- If one or more of these genuinely help with what the user is discussing, weave the names naturally into your reply, then add one marker per recommendation on its own line at the very END of your reply, e.g. [[REC micro_reset:7]] or [[REC programme:12]] or [[REC action:setup_rotation]] (using the real refs above).
+- If one or more of these genuinely help with what the user is discussing, weave the names naturally into your reply, then add one marker per recommendation on its own line at the very END of your reply, e.g. [[REC micro_reset:7]], [[REC programme:12]], [[REC meditation:5]], [[REC breath:box-breathing]] or [[REC action:setup_rotation]] (using the real refs above).
 - Maximum 3 markers, and at most 2 from any single group. Only refs from the lists above. Never invent or guess refs.
 - Prefer items matching the user's state (equipment, experience, current programme, pain areas). Prefer content the user has not completed. If a path is assigned and in progress, prefer its "next up" video.
 - Recommend an action card only when it clearly moves the user forward on what they raised.
@@ -264,8 +331,13 @@ const ALL_REC_MARKER_RE = /\[{1,2}\s*REC\s+([a-z_]+)\s*:\s*([a-z0-9_\-]+)\s*\]{1
 // getUserDataContext still injects (see the TAPPABLE RECOMMENDATION MARKERS
 // prompt section in routes.ts); they resolve through contentSearch's
 // extended resolver. "program" is accepted as an alt spelling of "programme".
-const NUMERIC_DOMAINS = new Set<string>(["video", "path", "micro_reset", "position", "ache_fix", "programme", "workout", "recipe"]);
-const VALID_DOMAINS = new Set<string>(["video", "path", "micro_reset", "position", "ache_fix", "programme", "program", "workout", "recipe", "action"]);
+const NUMERIC_DOMAINS = new Set<string>([
+  "video", "path", "micro_reset", "position", "ache_fix", "programme", "workout", "exercise", "recipe", "meditation", "habit",
+]);
+// Key-based domains: "action" (registry keys) and "breath" (technique slugs).
+const VALID_DOMAINS = new Set<string>([
+  ...NUMERIC_DOMAINS, "program", "breath", "action",
+]);
 
 export function parseAllRecMarkers(text: string): { cleanText: string; refs: RecRef[] } {
   const refs: RecRef[] = [];

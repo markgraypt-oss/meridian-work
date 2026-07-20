@@ -3876,7 +3876,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
       };
       console.log("Creating workout with data:", JSON.stringify(workoutData, null, 2));
       const workout = await storage.createWorkout(workoutData);
-      
+      // Fire-and-forget: auto-generated captions for video workouts.
+      if (muxPlaybackId) {
+        import('./muxCaptions')
+          .then(m => m.ensureCaptionsForPlaybackId(muxPlaybackId))
+          .catch(() => {});
+      }
+
       // Also save to normalized block tables
       if (blocks.length > 0) {
         for (let i = 0; i < blocks.length; i++) {
@@ -3988,7 +3994,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
       });
       
       const workout = await storage.updateWorkout(id, workoutData);
-      
+      // Fire-and-forget: auto-generated captions for video workouts.
+      if (muxPlaybackId) {
+        import('./muxCaptions')
+          .then(m => m.ensureCaptionsForPlaybackId(muxPlaybackId))
+          .catch(() => {});
+      }
+
       // Delete existing blocks and recreate
       await storage.deleteWorkoutBlocksByWorkoutId(id);
       
@@ -12765,6 +12777,10 @@ Rules:
           };
 
           const result = await db.insert(learnContentLibrary).values(contentData).returning();
+          // Fire-and-forget: make sure this video gets auto-generated captions.
+          import('./muxCaptions')
+            .then(m => m.ensureCaptionsForPlaybackId(muxPlaybackId))
+            .catch(() => {});
           return res.status(201).json(result[0]);
         }
 
@@ -12853,6 +12869,10 @@ Rules:
           });
 
           const result = await db.insert(pathContentItems).values(contentData).returning();
+          // Fire-and-forget: make sure this video gets auto-generated captions.
+          import('./muxCaptions')
+            .then(m => m.ensureCaptionsForPlaybackId(muxPlaybackId))
+            .catch(() => {});
           return res.status(201).json(result[0]);
         }
 
@@ -13321,6 +13341,12 @@ Rules:
       import('./coach/contentTagger')
         .then(m => m.tagNewLibraryItemAsync(item.id))
         .catch(() => {});
+      // Fire-and-forget: auto-generated captions for Mux videos.
+      if (req.body?.muxPlaybackId) {
+        import('./muxCaptions')
+          .then(m => m.ensureCaptionsForPlaybackId(req.body.muxPlaybackId))
+          .catch(() => {});
+      }
       res.status(201).json(item);
     } catch (error) {
       console.error("Error creating library item:", error);
@@ -19479,31 +19505,34 @@ Keep your response concise, practical, and evidence-based. Do not use em dashes.
         ? `\n\nUSER MEMORY (durable facts about this user, use to personalise — do not contradict):\n${memoryText}`
         : '';
 
-      const user = await storage.getUser(userId);
-
-      // Universal recommendation retrieval: one small intent call decides
-      // which domains (education, desk health, programmes, app actions) could
-      // help this message; SQL searches pull matching items; only that
-      // shortlist (with stable [domain:id] refs + the marker rules) enters
-      // the prompt, alongside a compact live user-state block that powers
-      // action eligibility and safety gating. The life-stage hint biases
-      // search terms so age/sex-relevant content (e.g. menopause, bone
-      // health) surfaces first. Failure here must never block the chat.
-      let recContext = '';
-      let userStateContext = '';
+      // Education content retrieval: a small intent call decides whether
+      // learn content could help this message, a DB search pulls the matching
+      // videos/paths, and only that shortlist (with stable IDs + the marker
+      // rules) enters the prompt. Scales to any library size. Failure here
+      // must never block the chat.
+      let educationContext = '';
       try {
-        const { gatherRecommendationContext } = await import('./coach/recommendationEngine');
+        const { extractContentIntent, searchEducationContent, buildEducationBlock } = await import('./coach/contentSearch');
         const intentHistory = (conversationHistory || [])
           .slice(-4)
           .map((m: any) => `${m.role === 'user' ? 'User' : 'Coach'}: ${String(m.content || '').slice(0, 300)}`)
           .join('\n');
-        const recResult = await gatherRecommendationContext(userId, message, intentHistory, config.provider, config.model, user);
-        recContext = recResult.block;
-        userStateContext = recResult.stateBlock;
+        const intent = await extractContentIntent(userId, message, intentHistory, config.provider, config.model);
+        if (intent.wantsContent) {
+          const candidates = await searchEducationContent({
+            terms: intent.searchTerms,
+            contentType: intent.contentType,
+            limit: 8,
+          });
+          if (candidates.length > 0) {
+            educationContext = await buildEducationBlock(userId, candidates);
+          }
+        }
       } catch (e) {
-        console.error('[coach-chat] recommendation retrieval failed:', e);
+        console.error('[coach-chat] education retrieval failed:', e);
       }
 
+      const user = await storage.getUser(userId);
       const userName = user?.firstName || user?.name?.split(' ')[0] || 'there';
 
       let onboardingContext = '';
@@ -19541,7 +19570,6 @@ CORE COACHING RULES (always follow):
 - Default to minimal effective dose: the simplest change that moves the needle.
 - Reinforce long-term thinking over quick fixes.
 - Ask reflective questions when appropriate to help the user think critically about their health.
-- Tailor advice to the user's age and life stage using the USER LIFE-STAGE CONTEXT section when present. What is right for a 22-year-old is often wrong for a 66-year-old; let that context shape training, recovery, sleep, and wellbeing advice naturally.
 - Avoid absolutes and gimmicks. Be evidence-based and measured.
 - Be warm, direct, and concise, like a trusted advisor, not a chatbot.
 - Use the user's name naturally.
@@ -19567,14 +19595,7 @@ PLATFORM KNOWLEDGE RULES:
 - When asked about exercises, reference their target muscles, equipment needed, and movement patterns
 - If a user asks for something that does not exist in the library, say so honestly and suggest the closest alternative
 - Consider the user's equipment access, experience level, time availability, and any movement screening flags when recommending programmes or workouts
-
-TAPPABLE RECOMMENDATION MARKERS (programmes, workouts, recipes):
-- Library items above are listed with IDs like [programme:4], [workout:12], [recipe:7]. When you recommend a specific programme, workout, or recipe from the libraries, weave its exact title naturally into your reply, then add one marker per recommendation on its own line at the very END of your reply: [[REC programme:4]] or [[REC workout:12]] or [[REC recipe:7]] (using the real IDs from the library lists).
-- The user sees these as tappable cards that open the item directly, so only add a marker for items you are actively recommending, not items you merely mention.
-- Maximum 3 markers total per reply across ALL types (including education video/path markers). One or two well-chosen cards beat three forced ones; use none if nothing specific fits.
-- Only IDs that appear in the library lists above. Never invent or guess IDs.
-- Markers are machine-read and stripped before the user sees your reply. Do not mention, quote, or explain them.
-${coachingContext}${userDataContext}${onboardingContext}${crossCoachContext}${memoryContext}${userStateContext}${recContext}
+${coachingContext}${userDataContext}${onboardingContext}${crossCoachContext}${memoryContext}${educationContext}
 
 The user's name is ${userName}.${historyText}
 
@@ -19597,11 +19618,11 @@ Respond as the coach. Be personalised, reference their actual data and specific 
       let replyText = response.text;
       let recommendations: any[] = [];
       try {
-        const { parseAllRecMarkers, resolveAllRecommendations } = await import('./coach/recommendationEngine');
-        const parsed = parseAllRecMarkers(replyText);
+        const { parseRecMarkers, resolveRecommendations } = await import('./coach/contentSearch');
+        const parsed = parseRecMarkers(replyText);
         replyText = parsed.cleanText;
         if (parsed.refs.length > 0) {
-          recommendations = await resolveAllRecommendations(userId, parsed.refs, 'chat');
+          recommendations = await resolveRecommendations(userId, parsed.refs, 'chat');
         }
       } catch (e) {
         console.error('[coach-chat] recommendation resolution failed:', e);
@@ -19656,6 +19677,23 @@ Respond as the coach. Be personalised, reference their actual data and specific 
     } catch (error) {
       console.error('Error running content tag backfill:', error);
       res.status(500).json({ message: 'Failed to run content tag backfill' });
+    }
+  });
+
+  // Admin: enable Mux auto-generated captions (free, English, Whisper-based)
+  // on every ready asset in the account that doesn't have a text track yet.
+  // Safe to re-run any time — captioned assets are skipped. Captions appear
+  // on videos within minutes as Mux processes them, and are picked up
+  // automatically by every HLS player. New videos registered in-app get
+  // captions automatically via ensureCaptionsForPlaybackId hooks.
+  app.post('/api/admin/mux-captions/backfill', isAuthenticated, requireAdmin, async (_req: any, res) => {
+    try {
+      const { runCaptionBackfill } = await import('./muxCaptions');
+      const report = await runCaptionBackfill();
+      res.json(report);
+    } catch (error) {
+      console.error('Error running Mux caption backfill:', error);
+      res.status(500).json({ message: 'Failed to run Mux caption backfill' });
     }
   });
 

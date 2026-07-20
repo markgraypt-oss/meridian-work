@@ -95,6 +95,18 @@ export const CONTENT_VOCAB: string[] = [
   "work life balance",
   "habit building",
   "goal setting",
+
+  // Life stage (used by lifeStage.ts to surface age/sex-relevant content;
+  // after adding labels here, re-run the tag backfill with force=true)
+  "menopause",
+  "perimenopause",
+  "hormones",
+  "bone health",
+  "muscle loss",
+  "balance",
+  "healthy ageing",
+  "heart health",
+  "pelvic floor",
 ];
 
 const VOCAB_SET = new Set(CONTENT_VOCAB.map((t) => t.toLowerCase()));

@@ -2714,15 +2714,21 @@ export const coachConversations = pgTable("coach_conversations", {
 export type CoachConversation = typeof coachConversations.$inferSelect;
 export type InsertCoachConversation = typeof coachConversations.$inferInsert;
 
-// Coach education recommendations — one row per video/path card the coach
-// shows in chat, with tap-through recorded in tapped_at. Feeds engagement
-// reporting and the gamification system (points for watching recommended
-// content).
+// Coach recommendations — one row per card the coach shows in chat, with
+// tap-through recorded in tapped_at. Originally education-only ('video' |
+// 'path'); now universal: item_type is any recommendation domain key
+// ('video', 'path', 'micro_reset', 'position', 'ache_fix', 'programme',
+// 'action', ...). item_id holds numeric ids; item_key holds slug/action keys
+// (one of the two is set). route stores the resolved deep link so analytics
+// never need per-domain joins. Feeds engagement reporting and the
+// gamification system (points for acting on recommended content).
 export const coachRecommendations = pgTable("coach_recommendations", {
   id: serial("id").primaryKey(),
   userId: varchar("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
-  itemType: text("item_type").notNull(), // 'video' (learn_content_library item) | 'path'
-  itemId: integer("item_id").notNull(), // learn_content_library.id or learning_paths.id
+  itemType: text("item_type").notNull(), // recommendation domain key
+  itemId: integer("item_id"), // numeric content id (null for slug/action recs)
+  itemKey: text("item_key"), // slug or action key (null for numeric recs)
+  route: text("route"), // resolved deep-link route shown to the user
   source: text("source").notNull().default("chat"), // 'chat' now; 'briefing' etc. later
   shownAt: timestamp("shown_at").defaultNow(),
   tappedAt: timestamp("tapped_at"),
@@ -3449,7 +3455,6 @@ export const meditations = pgTable("meditations", {
   description: text("description"),
   category: text("category").notNull(),
   durationMin: integer("duration_min").notNull(),
-  durationSec: integer("duration_sec"),
   audioUrl: text("audio_url"),
   coverImageUrl: text("cover_image_url"),
   tags: text("tags").array(),

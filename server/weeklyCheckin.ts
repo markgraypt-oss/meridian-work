@@ -793,7 +793,20 @@ export async function generatePatternsNarrative(
   weekEnd: Date,
   userId: string,
 ): Promise<{ narrative: string; bulletPoints: string[]; isAI: boolean; trajectoryLabel: TrajectoryLabel }> {
-  const prompt = buildPatternsPrompt(promptData, weekStart, weekEnd);
+  let prompt = buildPatternsPrompt(promptData, weekStart, weekEnd);
+
+  // Life-stage lens: a 55-year-old woman's broken-sleep week and a
+  // 25-year-old man's read very differently. Never blocks generation.
+  try {
+    const { buildLifeStageBrief } = await import("./coach/lifeStage");
+    const user = await storage.getUser(userId);
+    const brief = user ? buildLifeStageBrief(user) : "";
+    if (brief) {
+      prompt += `\n\nUser life-stage context (an interpretive lens for the patterns above; mention only where genuinely relevant, and never assume symptoms): ${brief}`;
+    }
+  } catch (e) {
+    console.error("[weekly-checkin] life-stage brief failed:", e);
+  }
 
   try {
     const result = await aiCall({

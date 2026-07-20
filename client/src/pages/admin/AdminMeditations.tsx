@@ -19,7 +19,6 @@ interface MeditationFormData {
   description: string;
   category: string;
   durationMin: number | null;
-  durationSec: number | null;
   audioUrl: string;
   coverImageUrl: string;
   tags: string;
@@ -32,7 +31,6 @@ const defaultFormData: MeditationFormData = {
   description: "",
   category: "Relaxation",
   durationMin: null,
-  durationSec: null,
   audioUrl: "",
   coverImageUrl: "",
   tags: "",
@@ -63,7 +61,6 @@ export default function AdminMeditations() {
     title: data.title.trim(),
     category: data.category,
     durationMin: Number(data.durationMin) || 0,
-    durationSec: data.durationSec != null ? Number(data.durationSec) : null,
     description: data.description.trim() || null,
     audioUrl: data.audioUrl.trim() || null,
     coverImageUrl: data.coverImageUrl.trim() || null,
@@ -129,7 +126,6 @@ export default function AdminMeditations() {
       description: m.description || "",
       category: m.category,
       durationMin: m.durationMin,
-      durationSec: m.durationSec ?? null,
       audioUrl: m.audioUrl || "",
       coverImageUrl: m.coverImageUrl || "",
       tags: (m.tags || []).join(", "),
@@ -145,23 +141,6 @@ export default function AdminMeditations() {
     if (!file) return;
     setIsUploading(true);
     setUploadPct(0);
-    // Capture the exact length from the file so the app shows precise time.
-    try {
-      const durSec = await new Promise<number>((resolve) => {
-        const a = document.createElement("audio");
-        a.preload = "metadata";
-        a.onloadedmetadata = () => { const d = Math.round(a.duration || 0); URL.revokeObjectURL(a.src); resolve(Number.isFinite(d) ? d : 0); };
-        a.onerror = () => resolve(0);
-        a.src = URL.createObjectURL(file);
-      });
-      if (durSec > 0) {
-        setFormData((prev) => ({
-          ...prev,
-          durationSec: durSec,
-          durationMin: prev.durationMin != null ? prev.durationMin : Math.round(durSec / 60),
-        }));
-      }
-    } catch {}
     try {
       const objectPath = await uploadAudioFile(file, {
         visibility: "public",

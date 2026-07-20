@@ -19479,19 +19479,27 @@ Keep your response concise, practical, and evidence-based. Do not use em dashes.
         ? `\n\nUSER MEMORY (durable facts about this user, use to personalise — do not contradict):\n${memoryText}`
         : '';
 
+      const user = await storage.getUser(userId);
+
       // Education content retrieval: a small intent call decides whether
       // learn content could help this message, a DB search pulls the matching
       // videos/paths, and only that shortlist (with stable IDs + the marker
       // rules) enters the prompt. Scales to any library size. Failure here
-      // must never block the chat.
+      // must never block the chat. The life-stage hint biases search terms so
+      // age/sex-relevant content (e.g. menopause, bone health) surfaces first.
       let educationContext = '';
       try {
         const { extractContentIntent, searchEducationContent, buildEducationBlock } = await import('./coach/contentSearch');
+        const { buildLifeStageBrief, getLifeStageSearchTerms } = await import('./coach/lifeStage');
         const intentHistory = (conversationHistory || [])
           .slice(-4)
           .map((m: any) => `${m.role === 'user' ? 'User' : 'Coach'}: ${String(m.content || '').slice(0, 300)}`)
           .join('\n');
-        const intent = await extractContentIntent(userId, message, intentHistory, config.provider, config.model);
+        const lifeStageTerms = getLifeStageSearchTerms(user);
+        const lifeStageHint = user && lifeStageTerms.length > 0
+          ? `${buildLifeStageBrief(user)} Relevant life-stage terms: ${lifeStageTerms.join(', ')}.`
+          : '';
+        const intent = await extractContentIntent(userId, message, intentHistory, config.provider, config.model, lifeStageHint);
         if (intent.wantsContent) {
           const candidates = await searchEducationContent({
             terms: intent.searchTerms,
@@ -19506,7 +19514,6 @@ Keep your response concise, practical, and evidence-based. Do not use em dashes.
         console.error('[coach-chat] education retrieval failed:', e);
       }
 
-      const user = await storage.getUser(userId);
       const userName = user?.firstName || user?.name?.split(' ')[0] || 'there';
 
       let onboardingContext = '';
@@ -19544,6 +19551,7 @@ CORE COACHING RULES (always follow):
 - Default to minimal effective dose: the simplest change that moves the needle.
 - Reinforce long-term thinking over quick fixes.
 - Ask reflective questions when appropriate to help the user think critically about their health.
+- Tailor advice to the user's age and life stage using the USER LIFE-STAGE CONTEXT section when present. What is right for a 22-year-old is often wrong for a 66-year-old; let that context shape training, recovery, sleep, and wellbeing advice naturally.
 - Avoid absolutes and gimmicks. Be evidence-based and measured.
 - Be warm, direct, and concise, like a trusted advisor, not a chatbot.
 - Use the user's name naturally.
@@ -19569,6 +19577,13 @@ PLATFORM KNOWLEDGE RULES:
 - When asked about exercises, reference their target muscles, equipment needed, and movement patterns
 - If a user asks for something that does not exist in the library, say so honestly and suggest the closest alternative
 - Consider the user's equipment access, experience level, time availability, and any movement screening flags when recommending programmes or workouts
+
+TAPPABLE RECOMMENDATION MARKERS (programmes, workouts, recipes):
+- Library items above are listed with IDs like [programme:4], [workout:12], [recipe:7]. When you recommend a specific programme, workout, or recipe from the libraries, weave its exact title naturally into your reply, then add one marker per recommendation on its own line at the very END of your reply: [[REC programme:4]] or [[REC workout:12]] or [[REC recipe:7]] (using the real IDs from the library lists).
+- The user sees these as tappable cards that open the item directly, so only add a marker for items you are actively recommending, not items you merely mention.
+- Maximum 3 markers total per reply across ALL types (including education video/path markers). One or two well-chosen cards beat three forced ones; use none if nothing specific fits.
+- Only IDs that appear in the library lists above. Never invent or guess IDs.
+- Markers are machine-read and stripped before the user sees your reply. Do not mention, quote, or explain them.
 ${coachingContext}${userDataContext}${onboardingContext}${crossCoachContext}${memoryContext}${educationContext}
 
 The user's name is ${userName}.${historyText}

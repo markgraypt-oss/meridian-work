@@ -54,15 +54,21 @@ export type EducationCandidate = {
   score: number;
 };
 
+/** All recommendable item types. "programme"/"workout"/"recipe" markers let
+ *  the coach turn any library reference into a tappable deep-link card. */
+export type RecType = "video" | "path" | "workout" | "programme" | "recipe";
+
 export type ResolvedRecommendation = {
   recId: number;
-  type: "video" | "path";
+  type: RecType;
   id: number;
   title: string;
   topic: string | null;
   contentType: string | null;
   durationMins: number | null;
   difficulty: string | null;
+  /** Optional extra meta shown on the card (e.g. "450 cal" for recipes). */
+  extra?: string | null;
   route: string;
 };
 
@@ -87,14 +93,18 @@ export async function extractContentIntent(
   recentHistory: string,
   provider?: string,
   model?: string,
+  lifeStageHint?: string,
 ): Promise<ContentIntent> {
+  const lifeStageBlock = lifeStageHint
+    ? `\n\nUser life-stage context: ${lifeStageHint}\nWhen the message topic could plausibly connect to their life stage (sleep, energy, mood, body changes, recovery, bone or joint concerns), include the relevant life-stage terms above among searchTerms so age-appropriate content surfaces. Do not force them onto unrelated topics.`
+    : "";
   const prompt = `You classify one chat message for an executive wellness app. Decide whether short educational content (videos, guides, learning paths on topics like sleep, stress, nutrition habits, posture, desk ergonomics, breathwork, recovery, mobility, training principles, burnout, focus) could genuinely help with the user's CURRENT message.
 
 Set wantsContent=true when the user asks a how/why/what-should-I question about a health or performance topic, describes a struggle (poor sleep, stress, aches, low energy, procrastinating on healthy habits), or explicitly asks for videos, courses, or things to watch or learn.
 Set wantsContent=false for: app/logistics questions, greetings and small talk, pure data lookups ("what was my HRV yesterday"), scheduling, feedback about the app, or moments of emotional venting where suggesting a video would feel dismissive.
 
 searchTerms: 2 to 6 short lowercase keywords or phrases capturing the topics. STRONGLY prefer terms from this canonical tag list when any fit (content is tagged with exactly these labels): ${CONTENT_VOCAB.join(", ")}. Add a term outside the list only when nothing on it applies.
-contentType: "path" if they want a structured course or multi-part journey, "video" if they want one quick thing to watch or read, otherwise "any".
+contentType: "path" if they want a structured course or multi-part journey, "video" if they want one quick thing to watch or read, otherwise "any".${lifeStageBlock}
 
 Recent conversation:
 ${recentHistory || "(none)"}
@@ -426,7 +436,7 @@ export async function buildEducationBlock(
   return sections.join("\n\n");
 }
 
-const REC_MARKER_RE = /\[{1,2}\s*REC\s+(video|path)\s*:\s*(\d+)\s*\]{1,2}/gi;
+const REC_MARKER_RE = /\[{1,2}\s*REC\s+(video|path|workout|programme|program|recipe)\s*:\s*(\d+)\s*\]{1,2}/gi;
 
 /**
  * Pulls [[REC type:id]] markers out of the model's reply and returns the
@@ -434,16 +444,18 @@ const REC_MARKER_RE = /\[{1,2}\s*REC\s+(video|path)\s*:\s*(\d+)\s*\]{1,2}/gi;
  */
 export function parseRecMarkers(text: string): {
   cleanText: string;
-  refs: Array<{ type: "video" | "path"; id: number }>;
+  refs: Array<{ type: RecType; id: number }>;
 } {
-  const refs: Array<{ type: "video" | "path"; id: number }> = [];
+  const refs: Array<{ type: RecType; id: number }> = [];
   const seen = new Set<string>();
   const cleanText = String(text || "")
-    .replace(REC_MARKER_RE, (_m, type: string, id: string) => {
-      const key = `${type.toLowerCase()}:${id}`;
+    .replace(REC_MARKER_RE, (_m, rawType: string, id: string) => {
+      // Accept both spellings; store canonically as "programme".
+      const type = (rawType.toLowerCase() === "program" ? "programme" : rawType.toLowerCase()) as RecType;
+      const key = `${type}:${id}`;
       if (!seen.has(key)) {
         seen.add(key);
-        refs.push({ type: type.toLowerCase() as "video" | "path", id: parseInt(id, 10) });
+        refs.push({ type, id: parseInt(id, 10) });
       }
       return "";
     })
@@ -460,17 +472,76 @@ export function parseRecMarkers(text: string): {
  */
 export async function resolveRecommendations(
   userId: string,
-  refs: Array<{ type: "video" | "path"; id: number }>,
+  refs: Array<{ type: RecType; id: number }>,
   source: string = "chat",
 ): Promise<ResolvedRecommendation[]> {
   const out: ResolvedRecommendation[] = [];
 
-  for (const ref of refs.slice(0, 4)) {
-    if (out.length >= 2) break;
+  for (const ref of refs.slice(0, 6)) {
+    if (out.length >= 3) break;
     if (!Number.isFinite(ref.id) || ref.id <= 0) continue;
 
     try {
-      if (ref.type === "video") {
+      if (ref.type === "workout") {
+        const w = await storage.getWorkoutById(ref.id);
+        if (!w) continue;
+        const [row] = await db
+          .insert(coachRecommendations)
+          .values({ userId, itemType: "workout", itemId: w.id, source })
+          .returning({ id: coachRecommendations.id });
+        out.push({
+          recId: row?.id ?? 0,
+          type: "workout",
+          id: w.id,
+          title: w.title,
+          topic: w.category ?? null,
+          contentType: null,
+          durationMins: w.duration ?? null,
+          difficulty: w.difficulty ?? null,
+          route: `/training/workout/${w.id}`,
+        });
+      } else if (ref.type === "programme") {
+        const p = await storage.getProgramById(ref.id);
+        if (!p) continue;
+        const [row] = await db
+          .insert(coachRecommendations)
+          .values({ userId, itemType: "programme", itemId: p.id, source })
+          .returning({ id: coachRecommendations.id });
+        out.push({
+          recId: row?.id ?? 0,
+          type: "programme",
+          id: p.id,
+          title: p.title,
+          topic: p.goal ?? null,
+          contentType: null,
+          durationMins: null,
+          difficulty: p.difficulty ?? null,
+          extra: p.weeks ? `${p.weeks} wks, ${p.trainingDaysPerWeek}x/wk` : null,
+          route: `/training/programme/${p.id}`,
+        });
+      } else if (ref.type === "recipe") {
+        const r = await storage.getRecipeById(ref.id);
+        if (!r) continue;
+        const [row] = await db
+          .insert(coachRecommendations)
+          .values({ userId, itemType: "recipe", itemId: r.id, source })
+          .returning({ id: coachRecommendations.id });
+        out.push({
+          recId: row?.id ?? 0,
+          type: "recipe",
+          id: r.id,
+          title: r.title,
+          topic: r.category ?? null,
+          contentType: null,
+          durationMins: r.totalTime ?? null,
+          difficulty: null,
+          extra: [
+            r.calories ? `${r.calories} cal` : null,
+            r.protein ? `${r.protein}g protein` : null,
+          ].filter(Boolean).join(", ") || null,
+          route: `/nutrition/recipe-detail?id=${r.id}`,
+        });
+      } else if (ref.type === "video") {
         const item = await storage.getContentLibraryItem(ref.id);
         if (!item) continue;
         let route: string | null = item.topicSlug ? `/learn/${item.topicSlug}/video/${item.id}` : null;

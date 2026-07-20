@@ -351,7 +351,21 @@ export async function getUserDataContext(userId: string, feature: string): Promi
 
   const { storage } = await import('./storage');
   const domains = featureConfig.domains;
-  let context = '\n\nUSER HEALTH DATA CONTEXT:';
+  let context = '';
+
+  // Life-stage context first: age + sex guidance so every AI surface that
+  // uses user data (chat, briefings, greetings, nutrition, recovery, burnout,
+  // check-in insights, workout adaptation) tailors advice to the user's
+  // actual life stage. Failure here must never block the health data context.
+  try {
+    const { buildLifeStageContext } = await import('./coach/lifeStage');
+    const user = await storage.getUser(userId);
+    context += buildLifeStageContext(user ? { dateOfBirth: user.dateOfBirth, gender: user.gender } : null);
+  } catch (e) {
+    console.error('[life-stage] context build failed:', e);
+  }
+
+  context += '\n\nUSER HEALTH DATA CONTEXT:';
 
   try {
     if (domains.includes('body_map')) {
@@ -810,7 +824,7 @@ export async function getUserDataContext(userId: string, feature: string): Promi
         if (allPrograms.length > 0) {
           context += `\n\n--- AVAILABLE PROGRAMMES (${allPrograms.length} total) ---`;
           for (const p of allPrograms) {
-            context += `\n- "${p.title}" | ${p.difficulty} | ${p.goal} | ${p.duration}min/session | ${p.trainingDaysPerWeek}x/week | ${p.weeks} weeks | equipment: ${p.equipment} | type: ${p.programmeType}`;
+            context += `\n- [programme:${p.id}] "${p.title}" | ${p.difficulty} | ${p.goal} | ${p.duration}min/session | ${p.trainingDaysPerWeek}x/week | ${p.weeks} weeks | equipment: ${p.equipment} | type: ${p.programmeType}`;
             if (p.description) context += ` | ${p.description.substring(0, 120)}`;
             if (p.whoItsFor) context += ` | for: ${p.whoItsFor.substring(0, 80)}`;
           }
@@ -824,7 +838,7 @@ export async function getUserDataContext(userId: string, feature: string): Promi
         if (allWorkouts.length > 0) {
           context += `\n\n--- AVAILABLE WORKOUTS (${allWorkouts.length} total) ---`;
           for (const w of allWorkouts) {
-            context += `\n- "${w.title}" | ${w.category} | ${w.difficulty} | ${w.duration}min | type: ${w.routineType}/${w.workoutType}`;
+            context += `\n- [workout:${w.id}] "${w.title}" | ${w.category} | ${w.difficulty} | ${w.duration}min | type: ${w.routineType}/${w.workoutType}`;
             if (w.equipment && w.equipment.length > 0) context += ` | equipment: ${w.equipment.join(', ')}`;
             if (w.description) context += ` | ${w.description.substring(0, 80)}`;
           }
@@ -854,7 +868,7 @@ export async function getUserDataContext(userId: string, feature: string): Promi
         if (allRecipes.length > 0) {
           context += `\n\n--- RECIPE LIBRARY (${allRecipes.length} total) ---`;
           for (const r of allRecipes) {
-            context += `\n- "${r.title}" | ${r.category} | ${r.calories} cal | P:${r.protein}g C:${r.carbs}g F:${r.fat}g | ${r.totalTime}min | ${r.servings} servings`;
+            context += `\n- [recipe:${r.id}] "${r.title}" | ${r.category} | ${r.calories} cal | P:${r.protein}g C:${r.carbs}g F:${r.fat}g | ${r.totalTime}min | ${r.servings} servings`;
             if (r.dietaryPreferences?.length) context += ` | ${r.dietaryPreferences.join(', ')}`;
             if (r.allergens?.length) context += ` | allergens: ${r.allergens.join(', ')}`;
           }

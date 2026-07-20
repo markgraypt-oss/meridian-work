@@ -10,3 +10,4 @@ attached_assets/
 # Local backup files
 *.backup
 scripts/
+_to_delete/

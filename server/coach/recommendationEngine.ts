@@ -19,6 +19,7 @@ import {
   type ResolvedRec,
 } from "./recommendationDomains";
 import { formatUserStateBlock, getUserStateSnapshot, type UserStateSnapshot } from "./userState";
+import { buildLifeStageBrief, getLifeStageSearchTerms } from "./lifeStage";
 
 // ---------------------------------------------------------------------------
 // Universal coach recommendation engine.
@@ -70,7 +71,11 @@ export async function extractRecIntent(
   recentHistory: string,
   provider?: string,
   model?: string,
+  lifeStageHint?: string,
 ): Promise<RecIntent> {
+  const lifeStageBlock = lifeStageHint
+    ? `\n\nUser life-stage context: ${lifeStageHint}\nWhen the message topic could plausibly connect to their life stage (sleep, energy, mood, body changes, recovery, bone or joint concerns), include the relevant life-stage terms above among searchTerms so age-appropriate content surfaces. Do not force them onto unrelated topics.`
+    : "";
   const prompt = `You classify one chat message for an executive wellness app, deciding whether in-app recommendations could genuinely help with the user's CURRENT message, and from which areas.
 
 Available recommendation domains:
@@ -82,7 +87,7 @@ Set wantsRecs=true when the user asks a how/why/what-should-I question about a h
 
 domains: 1-3 domains that fit, most relevant first. Empty if wantsRecs is false.
 searchTerms: 2 to 6 short lowercase keywords or phrases capturing the topics. STRONGLY prefer terms from this canonical tag list when any fit: ${CONTENT_VOCAB.join(", ")}. Add a term outside the list only when nothing on it applies.
-contentType (learn domain only): "path" for a structured course, "video" for one quick thing to watch, otherwise "any".
+contentType (learn domain only): "path" for a structured course, "video" for one quick thing to watch, otherwise "any".${lifeStageBlock}
 
 Recent conversation:
 ${recentHistory || "(none)"}
@@ -138,14 +143,27 @@ export async function gatherRecommendationContext(
   recentHistory: string,
   provider?: string,
   model?: string,
+  user?: any,
 ): Promise<RecommendationContext> {
   let state: UserStateSnapshot | null = null;
   let stateBlock = "";
   let block = "";
 
   try {
+    // Life-stage hint biases search terms so age/sex-relevant content
+    // (e.g. menopause, bone health) surfaces first. Fails soft.
+    let lifeStageHint = "";
+    try {
+      const lifeStageTerms = user ? getLifeStageSearchTerms(user) : [];
+      if (user && lifeStageTerms.length > 0) {
+        lifeStageHint = `${buildLifeStageBrief(user)} Relevant life-stage terms: ${lifeStageTerms.join(", ")}.`;
+      }
+    } catch (e: any) {
+      console.error("[coach-recs] life-stage hint failed:", e?.message || e);
+    }
+
     const [intent, snapshot] = await Promise.all([
-      extractRecIntent(userId, message, recentHistory, provider, model),
+      extractRecIntent(userId, message, recentHistory, provider, model, lifeStageHint),
       getUserStateSnapshot(userId).catch(() => null),
     ]);
     state = snapshot;
@@ -242,28 +260,32 @@ async function buildRecommendationBlock(
 
 const ALL_REC_MARKER_RE = /\[{1,2}\s*REC\s+([a-z_]+)\s*:\s*([a-z0-9_\-]+)\s*\]{1,2}/gi;
 
-const NUMERIC_DOMAINS = new Set<DomainKey>(["video", "path", "micro_reset", "position", "ache_fix", "programme"]);
-const VALID_DOMAINS = new Set<string>(["video", "path", "micro_reset", "position", "ache_fix", "programme", "action"]);
+// "workout" and "recipe" markers come from the bulk library lists that
+// getUserDataContext still injects (see the TAPPABLE RECOMMENDATION MARKERS
+// prompt section in routes.ts); they resolve through contentSearch's
+// extended resolver. "program" is accepted as an alt spelling of "programme".
+const NUMERIC_DOMAINS = new Set<string>(["video", "path", "micro_reset", "position", "ache_fix", "programme", "workout", "recipe"]);
+const VALID_DOMAINS = new Set<string>(["video", "path", "micro_reset", "position", "ache_fix", "programme", "program", "workout", "recipe", "action"]);
 
 export function parseAllRecMarkers(text: string): { cleanText: string; refs: RecRef[] } {
   const refs: RecRef[] = [];
   const seen = new Set<string>();
   const cleanText = String(text || "")
     .replace(ALL_REC_MARKER_RE, (_m, rawDomain: string, rawId: string) => {
-      const domain = rawDomain.toLowerCase();
+      const domain = rawDomain.toLowerCase() === "program" ? "programme" : rawDomain.toLowerCase();
       if (VALID_DOMAINS.has(domain)) {
-        if (NUMERIC_DOMAINS.has(domain as DomainKey)) {
+        if (NUMERIC_DOMAINS.has(domain)) {
           const id = parseInt(rawId, 10);
           const dedupeKey = `${domain}:${id}`;
           if (Number.isFinite(id) && id > 0 && !seen.has(dedupeKey)) {
             seen.add(dedupeKey);
-            refs.push({ domain: domain as DomainKey, id, key: null });
+            refs.push({ domain: domain as RecRef["domain"], id, key: null });
           }
         } else {
           const dedupeKey = `${domain}:${rawId.toLowerCase()}`;
           if (!seen.has(dedupeKey)) {
             seen.add(dedupeKey);
-            refs.push({ domain: domain as DomainKey, id: null, key: rawId.toLowerCase() });
+            refs.push({ domain: domain as RecRef["domain"], id: null, key: rawId.toLowerCase() });
           }
         }
       }
@@ -289,19 +311,35 @@ export async function resolveAllRecommendations(
 ): Promise<ResolvedRec[]> {
   const capped = refs.slice(0, MAX_CARDS + 2); // small headroom for invalid refs
 
-  // Resolve education refs in one batch through the existing resolver.
-  const eduRefs = capped
-    .filter((r): r is RecRef & { id: number } => (r.domain === "video" || r.domain === "path") && !!r.id)
-    .map((r) => ({ type: r.domain as "video" | "path", id: r.id }));
-  const eduResolved =
-    eduRefs.length > 0 ? await resolveEducationRefs(userId, eduRefs, source, MAX_CARDS).catch(() => []) : [];
-  const eduByKey = new Map(eduResolved.map((r) => [`${r.type}:${r.id}`, r]));
+  // Resolve library-item refs (education + workout/recipe) in one batch
+  // through contentSearch's extended resolver.
+  const LIB_DOMAINS = new Set(["video", "path", "workout", "recipe"]);
+  const libRefs = capped
+    .filter((r): r is RecRef & { id: number } => LIB_DOMAINS.has(r.domain) && !!r.id)
+    .map((r) => ({ type: r.domain as "video" | "path" | "workout" | "recipe", id: r.id }));
+  const libResolved =
+    libRefs.length > 0 ? await resolveEducationRefs(userId, libRefs, source, MAX_CARDS).catch(() => []) : [];
+  const libByKey = new Map(libResolved.map((r) => [`${r.type}:${r.id}`, r]));
+
+  const subtitleFor = (hit: (typeof libResolved)[number]): string | null => {
+    switch (hit.type) {
+      case "video":
+      case "path":
+        return hit.topic ? `Education Lab · ${hit.topic}` : "Education Lab";
+      case "workout":
+        return ["Workout", hit.topic].filter(Boolean).join(" · ");
+      case "recipe":
+        return ["Recipe", hit.topic, hit.extra || null].filter(Boolean).join(" · ");
+      default:
+        return null;
+    }
+  };
 
   const out: ResolvedRec[] = [];
   for (const ref of capped) {
     if (out.length >= MAX_CARDS) break;
-    if (ref.domain === "video" || ref.domain === "path") {
-      const hit = eduByKey.get(`${ref.domain}:${ref.id}`);
+    if (LIB_DOMAINS.has(ref.domain)) {
+      const hit = libByKey.get(`${ref.domain}:${ref.id}`);
       if (hit) {
         out.push({
           recId: hit.recId,
@@ -310,11 +348,12 @@ export async function resolveAllRecommendations(
           id: hit.id,
           key: null,
           title: hit.title,
-          subtitle: hit.topic ? `Education Lab · ${hit.topic}` : "Education Lab",
+          subtitle: subtitleFor(hit),
           topic: hit.topic,
           contentType: hit.contentType,
           durationMins: hit.durationMins,
           difficulty: hit.difficulty,
+          extra: hit.extra ?? null,
           route: hit.route,
         });
       }

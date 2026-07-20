@@ -19481,27 +19481,37 @@ Keep your response concise, practical, and evidence-based. Do not use em dashes.
 
       const user = await storage.getUser(userId);
 
-      // Universal recommendation retrieval: one small intent call decides
-      // which domains (education, desk health, programmes, app actions) could
-      // help this message; SQL searches pull matching items; only that
-      // shortlist (with stable [domain:id] refs + the marker rules) enters
-      // the prompt, alongside a compact live user-state block that powers
-      // action eligibility and safety gating. The life-stage hint biases
-      // search terms so age/sex-relevant content (e.g. menopause, bone
-      // health) surfaces first. Failure here must never block the chat.
-      let recContext = '';
-      let userStateContext = '';
+      // Education content retrieval: a small intent call decides whether
+      // learn content could help this message, a DB search pulls the matching
+      // videos/paths, and only that shortlist (with stable IDs + the marker
+      // rules) enters the prompt. Scales to any library size. Failure here
+      // must never block the chat. The life-stage hint biases search terms so
+      // age/sex-relevant content (e.g. menopause, bone health) surfaces first.
+      let educationContext = '';
       try {
-        const { gatherRecommendationContext } = await import('./coach/recommendationEngine');
+        const { extractContentIntent, searchEducationContent, buildEducationBlock } = await import('./coach/contentSearch');
+        const { buildLifeStageBrief, getLifeStageSearchTerms } = await import('./coach/lifeStage');
         const intentHistory = (conversationHistory || [])
           .slice(-4)
           .map((m: any) => `${m.role === 'user' ? 'User' : 'Coach'}: ${String(m.content || '').slice(0, 300)}`)
           .join('\n');
-        const recResult = await gatherRecommendationContext(userId, message, intentHistory, config.provider, config.model, user);
-        recContext = recResult.block;
-        userStateContext = recResult.stateBlock;
+        const lifeStageTerms = getLifeStageSearchTerms(user);
+        const lifeStageHint = user && lifeStageTerms.length > 0
+          ? `${buildLifeStageBrief(user)} Relevant life-stage terms: ${lifeStageTerms.join(', ')}.`
+          : '';
+        const intent = await extractContentIntent(userId, message, intentHistory, config.provider, config.model, lifeStageHint);
+        if (intent.wantsContent) {
+          const candidates = await searchEducationContent({
+            terms: intent.searchTerms,
+            contentType: intent.contentType,
+            limit: 8,
+          });
+          if (candidates.length > 0) {
+            educationContext = await buildEducationBlock(userId, candidates);
+          }
+        }
       } catch (e) {
-        console.error('[coach-chat] recommendation retrieval failed:', e);
+        console.error('[coach-chat] education retrieval failed:', e);
       }
 
       const userName = user?.firstName || user?.name?.split(' ')[0] || 'there';
@@ -19574,7 +19584,7 @@ TAPPABLE RECOMMENDATION MARKERS (programmes, workouts, recipes):
 - Maximum 3 markers total per reply across ALL types (including education video/path markers). One or two well-chosen cards beat three forced ones; use none if nothing specific fits.
 - Only IDs that appear in the library lists above. Never invent or guess IDs.
 - Markers are machine-read and stripped before the user sees your reply. Do not mention, quote, or explain them.
-${coachingContext}${userDataContext}${onboardingContext}${crossCoachContext}${memoryContext}${userStateContext}${recContext}
+${coachingContext}${userDataContext}${onboardingContext}${crossCoachContext}${memoryContext}${educationContext}
 
 The user's name is ${userName}.${historyText}
 
@@ -19597,11 +19607,11 @@ Respond as the coach. Be personalised, reference their actual data and specific 
       let replyText = response.text;
       let recommendations: any[] = [];
       try {
-        const { parseAllRecMarkers, resolveAllRecommendations } = await import('./coach/recommendationEngine');
-        const parsed = parseAllRecMarkers(replyText);
+        const { parseRecMarkers, resolveRecommendations } = await import('./coach/contentSearch');
+        const parsed = parseRecMarkers(replyText);
         replyText = parsed.cleanText;
         if (parsed.refs.length > 0) {
-          recommendations = await resolveAllRecommendations(userId, parsed.refs, 'chat');
+          recommendations = await resolveRecommendations(userId, parsed.refs, 'chat');
         }
       } catch (e) {
         console.error('[coach-chat] recommendation resolution failed:', e);

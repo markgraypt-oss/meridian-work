@@ -343,16 +343,14 @@ export async function searchEducationContent(opts: {
 }
 
 /**
- * Formats the retrieved candidates into shortlist lines (with stable IDs and
- * the user's completion/assignment status). Used by buildEducationBlock for
- * the education-only flow, and by recommendationEngine.ts when composing the
- * unified multi-domain shortlist.
+ * Formats the retrieved shortlist for the coach prompt, including the user's
+ * completion/assignment status and the marker rules the model must follow.
  */
-export async function buildEducationLines(
+export async function buildEducationBlock(
   userId: string,
   candidates: EducationCandidate[],
-): Promise<{ videoLines: string[]; pathLines: string[] }> {
-  if (candidates.length === 0) return { videoLines: [], pathLines: [] };
+): Promise<string> {
+  if (candidates.length === 0) return "";
 
   const [progress, assignments] = await Promise.all([
     storage.getUserContentProgress(userId).catch(() => []),
@@ -425,21 +423,6 @@ export async function buildEducationLines(
     }
   }
 
-  return { videoLines, pathLines };
-}
-
-/**
- * Formats the retrieved shortlist for the coach prompt, including the user's
- * completion/assignment status and the marker rules the model must follow.
- * (Education-only block; the chat flow now uses recommendationEngine.ts.)
- */
-export async function buildEducationBlock(
-  userId: string,
-  candidates: EducationCandidate[],
-): Promise<string> {
-  if (candidates.length === 0) return "";
-  const { videoLines, pathLines } = await buildEducationLines(userId, candidates);
-
   const sections: string[] = ["\n\nEDUCATION CONTENT RETRIEVED FOR THIS MESSAGE (the only videos/paths you may recommend):"];
   if (videoLines.length > 0) sections.push("Videos & guides:\n" + videoLines.join("\n"));
   if (pathLines.length > 0) sections.push("Learning paths:\n" + pathLines.join("\n"));
@@ -491,12 +474,11 @@ export async function resolveRecommendations(
   userId: string,
   refs: Array<{ type: RecType; id: number }>,
   source: string = "chat",
-  maxCards: number = 3,
 ): Promise<ResolvedRecommendation[]> {
   const out: ResolvedRecommendation[] = [];
 
-  for (const ref of refs.slice(0, maxCards + 3)) {
-    if (out.length >= maxCards) break;
+  for (const ref of refs.slice(0, 6)) {
+    if (out.length >= 3) break;
     if (!Number.isFinite(ref.id) || ref.id <= 0) continue;
 
     try {
@@ -505,7 +487,7 @@ export async function resolveRecommendations(
         if (!w) continue;
         const [row] = await db
           .insert(coachRecommendations)
-          .values({ userId, itemType: "workout", itemId: w.id, route: `/training/workout/${w.id}`, source })
+          .values({ userId, itemType: "workout", itemId: w.id, source })
           .returning({ id: coachRecommendations.id });
         out.push({
           recId: row?.id ?? 0,
@@ -523,7 +505,7 @@ export async function resolveRecommendations(
         if (!p) continue;
         const [row] = await db
           .insert(coachRecommendations)
-          .values({ userId, itemType: "programme", itemId: p.id, route: `/training/programme/${p.id}`, source })
+          .values({ userId, itemType: "programme", itemId: p.id, source })
           .returning({ id: coachRecommendations.id });
         out.push({
           recId: row?.id ?? 0,
@@ -542,7 +524,7 @@ export async function resolveRecommendations(
         if (!r) continue;
         const [row] = await db
           .insert(coachRecommendations)
-          .values({ userId, itemType: "recipe", itemId: r.id, route: `/nutrition/recipe-detail?id=${r.id}`, source })
+          .values({ userId, itemType: "recipe", itemId: r.id, source })
           .returning({ id: coachRecommendations.id });
         out.push({
           recId: row?.id ?? 0,
@@ -575,7 +557,7 @@ export async function resolveRecommendations(
         if (!route) continue;
         const [row] = await db
           .insert(coachRecommendations)
-          .values({ userId, itemType: "video", itemId: item.id, route, source })
+          .values({ userId, itemType: "video", itemId: item.id, source })
           .returning({ id: coachRecommendations.id });
         const topicTitle = await topicTitleForId(item.topicId);
         out.push({
@@ -605,7 +587,7 @@ export async function resolveRecommendations(
         if (!row) continue;
         const [rec] = await db
           .insert(coachRecommendations)
-          .values({ userId, itemType: "path", itemId: row.id, route: `/education-lab/path/${row.id}`, source })
+          .values({ userId, itemType: "path", itemId: row.id, source })
           .returning({ id: coachRecommendations.id });
         out.push({
           recId: rec?.id ?? 0,

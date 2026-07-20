@@ -32,6 +32,8 @@ export type DomainKey =
   | "position"
   | "ache_fix"
   | "programme"
+  | "workout"
+  | "recipe"
   | "action";
 
 export type RecRef = { domain: DomainKey; id: number | null; key: string | null };
@@ -54,11 +56,13 @@ export type ResolvedRec = {
   contentType: string | null;
   durationMins: number | null;
   difficulty: string | null;
+  /** Optional extra meta shown on the card (e.g. "450 cal" for recipes). */
+  extra?: string | null;
   route: string;
 };
 
 export type DomainCandidate = {
-  domain: Exclude<DomainKey, "video" | "path" | "action">;
+  domain: Exclude<DomainKey, "video" | "path" | "workout" | "recipe" | "action">;
   id: number;
   title: string;
   promptLine: string; // full shortlist line, including the [domain:id] ref

@@ -9451,6 +9451,11 @@ Rules:
         ? { ...parsed, sourceType: parsed.sourceType ?? 'manual', createdByUserId: parsed.createdByUserId ?? null }
         : { ...parsed, sourceType: 'user_created', createdByUserId: userId };
       const program = await storage.createProgram(programData);
+      // Auto-tag new library programmes for coach recommendations search
+      // (fire-and-forget; the tagger only touches manual/admin programmes).
+      import('./coach/contentTagger')
+        .then(m => m.tagNewProgrammeAsync(program.id))
+        .catch(() => {});
       res.status(201).json(program);
     } catch (error) {
       console.error("Error creating program:", error);
@@ -11319,6 +11324,10 @@ Rules:
       const { userId: _omitUser, ...payload } = (req.body || {}) as Record<string, unknown>;
       const recipeData = insertRecipeSchema.parse(payload);
       const recipe = await storage.createRecipe(recipeData);
+      // Auto-tag new library recipes for coach recommendations search.
+      import('./coach/contentTagger')
+        .then(m => m.tagNewRecipeAsync(recipe.id))
+        .catch(() => {});
       res.status(201).json(recipe);
     } catch (error) {
       console.error("Error creating recipe:", error);
@@ -19505,34 +19514,32 @@ Keep your response concise, practical, and evidence-based. Do not use em dashes.
         ? `\n\nUSER MEMORY (durable facts about this user, use to personalise — do not contradict):\n${memoryText}`
         : '';
 
-      // Education content retrieval: a small intent call decides whether
-      // learn content could help this message, a DB search pulls the matching
-      // videos/paths, and only that shortlist (with stable IDs + the marker
-      // rules) enters the prompt. Scales to any library size. Failure here
-      // must never block the chat.
-      let educationContext = '';
+      const user = await storage.getUser(userId);
+
+      // Universal recommendation retrieval: one small intent call decides
+      // which domains (education, desk health, programmes, workouts,
+      // exercises, recipes, meditations, breathwork, habits, app actions)
+      // could help this message; SQL searches pull matching items; only that
+      // shortlist (with stable [domain:id] refs + the marker rules) enters
+      // the prompt, alongside a compact live user-state block that powers
+      // action eligibility and safety gating. The life-stage hint biases
+      // search terms so age/sex-relevant content (e.g. menopause, bone
+      // health) surfaces first. Failure here must never block the chat.
+      let recContext = '';
+      let userStateContext = '';
       try {
-        const { extractContentIntent, searchEducationContent, buildEducationBlock } = await import('./coach/contentSearch');
+        const { gatherRecommendationContext } = await import('./coach/recommendationEngine');
         const intentHistory = (conversationHistory || [])
           .slice(-4)
           .map((m: any) => `${m.role === 'user' ? 'User' : 'Coach'}: ${String(m.content || '').slice(0, 300)}`)
           .join('\n');
-        const intent = await extractContentIntent(userId, message, intentHistory, config.provider, config.model);
-        if (intent.wantsContent) {
-          const candidates = await searchEducationContent({
-            terms: intent.searchTerms,
-            contentType: intent.contentType,
-            limit: 8,
-          });
-          if (candidates.length > 0) {
-            educationContext = await buildEducationBlock(userId, candidates);
-          }
-        }
+        const recResult = await gatherRecommendationContext(userId, message, intentHistory, config.provider, config.model, user);
+        recContext = recResult.block;
+        userStateContext = recResult.stateBlock;
       } catch (e) {
-        console.error('[coach-chat] education retrieval failed:', e);
+        console.error('[coach-chat] recommendation retrieval failed:', e);
       }
 
-      const user = await storage.getUser(userId);
       const userName = user?.firstName || user?.name?.split(' ')[0] || 'there';
 
       let onboardingContext = '';
@@ -19562,7 +19569,7 @@ Keep your response concise, practical, and evidence-based. Do not use em dashes.
         ).join('\n');
       }
 
-      const systemPrompt = `You are a digital performance coach built into an executive health and wellness platform called The Paradigm Project. You provide personalised guidance based on the user's actual health data, training history, and goals. You have full knowledge of every programme, workout, exercise, recipe, video, and learning path available on the platform.
+      const systemPrompt = `You are a digital performance coach built into an executive health and wellness platform called The Paradigm Project. You provide personalised guidance based on the user's actual health data, training history, and goals. Platform content relevant to each message (programmes, workouts, exercises, recipes, videos, learning paths, desk-health content, meditations, breathwork, habits) is retrieved for you automatically and appears in the IN-APP RECOMMENDATIONS section when applicable.
 
 CORE COACHING RULES (always follow):
 - Never give medical advice or diagnose conditions. Recommend seeing a professional when appropriate.
@@ -19570,6 +19577,7 @@ CORE COACHING RULES (always follow):
 - Default to minimal effective dose: the simplest change that moves the needle.
 - Reinforce long-term thinking over quick fixes.
 - Ask reflective questions when appropriate to help the user think critically about their health.
+- Tailor advice to the user's age and life stage using the USER LIFE-STAGE CONTEXT section when present. What is right for a 22-year-old is often wrong for a 66-year-old; let that context shape training, recovery, sleep, and wellbeing advice naturally.
 - Avoid absolutes and gimmicks. Be evidence-based and measured.
 - Be warm, direct, and concise, like a trusted advisor, not a chatbot.
 - Use the user's name naturally.
@@ -19588,14 +19596,15 @@ SCORE AND UNIT FORMATTING:
 - Quote durations exactly (e.g. "7h 19m", "14,873 steps"). Never convert sleep to decimal hours.
 
 PLATFORM KNOWLEDGE RULES:
-- When recommending programmes, workouts, recipes, videos, or learning content, ALWAYS refer to specific items by their exact name from the library data provided
+- When recommending programmes, workouts, recipes, videos, or learning content, ALWAYS refer to specific items by their exact name from the retrieved content provided in this prompt
 - Explain WHY a specific recommendation suits the user based on their profile, goals, equipment, schedule, and health data
-- Reference app features naturally (e.g. "You can find the Bench Press tutorial in the exercise library", "The 8-Week Strength programme would fit your 3-day schedule", "Check out the Sleep topic in your learning paths")
+- Reference app features naturally (e.g. "You can find that tutorial in the exercise library", "That programme would fit your 3-day schedule", "Check out the Sleep topic in your learning paths")
 - When asked about nutrition, reference specific recipes with their exact macros (protein, carbs, fat, calories)
 - When asked about exercises, reference their target muscles, equipment needed, and movement patterns
-- If a user asks for something that does not exist in the library, say so honestly and suggest the closest alternative
+- If nothing retrieved for this message fits what the user asked for, say so honestly, suggest the closest retrieved alternative if one exists, and invite them to browse that section of the app
 - Consider the user's equipment access, experience level, time availability, and any movement screening flags when recommending programmes or workouts
-${coachingContext}${userDataContext}${onboardingContext}${crossCoachContext}${memoryContext}${educationContext}
+- Recommendation markers ([[REC ...]]) may ONLY use refs from the IN-APP RECOMMENDATIONS section when it is present; its rules take precedence
+${coachingContext}${userDataContext}${onboardingContext}${crossCoachContext}${memoryContext}${userStateContext}${recContext}
 
 The user's name is ${userName}.${historyText}
 
@@ -19618,11 +19627,11 @@ Respond as the coach. Be personalised, reference their actual data and specific 
       let replyText = response.text;
       let recommendations: any[] = [];
       try {
-        const { parseRecMarkers, resolveRecommendations } = await import('./coach/contentSearch');
-        const parsed = parseRecMarkers(replyText);
+        const { parseAllRecMarkers, resolveAllRecommendations } = await import('./coach/recommendationEngine');
+        const parsed = parseAllRecMarkers(replyText);
         replyText = parsed.cleanText;
         if (parsed.refs.length > 0) {
-          recommendations = await resolveRecommendations(userId, parsed.refs, 'chat');
+          recommendations = await resolveAllRecommendations(userId, parsed.refs, 'chat');
         }
       } catch (e) {
         console.error('[coach-chat] recommendation resolution failed:', e);
@@ -22440,6 +22449,10 @@ RULES:
     try {
       const validated = insertMeditationSchema.parse(req.body);
       const med = await storage.createMeditation(validated);
+      // Auto-tag new meditations for coach recommendations search.
+      import('./coach/contentTagger')
+        .then(m => m.tagNewMeditationAsync(med.id))
+        .catch(() => {});
       res.json(med);
     } catch (error) {
       console.error("Error creating meditation:", error);

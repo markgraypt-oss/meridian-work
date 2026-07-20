@@ -11,3 +11,7 @@ attached_assets/
 *.backup
 scripts/
 _to_delete/
+
+_cowork_sync*/
+_to_delete/
+_cowork_stage_*.tar.gz

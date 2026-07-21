@@ -1895,20 +1895,23 @@ export class DatabaseStorage implements IStorage {
     
     // Flatten multi-word expansions (e.g., "single arm" becomes ["single", "arm"])
     const allSearchTerms = expandedWords.flatMap(term => term.split(/\s+/));
-    
-    // Create condition: name must contain ALL words (in any order)
-    const nameConditions = allSearchTerms.map(word => ilike(exerciseLibrary.name, `%${word}%`));
-    const instructionsConditions = allSearchTerms.map(word => ilike(exerciseLibrary.instructions, `%${word}%`));
-    
+
+    // Each word must match the exercise NAME or its EQUIPMENT (AND across words,
+    // in any order). Deliberately does NOT search `instructions` / coaching cues:
+    // matching those returned hundreds of irrelevant results because common cue
+    // words (e.g. "press" in "press through your heels") appear everywhere.
+    const conditions = allSearchTerms.map(word => {
+      const like = `%${word}%`;
+      return or(
+        ilike(exerciseLibrary.name, like),
+        sql`array_to_string(${exerciseLibrary.equipment}, ' ') ILIKE ${like}`
+      );
+    });
+
     return await db
       .select()
       .from(exerciseLibrary)
-      .where(
-        or(
-          and(...nameConditions),
-          and(...instructionsConditions)
-        )
-      )
+      .where(and(...conditions))
       .orderBy(exerciseLibrary.name);
   }
 

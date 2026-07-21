@@ -8,6 +8,7 @@ import {
   type EducationCandidate,
 } from "./contentSearch";
 import {
+  ACTION_REGISTRY,
   relevantActions,
   resolveDomainRef,
   searchBreathTechniques,
@@ -435,4 +436,173 @@ export async function resolveAllRecommendations(
     if (resolved) out.push(resolved);
   }
   return out;
+}
+
+// ---------------------------------------------------------------------------
+// Proactive briefing recommendations (v2).
+//
+// The daily morning/evening briefing has no user question to extract intent
+// from — the "intent" IS the user's current state. So instead of an AI call,
+// we derive a small ordered set of search probes deterministically from the
+// briefing type + the live state snapshot (poor sleep at night -> wind-down
+// meditation; desk pain -> ache/fix; red readiness morning -> mobility), run
+// the same domain searches (with the same Recovery-Mode / pain gating the
+// chat engine uses), and resolve the best 1-2 into tappable cards logged with
+// source='briefing'. No extra AI cost, fully deterministic, and it never
+// touches the delicate briefing prompt. Recipes are deliberately excluded —
+// the briefing has a hard no-nutrition rule.
+// ---------------------------------------------------------------------------
+
+const MAX_BRIEFING_CARDS = 2;
+
+type BriefingProbe = { domain: "workday" | "meditation" | "breath" | "workout"; terms: string[] };
+
+function num(v: number | null | undefined, fallback: number): number {
+  return typeof v === "number" ? v : fallback;
+}
+
+function deriveBriefingProbes(type: "morning" | "evening", state: UserStateSnapshot): BriefingProbe[] {
+  const probes: BriefingProbe[] = [];
+  const topPain = state.pain.activeIssues.find((i) => i.severity >= 3) || null;
+  const checkin = state.checkins.latest;
+  const recoveryMode = state.burnout.recoveryMode;
+  const highBurnout =
+    num(state.burnout.score, 0) >= 60 ||
+    state.burnout.trajectory === "elevated" ||
+    state.burnout.trajectory === "rising";
+
+  // 1. Active pain leads in either briefing — desk aches/fixes are the safest,
+  //    most directly useful proactive nudge we can make.
+  if (topPain) {
+    const area = topPain.bodyPart.toLowerCase().replace(/_/g, " ");
+    probes.push({ domain: "workday", terms: [area, "stiffness", "mobility"] });
+  }
+
+  if (type === "evening") {
+    const stressed = num(checkin?.stress, 3) >= 4 || num(checkin?.mood, 5) <= 2;
+    if (stressed || recoveryMode || highBurnout) {
+      probes.push({ domain: "meditation", terms: ["stress", "overwhelm", "racing mind", "calm", "wind down"] });
+      probes.push({ domain: "breath", terms: ["relaxation", "calm", "wind down", "recovery"] });
+    }
+    if (num(checkin?.sleep, 5) <= 2) {
+      probes.push({ domain: "meditation", terms: ["sleep", "wind down", "evening routine"] });
+      probes.push({ domain: "breath", terms: ["relaxation", "sleep", "wind down"] });
+    }
+    // Default evening wind-down.
+    probes.push({ domain: "meditation", terms: ["sleep", "wind down", "evening routine", "relaxation"] });
+    probes.push({ domain: "breath", terms: ["relaxation", "recovery", "calm"] });
+  } else {
+    // Morning.
+    if (recoveryMode || highBurnout) {
+      probes.push({ domain: "breath", terms: ["calm", "recovery", "focus"] });
+      probes.push({ domain: "meditation", terms: ["recovery", "morning routine", "focus"] });
+    }
+    if (num(checkin?.sleep, 5) <= 2) {
+      probes.push({ domain: "breath", terms: ["energy", "focus"] });
+    }
+    // Movement for the day, unless recovering — searchWorkouts gates out
+    // pain-loading and (in recovery mode) high-intensity options itself.
+    if (!recoveryMode) {
+      probes.push({ domain: "workout", terms: ["mobility", "recovery", "stretching", "warm up"] });
+    }
+  }
+
+  return probes;
+}
+
+async function runBriefingProbe(probe: BriefingProbe, state: UserStateSnapshot): Promise<DomainCandidate | null> {
+  try {
+    let found: DomainCandidate[] = [];
+    switch (probe.domain) {
+      case "workday":
+        found = (await searchWorkday(probe.terms, 4)).filter((c) => c.domain === "ache_fix" || c.domain === "micro_reset");
+        break;
+      case "meditation":
+        found = await searchMeditations(probe.terms, 4);
+        break;
+      case "breath":
+        found = await searchBreathTechniques(probe.terms, 4);
+        break;
+      case "workout":
+        found = await searchWorkouts(probe.terms, state, 4);
+        break;
+    }
+    return found[0] ?? null;
+  } catch (e: any) {
+    console.error("[coach-recs] briefing probe failed:", probe.domain, e?.message || e);
+    return null;
+  }
+}
+
+// Actions that make sense as a proactive briefing nudge, most-relevant first.
+const BRIEFING_ACTION_KEYS = ["weekly_checkin", "desk_scan", "setup_rotation"];
+
+function pickBriefingAction(state: UserStateSnapshot, type: "morning" | "evening"): RecAction | null {
+  const deskPain = state.pain.activeIssues.some((i) =>
+    /neck|shoulder|back/.test(i.bodyPart.toLowerCase()),
+  );
+  for (const key of BRIEFING_ACTION_KEYS) {
+    const action = ACTION_REGISTRY.find((a) => a.key === key);
+    if (!action || !action.eligible(state)) continue;
+    // weekly check-in only nudged in the evening (reflection moment).
+    if (key === "weekly_checkin" && type !== "evening") continue;
+    // desk-health actions only when there is desk-related pain to motivate them.
+    if ((key === "desk_scan" || key === "setup_rotation") && !deskPain) continue;
+    return action;
+  }
+  return null;
+}
+
+/**
+ * Builds up to MAX_BRIEFING_CARDS tappable recommendation cards for a daily
+ * briefing, chosen from the user's live state. Distinct domains, content
+ * first, optionally one relevant action to fill the second slot. Logs each
+ * shown card with source='briefing'. Never throws.
+ */
+export async function buildBriefingRecommendations(
+  userId: string,
+  type: "morning" | "evening",
+): Promise<ResolvedRec[]> {
+  try {
+    const state = await getUserStateSnapshot(userId).catch(() => null);
+    if (!state) return [];
+
+    const probes = deriveBriefingProbes(type, state);
+    const usedDomains = new Set<string>();
+    const chosen: DomainCandidate[] = [];
+    for (const probe of probes) {
+      if (chosen.length >= MAX_BRIEFING_CARDS) break;
+      if (usedDomains.has(probe.domain)) continue;
+      const cand = await runBriefingProbe(probe, state);
+      if (!cand) continue;
+      usedDomains.add(probe.domain);
+      chosen.push(cand);
+    }
+
+    const cards: ResolvedRec[] = [];
+    for (const cand of chosen.slice(0, MAX_BRIEFING_CARDS)) {
+      const isBreath = cand.domain === "breath";
+      const ref: RecRef = {
+        domain: cand.domain,
+        id: isBreath ? null : cand.id,
+        key: isBreath ? cand.key ?? null : null,
+      };
+      const resolved = await resolveDomainRef(userId, ref, "briefing");
+      if (resolved) cards.push(resolved);
+    }
+
+    // Fill any remaining slot with one relevant, eligible action.
+    if (cards.length < MAX_BRIEFING_CARDS) {
+      const action = pickBriefingAction(state, type);
+      if (action) {
+        const resolved = await resolveDomainRef(userId, { domain: "action", id: null, key: action.key }, "briefing");
+        if (resolved) cards.push(resolved);
+      }
+    }
+
+    return cards;
+  } catch (e: any) {
+    console.error("[coach-recs] buildBriefingRecommendations failed:", e?.message || e);
+    return [];
+  }
 }

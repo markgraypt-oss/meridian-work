@@ -77,6 +77,9 @@ export type DomainCandidate = {
   title: string;
   promptLine: string; // full shortlist line, including the [domain:id] ref
   score: number;
+  // Slug for key-based domains (breath). Chat resolves breath by the [breath:slug]
+  // marker; the briefing path resolves candidates directly, so it needs the slug.
+  key?: string | null;
 };
 
 // --- shared scoring -------------------------------------------------------
@@ -667,6 +670,7 @@ export async function searchBreathTechniques(rawTerms: string[], limit: number =
         domain: "breath",
         // Breath cards are slug-keyed; id kept for sorting/dedupe only.
         id: r.id,
+        key: r.slug,
         title: r.name,
         score,
         promptLine: `- [breath:${r.slug}] "${r.name}" | breathing technique | ${r.category} | ${r.difficulty} | ${r.defaultDurationMinutes} min`,
@@ -922,6 +926,31 @@ export async function resolveDomainRef(
           title: r.title,
           subtitle: `${r.weeks}-week programme · ${r.goal.replace(/_/g, " ")}`,
           topic: null,
+          contentType: null,
+          durationMins: r.duration ?? null,
+          difficulty: r.difficulty ?? null,
+          route,
+        };
+      }
+      case "workout": {
+        // In the chat flow workouts resolve via contentSearch's batch (LIB)
+        // path; the briefing flow calls resolveDomainRef directly, so a
+        // self-contained workout case is required here too.
+        if (!ref.id) return null;
+        const [r] = await db.select().from(workouts).where(eq(workouts.id, ref.id)).limit(1);
+        if (!r) return null;
+        const route = `/training/workout/${r.id}`;
+        const recId = await logShown(userId, "workout", r.id, null, route, source);
+        const label = (r.goal || r.category || "").replace(/_/g, " ");
+        return {
+          recId,
+          domain: "workout",
+          type: "workout",
+          id: r.id,
+          key: null,
+          title: r.title,
+          subtitle: ["Workout", label || null].filter(Boolean).join(" · "),
+          topic: label || null,
           contentType: null,
           durationMins: r.duration ?? null,
           difficulty: r.difficulty ?? null,

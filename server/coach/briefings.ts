@@ -70,7 +70,13 @@ const briefingSchema = z.object({
   { message: "briefing must include either an opener (new shape) or a headline (legacy shape)" },
 );
 
-export type BriefingContent = z.infer<typeof briefingSchema>;
+// The AI-generated shape validated by briefingSchema, plus proactive
+// recommendation cards attached deterministically AFTER generation (they are
+// not model output). Stored in the same jsonb content blob and rendered as
+// tappable cards on the briefing panel.
+export type BriefingContent = z.infer<typeof briefingSchema> & {
+  recommendationCards?: import("./recommendationDomains").ResolvedRec[];
+};
 
 export type BriefingType = "morning" | "evening";
 
@@ -599,6 +605,18 @@ Return only the JSON object now.`;
   // Defence-in-depth: clamp medical-sounding language even if the model
   // ignored the system prompt rules.
   content = sanitizeBriefingContent(content);
+
+  // Proactive recommendation cards: derived deterministically from the user's
+  // live state (poor sleep -> wind-down meditation, desk pain -> ache/fix,
+  // etc.), resolved into tappable deep-link cards and logged with
+  // source='briefing'. Fails soft — the briefing stores fine without cards.
+  try {
+    const { buildBriefingRecommendations } = await import("./recommendationEngine");
+    const cards = await buildBriefingRecommendations(userId, type);
+    if (cards.length > 0) content.recommendationCards = cards;
+  } catch (e: any) {
+    console.error(`[coach-briefing] recommendation cards failed for ${userId} (${type}):`, e?.message || e);
+  }
 
   // If a real AI briefing already exists (drift regeneration) we must
   // unconditionally overwrite it - createCoachBriefing's onConflict guard

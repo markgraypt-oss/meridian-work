@@ -19569,7 +19569,7 @@ Keep your response concise, practical, and evidence-based. Do not use em dashes.
         ).join('\n');
       }
 
-      const systemPrompt = `You are a digital performance coach built into an executive health and wellness platform called The Paradigm Project. You provide personalised guidance based on the user's actual health data, training history, and goals. Platform content relevant to each message (programmes, workouts, exercises, recipes, videos, learning paths, desk-health content, meditations, breathwork, habits) is retrieved for you automatically and appears in the IN-APP RECOMMENDATIONS section when applicable.
+      const systemPrompt = `You are a digital performance coach built into an executive health and wellness platform called MeridianWork. You provide personalised guidance based on the user's actual health data, training history, and goals. Platform content relevant to each message (programmes, workouts, exercises, recipes, videos, learning paths, desk-health content, meditations, breathwork, habits) is retrieved for you automatically and appears in the IN-APP RECOMMENDATIONS section when applicable.
 
 CORE COACHING RULES (always follow):
 - Never give medical advice or diagnose conditions. Recommend seeing a professional when appropriate.
@@ -20568,7 +20568,7 @@ For each pick, write one short sentence (1-2 sentences max) explaining specifica
 Respond in this exact JSON format — IDs must come from the candidate list above:
 {"picks": [{"id": <recipe_id>, "reason": "Why this fits"}]${summaryField}}`;
 
-        const sysPrompt = `You are the AI Nutrition Coach for The Paradigm Project. You ONLY recommend recipes from the candidate list provided — never invent recipes. Output raw JSON, no markdown.${coachingContext}${userDataContext}`;
+        const sysPrompt = `You are the AI Nutrition Coach for MeridianWork. You ONLY recommend recipes from the candidate list provided — never invent recipes. Output raw JSON, no markdown.${coachingContext}${userDataContext}`;
 
         const aiResp = await aiCall({
           feature: 'nutrition',
@@ -20691,7 +20691,7 @@ Respond in this JSON format:
 {"summary": "Your detailed response to their question"}`;
       }
 
-      const systemPrompt = `You are the AI Nutrition Coach for The Paradigm Project, an executive health platform. You provide personalised nutrition insights based on the user's actual tracking data.
+      const systemPrompt = `You are the AI Nutrition Coach for MeridianWork, an executive health platform. You provide personalised nutrition insights based on the user's actual tracking data.
 
 CORE RULES:
 - Always respond with valid JSON matching the requested format — no markdown, no code fences, just raw JSON
@@ -20851,7 +20851,7 @@ Respond in this JSON format:
 {"summary": "Brief recovery overview based on their session and data", "tips": ["Recovery tip 1 with timing", "Tip 2", "Tip 3"], "focusAreas": ["Stretch area 1", "Mobility focus 2"]}`;
       }
 
-      const systemPrompt = `You are the AI Workout Coach for The Paradigm Project, an executive health platform. You provide personalised training readiness assessments and exercise modifications based on the user's health data.
+      const systemPrompt = `You are the AI Workout Coach for MeridianWork, an executive health platform. You provide personalised training readiness assessments and exercise modifications based on the user's health data.
 
 CORE RULES:
 - Always respond with valid JSON matching the requested format — no markdown, no code fences, just raw JSON
@@ -20964,7 +20964,7 @@ Respond in this JSON format:
 {"recommendations": [{"title": "Short title", "type": "quick_win|habit_change|long_term", "detail": "Specific actionable recommendation", "reason": "Why this matters based on their data", "impact": "Expected benefit"}], "encouragement": "One motivating sentence about their progress"}`;
       }
 
-      const systemPrompt = `You are the AI Wellness Insights Coach for The Paradigm Project, an executive health platform. You analyse check-in and health data to provide personalised wellbeing insights.
+      const systemPrompt = `You are the AI Wellness Insights Coach for MeridianWork, an executive health platform. You analyse check-in and health data to provide personalised wellbeing insights.
 
 CORE RULES:
 - Always respond with valid JSON matching the requested format — no markdown, no code fences, just raw JSON
@@ -21122,7 +21122,7 @@ ${modePrompt}`;
         }
       }
 
-      const systemPrompt = `You are a Recovery Coach within The Paradigm Project executive health platform. You help users understand their body map assessment results and provide personalised recovery guidance.
+      const systemPrompt = `You are a Recovery Coach within MeridianWork, an executive health platform. You help users understand their body map assessment results and provide personalised recovery guidance.
 
 CORE RECOVERY COACHING RULES:
 - Never diagnose or give medical advice — recommend seeing a professional when pain is severe or persistent

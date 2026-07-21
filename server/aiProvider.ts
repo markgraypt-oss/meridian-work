@@ -1064,10 +1064,16 @@ Coaching principles while Recovery Mode is active:
 export async function getCoachingContext(feature: string): Promise<string> {
   try {
     const { storage } = await import('./storage');
+    const { getCoachPersona } = await import('./coach/coachPersona');
     const globalSettings = await storage.getAiCoachingSetting('global');
     const featureSettings = await storage.getAiCoachingSetting(feature);
 
-    let context = '\nFORMATTING RULE: Never use em dashes or the character in any response. Use commas, full stops, or shorter sentences instead.\n';
+    // Mark's coaching persona is the version-controlled baseline voice for
+    // every coach surface (and the full build method for the generators). The
+    // admin-editable ai_coaching_settings below layer on top as optional live
+    // tuning, so nothing here is lost if an admin also sets a global voice.
+    let context = getCoachPersona(feature);
+    context += '\nFORMATTING RULE: Never use em dashes or the character in any response. Use commas, full stops, or shorter sentences instead.\n';
 
     if (globalSettings && globalSettings.isActive) {
       if (globalSettings.coachingVoice) {

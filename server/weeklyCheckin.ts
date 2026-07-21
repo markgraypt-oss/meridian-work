@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { aiCall } from "./ai";
+import { COACH_VOICE } from "./coach/coachPersona";
 import { storage } from "./storage";
 import { computeBurnoutScore } from "./burnoutEngine";
 import { db } from "./db";
@@ -690,7 +691,9 @@ function buildPatternsPrompt(promptData: V2AggData["promptData"], weekStart: Dat
   // weekEnd is the exclusive Monday after the week; use the inclusive Sunday
   // so any date referenced in the AI's hero/patterns text reads correctly.
   const inclusiveEnd = new Date(weekEnd.getTime() - 24 * 60 * 60 * 1000);
-  return `You are a workplace wellbeing coach writing the "Patterns this week" section of a weekly check-in for a corporate wellness app.
+  return `${COACH_VOICE}
+
+You are Mark, writing the "Patterns this week" section of a weekly check-in for this user, in your voice.
 
 Week: ${fmt(weekStart)} to ${fmt(inclusiveEnd)}
 

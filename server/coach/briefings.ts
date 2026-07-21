@@ -6,6 +6,7 @@ import { storage } from "../storage";
 import { aiCall } from "../ai";
 import { getUserDataContext, getFeatureConfig } from "../aiProvider";
 import { getTopMemoriesText } from "./memory";
+import { COACH_VOICE } from "./coachPersona";
 import { notify } from "../notifications";
 
 // Phrases that drift toward medical advice. We replace them with neutral
@@ -519,7 +520,9 @@ If a workout was scheduled but not completed, do NOT scold. Acknowledge neutrall
       // today was actually Sunday.
       const dayName = new Date(dateKey + 'T12:00:00').toLocaleDateString('en-US', { weekday: 'long' });
 
-      const prompt = `You are the user's digital performance coach. Produce a rich ${type} briefing as JSON only.
+      const prompt = `${COACH_VOICE}
+
+The briefing below is you, Mark, speaking to ${userName}. Write it in your voice. Produce a rich ${type} briefing as JSON only.
 
 OUTPUT JSON SHAPE (strict):
 {

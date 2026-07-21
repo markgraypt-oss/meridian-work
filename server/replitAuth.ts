@@ -74,7 +74,7 @@ export async function sendUserInviteEmail(email: string, token: string, baseUrl:
         <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; background-color: #ffffff;">
           <img src="${baseUrl}/email-banner.png" alt="MeridianWork" style="width: 100%; max-height: 120px; object-fit: cover; display: block;" />
           <div style="padding: 20px;">
-            <h2 style="color: #333; font-size: 28px; margin: 0 0 16px 0;">Welcome to Meridian - Peak performance at work!</h2>
+            <h2 style="color: #333; font-size: 28px; margin: 0 0 16px 0;">Welcome to MeridianWork - Peak performance at work!</h2>
             <p style="font-size: 18px; line-height: 1.6; color: #333; margin-bottom: 16px;">${greeting}</p>
             <p style="font-size: 18px; line-height: 1.6; color: #333; margin-bottom: 16px;">You've been invited to join the MeridianWork platform.</p>
             <p style="font-size: 18px; line-height: 1.6; color: #333; margin-bottom: 24px;">Click the button below to set up your password and get started:</p>

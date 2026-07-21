@@ -326,7 +326,7 @@ async function sendCategoryEmail(
   if (!resend) return false;
   const greeting = firstName ? `Hi ${firstName},` : "Hi,";
   const ctaUrl = data?.url || "https://meridian.work";
-  const label = CATEGORY_LABEL[category] || "Meridian";
+  const label = CATEGORY_LABEL[category] || "MeridianWork";
   try {
     const { error } = await resend.emails.send({
       from: "MeridianWork <no-reply@meridian.work>",
@@ -339,7 +339,7 @@ async function sendCategoryEmail(
             <h2 style="font-size:24px; margin:0 0 12px;">${escapeHtml(title)}</h2>
             <p style="font-size:16px; line-height:1.5; color:#444; white-space:pre-wrap;">${greeting}\n\n${escapeHtml(body)}</p>
             <p style="margin-top:24px;">
-              <a href="${ctaUrl}" style="display:inline-block; background:#09b5f9; color:#fff !important; padding:12px 22px; border-radius:6px; text-decoration:none; font-weight:600;">Open Meridian</a>
+              <a href="${ctaUrl}" style="display:inline-block; background:#09b5f9; color:#fff !important; padding:12px 22px; border-radius:6px; text-decoration:none; font-weight:600;">Open MeridianWork</a>
             </p>
             <p style="margin-top:32px; color:#999; font-size:12px;">You can change which notifications you get in Profile → Notifications.</p>
           </div>

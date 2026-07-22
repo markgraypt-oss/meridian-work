@@ -17978,10 +17978,33 @@ Keep your response concise, practical, and evidence-based. Do not use em dashes.
     try {
       const validated = insertWorkdayMicroResetSchema.parse(req.body);
       const reset = await storage.createWorkdayMicroReset(validated);
+      // Fire-and-forget: auto-generated captions for micro-reset videos.
+      if (validated.muxPlaybackId) {
+        import('./muxCaptions')
+          .then(m => m.ensureCaptionsForPlaybackId(validated.muxPlaybackId))
+          .catch(() => {});
+      }
       res.status(201).json(reset);
     } catch (error) {
       console.error("Error creating micro-reset:", error);
       res.status(500).json({ message: "Failed to create micro-reset" });
+    }
+  });
+
+  // Admin: one-shot bulk import of the July 2026 micro-reset video batch
+  // (48 items defined in server/microResetSeed.ts). Idempotent — items whose
+  // muxPlaybackId already exists are skipped, so re-running is safe. Finishes
+  // by triggering the paced Mux caption backfill for the new videos.
+  // Also runnable from the Replit shell:
+  //   npx tsx -e "import('./server/microResetSeed').then(m => m.runMicroResetImport()).then(r => { console.log(JSON.stringify(r, null, 2)); process.exit(0); })"
+  app.post('/api/admin/workday/micro-resets/bulk-import', isAuthenticated, requireAdmin, async (_req: any, res) => {
+    try {
+      const { runMicroResetImport } = await import('./microResetSeed');
+      const report = await runMicroResetImport();
+      res.json(report);
+    } catch (error) {
+      console.error("Error running micro-reset bulk import:", error);
+      res.status(500).json({ message: "Failed to run micro-reset bulk import" });
     }
   });
 

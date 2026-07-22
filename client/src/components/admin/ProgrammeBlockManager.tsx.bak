@@ -934,8 +934,8 @@ export function ProgrammeBlockManager({ workoutId, programId, programmeType, onB
                           <div className="w-16">
                             {setIndex === 0 && (block.blockType === 'single' || exerciseIndex === block.exercises.length - 1) && (
                               <Select
-                                value={block.rest && block.rest !== 'No Rest' ? block.rest : ''}
-                                onValueChange={(val) => updateBlockRest(block.id, val)}
+                                value={set.rest || ''}
+                                onValueChange={(val) => updateSetInExercise(block.id, exercise.id, setIndex, 'rest', val)}
                               >
                                 <SelectTrigger className="h-8 text-xs">
                                   <SelectValue placeholder="Rest" />

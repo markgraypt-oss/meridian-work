@@ -151,6 +151,7 @@ async function getInAppPlaybackIds(): Promise<Set<string>> {
     { table: schema.learnContentLibrary, column: schema.learnContentLibrary.muxPlaybackId },
     { table: schema.pathContentItems, column: schema.pathContentItems.muxPlaybackId },
     { table: schema.workouts, column: schema.workouts.muxPlaybackId },
+    { table: schema.workdayMicroResets, column: schema.workdayMicroResets.muxPlaybackId },
   ];
 
   for (const src of sources) {

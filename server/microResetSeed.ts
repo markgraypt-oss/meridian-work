@@ -657,33 +657,42 @@ export interface MicroResetImportReport {
   totalInSeed: number;
   inserted: number;
   skippedExisting: number;
+  skippedByName: Array<string>;
   failed: Array<{ name: string; error: string }>;
   captionRun?: unknown;
 }
 
 /**
- * Idempotent bulk insert: skips any seed item whose muxPlaybackId is already
- * present in workday_micro_resets, appends the rest after the current highest
- * orderIndex, then triggers the (paced, idempotent) Mux caption backfill so
- * the new videos get subtitles.
+ * Idempotent bulk insert: skips any seed item whose muxPlaybackId OR name
+ * (case-insensitive) is already present in workday_micro_resets — so an
+ * environment that already has an older video of the same exercise keeps it
+ * rather than gaining a duplicate. Appends the rest after the current highest
+ * orderIndex, then (unless skipped) triggers the paced Mux caption backfill.
  */
 export async function runMicroResetImport(opts?: { skipCaptions?: boolean }): Promise<MicroResetImportReport> {
   const report: MicroResetImportReport = {
     totalInSeed: MICRO_RESET_SEED.length,
     inserted: 0,
     skippedExisting: 0,
+    skippedByName: [],
     failed: [],
   };
 
   const existing = await db
-    .select({ muxPlaybackId: workdayMicroResets.muxPlaybackId, orderIndex: workdayMicroResets.orderIndex })
+    .select({ muxPlaybackId: workdayMicroResets.muxPlaybackId, name: workdayMicroResets.name, orderIndex: workdayMicroResets.orderIndex })
     .from(workdayMicroResets);
   const existingIds = new Set(existing.map((r) => r.muxPlaybackId).filter(Boolean));
+  const existingNames = new Set(existing.map((r) => (r.name || "").trim().toLowerCase()).filter(Boolean));
   let nextOrder = existing.reduce((max, r) => Math.max(max, r.orderIndex ?? 0), 0) + 1;
 
   for (const item of MICRO_RESET_SEED) {
     if (existingIds.has(item.muxPlaybackId)) {
       report.skippedExisting++;
+      continue;
+    }
+    if (existingNames.has(item.name.trim().toLowerCase())) {
+      report.skippedByName.push(item.name);
+      console.log(`[micro-reset-import] skipped "${item.name}" — same name already exists in this database`);
       continue;
     }
     try {

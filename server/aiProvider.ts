@@ -1073,6 +1073,13 @@ export async function getCoachingContext(feature: string): Promise<string> {
     // admin-editable ai_coaching_settings below layer on top as optional live
     // tuning, so nothing here is lost if an admin also sets a global voice.
     let context = getCoachPersona(feature);
+
+    // Mark's nutrition knowledge, provider-neutral, added only for the
+    // conversational coach surfaces (returns '' for generators / structured
+    // outputs). Distilled from claude/nutrition-course-synthesis.md.
+    const { getCoachNutrition } = await import('./coach/coachNutrition');
+    context += getCoachNutrition(feature);
+
     context += '\nFORMATTING RULE: Never use em dashes or the character in any response. Use commas, full stops, or shorter sentences instead.\n';
 
     if (globalSettings && globalSettings.isActive) {

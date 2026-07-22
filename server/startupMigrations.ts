@@ -1012,3 +1012,61 @@ export async function normalizeRecipeMacrosOnce(): Promise<void> {
   }
 }
 
+
+// ---------------------------------------------------------------------------
+// Content-tag backfill (production fix, Jul 2026).
+//
+// The AI tag backfills earlier this week were run from the Replit WORKSPACE
+// shell, which talks to the DEV database — production's learn_content_library
+// tags / learning_paths struggles were never refreshed with the current
+// vocabulary (incl. the new life-stage labels: menopause, bone health, etc.),
+// so the coach's tag-based education matching in prod runs on stale tags.
+//
+// This runs a FORCE re-tag once per database, then records a persistent flag
+// so it never repeats (force = one AI call per item, ~hundreds — must not run
+// every boot). The flag lives in a tiny system_flags table created here on
+// demand. Fire-and-forget: runs in the background after boot, never blocks
+// serving. Cost is a one-time re-tag of the whole library per environment.
+// ---------------------------------------------------------------------------
+
+let hasRunContentTagBackfill = false;
+const CONTENT_TAG_BACKFILL_FLAG = "content_tag_backfill_lifestage_v1";
+
+export async function backfillContentTagsOnce(): Promise<void> {
+  if (hasRunContentTagBackfill) return;
+  hasRunContentTagBackfill = true;
+
+  try {
+    // Persistent once-per-database marker table (safe on every boot).
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS system_flags (
+        key text PRIMARY KEY,
+        created_at timestamp DEFAULT now()
+      )
+    `);
+
+    const existing = await pool.query(
+      `SELECT 1 FROM system_flags WHERE key = $1 LIMIT 1`,
+      [CONTENT_TAG_BACKFILL_FLAG],
+    );
+    if ((existing.rowCount ?? 0) > 0) return; // already done in this database
+
+    console.log("[startup-migration] content-tag backfill starting (force re-tag, once per database)...");
+    const { runContentTagBackfill } = await import("./coach/contentTagger");
+    const report = await runContentTagBackfill({ force: true });
+    console.log(
+      `[startup-migration] content-tag backfill complete: ${report.itemsTagged} items + ${report.pathsTagged} paths tagged, ${report.itemsFailed + report.pathsFailed} failed`,
+    );
+
+    // Only record the flag if the run didn't wholesale fail, so a transient
+    // outage doesn't permanently skip the backfill.
+    if (report.itemsFailed + report.pathsFailed < report.itemsTagged + report.pathsTagged + 1) {
+      await pool.query(
+        `INSERT INTO system_flags (key) VALUES ($1) ON CONFLICT (key) DO NOTHING`,
+        [CONTENT_TAG_BACKFILL_FLAG],
+      );
+    }
+  } catch (e: any) {
+    console.error("[startup-migration] content-tag backfill failed:", e?.message || e);
+  }
+}

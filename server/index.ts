@@ -4,7 +4,7 @@ import rateLimit, { ipKeyGenerator } from "express-rate-limit";
 import { registerRoutes } from "./routes";
 import { setupVite, serveStatic, log } from "./vite";
 import { video } from "./mux";
-import { runProfileImageMigrationOnce, seedMeditationsOnce, runSchemaSelfHealOnce, seedAiPromptsOnce, repairBodyweightGoalUnitsOnce, normalizeRecipeMacrosOnce, seedBadgesV2Once, retireDroppedDeskBadgesOnce, seedReadinessBadgesOnce, fixHabitTemplateDescriptionsOnce, dedupeCheckInsOnce } from "./startupMigrations";
+import { runProfileImageMigrationOnce, seedMeditationsOnce, runSchemaSelfHealOnce, seedAiPromptsOnce, repairBodyweightGoalUnitsOnce, normalizeRecipeMacrosOnce, seedBadgesV2Once, retireDroppedDeskBadgesOnce, seedReadinessBadgesOnce, fixHabitTemplateDescriptionsOnce, dedupeCheckInsOnce, backfillContentTagsOnce } from "./startupMigrations";
 
 // Process-level safety net. Node 20 kills the entire process on any unhandled
 // promise rejection. This server runs many fire-and-forget background jobs
@@ -183,6 +183,13 @@ app.use((req, res, next) => {
             console.error("[startup-migration] micro-reset seed failed:", e);
           });
         }).catch((e) => console.error("[startup-migration] micro-reset seed import failed:", e));
+        // Content-tag backfill: force re-tag the education library once per
+        // database so production picks up the current vocabulary (the earlier
+        // backfills only reached the dev database). Persistent flag guards it
+        // to a single run per environment. Background, never blocks serving.
+        backfillContentTagsOnce().catch((e) => {
+          console.error("[startup-migration] content-tag backfill failed:", e);
+        });
       });
     import("./aiGeneratorMigration").then(({ runAiGeneratorMigrationOnce }) => {
       runAiGeneratorMigrationOnce().catch((e) => {

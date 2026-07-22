@@ -169,6 +169,20 @@ app.use((req, res, next) => {
         dedupeCheckInsOnce().catch((e) => {
           console.error("[startup-migration] dedupe-check-ins failed:", e);
         });
+        // Micro-reset video batch (Jul 2026): idempotent seed — inserts any of
+        // the 48 items missing from THIS environment's database, skips the
+        // rest. Ensures workspace and deployed databases both end up with the
+        // full set regardless of where the manual import ran. Captions are
+        // skipped here (already requested account-wide on Mux).
+        import("./microResetSeed").then(({ runMicroResetImport }) => {
+          runMicroResetImport({ skipCaptions: true }).then((r) => {
+            if (r.inserted > 0) {
+              console.log(`[startup-migration] micro-reset seed: inserted ${r.inserted} (${r.skippedExisting} already present)`);
+            }
+          }).catch((e) => {
+            console.error("[startup-migration] micro-reset seed failed:", e);
+          });
+        }).catch((e) => console.error("[startup-migration] micro-reset seed import failed:", e));
       });
     import("./aiGeneratorMigration").then(({ runAiGeneratorMigrationOnce }) => {
       runAiGeneratorMigrationOnce().catch((e) => {

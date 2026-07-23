@@ -59,6 +59,11 @@ const SELF_HEAL_DDL: string[] = [
   `ALTER TABLE coach_recommendations ADD COLUMN IF NOT EXISTS route text`,
   `ALTER TABLE coach_recommendations ALTER COLUMN item_id DROP NOT NULL`,
 
+  // Transcript-derived written companion for Mux learn videos (contentWriteups.ts)
+  `ALTER TABLE learn_content_library ADD COLUMN IF NOT EXISTS summary text`,
+  `ALTER TABLE learn_content_library ADD COLUMN IF NOT EXISTS key_takeaways text[]`,
+  `ALTER TABLE learn_content_library ADD COLUMN IF NOT EXISTS transcript text`,
+
   // Wearables: required by burnout score computation
   `CREATE TABLE IF NOT EXISTS wearable_connections (
      id serial PRIMARY KEY,

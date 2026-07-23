@@ -19729,6 +19729,24 @@ Respond as the coach. Be personalised, reference their actual data and specific 
     }
   });
 
+  // Transcript-based written companions (description + summary + key takeaways
+  // + stored transcript) for every Mux-hosted lab video. Body:
+  //   { dryRun?: boolean, force?: boolean }
+  // dryRun=true generates and returns proposals without writing (review first);
+  // force=true regenerates rows already done and overwrites descriptions.
+  app.post('/api/admin/content-writeups/backfill', isAuthenticated, requireAdmin, async (req: any, res) => {
+    try {
+      const dryRun = req.body?.dryRun === true || req.query?.dryRun === 'true';
+      const force = req.body?.force === true || req.query?.force === 'true';
+      const { runWriteupBackfill } = await import('./contentWriteups');
+      const report = await runWriteupBackfill({ dryRun, force });
+      res.json(report);
+    } catch (error) {
+      console.error('Error running content write-up backfill:', error);
+      res.status(500).json({ message: 'Failed to run content write-up backfill' });
+    }
+  });
+
   // ==========================================
   // Proactive Coach Briefings + Memory
   // ==========================================

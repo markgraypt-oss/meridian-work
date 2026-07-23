@@ -1369,6 +1369,10 @@ export const learnContentLibrary = pgTable("learn_content_library", {
   duration: integer("duration"), // seconds (for videos)
   topicId: integer("topic_id").notNull().references(() => learnTopics.id, { onDelete: "cascade" }), // Primary topic for browsing
   tags: text("tags").array(), // Tags for filtering/categorization
+  // Transcript-derived written companion for Mux-hosted videos (contentWriteups.ts):
+  summary: text("summary"), // one-paragraph "what this covers" read
+  keyTakeaways: text("key_takeaways").array(), // 3-6 bullet points to remember
+  transcript: text("transcript"), // cleaned full transcript from Mux captions
   createdAt: timestamp("created_at").defaultNow(),
 });
 

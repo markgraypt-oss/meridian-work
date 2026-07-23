@@ -2360,70 +2360,76 @@ export class DatabaseStorage implements IStorage {
   }
 
   // Deep copy programme workouts, blocks, and exercises to enrollment-specific tables
-  // This creates separate records for ALL weeks in the programme (not just Week 1)
-  // Week 1's schedule is used as the canonical template and replicated for each week.
+  // Creates enrollment snapshot records for ALL weeks in the programme.
+  // Each week resolves its own workouts via WEEK INHERITANCE (see buildAuthoredWorkoutMap /
+  // resolveWorkoutsForWeekDay): a week with nothing authored inherits the nearest earlier
+  // authored week, so a Week-1-only programme repeats Week 1 while a phased programme progresses.
   // Defensive: if a day position is empty in Week 1 but populated in another week,
   // fall back to the earliest week that has workouts at that position so admins
   // who built the programme by spreading workouts across multiple weeks don't end
   // up with silently empty days for their users.
+  // --- Per-week progression support (builder-spec #1) ---------------------
+  // Build a map of authored template workouts by (weekNumber -> dayPosition -> workouts[]).
+  // Only weeks/positions that actually have authored workouts are recorded.
+  private async buildAuthoredWorkoutMap(programId: number): Promise<{ maxWeek: number; authored: Map<number, Map<number, any[]>> }> {
+    const allWeeks = await db.select().from(programWeeks)
+      .where(eq(programWeeks.programId, programId))
+      .orderBy(asc(programWeeks.weekNumber));
+    const authored = new Map<number, Map<number, any[]>>();
+    let maxWeek = 0;
+    for (const w of allWeeks) {
+      if (w.weekNumber > maxWeek) maxWeek = w.weekNumber;
+      const days = await db.select().from(programDays).where(eq(programDays.weekId, w.id));
+      for (const day of days) {
+        const wos = await db.select().from(programmeWorkouts).where(eq(programmeWorkouts.dayId, day.id));
+        if (wos.length > 0) {
+          if (!authored.has(w.weekNumber)) authored.set(w.weekNumber, new Map());
+          authored.get(w.weekNumber)!.set(day.position, wos);
+        }
+      }
+    }
+    return { maxWeek, authored };
+  }
+
+  // Resolve which template workouts apply to a given (week, dayPosition) using WEEK INHERITANCE:
+  //   1. the workouts authored at that exact week/day, else
+  //   2. inherit from the nearest EARLIER authored week at that position, else
+  //   3. fall back to the nearest LATER authored week at that position, else
+  //   4. none (rest day).
+  // This makes a programme authored only in Week 1 behave identically to before (every week
+  // inherits Week 1), while a programme that authors Weeks 1/3/5 progresses in phases.
+  private resolveWorkoutsForWeekDay(authored: Map<number, Map<number, any[]>>, maxWeek: number, targetWeek: number, pos: number): any[] {
+    const at = (wk: number) => authored.get(wk)?.get(pos);
+    const exact = at(targetWeek);
+    if (exact && exact.length) return exact;
+    for (let wk = targetWeek - 1; wk >= 1; wk--) { const v = at(wk); if (v && v.length) return v; }
+    for (let wk = targetWeek + 1; wk <= maxWeek; wk++) { const v = at(wk); if (v && v.length) return v; }
+    return [];
+  }
+
   async copyProgramWorkoutsToEnrollment(enrollmentId: number, programId: number): Promise<void> {
     // Get programme to know total weeks
     const [program] = await db.select().from(programs).where(eq(programs.id, programId));
     if (!program) return;
-    
+
     const totalWeeks = program.weeks || 1;
-    
-    // Get Week 1 schedule template (the only week with actual schedule data)
-    const week1 = await db.select().from(programWeeks)
-      .where(and(eq(programWeeks.programId, programId), eq(programWeeks.weekNumber, 1)))
-      .limit(1);
-    
-    if (week1.length === 0) {
-      console.log(`No Week 1 found for program ${programId}, skipping enrollment snapshot`);
+
+    // Resolve the authored per-week template (with inheritance) once.
+    const { maxWeek, authored } = await this.buildAuthoredWorkoutMap(programId);
+    if (authored.size === 0) {
+      console.log(`No authored workouts found for program ${programId}, skipping enrollment snapshot`);
       return;
     }
-    
-    // Get Week 1's days
-    const week1Days = await db.select().from(programDays).where(eq(programDays.weekId, week1[0].id));
 
-    // Build the canonical per-day-position template, falling back to other weeks
-    // when Week 1 is empty at a given position.
-    const allWeeks = await db.select().from(programWeeks)
-      .where(eq(programWeeks.programId, programId))
-      .orderBy(asc(programWeeks.weekNumber));
+    // Every day position used anywhere in the programme.
+    const positions = new Set<number>();
+    for (const posMap of authored.values()) for (const pos of posMap.keys()) positions.add(pos);
+    const sortedPositions = Array.from(positions).sort((a, b) => a - b);
 
-    type CanonicalDay = { position: number; templateWorkouts: any[] };
-    const canonicalByPosition = new Map<number, CanonicalDay>();
-    for (const day of week1Days) {
-      const wos = await db.select().from(programmeWorkouts).where(eq(programmeWorkouts.dayId, day.id));
-      canonicalByPosition.set(day.position, { position: day.position, templateWorkouts: wos });
-    }
-    // For positions empty in Week 1, scan Weeks 2..N in order and adopt the first that has workouts
-    for (let pos = 0; pos < 7; pos++) {
-      const existing = canonicalByPosition.get(pos);
-      if (existing && existing.templateWorkouts.length > 0) continue;
-      for (const w of allWeeks) {
-        if (w.weekNumber === 1) continue;
-        const dayRows = await db.select().from(programDays)
-          .where(and(eq(programDays.weekId, w.id), eq(programDays.position, pos)))
-          .limit(1);
-        if (dayRows.length === 0) continue;
-        const wos = await db.select().from(programmeWorkouts).where(eq(programmeWorkouts.dayId, dayRows[0].id));
-        if (wos.length > 0) {
-          console.log(`copyProgramWorkoutsToEnrollment: program ${programId} day position ${pos} empty in Week 1, inferring from Week ${w.weekNumber}`);
-          canonicalByPosition.set(pos, { position: pos, templateWorkouts: wos });
-          break;
-        }
-      }
-    }
-
-    // Build the iteration list of (dayPosition, templateWorkouts) once
-    const canonicalDays = Array.from(canonicalByPosition.values()).sort((a, b) => a.position - b.position);
-
-    // Create enrollment workouts for EACH week (1 through totalWeeks)
+    // Snapshot EACH week independently, resolving that week's workouts via inheritance.
     for (let weekNum = 1; weekNum <= totalWeeks; weekNum++) {
-      for (const day of canonicalDays) {
-        const templateWorkouts = day.templateWorkouts;
+      for (const pos of sortedPositions) {
+        const templateWorkouts = this.resolveWorkoutsForWeekDay(authored, maxWeek, weekNum, pos);
 
         for (const templateWorkout of templateWorkouts) {
           // Create enrollment workout copy for this specific week
@@ -2432,8 +2438,8 @@ export class DatabaseStorage implements IStorage {
             .values({
               enrollmentId,
               templateWorkoutId: templateWorkout.id,
-              weekNumber: weekNum, // Use the current week number, not Week 1
-              dayNumber: day.position + 1, // Convert 0-indexed position to 1-indexed day number
+              weekNumber: weekNum, // this specific week
+              dayNumber: pos + 1, // Convert 0-indexed position to 1-indexed day number
               name: templateWorkout.name,
               description: templateWorkout.description,
               workoutType: templateWorkout.workoutType,
@@ -2445,12 +2451,11 @@ export class DatabaseStorage implements IStorage {
               position: templateWorkout.position,
             })
             .returning();
-          
+
           // Get blocks for this workout (using template sharing logic)
           const templateBlocks = await this.getProgrammeWorkoutBlocks(templateWorkout.id);
-          
+
           for (const templateBlock of templateBlocks) {
-            // Create enrollment block copy
             const [enrollmentBlock] = await db
               .insert(enrollmentWorkoutBlocks)
               .values({
@@ -2464,8 +2469,7 @@ export class DatabaseStorage implements IStorage {
                 restAfterRound: templateBlock.restAfterRound,
               })
               .returning();
-            
-            // Copy exercises in this block
+
             for (const templateExercise of (templateBlock.exercises || [])) {
               await db
                 .insert(enrollmentBlockExercises)
@@ -2485,8 +2489,8 @@ export class DatabaseStorage implements IStorage {
         }
       }
     }
-    
-    console.log(`Created enrollment snapshot for ${totalWeeks} weeks of program ${programId}`);
+
+    console.log(`Created per-week enrollment snapshot for ${totalWeeks} weeks of program ${programId}`);
   }
 
   // Backfill existing enrollments that don't have snapshot data
@@ -2595,55 +2599,24 @@ export class DatabaseStorage implements IStorage {
     // Get the programme to know total weeks
     const [program] = await db.select().from(programs).where(eq(programs.id, programId));
     if (!program) return 0;
-    
+
     const totalWeeks = program.weeks || 1;
-    
-    // Count workouts per day position from Week 1 (the canonical template),
-    // falling back to other weeks where Week 1 is empty at a given position.
-    // This must match the inference logic in copyProgramWorkoutsToEnrollment so
-    // the user-visible totalWorkouts and the actual snapshot agree.
-    const week1 = await db.select().from(programWeeks)
-      .where(and(eq(programWeeks.programId, programId), eq(programWeeks.weekNumber, 1)))
-      .limit(1);
 
-    if (week1.length === 0) return 0;
+    // Sum the resolved (inheritance-aware) workout count for each week, so the
+    // user-visible totalWorkouts matches the actual per-week snapshot exactly.
+    const { maxWeek, authored } = await this.buildAuthoredWorkoutMap(programId);
+    if (authored.size === 0) return 0;
 
-    const allWeeks = await db.select().from(programWeeks)
-      .where(eq(programWeeks.programId, programId))
-      .orderBy(asc(programWeeks.weekNumber));
+    const positions = new Set<number>();
+    for (const posMap of authored.values()) for (const pos of posMap.keys()) positions.add(pos);
 
-    const week1Days = await db.select().from(programDays).where(eq(programDays.weekId, week1[0].id));
-    const week1CountByPosition = new Map<number, number>();
-    for (const day of week1Days) {
-      const wos = await db.select({ id: programmeWorkouts.id })
-        .from(programmeWorkouts).where(eq(programmeWorkouts.dayId, day.id));
-      week1CountByPosition.set(day.position, wos.length);
-    }
-
-    let perWeekTotal = 0;
-    for (let pos = 0; pos < 7; pos++) {
-      const fromWeek1 = week1CountByPosition.get(pos) ?? 0;
-      if (fromWeek1 > 0) {
-        perWeekTotal += fromWeek1;
-        continue;
-      }
-      // Fall back to first later week with workouts at this position
-      for (const w of allWeeks) {
-        if (w.weekNumber === 1) continue;
-        const dayRows = await db.select().from(programDays)
-          .where(and(eq(programDays.weekId, w.id), eq(programDays.position, pos)))
-          .limit(1);
-        if (dayRows.length === 0) continue;
-        const wos = await db.select({ id: programmeWorkouts.id })
-          .from(programmeWorkouts).where(eq(programmeWorkouts.dayId, dayRows[0].id));
-        if (wos.length > 0) {
-          perWeekTotal += wos.length;
-          break;
-        }
+    let total = 0;
+    for (let weekNum = 1; weekNum <= totalWeeks; weekNum++) {
+      for (const pos of positions) {
+        total += this.resolveWorkoutsForWeekDay(authored, maxWeek, weekNum, pos).length;
       }
     }
-
-    return perWeekTotal * totalWeeks;
+    return total;
   }
 
   async updateEnrollmentProgress(enrollmentId: number, workoutsCompleted: number): Promise<any> {
@@ -3847,48 +3820,13 @@ export class DatabaseStorage implements IStorage {
 
   // Get today's workout from template tables (legacy fallback)
   private async getTodayWorkoutFromTemplate(activeEnrollment: any, currentWeek: number, dayOfCycle: number, daysElapsed: number): Promise<any> {
-    // Query hierarchical structure: program → week → day → workout → exercises
-    const programWeek = await db
-      .select()
-      .from(programWeeks)
-      .where(
-        and(
-          eq(programWeeks.programId, activeEnrollment.programId),
-          eq(programWeeks.weekNumber, currentWeek)
-        )
-      )
-      .limit(1);
-
-    if (!programWeek || programWeek.length === 0) {
-      console.log(`getTodayWorkout: Week ${currentWeek} not found`);
-      return null;
-    }
-
-    // Get the day within this week
-    const day = await db
-      .select()
-      .from(programDays)
-      .where(
-        and(
-          eq(programDays.weekId, programWeek[0].id),
-          eq(programDays.position, dayOfCycle)
-        )
-      )
-      .limit(1);
-
-    if (!day || day.length === 0) {
-      console.log(`getTodayWorkout: Day ${dayOfCycle} not found in week ${currentWeek}`);
-      return null; // This day doesn't exist (shouldn't happen)
-    }
-
-    // Get workouts scheduled for this day
-    const workouts = await db
-      .select()
-      .from(programmeWorkouts)
-      .where(eq(programmeWorkouts.dayId, day[0].id));
+    // Resolve this (week, day) from the authored template using week inheritance,
+    // so a week with no authored session inherits the nearest earlier authored week.
+    const { maxWeek, authored } = await this.buildAuthoredWorkoutMap(activeEnrollment.programId);
+    const workouts = this.resolveWorkoutsForWeekDay(authored, maxWeek, currentWeek, dayOfCycle);
 
     if (workouts.length === 0) {
-      console.log(`getTodayWorkout: No workout scheduled for week ${currentWeek}, day ${dayOfCycle} (rest day)`);
+      console.log(`getTodayWorkout: No workout resolved for week ${currentWeek}, day ${dayOfCycle} (rest day)`);
       return {
         enrollmentId: activeEnrollment.id,
         programId: activeEnrollment.programId,
@@ -3900,7 +3838,7 @@ export class DatabaseStorage implements IStorage {
       };
     }
 
-    // Get exercises for this workout (now using block-based structure)
+    // Get exercises for this workout (block-based structure)
     const workout = workouts[0];
     const exercises = await this.getWorkoutExercises(workout.id);
 
@@ -3922,7 +3860,7 @@ export class DatabaseStorage implements IStorage {
       })),
       daysElapsed,
     };
-    
+
     console.log(`getTodayWorkout: Returning workout "${workout.name}" with ${exercises.length} exercises for ${program?.title}`);
     return result;
   }

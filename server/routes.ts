@@ -7381,20 +7381,34 @@ Rules:
           imageUrl: e.imageUrl || (e.muxPlaybackId ? `https://image.mux.com/${e.muxPlaybackId}/thumbnail.png?width=200` : null),
         }));
 
-      // Get Week 1 workouts only - these define the template used for enrollment snapshots
-      // This ensures exercise instance IDs match between substitution mappings and enrolled exercises
+      // Gather the authored template workouts across all weeks (see below). Exercise
+      // instance IDs are the template block-exercise IDs the enrolment snapshot references.
       const weeks = await db.select().from(programWeeks).where(eq(programWeeks.programId, program.id)).orderBy(asc(programWeeks.weekNumber));
       if (weeks.length === 0) {
         return res.json({ flaggedExercises: [], substituteOptions: [], enrollmentId: targetEnrollment.id });
       }
-      const week1 = weeks[0];
-      const week1Days = await db.select().from(programDays).where(eq(programDays.weekId, week1.id)).orderBy(asc(programDays.position));
-      
+      // Per-week progression: scan the DISTINCT authored workouts across ALL weeks
+      // (deduped by workout id), not just Week 1, so an exercise that only appears in a
+      // later phase is still flagged. Inherited weeks reuse the same template workout ids,
+      // so dedup keeps the set to the authored templates. (Variable kept as week1Workouts
+      // to preserve downstream logic; it now holds all distinct authored workouts.)
+      const weekNumberByWeekId = new Map(weeks.map(w => [w.id, w.weekNumber] as const));
+      const allDaysForScan = await db.select().from(programDays)
+        .where(inArray(programDays.weekId, weeks.map(w => w.id)));
+      const sortedScanDays = allDaysForScan.slice().sort((a, b) => {
+        const wa = weekNumberByWeekId.get(a.weekId) || 0;
+        const wb = weekNumberByWeekId.get(b.weekId) || 0;
+        return wa - wb || (a.position - b.position);
+      });
       const week1Workouts: any[] = [];
-      for (const day of week1Days) {
+      const seenScanWorkoutIds = new Set<number>();
+      for (const day of sortedScanDays) {
+        const wn = weekNumberByWeekId.get(day.weekId) || 1;
         const dayWorkouts = await db.select().from(programmeWorkouts).where(eq(programmeWorkouts.dayId, day.id));
         for (const w of dayWorkouts) {
-          week1Workouts.push({ ...w, weekNumber: week1.weekNumber, dayNumber: day.position + 1 });
+          if (seenScanWorkoutIds.has(w.id)) continue;
+          seenScanWorkoutIds.add(w.id);
+          week1Workouts.push({ ...w, weekNumber: wn, dayNumber: day.position + 1 });
         }
       }
 
@@ -7629,20 +7643,34 @@ Rules:
         return false;
       });
 
-      // Get Week 1 workouts only - these define the template used for enrollment snapshots
-      // This ensures exercise instance IDs match between substitution mappings and enrolled exercises
+      // Gather the authored template workouts across all weeks (see below). Exercise
+      // instance IDs are the template block-exercise IDs the enrolment snapshot references.
       const weeks = await db.select().from(programWeeks).where(eq(programWeeks.programId, program.id)).orderBy(asc(programWeeks.weekNumber));
       if (weeks.length === 0) {
         return res.json({ success: true, substitutionsApplied: 0, substitutionsFailed: 0 });
       }
-      const week1 = weeks[0];
-      const week1Days = await db.select().from(programDays).where(eq(programDays.weekId, week1.id)).orderBy(asc(programDays.position));
-      
+      // Per-week progression: scan the DISTINCT authored workouts across ALL weeks
+      // (deduped by workout id), not just Week 1, so an exercise that only appears in a
+      // later phase is still flagged. Inherited weeks reuse the same template workout ids,
+      // so dedup keeps the set to the authored templates. (Variable kept as week1Workouts
+      // to preserve downstream logic; it now holds all distinct authored workouts.)
+      const weekNumberByWeekId = new Map(weeks.map(w => [w.id, w.weekNumber] as const));
+      const allDaysForScan = await db.select().from(programDays)
+        .where(inArray(programDays.weekId, weeks.map(w => w.id)));
+      const sortedScanDays = allDaysForScan.slice().sort((a, b) => {
+        const wa = weekNumberByWeekId.get(a.weekId) || 0;
+        const wb = weekNumberByWeekId.get(b.weekId) || 0;
+        return wa - wb || (a.position - b.position);
+      });
       const week1Workouts: any[] = [];
-      for (const day of week1Days) {
+      const seenScanWorkoutIds = new Set<number>();
+      for (const day of sortedScanDays) {
+        const wn = weekNumberByWeekId.get(day.weekId) || 1;
         const dayWorkouts = await db.select().from(programmeWorkouts).where(eq(programmeWorkouts.dayId, day.id));
         for (const w of dayWorkouts) {
-          week1Workouts.push({ ...w, weekNumber: week1.weekNumber, dayNumber: day.position + 1 });
+          if (seenScanWorkoutIds.has(w.id)) continue;
+          seenScanWorkoutIds.add(w.id);
+          week1Workouts.push({ ...w, weekNumber: wn, dayNumber: day.position + 1 });
         }
       }
 
@@ -9782,12 +9810,7 @@ Rules:
       if (!weekNumber || dayPosition === undefined || !name) {
         return res.status(400).json({ message: "weekNumber, dayPosition, and name are required" });
       }
-      // Enforce: workouts may only live on Week 1 (the canonical schedule).
-      if (parseInt(weekNumber) !== 1) {
-        return res.status(400).json({
-          message: "Workouts can only be added to Week 1. Week 1 is the canonical schedule that repeats for every week."
-        });
-      }
+      // Per-week progression (builder-spec #1): workouts may be authored on any week.
       const resolvedWorkoutType = workoutType || 'regular';
       const isRoundsType = resolvedWorkoutType === 'interval' || resolvedWorkoutType === 'circuit';
       const resolvedIntervalRounds = isRoundsType
@@ -11601,72 +11624,9 @@ Rules:
     try {
       const programId = parseInt(req.params.programId);
 
-      // Auto-heal: enforce the "Week 1 is canonical" rule. Any workout sitting
-      // on Week 2+ is invisible to enrolled users (snapshot reads Week 1 only),
-      // so rehome it to the matching Week 1 day. If Week 1 already has the same
-      // workout name on the same position, the orphan is deleted instead of
-      // duplicating. Idempotent: if everything is already on Week 1, it does
-      // nothing. Runs on every schedule read so the data stays correct.
-      try {
-        const allWeeksForHeal = await db
-          .select()
-          .from(programWeeks)
-          .where(eq(programWeeks.programId, programId))
-          .orderBy(asc(programWeeks.weekNumber));
-        let week1ForHeal = allWeeksForHeal.find(w => w.weekNumber === 1);
-        if (!week1ForHeal) {
-          [week1ForHeal] = await db.insert(programWeeks)
-            .values({ programId, weekNumber: 1 }).returning();
-        }
-        for (const w of allWeeksForHeal) {
-          if (w.weekNumber === 1) continue;
-          const daysOnWeek = await db.select().from(programDays).where(eq(programDays.weekId, w.id));
-          for (const day of daysOnWeek) {
-            const orphans = await db.select()
-              .from(programmeWorkouts)
-              .where(eq(programmeWorkouts.dayId, day.id));
-            if (orphans.length === 0) continue;
-            // Find or create matching Week 1 day at this position
-            let week1Day = (await db.select().from(programDays)
-              .where(and(eq(programDays.weekId, week1ForHeal.id), eq(programDays.position, day.position)))
-              .limit(1))[0];
-            if (!week1Day) {
-              [week1Day] = await db.insert(programDays)
-                .values({ weekId: week1ForHeal.id, position: day.position }).returning();
-            }
-            const week1Existing = await db.select()
-              .from(programmeWorkouts)
-              .where(eq(programmeWorkouts.dayId, week1Day.id));
-            const week1NameSet = new Set(week1Existing.map(w => w.name));
-            for (const orphan of orphans) {
-              if (week1NameSet.has(orphan.name)) {
-                // Already exists on Week 1; delete the orphan and its children
-                const orphanBlocks = await db.select({ id: programmeWorkoutBlocks.id })
-                  .from(programmeWorkoutBlocks)
-                  .where(eq(programmeWorkoutBlocks.workoutId, orphan.id));
-                for (const ob of orphanBlocks) {
-                  await db.delete(programmeBlockExercises)
-                    .where(eq(programmeBlockExercises.blockId, ob.id));
-                }
-                await db.delete(programmeWorkoutBlocks)
-                  .where(eq(programmeWorkoutBlocks.workoutId, orphan.id));
-                await db.delete(programmeWorkouts)
-                  .where(eq(programmeWorkouts.id, orphan.id));
-                console.log(`schedule auto-heal: deleted duplicate orphan workout id=${orphan.id} name="${orphan.name}" (already on Week 1 day pos=${day.position})`);
-              } else {
-                // Move the orphan to Week 1
-                await db.update(programmeWorkouts)
-                  .set({ dayId: week1Day.id, updatedAt: new Date() })
-                  .where(eq(programmeWorkouts.id, orphan.id));
-                week1NameSet.add(orphan.name);
-                console.log(`schedule auto-heal: moved orphan workout id=${orphan.id} name="${orphan.name}" from Week ${w.weekNumber} to Week 1 (day pos=${day.position})`);
-              }
-            }
-          }
-        }
-      } catch (healErr) {
-        console.error('schedule auto-heal failed (non-fatal):', healErr);
-      }
+      // Per-week progression (builder-spec #1): weeks are allowed to diverge, so
+      // workouts on Week 2+ are legitimate and must NOT be rehomed to Week 1.
+      // The previous "Week 1 is canonical" auto-heal has been removed.
 
       // Get all weeks for this programme
       const weeks = await db

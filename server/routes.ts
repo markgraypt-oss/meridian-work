@@ -206,7 +206,7 @@ import multer from "multer";
 import path from "path";
 import fs from "fs";
 import { randomUUID } from "crypto";
-import { ObjectStorageService, ObjectNotFoundError, objectStorageClient, getObjectAclPolicy } from "./replit_integrations/object_storage";
+import { ObjectStorageService, ObjectNotFoundError, objectStorageClient, getObjectAclPolicy, setObjectAclPolicy } from "./replit_integrations/object_storage";
 
 /**
  * Upload an image buffer to Replit Object Storage and return a public
@@ -230,14 +230,15 @@ async function uploadProfileImageBufferToStorage(
   const file = objectStorageClient.bucket(bucketName).file(objectName);
   await file.save(buffer, {
     contentType,
-    metadata: {
-      contentType,
-      metadata: {
-        'custom:aclPolicy': JSON.stringify({ owner: 'system', visibility: 'public' }),
-      },
-    },
+    metadata: { contentType },
     resumable: false,
   });
+  // Mark the object public via the same mechanism getObjectAclPolicy reads back
+  // (file.setMetadata under metadata['custom:aclPolicy']). Setting the ACL
+  // inline inside file.save() did not reliably persist, which left profile
+  // images gated behind auth: they loaded on web (session cookie) but came
+  // back 401/blank in the mobile app, whose <Image> sends no auth header.
+  await setObjectAclPolicy(file, { owner: 'system', visibility: 'public' });
   return `/objects/${entityId}`;
 }
 

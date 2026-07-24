@@ -12176,7 +12176,17 @@ export class DatabaseStorage implements IStorage {
     const totalEnrollments = Number(enrollmentCount?.count || 0);
     const completedProgs = Number(completedProgCount?.count || 0);
     stats.programme_completion_rate = totalEnrollments > 0 ? (completedProgs / totalEnrollments) * 100 : 0;
-    stats.programme_perfect_record = (totalEnrollments >= 3 && stats.programme_completion_rate >= 100) ? 1 : 0;
+
+    // Perfect Record = completed 3+ programmes AND never quit one.
+    // IMPORTANT: quitting a programme DELETES its enrollment row (see
+    // unenrollFromProgram), so an abandoned programme silently vanishes from
+    // the counts above — completion_rate would read 100% even after a quit.
+    // The quit IS permanently recorded as an 'abandoned' recommendation event,
+    // so count those: any abandonment disqualifies the badge.
+    const [abandonedProgCount] = await db.select({ count: sql<number>`count(*)` }).from(recommendationEvents)
+      .where(and(eq(recommendationEvents.userId, userId), eq(recommendationEvents.eventType, 'abandoned')));
+    const abandonedProgs = Number(abandonedProgCount?.count || 0);
+    stats.programme_perfect_record = (completedProgs >= 3 && abandonedProgs === 0) ? 1 : 0;
 
     // ---- LEARNING ----
     const [videosWatched] = await db.select({ count: sql<number>`count(*)` }).from(userContentProgress)

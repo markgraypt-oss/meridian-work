@@ -1075,3 +1075,60 @@ export async function backfillContentTagsOnce(): Promise<void> {
     console.error("[startup-migration] content-tag backfill failed:", e?.message || e);
   }
 }
+
+// ---------------------------------------------------------------------------
+// Corrective revoke: "Perfect Record" badge wrongly awarded (Jul 2026).
+//
+// Perfect Record = complete every programme you enrolled in (min 3). The award
+// check used completion_rate = completed / current-enrollments, but quitting a
+// programme DELETES its enrollment (unenrollFromProgram) — so a quit programme
+// vanished from the denominator and the rate falsely hit 100%. The metric is
+// now fixed (getUserBadgeStats counts 'abandoned' recommendation events), but
+// awardBadge is award-once and never revokes, so already-granted wrong badges
+// must be removed. This deletes Perfect Record from any user who doesn't truly
+// qualify: fewer than 3 completed programmes, OR any abandoned event. Runs once
+// per database (system_flags guard); the DELETE itself is idempotent anyway.
+// ---------------------------------------------------------------------------
+
+let hasRunRevokePerfectRecord = false;
+const REVOKE_PERFECT_RECORD_FLAG = "revoke_invalid_perfect_record_v1";
+
+export async function revokeInvalidPerfectRecordOnce(): Promise<void> {
+  if (hasRunRevokePerfectRecord) return;
+  hasRunRevokePerfectRecord = true;
+
+  try {
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS system_flags (
+        key text PRIMARY KEY,
+        created_at timestamp DEFAULT now()
+      )
+    `);
+    const existing = await pool.query(
+      `SELECT 1 FROM system_flags WHERE key = $1 LIMIT 1`,
+      [REVOKE_PERFECT_RECORD_FLAG],
+    );
+    if ((existing.rowCount ?? 0) > 0) return;
+
+    const result = await pool.query(`
+      DELETE FROM user_badges ub
+      USING badges b
+      WHERE ub.badge_id = b.id
+        AND b.name = 'Perfect Record'
+        AND (
+          (SELECT COUNT(*) FROM user_program_enrollments e
+             WHERE e.user_id = ub.user_id AND e.status = 'completed') < 3
+          OR EXISTS (SELECT 1 FROM recommendation_events re
+             WHERE re.user_id = ub.user_id AND re.event_type = 'abandoned')
+        )
+    `);
+    console.log(`[startup-migration] revoke invalid Perfect Record: removed ${result.rowCount} wrongful badge(s)`);
+
+    await pool.query(
+      `INSERT INTO system_flags (key) VALUES ($1) ON CONFLICT (key) DO NOTHING`,
+      [REVOKE_PERFECT_RECORD_FLAG],
+    );
+  } catch (e: any) {
+    console.error("[startup-migration] revoke invalid Perfect Record failed:", e?.message || e);
+  }
+}

@@ -4,7 +4,7 @@ import rateLimit, { ipKeyGenerator } from "express-rate-limit";
 import { registerRoutes } from "./routes";
 import { setupVite, serveStatic, log } from "./vite";
 import { video } from "./mux";
-import { runProfileImageMigrationOnce, seedMeditationsOnce, runSchemaSelfHealOnce, seedAiPromptsOnce, repairBodyweightGoalUnitsOnce, normalizeRecipeMacrosOnce, seedBadgesV2Once, retireDroppedDeskBadgesOnce, seedReadinessBadgesOnce, fixHabitTemplateDescriptionsOnce, dedupeCheckInsOnce, backfillContentTagsOnce } from "./startupMigrations";
+import { runProfileImageMigrationOnce, seedMeditationsOnce, runSchemaSelfHealOnce, seedAiPromptsOnce, repairBodyweightGoalUnitsOnce, normalizeRecipeMacrosOnce, seedBadgesV2Once, retireDroppedDeskBadgesOnce, seedReadinessBadgesOnce, fixHabitTemplateDescriptionsOnce, dedupeCheckInsOnce, backfillContentTagsOnce, revokeInvalidPerfectRecordOnce } from "./startupMigrations";
 
 // Process-level safety net. Node 20 kills the entire process on any unhandled
 // promise rejection. This server runs many fire-and-forget background jobs
@@ -189,6 +189,11 @@ app.use((req, res, next) => {
         // to a single run per environment. Background, never blocks serving.
         backfillContentTagsOnce().catch((e) => {
           console.error("[startup-migration] content-tag backfill failed:", e);
+        });
+        // Corrective: remove "Perfect Record" badges awarded before the
+        // quit-a-programme loophole was fixed. Once per database, idempotent.
+        revokeInvalidPerfectRecordOnce().catch((e) => {
+          console.error("[startup-migration] revoke Perfect Record failed:", e);
         });
       });
     import("./aiGeneratorMigration").then(({ runAiGeneratorMigrationOnce }) => {

@@ -11454,11 +11454,31 @@ Rules:
   app.get('/api/programs/:programId/workout-templates', async (req, res) => {
     try {
       const programId = parseInt(req.params.programId);
-      const templates = await storage.getProgrammeWorkoutTemplates(programId);
+      const weekParam = req.query.week ? parseInt(req.query.week as string) : undefined;
+      const templates = await storage.getProgrammeWorkoutTemplates(programId, weekParam);
       res.json(templates);
     } catch (error) {
       console.error("Error fetching workout templates:", error);
       res.status(500).json({ message: "Failed to fetch workout templates" });
+    }
+  });
+
+  // Per-week progression (builder-spec #1): "Customise Week N" — fork the content this
+  // week inherits into real rows on this week so it can be edited independently.
+  app.post('/api/programs/:programId/weeks/:weekNumber/customise', isAuthenticated, async (req: any, res) => {
+    try {
+      const programId = parseInt(req.params.programId);
+      const weekNumber = parseInt(req.params.weekNumber);
+      const authz = await canEditProgramme(programId, req.user.claims.sub);
+      if (!authz.ok) return res.status(authz.status!).json({ message: authz.message });
+      if (!weekNumber || weekNumber < 1) {
+        return res.status(400).json({ message: "Valid week number is required" });
+      }
+      const result = await storage.forkWeekFromInherited(programId, weekNumber);
+      res.json(result);
+    } catch (error) {
+      console.error("Error customising week:", error);
+      res.status(500).json({ message: "Failed to customise week" });
     }
   });
 
@@ -11468,7 +11488,7 @@ Rules:
       const programId = parseInt(req.params.programId);
       const authz = await canEditProgramme(programId, req.user.claims.sub);
       if (!authz.ok) return res.status(authz.status!).json({ message: authz.message });
-      const { name, description, workoutType, category, difficulty, duration, intervalRounds, intervalRestAfterRound, imageUrl, blocks, enrollmentId, targetDayPosition } = req.body;
+      const { name, description, workoutType, category, difficulty, duration, intervalRounds, intervalRestAfterRound, imageUrl, blocks, enrollmentId, targetDayPosition, weekNumber } = req.body;
       
       if (!name || name.trim() === '') {
         return res.status(400).json({ message: "Workout name is required" });
@@ -11484,6 +11504,7 @@ Rules:
         intervalRounds: intervalRounds || 4,
         intervalRestAfterRound: intervalRestAfterRound || '60 sec',
         targetDayPosition: targetDayPosition != null ? parseInt(targetDayPosition) : undefined,
+        weekNumber: weekNumber != null ? parseInt(weekNumber) : undefined,
       });
 
       // Track created template blocks/exercises so we can copy to enrollment
@@ -11719,41 +11740,9 @@ Rules:
           .where(inArray(programmeWorkouts.dayId, allDayIds));
       }
 
-      // Compute Week 1 gaps: positions where Week 1 has no workouts
-      // but other weeks do. The Weekly Schedule editor only shows Week 1
-      // (which drives every enrolled user's schedule), so any "ghost"
-      // workouts living on later weeks are invisible to users until an
-      // admin syncs them back. Surface them so the editor can warn.
-      const week1 = schedule.find(w => w.weekNumber === 1);
-      const weekOneGaps: Array<{
-        dayPosition: number;
-        week1DayId: number;
-        sourceWeekNumber: number;
-        workouts: Array<{ id: number; name: string; sourceDayId: number }>;
-      }> = [];
-      if (week1) {
-        for (const day of week1.days) {
-          if (day.workouts.length > 0) continue;
-          // Find the first later week that has workouts at this position
-          for (const w of schedule) {
-            if (w.weekNumber === 1) continue;
-            const otherDay = w.days.find((d: any) => d.position === day.position);
-            if (otherDay && otherDay.workouts.length > 0) {
-              weekOneGaps.push({
-                dayPosition: day.position,
-                week1DayId: day.dayId,
-                sourceWeekNumber: w.weekNumber,
-                workouts: otherDay.workouts.map((wo: any) => ({
-                  id: wo.id, name: wo.name, sourceDayId: otherDay.dayId,
-                })),
-              });
-              break;
-            }
-          }
-        }
-      }
-
-      res.json({ schedule, workouts: allWorkouts, weekOneGaps });
+      // Per-week progression (builder-spec #1): weeks may legitimately diverge, so the
+      // old "Week 1 gaps" warning no longer applies. Return an empty list for compatibility.
+      res.json({ schedule, workouts: allWorkouts, weekOneGaps: [] });
     } catch (error) {
       console.error("Error fetching programme schedule:", error);
       res.status(500).json({ message: "Failed to fetch programme schedule" });

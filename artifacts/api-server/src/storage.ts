@@ -7055,31 +7055,34 @@ export class DatabaseStorage implements IStorage {
     duration?: number;
     intervalRounds?: number;
     intervalRestAfterRound?: string;
-    targetDayPosition?: number; // day position to place the workout (same as original)
+    targetDayPosition?: number; // day position to place the workout
+    weekNumber?: number; // per-week progression (builder-spec #1): author on any week
   }): Promise<any> {
-    // Ensure Week 1 exists
-    let [week1] = await db
+    const targetWeekNumber = workout.weekNumber && workout.weekNumber > 0 ? workout.weekNumber : 1;
+
+    // Ensure the target week exists
+    let [week] = await db
       .select()
       .from(programWeeks)
-      .where(and(eq(programWeeks.programId, programId), eq(programWeeks.weekNumber, 1)))
+      .where(and(eq(programWeeks.programId, programId), eq(programWeeks.weekNumber, targetWeekNumber)))
       .limit(1);
 
-    if (!week1) {
-      [week1] = await db
+    if (!week) {
+      [week] = await db
         .insert(programWeeks)
-        .values({ programId, weekNumber: 1 })
+        .values({ programId, weekNumber: targetWeekNumber })
         .returning();
     }
 
-    // Use the provided targetDayPosition, or fall back to the first occupied day in Week 1
+    // Use the provided targetDayPosition, or fall back to the first occupied day in this week
     let targetDayPos = workout.targetDayPosition ?? null;
     if (targetDayPos === null) {
-      const week1Days = await db
+      const weekDaysExisting = await db
         .select({ id: programDays.id, position: programDays.position })
         .from(programDays)
-        .where(eq(programDays.weekId, week1.id))
+        .where(eq(programDays.weekId, week.id))
         .orderBy(asc(programDays.position));
-      for (const d of week1Days) {
+      for (const d of weekDaysExisting) {
         const wos = await db.select({ id: programmeWorkouts.id })
           .from(programmeWorkouts).where(eq(programmeWorkouts.dayId, d.id));
         if (wos.length > 0) { targetDayPos = d.position; break; }
@@ -7090,7 +7093,6 @@ export class DatabaseStorage implements IStorage {
     let firstCreated: any = null;
 
     {
-      const week = week1;
       // Find the day at targetDayPos in this week
       const weekDays = await db
         .select({ id: programDays.id, position: programDays.position })
@@ -7100,14 +7102,12 @@ export class DatabaseStorage implements IStorage {
 
       let targetDay = weekDays.find(d => d.position === targetDayPos);
       if (!targetDay) {
-        // Create day at this position if missing
         const [newDay] = await db.insert(programDays)
           .values({ weekId: week.id, position: targetDayPos! })
           .returning();
         targetDay = newDay;
       }
 
-      // Find max position among existing workouts on this day to avoid conflicts
       const existingOnDay = await db.select({ position: programmeWorkouts.position })
         .from(programmeWorkouts).where(eq(programmeWorkouts.dayId, targetDay.id));
       const nextPos = existingOnDay.length > 0
@@ -7130,12 +7130,12 @@ export class DatabaseStorage implements IStorage {
         })
         .returning();
 
-      if (!firstCreated) firstCreated = { ...created, dayId: targetDay.id, dayPosition: targetDay.position };
+      firstCreated = { ...created, dayId: targetDay.id, dayPosition: targetDay.position };
     }
 
     // Update the programme's trainingDaysPerWeek
     await this.updateProgrammeTrainingDays(programId);
-    
+
     return firstCreated;
   }
 
@@ -7216,13 +7216,117 @@ export class DatabaseStorage implements IStorage {
   }
 
   // Get workout templates grouped by name for a programme
-  async getProgrammeWorkoutTemplates(programId: number): Promise<any[]> {
+  // Per-week progression (builder-spec #1): "Customise Week N".
+  // Materialise the content this week would INHERIT (via the same nearest-earlier
+  // inheritance used at enrolment) into real rows on this week, so the admin can
+  // then edit it independently. No-op if the week already has authored workouts.
+  async forkWeekFromInherited(programId: number, weekNumber: number): Promise<{ forked: boolean; copied?: number; reason?: string }> {
+    if (!weekNumber || weekNumber < 1) return { forked: false, reason: 'invalid-week' };
+    const { maxWeek, authored } = await this.buildAuthoredWorkoutMap(programId);
+    if (authored.has(weekNumber)) {
+      return { forked: false, reason: 'already-authored' };
+    }
+
+    // Every day position used anywhere in the programme.
+    const positions = new Set<number>();
+    for (const posMap of authored.values()) for (const pos of posMap.keys()) positions.add(pos);
+    if (positions.size === 0) return { forked: false, reason: 'nothing-to-inherit' };
+
+    // Ensure the week row exists.
+    let [wk] = await db
+      .select()
+      .from(programWeeks)
+      .where(and(eq(programWeeks.programId, programId), eq(programWeeks.weekNumber, weekNumber)))
+      .limit(1);
+    if (!wk) {
+      [wk] = await db.insert(programWeeks).values({ programId, weekNumber }).returning();
+    }
+
+    let copied = 0;
+    for (const pos of Array.from(positions).sort((a, b) => a - b)) {
+      const src = this.resolveWorkoutsForWeekDay(authored, maxWeek, weekNumber, pos);
+      if (!src.length) continue;
+
+      // Ensure the day exists at this position for the target week.
+      let [day] = await db
+        .select({ id: programDays.id, position: programDays.position })
+        .from(programDays)
+        .where(and(eq(programDays.weekId, wk.id), eq(programDays.position, pos)))
+        .limit(1);
+      if (!day) {
+        [day] = await db.insert(programDays).values({ weekId: wk.id, position: pos }).returning();
+      }
+
+      for (let i = 0; i < src.length; i++) {
+        const t: any = src[i];
+        const [w] = await db.insert(programmeWorkouts).values({
+          dayId: day.id,
+          name: t.name,
+          description: t.description ?? null,
+          workoutType: t.workoutType || 'regular',
+          category: t.category || 'strength',
+          difficulty: t.difficulty || 'beginner',
+          duration: t.duration || 30,
+          intervalRounds: t.intervalRounds ?? null,
+          intervalRestAfterRound: t.intervalRestAfterRound ?? '60 sec',
+          imageUrl: t.imageUrl ?? null,
+          position: t.position ?? i,
+        }).returning();
+
+        const blocks = await db
+          .select()
+          .from(programmeWorkoutBlocks)
+          .where(eq(programmeWorkoutBlocks.workoutId, t.id))
+          .orderBy(asc(programmeWorkoutBlocks.position));
+        for (const b of blocks) {
+          const [nb] = await db.insert(programmeWorkoutBlocks).values({
+            workoutId: w.id,
+            section: b.section,
+            blockType: b.blockType,
+            position: b.position,
+            rest: b.rest ?? null,
+            rounds: b.rounds ?? null,
+            restAfterRound: b.restAfterRound ?? null,
+          }).returning();
+
+          const exs = await db
+            .select()
+            .from(programmeBlockExercises)
+            .where(eq(programmeBlockExercises.blockId, b.id))
+            .orderBy(asc(programmeBlockExercises.position));
+          for (const ex of exs) {
+            await db.insert(programmeBlockExercises).values({
+              blockId: nb.id,
+              exerciseLibraryId: ex.exerciseLibraryId ?? null,
+              position: ex.position,
+              sets: ex.sets,
+              durationType: ex.durationType ?? null,
+              tempo: ex.tempo ?? null,
+              load: ex.load ?? null,
+              notes: ex.notes ?? null,
+            });
+          }
+        }
+        copied++;
+      }
+    }
+
+    await this.updateProgrammeTrainingDays(programId);
+    return { forked: true, copied };
+  }
+
+  async getProgrammeWorkoutTemplates(programId: number, weekNumber?: number): Promise<any[]> {
     const allWorkouts = await this.getProgrammeWorkouts(programId);
+    // Per-week progression (builder-spec #1): when a week is given, scope templates to
+    // that week's authored workouts so each week can be edited independently.
+    const scopedWorkouts = (weekNumber && weekNumber > 0)
+      ? allWorkouts.filter((w: any) => w.weekNumber === weekNumber)
+      : allWorkouts;
     
     // Group by name
     const templateMap = new Map<string, any>();
     
-    for (const workout of allWorkouts) {
+    for (const workout of scopedWorkouts) {
       if (!templateMap.has(workout.name)) {
         templateMap.set(workout.name, {
           name: workout.name,

@@ -57,6 +57,7 @@ export default function EditProgrammePage() {
   const queryClient = useQueryClient();
   const [uploadingImage, setUploadingImage] = useState(false);
   const [activeTab, setActiveTab] = useState("details");
+  const [selectedWeek, setSelectedWeek] = useState(1);
   const { markDirty, markClean, handleNavigation, UnsavedChangesDialog } = useUnsavedChanges();
 
   // Get programmeType from query params
@@ -258,6 +259,15 @@ export default function EditProgrammePage() {
             <TabsTrigger value="exercises">Workouts</TabsTrigger>
             <TabsTrigger value="schedule">Schedule</TabsTrigger>
           </TabsList>
+
+          {(activeTab === 'exercises' || activeTab === 'schedule') && (
+            <WeekSelectorBar
+              programId={program.id}
+              totalWeeks={program.weeks}
+              selectedWeek={selectedWeek}
+              onChange={setSelectedWeek}
+            />
+          )}
 
           <TabsContent value="details">
             <Form {...form}>
@@ -530,6 +540,7 @@ export default function EditProgrammePage() {
             <ProgrammeExerciseManager 
               programId={program.id} 
               totalWeeks={program.weeks}
+              selectedWeek={selectedWeek}
               programmeType={programmeType}
               onDirtyStateChange={(isDirty) => {
                 if (isDirty) {
@@ -545,10 +556,63 @@ export default function EditProgrammePage() {
             <WorkoutScheduleEditor 
               programId={program.id} 
               totalWeeks={program.weeks}
+              selectedWeek={selectedWeek}
             />
           </TabsContent>
         </Tabs>
       </div>
+    </div>
+  );
+}
+
+
+function WeekSelectorBar({ programId, totalWeeks, selectedWeek, onChange }: { programId: number; totalWeeks: number; selectedWeek: number; onChange: (w: number) => void; }) {
+  const { data } = useQuery<{ schedule: Array<{ weekNumber: number; days: Array<{ workouts: any[] }> }> }>({
+    queryKey: ['/api/programs', programId, 'schedule'],
+    queryFn: async () => {
+      const res = await fetch(`/api/programs/${programId}/schedule`);
+      if (!res.ok) throw new Error('Failed to fetch schedule');
+      return res.json();
+    },
+    enabled: programId > 0,
+  });
+  const authored = new Set<number>();
+  (data?.schedule || []).forEach((w) => {
+    if (w.days?.some((d) => (d.workouts?.length || 0) > 0)) authored.add(w.weekNumber);
+  });
+  const inheritSource = (wk: number): number | null => {
+    if (authored.has(wk)) return null;
+    for (let k = wk - 1; k >= 1; k--) if (authored.has(k)) return k;
+    for (let k = wk + 1; k <= totalWeeks; k++) if (authored.has(k)) return k;
+    return null;
+  };
+  const weeks = Array.from({ length: Math.max(1, totalWeeks || 1) }, (_, i) => i + 1);
+  const statusFor = (wk: number): string => {
+    if (authored.has(wk)) return 'Custom';
+    const s = inheritSource(wk);
+    return s ? `Follows Wk ${s}` : 'Empty';
+  };
+  const currentSource = inheritSource(selectedWeek);
+  return (
+    <div className="mb-6 flex flex-wrap items-center gap-3 rounded-lg border border-border bg-card/50 p-3">
+      <label className="text-sm font-medium text-foreground whitespace-nowrap">Editing week</label>
+      <Select value={selectedWeek.toString()} onValueChange={(v) => onChange(parseInt(v))}>
+        <SelectTrigger className="w-48" data-testid="select-editing-week">
+          <SelectValue />
+        </SelectTrigger>
+        <SelectContent>
+          {weeks.map((wk) => (
+            <SelectItem key={wk} value={wk.toString()}>Week {wk} · {statusFor(wk)}</SelectItem>
+          ))}
+        </SelectContent>
+      </Select>
+      <span className="text-xs text-muted-foreground">
+        {authored.has(selectedWeek)
+          ? 'This week progresses independently.'
+          : currentSource
+            ? `Currently follows Week ${currentSource}.`
+            : 'No workouts yet.'}
+      </span>
     </div>
   );
 }

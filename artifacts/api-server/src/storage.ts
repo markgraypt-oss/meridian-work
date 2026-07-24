@@ -7315,6 +7315,65 @@ export class DatabaseStorage implements IStorage {
     return { forked: true, copied };
   }
 
+  // Per-week progression preview (builder-spec #1): return the whole programme's
+  // per-week prescription matrix in one call, so the library preview + hub can show
+  // how sets/reps change over the block without drilling into each week.
+  async getProgramProgression(programId: number): Promise<any> {
+    const [program] = await db.select().from(programs).where(eq(programs.id, programId));
+    if (!program) return null;
+    const totalWeeks = program.weeks || 1;
+    const { maxWeek, authored } = await this.buildAuthoredWorkoutMap(programId);
+    if (authored.size === 0) return { weeks: totalWeeks, sessions: [] };
+
+    const positions = new Set<number>();
+    for (const pm of authored.values()) for (const pos of pm.keys()) positions.add(pos);
+    const sortedPos = Array.from(positions).sort((a, b) => a - b);
+
+    const summarise = (sets: any[]): string => {
+      const reps = (sets || [])
+        .map((s: any) => (s && s.reps != null && String(s.reps) !== '') ? String(s.reps) : (s && s.duration ? String(s.duration) : ''))
+        .filter((x: string) => x !== '');
+      if (reps.length === 0) return '';
+      const n = reps.length;
+      const allSame = reps.every((r: string) => r === reps[0]);
+      return allSame ? `${n}×${reps[0]}` : reps.join('/');
+    };
+
+    const sessions: any[] = [];
+    for (const pos of sortedPos) {
+      const perWeekWo: any[] = [];
+      for (let w = 1; w <= totalWeeks; w++) {
+        perWeekWo.push(this.resolveWorkoutsForWeekDay(authored, maxWeek, w, pos)[0] || null);
+      }
+      const firstWo = perWeekWo.find(Boolean);
+      if (!firstWo) continue;
+
+      const cache = new Map<number, any[]>();
+      const perWeekEx: any[] = [];
+      for (const wo of perWeekWo) {
+        if (!wo) { perWeekEx.push(null); continue; }
+        let list = cache.get(wo.id);
+        if (!list) {
+          const blocks = await this.getProgrammeWorkoutBlocks(wo.id);
+          list = [];
+          for (const b of blocks) {
+            if (b.section !== 'main') continue;
+            for (const e of (b.exercises || [])) list.push({ name: e.exerciseName || e.name, reps: summarise(e.sets) });
+          }
+          cache.set(wo.id, list);
+        }
+        perWeekEx.push(list);
+      }
+      const canonical = perWeekEx.find(Boolean) || [];
+      const exercises = canonical.map((ex: any, i: number) => ({
+        name: ex.name,
+        repsByWeek: perWeekEx.map((list: any) => (list && list[i]) ? list[i].reps : null),
+      }));
+      sessions.push({ day: pos + 1, name: firstWo.name, exercises });
+    }
+    return { weeks: totalWeeks, sessions };
+  }
+
   async getProgrammeWorkoutTemplates(programId: number, weekNumber?: number): Promise<any[]> {
     const allWorkouts = await this.getProgrammeWorkouts(programId);
     // Per-week progression (builder-spec #1): when a week is given, scope templates to

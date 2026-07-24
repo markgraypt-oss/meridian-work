@@ -11463,6 +11463,19 @@ Rules:
     }
   });
 
+  // Per-week progression matrix (public): powers the library preview + hub "how it progresses" table.
+  app.get('/api/programs/:id/progression', async (req, res) => {
+    try {
+      const programId = parseInt(req.params.id);
+      const data = await storage.getProgramProgression(programId);
+      if (!data) return res.status(404).json({ message: "Programme not found" });
+      res.json(data);
+    } catch (error) {
+      console.error("Error building programme progression:", error);
+      res.status(500).json({ message: "Failed to build progression" });
+    }
+  });
+
   // Per-week progression (builder-spec #1): "Customise Week N" — fork the content this
   // week inherits into real rows on this week so it can be edited independently.
   app.post('/api/programs/:programId/weeks/:weekNumber/customise', isAuthenticated, async (req: any, res) => {

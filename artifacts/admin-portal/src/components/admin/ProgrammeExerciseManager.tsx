@@ -47,6 +47,7 @@ const DIFFICULTIES = ['Beginner', 'Intermediate', 'Advanced'];
 interface ProgrammeExerciseManagerProps {
   programId: number;
   totalWeeks: number;
+  selectedWeek?: number;
   programmeType?: string;
   onDirtyStateChange?: (isDirty: boolean) => void;
 }
@@ -63,9 +64,47 @@ interface WorkoutTemplate {
   }[];
 }
 
-export function ProgrammeExerciseManager({ programId, programmeType, onDirtyStateChange }: ProgrammeExerciseManagerProps) {
+export function ProgrammeExerciseManager({ programId, totalWeeks, selectedWeek = 1, programmeType, onDirtyStateChange }: ProgrammeExerciseManagerProps) {
   const queryClient = useQueryClient();
   const { toast } = useToast();
+
+  // Per-week progression (builder-spec #1): know whether the selected week is
+  // authored (its own content) or inheriting from another week.
+  const { data: scheduleData } = useQuery<{ schedule: Array<{ weekNumber: number; days: Array<{ workouts: any[] }> }> }>({
+    queryKey: ['/api/programs', programId, 'schedule'],
+    queryFn: async () => {
+      const res = await fetch(`/api/programs/${programId}/schedule`);
+      if (!res.ok) throw new Error('Failed to fetch schedule');
+      return res.json();
+    },
+  });
+  const isWeekAuthored = (wk: number): boolean => {
+    const w = scheduleData?.schedule?.find((s) => s.weekNumber === wk);
+    return !!w && w.days.some((d) => (d.workouts?.length || 0) > 0);
+  };
+  const weekInheritSource = (wk: number): number | null => {
+    if (isWeekAuthored(wk)) return null;
+    for (let k = wk - 1; k >= 1; k--) if (isWeekAuthored(k)) return k;
+    for (let k = wk + 1; k <= totalWeeks; k++) if (isWeekAuthored(k)) return k;
+    return null;
+  };
+  const weekAuthored = isWeekAuthored(selectedWeek);
+  const weekSource = weekInheritSource(selectedWeek);
+  // Locked = this week is borrowing another week's content; author it before editing.
+  const locked = !weekAuthored && weekSource !== null;
+
+  const customiseWeekMutation = useMutation({
+    mutationFn: async () => {
+      const res = await apiRequest('POST', `/api/programs/${programId}/weeks/${selectedWeek}/customise`, {});
+      return res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['/api/programs', programId, 'schedule'] });
+      queryClient.invalidateQueries({ queryKey: ['/api/programs', programId, 'workout-templates'] });
+      toast({ title: `Week ${selectedWeek} customised`, description: 'You can now edit this week independently.' });
+    },
+    onError: () => toast({ title: 'Error', description: 'Failed to customise week.', variant: 'destructive' }),
+  });
   
   const [selectedWorkoutId, setSelectedWorkoutId] = useState<number | null>(() => {
     const stored = sessionStorage.getItem('editingProgrammeWorkoutId');
@@ -123,9 +162,9 @@ export function ProgrammeExerciseManager({ programId, programmeType, onDirtyStat
   }, [selectedWorkoutId, programId]);
 
   const { data: workoutTemplates = [], isLoading: loadingWorkouts } = useQuery<WorkoutTemplate[]>({
-    queryKey: ['/api/programs', programId, 'workout-templates'],
+    queryKey: ['/api/programs', programId, 'workout-templates', selectedWeek],
     queryFn: async () => {
-      const res = await fetch(`/api/programs/${programId}/workout-templates`);
+      const res = await fetch(`/api/programs/${programId}/workout-templates?week=${selectedWeek}`);
       if (!res.ok) throw new Error('Failed to load workout templates');
       return res.json();
     },
@@ -141,7 +180,7 @@ export function ProgrammeExerciseManager({ programId, programmeType, onDirtyStat
       duration: number;
       imageUrl?: string;
     }) => {
-      const res = await apiRequest('POST', `/api/programs/${programId}/workouts`, workoutData);
+      const res = await apiRequest('POST', `/api/programs/${programId}/workouts`, { ...workoutData, weekNumber: selectedWeek });
       return res.json();
     },
     onSuccess: (data) => {
@@ -198,10 +237,27 @@ export function ProgrammeExerciseManager({ programId, programmeType, onDirtyStat
 
   return (
     <div className="space-y-4">
+      {locked && (
+        <div className="rounded-lg border border-primary/40 bg-primary/5 p-4 flex items-start gap-3">
+          <div className="flex-1 space-y-2">
+            <div className="font-semibold text-foreground text-sm">Week {selectedWeek} inherits from Week {weekSource}</div>
+            <div className="text-xs text-muted-foreground">
+              You're viewing the workouts Week {selectedWeek} borrows from Week {weekSource}. Customise this week to edit its loads, reps, or movements without affecting other weeks.
+            </div>
+            <Button size="sm" onClick={() => customiseWeekMutation.mutate()} disabled={customiseWeekMutation.isPending} data-testid="button-customise-week-exercises">
+              {customiseWeekMutation.isPending ? 'Customising...' : `Customise Week ${selectedWeek}`}
+            </Button>
+          </div>
+        </div>
+      )}
       <div>
         <label className="text-sm font-medium text-foreground mb-2 block">Select Workout Template</label>
         <p className="text-xs text-muted-foreground mb-3">
-          Changes to a workout will apply to all instances across all weeks.
+          {weekAuthored
+            ? `Editing Week ${selectedWeek} only — changes here don't affect other weeks.`
+            : locked
+              ? `Week ${selectedWeek} follows Week ${weekSource}. Customise it above to edit independently.`
+              : `Editing Week ${selectedWeek}.`}
         </p>
         <div className="flex items-center gap-3">
           <div className="flex-1">
@@ -228,6 +284,7 @@ export function ProgrammeExerciseManager({ programId, programmeType, onDirtyStat
           <Button 
             onClick={() => setShowTypeSelection(true)} 
             size="sm"
+            disabled={locked}
             data-testid="button-add-workout"
           >
             <Plus className="h-4 w-4 mr-1" />
@@ -236,7 +293,7 @@ export function ProgrammeExerciseManager({ programId, programmeType, onDirtyStat
         </div>
       </div>
 
-      {workoutTemplates.length === 0 && (
+      {workoutTemplates.length === 0 && !locked && (
         <div className="p-6 border border-dashed border-border rounded-lg text-center">
           <p className="text-sm text-muted-foreground mb-3">
             No workouts in this programme yet. Add a workout to get started.
@@ -248,7 +305,7 @@ export function ProgrammeExerciseManager({ programId, programmeType, onDirtyStat
         </div>
       )}
 
-      {selectedWorkoutId && selectedTemplate && (
+      {selectedWorkoutId && selectedTemplate && !locked && (
         <ProgrammeBlockManager 
           workoutId={selectedWorkoutId} 
           programId={programId}

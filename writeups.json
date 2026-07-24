@@ -1,0 +1,742 @@
+{
+  "muxVideos": 43,
+  "generated": 42,
+  "wrote": 0,
+  "skippedAlreadyDone": 0,
+  "skippedNoTranscriptYet": 1,
+  "skippedEmptyTranscript": 0,
+  "failed": [],
+  "dryRun": true,
+  "force": false,
+  "proposals": [
+    {
+      "id": 443,
+      "title": "Master Planning Your Goals",
+      "playbackId": "t3F5b1hmUtpJq003HB02so00Bbv6GvOkTjTi9xil86lxt4",
+      "description": "A structured framework for setting and achieving meaningful health and fitness goals in the year ahead. Designed for members ready to reflect on progress and build a clear, actionable plan.",
+      "summary": "This session guides you through a complete goal-setting process built around three core principles: clarity, identity, and behaviour. You'll reflect on where you started, where you are now, and where you want to go, then break your goals into 30-, 90-, and 365-day milestones. The focus shifts from relying on willpower to designing systems, environments, and daily actions that support the person you need to become. By identifying specific behaviours to start, stop, or continue, you'll create the conditions to thrive rather than simply hoping motivation lasts.",
+      "keyTakeaways": [
+        "Vague goals produce vague results—get specific about what you want to achieve and how you'll know when you've got there",
+        "Break your goals into 30-day, 90-day, and one-year milestones, identifying the barriers and actions needed at each stage",
+        "Define the identity of the person who already has your goals—how they think, act, and respond to challenges daily",
+        "Design your environment and systems to support your goals; the more disciplined your environment, the less disciplined you need to be",
+        "Identify the specific behaviours you need to start, stop, or continue to become that future version of yourself",
+        "Proactive planning beats reactive willpower—look ahead at challenges and decide in advance how you'll handle them"
+      ],
+      "transcriptChars": 36242,
+      "descriptionWasEmpty": true,
+      "wrote": false
+    },
+    {
+      "id": 414,
+      "title": "Progressive Overload",
+      "playbackId": "AD3QbMUknM021g1yQa01bEllxGNyhPggKj3nLStJBQQYI",
+      "description": "Progressive overload is the principle of gradually increasing training demands to build strength and muscle. Understanding and applying it consistently is essential for making progress with resistance training.",
+      "summary": "Progressive overload means continuously challenging your body with slightly increased demands so it adapts by getting stronger. The principle dates back to Milo of Croton, who reportedly carried a growing calf daily until it became a bull, building extraordinary strength through incremental load increases. Today, you can apply progressive overload by increasing weight, reps, sets, tempo, or exercise difficulty. The key is making small, consistent improvements each week rather than repeating the same workout indefinitely.",
+      "keyTakeaways": [
+        "Your body adapts to training stress by getting stronger, but only if you keep increasing the challenge over time",
+        "If you repeat the exact same workout without progression, you'll stop seeing improvements in strength and muscle size",
+        "Increase weight, reps, sets, tempo, or exercise variation to apply progressive overload—even small changes like adding half a kilo count",
+        "Track your workouts and aim to beat previous performance each week, even if it's just one extra rep on one set",
+        "If you increase weight and can't complete all sets, work back up to your target reps before adding more weight"
+      ],
+      "transcriptChars": 4091,
+      "descriptionWasEmpty": true,
+      "wrote": false
+    },
+    {
+      "id": 424,
+      "title": "Understanding Food Labels & Portion Sizes",
+      "playbackId": "dlT4jG8Jl6Dixd02BIeHLZrlrMRKg001gmfwWw02vTcxPc",
+      "description": "A practical guide to reading nutrition labels accurately and understanding portion sizes. Useful for anyone tracking their food intake or trying to make more informed choices about what they eat.",
+      "summary": "Food labels aren't always as accurate as you might think—UK legislation allows manufacturers a margin of error of up to 20% in either direction, meaning you could be consuming more calories or less protein than stated. Understanding how to read the main nutrition table is essential, particularly knowing whether to use the per 100g or per portion column depending on what you're measuring. A common source of confusion is whether to weigh foods raw or cooked, as the weight changes significantly during cooking (rice gets heavier, chicken gets lighter). The key is to check what the label specifies and then stay consistent with your approach.",
+      "keyTakeaways": [
+        "Food labels in the UK can legally be up to 20% inaccurate in either direction, so track your progress regularly to adjust if needed",
+        "Focus on the calories (kcal) and three macronutrients (fats, carbs, protein) in the nutrition table, using either the 100g or per portion column depending on the product",
+        "Check whether nutritional information refers to raw or cooked weight—rice becomes heavier when cooked, whilst chicken becomes lighter",
+        "Stay consistent with how you measure foods (always raw or always cooked) to reduce errors and make tracking smoother",
+        "Colour coding on some labels quickly shows whether a product is high (red) or low (green) in specific nutrients like sugar or protein"
+      ],
+      "transcriptChars": 3436,
+      "descriptionWasEmpty": true,
+      "wrote": false
+    },
+    {
+      "id": 429,
+      "title": "Calories & Energy Balance",
+      "playbackId": "cdqI92rsZ02wrwT00WvF01IOvOQUq00ep4ACzqjC6FDX3KY",
+      "description": "An explanation of how your body burns calories throughout the day and how energy balance determines whether you gain, lose, or maintain weight.",
+      "summary": "Your total daily energy expenditure (TDEE) is made up of four components: basal metabolic rate (60–70% of calories burnt, covering basic life functions), non-exercise activity thermogenesis or NEAT (10–15%, including all daily movement outside formal exercise), the thermic effect of food (around 10% for digestion), and planned exercise (typically just 5–10%). Energy balance describes the relationship between calories consumed and calories burnt. A calorie surplus leads to weight gain, a deficit leads to fat loss, and maintenance keeps weight stable. To create a deficit, you can reduce intake, increase expenditure, or combine both approaches depending on what suits you best.",
+      "keyTakeaways": [
+        "Your basal metabolic rate accounts for 60–70% of daily calories burnt, covering essential functions like breathing and circulation",
+        "NEAT (non-exercise activity like walking, typing, or gardening) is a major driver of fat loss and makes up 10–15% of energy expenditure",
+        "Planned exercise typically represents only 5–10% of total calories burnt, less than many people assume",
+        "To lose body fat, you need a calorie deficit—burning more calories than you consume",
+        "Track progress using body weight, how clothes fit, measurements, and progress pictures to assess whether your energy balance matches your goals"
+      ],
+      "transcriptChars": 4034,
+      "descriptionWasEmpty": true,
+      "wrote": false
+    },
+    {
+      "id": 437,
+      "title": "Sleep Optimisation Tips",
+      "playbackId": "Xmb00oHDEPeS7x5jzyNJRYmpPOLA02uPRxO6CQUVO7MEg",
+      "description": "Practical strategies to improve both the quantity and quality of your sleep, covering timing, environment, and lifestyle factors that affect how well you rest and recover.",
+      "summary": "Quality sleep is about more than just time in bed—it requires attention to your body's natural rhythms and your daily habits. This guidance covers six evidence-based strategies to optimise your sleep, from maintaining consistent sleep schedules that work with your circadian rhythm, to managing screen time, caffeine intake, and exercise timing. Creating the right sleep environment and being mindful of evening fluid intake can also make a significant difference to how quickly you fall asleep, how deeply you rest, and how you feel the next day.",
+      "keyTakeaways": [
+        "Keep consistent sleep and wake times within a 30-minute window, even at weekends where possible, to support your body's natural circadian rhythm",
+        "Minimise blue light exposure in the evening by using blue light glasses, enabling night shift mode on devices, dimming screens, and avoiding screens in bed entirely",
+        "Exercise earlier in the day when possible, as late-night training (9-10pm) can stimulate your system and make it harder to switch off",
+        "Find your personal caffeine cut-off time through trial and error—sensitivity varies widely, and afternoon caffeine can disrupt sleep for many people",
+        "Optimise your bedroom environment: aim for 15-20°C (ideally 18°C), use blackout blinds, minimise noise, and eliminate light sources like device indicators",
+        "Front-load your fluid intake earlier in the day to reduce nighttime bathroom trips that disrupt both sleep quantity and quality"
+      ],
+      "transcriptChars": 7291,
+      "descriptionWasEmpty": true,
+      "wrote": false
+    },
+    {
+      "id": 410,
+      "title": "Gym Lingo Explained",
+      "playbackId": "UCyFvO4ujHcqBy4XdfcAQZeeq4oXKOofcF3D01x01MOZ00",
+      "description": "A quick reference guide to the most common gym and training terminology you'll encounter in workouts, from reps and sets to progressive overload and mobility.",
+      "summary": "Understanding gym terminology helps you follow workout programmes with confidence and precision. This guide covers the fundamentals—like reps, sets, tempo and load—as well as training techniques such as supersets and AMRAP. It also explains the difference between compound and isolation exercises, flexibility versus mobility, and key training principles like progressive overload and periodisation. Finally, it covers recovery concepts including static and dynamic stretching, self-myofascial release, and DOMS.",
+      "keyTakeaways": [
+        "A rep is one complete execution of an exercise, made up of an eccentric phase (muscle lengthening), concentric phase (muscle shortening), or isometric contraction (muscle contracts without changing length)",
+        "Compound movements target multiple muscle groups and joints (squats, deadlifts), whilst isolation exercises work a single muscle group and one joint (bicep curls, leg extensions)",
+        "Progressive overload—gradually increasing intensity, volume or difficulty—is essential for continued strength gains and improved mobility",
+        "Flexibility refers to a muscle's ability to lengthen passively, whilst mobility encompasses the strength, coordination and control needed to move a joint actively through its range of motion",
+        "DOMS (delayed onset muscle soreness) is the muscle soreness and stiffness that appears hours to days after unfamiliar or intense exercise"
+      ],
+      "transcriptChars": 3899,
+      "descriptionWasEmpty": true,
+      "wrote": false
+    },
+    {
+      "id": 420,
+      "title": "Meal Frequency",
+      "playbackId": "4gvK00W9blq100BmpdUIDLnfRN7uplyFNGCG4bgJiBE4g",
+      "description": "Meal frequency doesn't affect fat loss the way many people think. What matters is total calorie intake and finding an eating pattern that fits your lifestyle and protein needs.",
+      "summary": "The idea that eating small, frequent meals boosts metabolism and increases fat loss is a myth. For fat loss, what matters is achieving a consistent calorie deficit — your total energy balance of calories in versus calories out. Whether you eat two large meals or four smaller ones makes no difference, as long as you hit your daily calorie target. The best approach is whatever eating pattern suits your schedule and preferences. The one exception: if you're aiming to maximise performance and meet higher protein requirements, spreading protein across multiple meals is more practical than trying to consume it all at once.",
+      "keyTakeaways": [
+        "Meal frequency doesn't impact fat loss or boost metabolism — total calorie intake is what matters",
+        "Focus on achieving a consistent calorie deficit (calories in versus calories out) rather than how many meals you eat",
+        "Choose an eating pattern that works for your schedule and lifestyle, whether that's one large meal or several smaller ones",
+        "If you need to meet higher protein targets (e.g. 160 grams), spreading intake across multiple meals is more practical and effective than consuming it all in one sitting"
+      ],
+      "transcriptChars": 1575,
+      "descriptionWasEmpty": true,
+      "wrote": false
+    },
+    {
+      "id": 425,
+      "title": "The Macronutrients",
+      "playbackId": "e01gG3r1akPOh3zKfA5LuuYQCSUxQAHeipWDBL8Nz92M",
+      "description": "An overview of the three macronutrients—protein, carbohydrates, and fats—and how each supports your health, energy, and body composition.",
+      "summary": "Macronutrients are the nutrients your body needs in large amounts: protein, carbohydrates, and fats. Protein supports muscle growth and repair, keeps you fuller for longer, and has the highest thermic effect, making it valuable for maintaining body composition. Carbohydrates are your body's preferred energy source and come in simple forms (quick energy) and complex forms (sustained energy). Fats provide concentrated energy, support hormone production and vitamin absorption, and come in saturated, unsaturated, and trans varieties—with unsaturated fats being the healthiest option.",
+      "keyTakeaways": [
+        "Protein is the most satiating macronutrient and helps you feel full longer, making calorie-controlled eating easier",
+        "Complete proteins from animal sources contain all essential amino acids, whilst plant proteins may need to be combined to provide the full range",
+        "Aim to get most of your carbohydrates from complex sources like grains, vegetables, and legumes for sustained energy rather than simple carbs",
+        "Fat contains 9 calories per gram—more than double that of protein or carbs—so it's easy to overconsume even healthy fats like olive oil, avocados, and nuts",
+        "Focus on unsaturated fats from sources like olive oil, avocados, and fatty fish, whilst minimising trans fats found in processed foods"
+      ],
+      "transcriptChars": 3932,
+      "descriptionWasEmpty": true,
+      "wrote": false
+    },
+    {
+      "id": 439,
+      "title": "How To Instantly Start Sleeping Better",
+      "playbackId": "Gy01OOmHCAvTT4501VeY02k9mOOPAtLzGMI5i6JTcEEt9Y",
+      "description": "Practical strategies to improve sleep quality and duration, tailored for busy professionals and entrepreneurs who struggle with consistent, restful sleep.",
+      "summary": "Sleep challenges are common amongst entrepreneurs, but several evidence-based strategies can deliver quick improvements. The foundations include maintaining consistent sleep and wake times, managing caffeine timing based on its four to six hour half-life, and creating an optimal sleep environment that's cool, dark, and quiet. Additional tactics like supplementing with magnesium L-threonate, performing a pre-bed brain dump to manage worries, and avoiding late workouts or screen exposure can further enhance both sleep quality and duration.",
+      "keyTakeaways": [
+        "Keep sleep and wake times consistent within a 30-minute window to build your body's natural rhythm",
+        "Stop caffeine at least four to six hours before bed, as half remains in your body after that time",
+        "Take magnesium L-threonate 30 to 60 minutes before sleep to improve sleep quality",
+        "Do a brain dump before bed: write down worries, ideas, and tomorrow's to-do list to clear your mind",
+        "If you wake during the night, resist checking your phone or the time to make falling back asleep easier",
+        "Ensure your bedroom is cool, dark, and quiet, and avoid intense workouts late in the day"
+      ],
+      "transcriptChars": 3561,
+      "descriptionWasEmpty": true,
+      "wrote": false
+    },
+    {
+      "id": 440,
+      "title": "How To Instantly Start Sleeping Better",
+      "playbackId": "Gy01OOmHCAvTT4501VeY02k9mOOPAtLzGMI5i6JTcEEt9Y",
+      "description": "Practical strategies to improve sleep quality and duration, designed for busy professionals and entrepreneurs who struggle with consistent, restful sleep.",
+      "summary": "Quality sleep remains elusive for many entrepreneurs, but several evidence-based strategies can deliver immediate improvements. The foundation is consistency in sleep and wake times, combined with smart caffeine management and attention to your sleep environment. Additional tactics include supplementation with magnesium L-threonate, managing evening worries through brain dumps, and timing both meals and workouts appropriately. Even implementing a few of these changes can produce noticeable results within days.",
+      "keyTakeaways": [
+        "Maintain consistent sleep and wake times within a 30-minute window to build your natural rhythm",
+        "Cut off caffeine with awareness that its half-life is four to six hours—half remains in your system long after consumption",
+        "Take magnesium L-threonate 30 to 60 minutes before bed to support sleep quality",
+        "Perform a brain dump before bed: write out worries, ideas, and tomorrow's to-do list to clear your mind",
+        "Avoid checking your phone if you wake during the night—resist the urge and allow yourself to drift back to sleep",
+        "Optimise your sleep environment: keep the room quiet, dark, and cool, and consider earplugs if needed"
+      ],
+      "transcriptChars": 3561,
+      "descriptionWasEmpty": true,
+      "wrote": false
+    },
+    {
+      "id": 421,
+      "title": "How To Make Better Food Choices On The Go",
+      "playbackId": "ZlyM008GnYSabeHbPwdCyeakmr02nPxJGNUyQ4x8lpvR8",
+      "description": "Practical strategies for making smarter food choices when you're short on time and haven't meal-prepped. Particularly relevant for busy professionals who often eat on the go.",
+      "summary": "When life gets hectic and you haven't prepared meals in advance, it's easy to default to whatever's fastest—but those choices rarely deliver what your body needs. Common mistakes include grabbing ultra-processed sandwiches with minimal actual protein, or protein bars that are mostly sugar and fat. The key is having a simple system: look for high-protein options (at least 20g per meal), scan ingredient lists for quality, and learn to make smart choices at restaurants by choosing grilled over breaded, tomato-based over creamy sauces, and building meals around lean protein. Keep backup options like quality protein bars in your bag for emergencies, and remember that a decent choice is far better than falling back on old habits.",
+      "keyTakeaways": [
+        "Aim for at least 20 grams of protein per meal when eating on the go",
+        "Check ingredient lists—fewer ingredients usually means less processing",
+        "At restaurants without nutrition information, choose grilled over breaded, tomato-based over creamy sauces, and ask for extras like cheese and dressing on the side",
+        "Keep backup protein bars or jerky in your car or bag for situations where good options aren't available",
+        "A B-minus choice that keeps you on track is far better than defaulting to heavily processed, low-protein options out of habit"
+      ],
+      "transcriptChars": 6788,
+      "descriptionWasEmpty": true,
+      "wrote": false
+    },
+    {
+      "id": 426,
+      "title": "The Successful Diet Protocol",
+      "playbackId": "4aP5cR5pANbgx8I3fl8QUY8YeOA4zvunJiZNfhrYxBs",
+      "description": "A framework for building a nutrition approach that delivers results without restriction or burnout. Designed for busy professionals who want sustainable fat loss that fits their lifestyle.",
+      "summary": "A successful diet isn't about extreme restriction or trendy protocols—it's about creating a sustainable, enjoyable approach that complements your life. This session outlines the three-part protocol: getting the process right (tracking calories, steps, and progress without overcomplicating), applying core nutrition principles (consistency over intensity, the 80/20 rule for food choices), and managing the lifestyle factors that determine whether you stick with it. The focus is on finding the right pace of change—enough to see weekly progress, but not so extreme that you end up yo-yo dieting or losing the plan when life throws up barriers.",
+      "keyTakeaways": [
+        "A successful diet must be sustainable, enjoyable, and complement your life—not make it harder",
+        "Fat loss requires a calorie deficit, but your strength training stays focused on building muscle and strength, not burning calories",
+        "Aim for the 80/20 rule: 80% of calories from nutritious foods, 20% from favourites to avoid the all-or-nothing trap",
+        "Consistency beats intensity—a few days of extreme effort won't outperform steady, reliable action over time",
+        "Track progress through multiple metrics (weight, measurements, photos, energy, performance) rather than relying on the scales alone",
+        "Slip-ups are normal and expected—the key is to acknowledge them, get curious about why they happened, and move on rather than hiding or giving up"
+      ],
+      "transcriptChars": 40157,
+      "descriptionWasEmpty": true,
+      "wrote": false
+    },
+    {
+      "id": 441,
+      "title": "Understanding The value & Importance Of Sleep",
+      "playbackId": "2eJgqU17284olqtaVjzd802EBB009DD4jCG2VySlWRDwo",
+      "description": "Sleep is the foundation of health, performance, and decision-making. This covers why poor sleep undermines everything from fat loss to cognitive function, and how to start prioritising it.",
+      "summary": "Sleep isn't optional—it's foundational. No amount of training, nutrition, or supplements can compensate for poor sleep, which drains energy, impairs recovery, increases injury risk, and makes fat loss significantly harder. Consistently sleeping under six hours raises your risk of diabetes, heart disease, and early mortality, whilst also affecting business performance, relationships, and decision-making. The good news: once you treat sleep as non-negotiable and schedule it like any important commitment, everything else becomes easier.",
+      "keyTakeaways": [
+        "Sleeping under six hours consistently increases your risk of developing diabetes by 1.7 times, alongside raising risks for heart disease, low testosterone, and poor immune function",
+        "Sleep deprivation impairs both mental and physical performance—it's been a contributing factor in major disasters including Chernobyl and the Challenger explosion",
+        "Notice how you feel after a proper night's sleep compared to your usual state—the difference should be immediately apparent",
+        "Treat sleep like a meeting: schedule it, stick to it, and don't cancel on yourself",
+        "Drop the badge of honour around sleeping less—it's not impressive, it's short-sighted and harmful to your health and performance"
+      ],
+      "transcriptChars": 4549,
+      "descriptionWasEmpty": true,
+      "wrote": false
+    },
+    {
+      "id": 446,
+      "title": "How Many Steps Do You Need To Do?",
+      "playbackId": "Hms98A8uMEmtEQLqUZQipiLj7G5XdEb2FL1P1pIdAo8",
+      "description": "A practical guide to setting realistic step targets based on your current activity level, lifestyle and goals. Learn why weekly totals matter more than hitting the same number every day.",
+      "summary": "The traditional 10,000 steps per day target is just a guideline, not a one-size-fits-all rule. Your ideal step count depends on your current fitness level, age and goals. Rather than fixating on daily targets, focus on your weekly total to allow for natural variation in your schedule. If you're currently averaging 3,000 steps, gradually increase by 10% every few weeks rather than jumping straight to 10,000. Higher step counts generally correlate with better body composition because they increase daily energy expenditure, making steps a practical starting point for improving fitness.",
+      "keyTakeaways": [
+        "If you're currently averaging 3,000 steps, aim to increase by 10% every few weeks rather than jumping straight to 10,000",
+        "Track your weekly step total rather than obsessing over daily targets—70,000 steps across seven days matters more than hitting exactly 10,000 each day",
+        "Higher step counts typically indicate higher NEAT (non-exercise activity thermogenesis), which increases daily calorie expenditure and supports better body composition",
+        "Make up for low-step days with higher-step days—5,000 steps on a busy workday can be balanced with 15,000 on a weekend hike",
+        "Build more steps into your routine with simple changes: take the stairs, walk during breaks, park further away, take calls on the go, or get morning walks in early"
+      ],
+      "transcriptChars": 3419,
+      "descriptionWasEmpty": true,
+      "wrote": false
+    },
+    {
+      "id": 413,
+      "title": "Time Under Tension (TUT)",
+      "playbackId": "JtH2I733kNVzhHRijTEPdnz8NruNlHDi1944CCafLys",
+      "description": "Time under tension (TUT) is the duration your muscles spend working during each rep. Understanding and applying it properly can significantly improve strength, muscle growth, endurance, and injury recovery.",
+      "summary": "Time under tension shifts focus from counting reps to controlling how long muscles work during each repetition. By slowing down movements—especially the lowering phase—and adding pauses, you can dramatically increase muscle engagement. For example, changing a tricep extension from a quick 1-second down, 1-second up to a controlled 1-second down, 1-second pause, 3-second up increases total working time from 20 to 50 seconds across 10 reps. This approach improves muscle fibre recruitment, builds the mind-muscle connection essential for targeting weak areas, and should be adjusted based on your goal: heavier weights with shorter TUT for strength, moderate for growth, and lighter with longer TUT for endurance or corrective work.",
+      "keyTakeaways": [
+        "Slowing down the eccentric (lengthening) phase of an exercise—such as taking 3-4 seconds to lower the weight—significantly increases time under tension and muscle engagement",
+        "Tempo training uses specific durations for each phase of a movement (e.g. 2-1-2: two seconds down, one second pause, two seconds up), with an 'X' indicating explosive speed",
+        "Longer time under tension with lighter weights helps build muscular endurance and is particularly important for corrective exercises targeting weak or underactive muscles",
+        "Developing a strong mind-muscle connection through controlled, deliberate movement is essential for addressing pain, recovering from injury, and activating muscles that aren't firing properly",
+        "Adjust your approach based on goals: heavier weights with shorter TUT for strength, moderate weights and TUT for muscle growth, lighter weights with longer TUT for endurance"
+      ],
+      "transcriptChars": 6699,
+      "descriptionWasEmpty": true,
+      "wrote": false
+    },
+    {
+      "id": 418,
+      "title": "Using Weekly Calories",
+      "playbackId": "zgya01Mnke8jMOtXyDWlIVWGN1CGQvCZRq1b00wj8B8Ds",
+      "description": "Managing your calorie deficit on a weekly basis rather than day-to-day gives you more flexibility and helps prevent the guilt-driven weekend blowouts that derail progress.",
+      "summary": "Tracking calories across a full week instead of daily provides crucial flexibility and reduces the all-or-nothing thinking that often sabotages fat loss. When you have a higher-calorie day, viewing your remaining weekly budget shows you haven't ruined anything—you can adjust the following days or increase your steps to stay on track. This weekly perspective turns nutrition into a strategic game where you can move pieces around based on your schedule, rather than letting one imperfect day trigger a complete derailment.",
+      "keyTakeaways": [
+        "Calculate your weekly calorie target (daily target × 7) rather than focusing solely on hitting the same number each day",
+        "If you go over on one day, check how many calories you have left for the week before assuming you've failed",
+        "Increase your daily steps (e.g. from 10,000 to 13,000–14,000) to create more calorie buffer when you know a high-calorie event is coming",
+        "Plan ahead by reducing calories or increasing activity on surrounding days when you have a meal out or social event scheduled",
+        "Avoid the guilt-driven weekend blowout—one higher day doesn't ruin your week if you adjust the remaining days accordingly"
+      ],
+      "transcriptChars": 5976,
+      "descriptionWasEmpty": true,
+      "wrote": false
+    },
+    {
+      "id": 428,
+      "title": "How To Prep Healthy Meals Fast",
+      "playbackId": "r3u3g025VqUHkiwMMzJilZcMZSqIkwKha9GfX3U1rmKI",
+      "description": "Practical strategies for preparing nutritious meals quickly, designed for busy entrepreneurs and business owners who want to maintain healthy eating habits without spending hours in the kitchen.",
+      "summary": "Healthy eating doesn't require hours of meal prep. By prioritising calories first, then protein, then food quality, you can build meals that support your goals without added stress. The key is having the right ingredients readily available—whether that's microwave rice, frozen vegetables, or pre-cooked protein—and using your freezer and cupboard strategically. With a handful of go-to meals you can prepare quickly and a bit of forward planning, maintaining good nutrition becomes straightforward rather than overwhelming.",
+      "keyTakeaways": [
+        "Prioritise calories first to hit your weight target, then protein, then food quality—all three will align seamlessly as you build better habits",
+        "Every meal should include a palm-sized portion of protein, plus carbohydrates and fats for a well-rounded plate",
+        "List the foods you enjoy eating and divide them into carbs, proteins, and fats, then decide how to store them for quick access",
+        "Stock your freezer and cupboard with quick meal components like microwave grains, frozen vegetables, eggs, protein powder, canned tuna, and frozen meat",
+        "Cook in bulk when possible—make extra protein at dinner to use for the next two or three days' lunches",
+        "Aim for consistency, not perfection—have a few reliable meals you can prepare quickly with your eyes closed"
+      ],
+      "transcriptChars": 10674,
+      "descriptionWasEmpty": true,
+      "wrote": false
+    },
+    {
+      "id": 435,
+      "title": "How to Alter Your Perspective to Put Health and Fitness First",
+      "playbackId": "MqDqsAJmr6v14BOnlAlJ56CP1l00jf9CFfdX2r4WgaDo",
+      "description": "A mindset shift for busy professionals who struggle to make health and fitness a genuine priority. Explores why it must come first, and how to clarify your why, vision, and mission to sustain long-term commitment.",
+      "summary": "Making real, lasting progress with your health requires treating it as a top priority—not above your family or business in every moment, but on average, over weeks and months. You can't serve others effectively when you're running on empty. This means getting honest about what currently takes precedence, then building clarity around three foundations: your deeper why (beyond aesthetics), your health vision (an inspiring picture of your optimal state), and your mission (a practical commitment you can articulate anytime). These anchors, revisited regularly, help shift your mindset from short-term fixes to sustainable, long-term success.",
+      "keyTakeaways": [
+        "Prioritising health doesn't mean neglecting responsibilities; it means recognising that even 20 minutes at home counts when circumstances prevent a full gym session",
+        "Write down what you're currently prioritising over your health and fitness to identify the real barriers holding you back",
+        "Define your why: the deeper reasons beyond appearance, such as being present for loved ones, maintaining energy for work, or staying capable as you age",
+        "Create a health vision that excites you and a mission statement you can recall whenever someone asks why you're committed to this journey",
+        "Keep your why, vision, and mission visible—on your fridge, desk, or phone—and revisit them every six to twelve months as life changes",
+        "Celebrate small wins and focus on manageable daily changes; sustainable progress comes from small actions repeated over time, not short-term intensity"
+      ],
+      "transcriptChars": 9760,
+      "descriptionWasEmpty": true,
+      "wrote": false
+    },
+    {
+      "id": 436,
+      "title": "Why Sleep Lays The Foundations For Your Success",
+      "playbackId": "9r014V02d9ou1mKQmmvf00Lvu8wOmyRHCoK9J003BjTtA8g",
+      "description": "Sleep is the foundation for health, performance, productivity, and decision-making. This session explains how sleep quality directly impacts training, nutrition, relationships, career success, and your ability to achieve long-term goals.",
+      "summary": "Sleep isn't just about rest—it's the bedrock that determines whether you'll succeed in every other area of life. Poor sleep undermines your training intensity, nutrition choices, stress management, mood, cognitive function, and decision-making, creating a cycle of suboptimal results. Good sleep, on the other hand, supports recovery, memory, emotional regulation, and the release of growth hormone. Whether your goal is fat loss, building muscle, or peak productivity, the quality of your sleep dictates the level of results you'll achieve.",
+      "keyTakeaways": [
+        "Sleep determines the quality of your decisions across training, nutrition, relationships, career, and future sleep habits",
+        "Around 90% of growth hormone—responsible for muscle repair, tissue growth, and recovery—is released during deep sleep",
+        "Poor sleep leads to poor food choices, lower activity levels, increased stress, reduced training intensity, and ultimately prevents fat loss or muscle gain",
+        "Individuals getting less than six hours of sleep are significantly more likely to report symptoms of depression compared to those getting seven-plus hours",
+        "Set consistent sleep and wake times, track what impacts your sleep quality, and treat sleep as a non-negotiable priority for results"
+      ],
+      "transcriptChars": 24027,
+      "descriptionWasEmpty": true,
+      "wrote": false
+    },
+    {
+      "id": 430,
+      "title": "Recognising The Symptoms & Triggers Of Stress",
+      "playbackId": "lNHqM02LE0195IvV3tB02TaZifFi6fWhmr36Km01XcOp7kc",
+      "description": "Stress is your body's natural response to challenge, but when it becomes constant, it takes a serious toll. This session helps you recognise the physical, emotional, mental and behavioural signs of stress, and introduces a simple tracking method to manage it better.",
+      "summary": "Stress is inevitable, but spotting it early puts you back in control. Whilst your body can handle short bursts of stress, repeated or chronic stress leads to physical symptoms like headaches and fatigue, emotional changes like irritability, mental fog, and behavioural shifts including poor sleep and withdrawal. The goal isn't to eliminate stress entirely—it's to manage it better. That starts with awareness: tracking when you feel stressed and what triggered it helps you spot patterns, prepare for them, and reduce their impact before they overwhelm you.",
+      "keyTakeaways": [
+        "Stress shows up in four ways: physical (headaches, muscle tension, fatigue), emotional (irritability, mood swings), mental (poor focus, racing thoughts), and behavioural (sleep problems, changes in eating or drinking).",
+        "Short-term stress is manageable, but when it repeats constantly, the strain builds and can lead to chronic health issues.",
+        "Track your stress for at least a week—write down how you feel and what was happening just before. Patterns will emerge that help you prepare and reduce impact.",
+        "The goal is better stress management, not being stress-free. Management starts with awareness."
+      ],
+      "transcriptChars": 6264,
+      "descriptionWasEmpty": true,
+      "wrote": false
+    },
+    {
+      "id": 409,
+      "title": "Rest Periods",
+      "playbackId": "R6MAzQhgwZAxg9e8VO1BQiYbs01ForICxCBkUEKW3vRo",
+      "description": "Rest periods between sets directly affect your ability to build strength and muscle. Understanding how long to rest based on exercise type, training goals, and available time helps you get more from each session.",
+      "summary": "Resting adequately between sets is essential for getting stronger and building muscle, yet many people either rush through their workouts or rest too long without purpose. The ideal rest period depends on three factors: the type of exercise you're doing, your specific training goals, and how much time you have available. Compound movements like deadlifts require more rest than isolation exercises like bicep curls, whilst strength-focused training benefits from longer rest (3–5 minutes) compared to muscular endurance work (30–90 seconds). When in doubt, opt for more rest rather than less—an extra 30 seconds that allows you to complete two additional reps will deliver better results than cutting rest short.",
+      "keyTakeaways": [
+        "Compound exercises performed early in your workout require longer rest periods than isolation movements done later",
+        "For absolute strength, rest 3–5 minutes between sets; for hypertrophy, 1–3 minutes; for muscular endurance, 30–90 seconds",
+        "Longer rest periods allow you to maintain performance across sets, leading to more total reps and better training stimulus",
+        "Rest periods typically shorten as you progress through a workout, with priority movements placed first when you're freshest",
+        "When uncertain, choose more rest over less—maintaining intensity and rep quality matters more than rushing between sets"
+      ],
+      "transcriptChars": 3015,
+      "descriptionWasEmpty": true,
+      "wrote": false
+    },
+    {
+      "id": 419,
+      "title": "How To Practise Mindful Eating",
+      "playbackId": "0002lQvP2J5RSgulVw02BNVUHHih5Uj6rq02EruE5GZqA7c",
+      "description": "Mindful eating helps you stay present during meals and regain control over your eating habits. Particularly useful for busy professionals who struggle with distraction, stress, and emotional eating.",
+      "summary": "Mindful eating means being fully present with your food—noticing taste, texture, and smell whilst tuning into your body's hunger and fullness cues. For busy professionals, common barriers include time pressure, stress-driven emotional eating, multitasking during meals, and easy access to processed foods. By creating a calm eating environment, paying attention to your body's signals, and slowing down, you can develop a healthier relationship with food and improve your overall well-being.",
+      "keyTakeaways": [
+        "Eat without distractions—turn off screens and focus solely on your meal to avoid overconsumption",
+        "Stop eating when you're around 80% full, as there's a 20-minute delay between your stomach registering food and your brain receiving the signal",
+        "Chew slowly and thoroughly to tap into a more mindful mindset and support better digestion",
+        "Stay hydrated throughout the day, as thirst is sometimes mistaken for hunger",
+        "Start small and be consistent—mindful eating is a process that develops over time"
+      ],
+      "transcriptChars": 4365,
+      "descriptionWasEmpty": true,
+      "wrote": false
+    },
+    {
+      "id": 431,
+      "title": "SMART Goal Setting",
+      "playbackId": "02ML53lffQBWCrVGNfBs1G1LDnXCQ8D2W4EYseShyWv8",
+      "description": "Learn how to set effective goals using the SMART framework: specific, measurable, achievable, realistic, and time-bound. This approach helps you create clear targets and stay accountable.",
+      "summary": "Setting goals gives you focus, drive, and motivation, but vague goals like 'I want to lose weight' aren't enough. The SMART framework helps you create effective goals by making them specific (10 pounds of body fat, not just 'weight'), measurable (trackable progress), achievable (others have done it and you have the resources), realistic (five kilos in six weeks, not 25), and time-bound (with a clear deadline). A complete SMART goal might be: 'I want to lose four kilos of body fat in the next two months by working out four to five times a week and tracking my calories to stay in a deficit.'",
+      "keyTakeaways": [
+        "Make your goals specific rather than broad—instead of 'get stronger', aim for 'squat twice my body weight' or 'do 15 push-ups'",
+        "Ensure your goal is measurable so you can track progress, such as losing a specific amount of body fat or increasing reps to a target number",
+        "Check that your goal is achievable by confirming others have done it and you have the necessary resources",
+        "Be realistic with your timeframes—losing five kilos in six weeks is realistic, but 25 kilos isn't",
+        "Set a clear deadline to keep yourself accountable, whether it's two weeks, 90 days, six months, or a year"
+      ],
+      "transcriptChars": 2983,
+      "descriptionWasEmpty": true,
+      "wrote": false
+    },
+    {
+      "id": 438,
+      "title": "Sleep Optimisation Tips",
+      "playbackId": "Xmb00oHDEPeS7x5jzyNJRYmpPOLA02uPRxO6CQUVO7MEg",
+      "description": "Practical strategies to improve both the quantity and quality of your sleep, covering timing, environment, and lifestyle factors that affect how well you rest and recover.",
+      "summary": "Quality sleep isn't just about time in bed—it's about optimising the conditions that help you fall asleep faster and sleep more deeply. This guidance covers six evidence-based strategies: maintaining consistent sleep and wake times to support your circadian rhythm, reducing blue light exposure from screens in the evening, timing exercise appropriately during the day, managing caffeine intake based on your individual sensitivity, creating an ideal sleep environment with attention to temperature and light, and balancing hydration to avoid nighttime disruptions. Together, these approaches can significantly improve your recovery, energy levels, and overall performance.",
+      "keyTakeaways": [
+        "Keep consistent sleep and wake times within a 30-minute window, even at weekends when possible, to strengthen your body's natural circadian rhythm",
+        "Minimise blue light exposure after sunset by using blue light glasses, enabling night shift mode on devices, dimming screens, and avoiding all screens in bed",
+        "Exercise earlier in the day when possible—working out too late (9-10pm) can stimulate your system with adrenaline and make it harder to wind down",
+        "Find your personal caffeine cut-off time through trial and error, as sensitivity varies widely between individuals",
+        "Optimise your bedroom environment: aim for 15-20°C (ideally 18°C), use blackout blinds or shutters, and eliminate light sources like device indicators",
+        "Front-load your fluid intake earlier in the day to stay hydrated whilst reducing nighttime bathroom trips that disrupt sleep quality"
+      ],
+      "transcriptChars": 7291,
+      "descriptionWasEmpty": true,
+      "wrote": false
+    },
+    {
+      "id": 415,
+      "title": "Exercise Selection Isn't Straightforward",
+      "playbackId": "0102BQ800QM6PyyBRTfIYk4Nmf1bxlBATX7edcUnB01REpw",
+      "description": "There are no mandatory exercises for getting fit or strong. Exercise selection should be tailored to your body proportions, mobility, injury history, and experience—not a one-size-fits-all prescription.",
+      "summary": "No single exercise is essential for building strength or fitness. Whilst certain movements may be more effective for specific goals, what matters most is choosing exercises that suit your individual body. Factors like limb length, mobility, injury history, and training experience all influence which variations will work best for you. A good training programme fits around you—not the other way round—and prioritises movements you can perform safely and comfortably over chasing what others insist you 'must' do.",
+      "keyTakeaways": [
+        "No exercise is mandatory—you don't need barbell squats, deadlifts, or bench press to get strong or build muscle if they don't suit your body.",
+        "Body proportions matter: longer limbs typically make pushing movements harder due to increased range of motion, but can be advantageous for deadlifts.",
+        "Choose exercises that match your current mobility—forcing movements beyond your flexibility often leads to poor form and injury risk.",
+        "Injury history should guide your choices: train around pain with suitable variations rather than stopping altogether.",
+        "Beginners should progress gradually through movement patterns before loading a barbell—experience level determines exercise appropriateness.",
+        "Different equipment and angles can train the same movement pattern effectively, so pick what feels comfortable and keeps you pain-free."
+      ],
+      "transcriptChars": 9257,
+      "descriptionWasEmpty": true,
+      "wrote": false
+    },
+    {
+      "id": 396,
+      "title": "Form and Technique Essentials",
+      "playbackId": "01f2qJ3bD01hVHA015AIwaQzc74IfDklN0089Qf9qjlrppo",
+      "description": "Staying safe while training",
+      "summary": "Correct technique isn't optional—it's essential for getting results, building strength, and avoiding injury. Poor form leads to poor outcomes: you'll miss targeting the right muscles, waste time with inefficient movement, and significantly increase your injury risk. The solution is to slow down, master the basics with lighter weights or easier variations, and earn the right to progress. Quality reps always trump quantity, and like riding a bike, once you learn proper technique, it's a skill you'll have for life.",
+      "keyTakeaways": [
+        "Poorly executed reps lead to poor results and a higher risk of injury—it's lose-lose",
+        "You must earn the right to lift heavier by making lighter weights look smooth and technically sound first",
+        "Focus on four to five great reps rather than ten to twelve sloppy ones",
+        "Correct form ensures you're effectively using the targeted muscles; even slight deviations shift emphasis elsewhere",
+        "Resistance training is a skill that takes time to master—some movements need weeks of practice, others just minutes, but both deserve the same respect"
+      ],
+      "transcriptChars": 5902,
+      "descriptionWasEmpty": false,
+      "wrote": false
+    },
+    {
+      "id": 417,
+      "title": "Intro To Insulin",
+      "playbackId": "eHZ6gLYNldGmDP62OTf8uH3my4PMxX02JomeA3hAnZ4c",
+      "description": "An introduction to insulin's role in your body, why insulin resistance matters for long-term health, and practical steps to keep your insulin system working properly.",
+      "summary": "Insulin is a hormone released by your pancreas that acts like a key, unlocking your cells so glucose from carbohydrates can enter and be used for energy or stored for later. When insulin works properly, your blood glucose stays stable and your energy feels consistent. But poor sleep, diet, stress, and inactivity can lead to insulin resistance—a state where your body ignores insulin's signals and your pancreas must work overtime. This increases your risk of high blood glucose, fat storage, energy crashes, and chronic diseases including type 2 diabetes, heart disease, and Alzheimer's. The good news: eating protein and fibre-rich meals, moving regularly (especially after eating), prioritising sleep, managing stress, and strength training all help keep your cells responsive to insulin.",
+      "keyTakeaways": [
+        "Insulin acts like a key that unlocks your cells, allowing glucose to enter and be used for energy or stored for later use",
+        "Insulin resistance occurs when your body stops responding properly to insulin, often due to poor sleep, diet, inactivity, or high stress",
+        "Insulin resistance is linked to type 2 diabetes, heart disease, Alzheimer's, and other chronic diseases",
+        "Eat protein-rich and high-fibre meals to support healthy insulin function",
+        "Move your body regularly, especially after meals, and maintain consistent strength training and cardio",
+        "Prioritise good sleep and manage stress to keep your cells sensitive to insulin"
+      ],
+      "transcriptChars": 3659,
+      "descriptionWasEmpty": true,
+      "wrote": false
+    },
+    {
+      "id": 422,
+      "title": "Why Planning Is Crucial For Your Protein Goals",
+      "playbackId": "ByAFsQYdw02LcYBglvE8bAqlDHREQO28kZ62tg5ROrIw",
+      "description": "Practical guidance on meeting your daily protein targets through planning and consistency. Designed for anyone who finds it challenging to eat enough protein for muscle building, fat loss, or general health.",
+      "summary": "Most people struggle to get enough protein in their diet, not because it's impossible, but because it requires planning. This session walks through real examples showing how different meal structures—from no planning to multiple protein-rich meals and snacks—dramatically affect whether you hit your targets. You'll see sample protein ranges for different body weights and goals, learn why spreading protein across the day matters for muscle building, and discover practical food options and supplements that make consistent intake achievable.",
+      "keyTakeaways": [
+        "Without planning, you'll likely fall far short of your protein target—sometimes by 60% or more",
+        "Aim for 1.3–2 grams of protein per kilogram of body weight, depending on your goals and training intensity",
+        "Spreading protein across multiple meals and snacks throughout the day supports better muscle building and recovery than one or two large servings",
+        "You don't need to hit your target perfectly from day one—build up gradually over several weeks to make it sustainable",
+        "Protein supplements like shakes and bars aren't essential, but they make hitting your numbers significantly easier",
+        "Focus on complete protein sources (meat, fish, eggs, Greek yoghurt, cottage cheese) rather than relying on nuts and seeds, which are calorie-dense and incomplete"
+      ],
+      "transcriptChars": 20266,
+      "descriptionWasEmpty": true,
+      "wrote": false
+    },
+    {
+      "id": 442,
+      "title": "Understanding The True Impact Of Stress",
+      "playbackId": "K2kYeEVBCcWXxTEB9Q9CTF68NvXrleHGx6uROHuQUMU",
+      "description": "An explanation of how chronic stress affects your body through elevated cortisol, disrupts sleep, and creates a cycle that impacts health. Includes practical starting points for managing stress more effectively.",
+      "summary": "Stress is particularly common amongst entrepreneurs, with 45% reporting high stress levels and over a third experiencing burnout. The primary culprit is cortisol, your body's stress hormone, which once helped with survival but now responds to emails, traffic, and deadlines. When chronically elevated, cortisol leads to weight gain, fatigue, sleep problems, anxiety, and brain fog. It also disrupts your sleep by interfering with melatonin, creating a vicious cycle where poor sleep raises cortisol further. The goal isn't to eliminate stress entirely, but to manage it properly so it doesn't consume you.",
+      "keyTakeaways": [
+        "Chronic stress keeps cortisol constantly elevated, leading to fat gain, fatigue, sleep issues, anxiety, high blood pressure, and brain fog",
+        "High cortisol blocks melatonin production at night, preventing your brain from switching off and creating a cycle where poor sleep raises cortisol even more",
+        "Journal with pen and paper to help process stress",
+        "Maintain consistent sleep and wake times to support your cortisol-melatonin rhythm",
+        "Consider supplementing with omega-3 and magnesium",
+        "Take five minutes daily to focus on your breath and disconnect"
+      ],
+      "transcriptChars": 4146,
+      "descriptionWasEmpty": true,
+      "wrote": false
+    },
+    {
+      "id": 423,
+      "title": "The Basics of Hydration",
+      "playbackId": "UZj02pC02F4jzA4OSsIGgIXE7yWO5n4vjsub28LLbqclo",
+      "description": "A straightforward guide to staying properly hydrated for health and performance. Covers how much water you need, signs of dehydration, and practical strategies to maintain hydration throughout the day.",
+      "summary": "Hydration is essential for keeping you alive and performing well, but there's no need to overcomplicate it. Whilst the 8×8 rule (eight 8-ounce glasses daily) is a reasonable guideline, individual needs vary—the simplest approach is to drink when you're thirsty. Even mild dehydration of 1–2% body water can affect performance, and beyond that you may experience headaches, fatigue, dizziness, and increased injury risk. Practical habits like keeping a bottle with you, drinking with meals, and hydrating before, during, and after exercise will keep you on track.",
+      "keyTakeaways": [
+        "Drink when you're thirsty—most people don't need to overthink hydration beyond listening to their body",
+        "Performance begins to suffer at just 1–2% body water loss, well before you feel very thirsty",
+        "Dehydration beyond 2% can cause headaches, fatigue, dizziness, nausea, cramping, and higher injury risk",
+        "Keep a water bottle with you, drink with meals, and hydrate before, during, and after exercise",
+        "If you don't enjoy plain water, try sugar-free flavourings or sparkling water—fruits, vegetables, soups, and herbal teas also contribute to hydration",
+        "Electrolytes can help maintain hydration levels and support performance, particularly first thing in the morning or during training"
+      ],
+      "transcriptChars": 3428,
+      "descriptionWasEmpty": true,
+      "wrote": false
+    },
+    {
+      "id": 444,
+      "title": "How Much Sleep Do You Need?",
+      "playbackId": "301c1kCOsb92w7MbSf3TluNc5LTCkazmTt7xXsbacTfA",
+      "description": "Explores how much sleep you actually need and why individual requirements vary. Covers sleep debt, recovery needs, and how to gauge whether you're getting enough rest.",
+      "summary": "Whilst eight hours has long been considered the gold standard, sleep needs vary from person to person based on factors like stress, physical activity, and previous night's rest. A good baseline to aim for is seven hours of actual sleep per night—bearing in mind that time in bed doesn't equal time asleep due to disturbances. Insufficient sleep creates sleep debt, which accumulates and requires extra rest to recover. Tracking your sleep and paying attention to how you feel and recover can help you determine your individual needs.",
+      "keyTakeaways": [
+        "Aim for at least seven hours of actual sleep per night as a consistent baseline",
+        "Time in bed isn't the same as time asleep—disturbances can reduce your actual sleep by an hour or more",
+        "Sleep debt accumulates when you don't get enough rest and must be repaid with extra sleep",
+        "Hard training sessions or events increase your body's sleep requirements that night",
+        "If you're waking up exhausted or not recovering well between workouts, you're likely not getting enough sleep",
+        "Sleep trackers can help you monitor your needs based on daily exertion, and naps during the day can reduce your sleep requirement that night"
+      ],
+      "transcriptChars": 3236,
+      "descriptionWasEmpty": true,
+      "wrote": false
+    },
+    {
+      "id": 407,
+      "title": "Using RPE",
+      "playbackId": "q7h6vinOFtbGpCBTnFzBjDC3O7Y3cOXeaQUAqPXEkpQ",
+      "description": "old deprecated table\nold deprecated table",
+      "summary": "Most people mistakenly believe every workout should leave them completely exhausted, but this approach actually hinders progress and increases injury risk. The key is matching intensity to how recovered you feel—training hard on a fatigued body, especially if you've been training less than one to two years, is a fast track to injury. Using RPE (rate of perceived exertion) on a scale of one to ten helps you gauge effort properly: not every set needs to be a ten, and failure should be reserved for key lifts at key moments. Training to complete exhaustion every session will fry your nervous system, damage your sleep, and drain your motivation for life outside the gym.",
+      "keyTakeaways": [
+        "Match workout intensity to how recovered your body feels—if you're fatigued, stressed, or poorly slept, dial down the intensity accordingly",
+        "Use RPE (rate of perceived exertion) on a 1-10 scale to gauge effort: ten means absolute failure, nine means one rep left in the tank, eight means two reps left",
+        "In a session with 14-15 sets, only push four to five sets to failure—the rest should be working sets at seven or eight out of ten with reps in reserve",
+        "Training to exhaustion every session damages your central nervous system, worsens sleep quality, and eventually kills motivation",
+        "The goal is longevity and quality of life outside the gym, not destroying yourself multiple times per week"
+      ],
+      "transcriptChars": 4580,
+      "descriptionWasEmpty": false,
+      "wrote": false
+    },
+    {
+      "id": 408,
+      "title": "Do You Have To Stretch Before Workouts?",
+      "playbackId": "GJ5OoA47HsmzWoJdrt6c02D5mcJlUbe9JEIUo00hn9ins",
+      "description": "Stretching before workouts has long been debated in fitness circles. This explores what recent research says about stretching's impact on strength and performance, and when it makes sense to include it in your routine.",
+      "summary": "The evidence suggests stretching won't harm your strength gains, though static stretching before training may have a small negative effect that's not meaningful for most people. You don't need to stretch before exercise to prevent injury, but dynamic stretching as part of a proper warm-up can improve your movement quality and performance. Static stretches are best saved for after your workout or done separately, unless you're using them strategically to address specific mobility limitations.",
+      "keyTakeaways": [
+        "Stretching before workouts won't significantly harm your strength, though static stretching may have a trivial negative effect if you're focused on maximal strength gains",
+        "You don't have to stretch before exercise, and stretching alone won't prevent injuries",
+        "Dynamic stretching as part of your warm-up can improve range of motion and help you perform better during your session",
+        "Static stretches are better placed at the end of your workout or in separate sessions entirely",
+        "Strategic use of static stretching before training can help address specific mobility issues that limit your technique, such as tight calves affecting ankle mobility during squats"
+      ],
+      "transcriptChars": 8240,
+      "descriptionWasEmpty": true,
+      "wrote": false
+    },
+    {
+      "id": 445,
+      "title": "What Is NEAT?",
+      "playbackId": "HgA4kLwutez4lINVwVff1Ic02jzjUpFC7k029rjtCSflc",
+      "description": "NEAT (non-exercise activity thermogenesis) explains why some people stay slim more easily than others. Learn how everyday movements outside of formal exercise impact your calorie burn and body composition.",
+      "summary": "NEAT stands for non-exercise activity thermogenesis – the energy you burn through all daily activities outside of sleeping, eating, and planned exercise. This includes standing, walking, fidgeting, gardening, and even typing. NEAT accounts for roughly 10–15% of your total daily energy expenditure and varies significantly between individuals depending on lifestyle and occupation. The good news is that anyone can increase their NEAT through simple changes like taking the stairs, standing regularly, or walking during breaks – no gym required.",
+      "keyTakeaways": [
+        "NEAT is the energy you expend through all activities that aren't sleeping, eating, or formal exercise, and it can account for 10–15% of your total daily energy expenditure",
+        "People with more physical jobs or who naturally move more throughout the day have higher NEAT levels, whilst those with sedentary desk jobs typically have lower NEAT",
+        "Small movements throughout the day – standing, walking, fidgeting – add up to make a significant difference in overall calorie burn",
+        "Increase your NEAT by taking the stairs, setting hourly reminders to stand and move, walking during phone calls, parking further away, or using a standing desk",
+        "Boosting NEAT doesn't require hours in the gym; consistent small changes to daily movement patterns can positively impact body composition"
+      ],
+      "transcriptChars": 2890,
+      "descriptionWasEmpty": true,
+      "wrote": false
+    },
+    {
+      "id": 411,
+      "title": "Do You Have To Push Sets To Failure?",
+      "playbackId": "tHvLSIJADJHwTktl2F600HUM7t9uxM00zH88yBt8Tg02yc",
+      "description": "Training to failure on every set can hinder progress and increase injury risk. This guide explains when and where to use failure strategically for better results and recovery.",
+      "summary": "Pushing every set to absolute failure creates more fatigue than muscle growth, compromising your recovery and raising injury risk. Most working sets should stop with one to three reps in reserve—still intense, but strategic rather than reckless. Isolation exercises like bicep curls and leg extensions are safer to take to failure because they're less technically demanding and don't tax your nervous system as heavily. Compound lifts like squats, deadlifts, and bench press require multiple muscle groups and serious coordination, so taking them to failure when fatigued is where form breaks down and injuries happen.",
+      "keyTakeaways": [
+        "Training to failure means you physically cannot complete another rep with good technique, not just feeling mentally tired or compensating with poor form",
+        "Most working sets should finish with one to three reps left in reserve—this is still hard training, just strategic rather than reckless",
+        "In a session with 15 total sets, only four or five should approach failure",
+        "Isolation exercises (bicep curls, leg extensions, lateral raises, calf raises) are safer to take to failure because they're simpler and less demanding on your nervous system",
+        "Compound lifts (squats, deadlifts, bench press, lunges) shouldn't regularly be taken to failure, especially if you have less than one to two years of lifting experience",
+        "Train to stimulate, not annihilate—use failure like a scalpel for specific movements and moments, not as a blanket approach"
+      ],
+      "transcriptChars": 4068,
+      "descriptionWasEmpty": true,
+      "wrote": false
+    },
+    {
+      "id": 433,
+      "title": "How To Overcome Your Self-Limiting Beliefs",
+      "playbackId": "nbuIC87zjnVBkd9L02z6XG7iCuTQ00aXHNQ9ub6UiUMnw",
+      "description": "Self-limiting beliefs can sabotage your health goals before you even start. This guide walks you through a practical seven-step process to identify, challenge, and replace the beliefs holding you back.",
+      "summary": "Self-limiting beliefs are the internal stories that keep you playing small—thoughts like 'I'm not built for success' or 'I've never been athletic'. Everyone has them, and the bigger ones will quietly drag you down if left unchecked. Rather than ignoring these beliefs, you need to actively work through them using a seven-step process: identify the belief, challenge it with evidence, replace it with something believable, shift your self-talk, rewire through small wins, surround yourself with support, and keep revisiting the work. Your mindset directly shapes your actions, so no amount of perfect training or nutrition will work if your mind doesn't believe you can succeed.",
+      "keyTakeaways": [
+        "Catch self-limiting thoughts as they appear and write them down, then trace them back to their source—whether a past failure, someone's comment, or childhood experience",
+        "Challenge beliefs by listing evidence that proves them wrong, then replace them with believable alternatives you can back up with real examples",
+        "Build self-efficacy through small, stackable wins—show up for workouts, go to bed on time, take action rather than just talking about change",
+        "Create a mantra and repeat it daily until it becomes part of your subconscious, even if positive self-talk feels uncomfortable at first",
+        "Your environment and the people around you matter enormously—surround yourself with those who believe in you",
+        "This is ongoing work, not a one-time fix; revisit the process of identifying, challenging, and replacing beliefs whenever doubt returns"
+      ],
+      "transcriptChars": 8695,
+      "descriptionWasEmpty": true,
+      "wrote": false
+    },
+    {
+      "id": 412,
+      "title": "Different Types of Stretching",
+      "playbackId": "DYT13cajeVusHXxLvxAWF6hdycVKr1hmebRzDrrrpP00",
+      "description": "An overview of static and dynamic stretching, explaining when to use each type and how they support your training goals.",
+      "summary": "There are two main types of stretching you'll encounter: static and dynamic. Static stretching involves holding a muscle at a point of tension passively, typically at the end of workouts or as part of corrective strategies, with holds ranging from 30 seconds to several minutes. Dynamic stretching is movement-based and best suited for warm-ups, taking your body through different motions to increase mobility and prepare the specific muscles you'll be using in your session ahead.",
+      "keyTakeaways": [
+        "Static stretches are held passively at a point of tension and work best at the end of workouts or in separate sessions",
+        "Holding a static stretch for 2 minutes or longer produces the greatest positive change in muscle length",
+        "Actively contracting the opposite muscle to the one you're stretching intensifies the stretch (e.g. squeezing your glute during a hip flexor stretch)",
+        "Dynamic stretches are movement-based and should make up the majority of your pre-workout stretching routine",
+        "Choose dynamic stretches that lengthen the muscles you'll be training and ideally resemble the movements in your upcoming session"
+      ],
+      "transcriptChars": 4085,
+      "descriptionWasEmpty": true,
+      "wrote": false
+    },
+    {
+      "id": 427,
+      "title": "Automatic Nutrition",
+      "playbackId": "xBphe02Dd5IwDMW02EZsSfTmdynC2p2300KOBB1lTpitMo",
+      "description": "A framework for making healthy food choices automatically, without needing to track calories forever. Designed for members who want to maintain results long-term without constant measuring and logging.",
+      "summary": "Automatic nutrition is about building the knowledge and habits to make high-quality food decisions without relying on calorie tracking indefinitely. The approach unfolds in three phases: attention (gaining awareness through tracking), integration (adapting new eating patterns into daily life), and automatic (maintaining results without constant tracking). Key principles include understanding hunger signals, recognising high versus low-quality foods, gauging your own progress, and slowly tapering off tracking only after you've sustained your results for a period of time.",
+      "keyTakeaways": [
+        "Transition away from tracking slowly—taper from seven days a week down to five, then three, monitoring your progress at each stage to ensure results hold steady",
+        "Learn to distinguish true hunger from boredom, dehydration, or stress, and know which foods keep you satisfied versus those that don't",
+        "Automatic nutrition principles work best after you've achieved your goal and maintained it for a while, not at the start of your journey",
+        "Overestimate calories when eating out by roughly 20% to account for chefs' liberal use of butter, oils, and cream",
+        "If you have one poor-quality meal, never follow it immediately with another—break the chain to avoid a slippery slope",
+        "Build your nutritional knowledge by guessing the calories in a meal first, then checking it against a tracker to test your awareness"
+      ],
+      "transcriptChars": 23528,
+      "descriptionWasEmpty": true,
+      "wrote": false
+    },
+    {
+      "id": 405,
+      "title": "Create An Impactful Wind-Down Routine",
+      "playbackId": "Qzj2IlUu61kGL84Ph2l201ucdqV52sPdO9tPYROPpLhs",
+      "description": "Step-by-step guide to an effective pre-sleep routine",
+      "summary": "Lying in bed exhausted but wired is a sign you need a wind-down routine. Your brain can't switch off instantly after going full speed all day—without a deliberate transition, your body may be ready for sleep whilst your mind stays alert. Just like toddlers benefit from bedtime routines, adults need consistent signals that tell the brain it's time to rest. The key is finding a few simple, calming activities you can do consistently each night, not creating a stressful checklist.",
+      "keyTakeaways": [
+        "Start your wind-down routine 60 to 90 minutes before you want to sleep",
+        "Dim the lights and use warm-toned bulbs; turn on blue light filters on devices or wear blue light glasses if using screens",
+        "Choose one to two calming activities such as reading, journaling, or washing your face—something that signals to your brain that sleep is coming",
+        "Consistency matters most: doing the same routine each night trains your brain to associate these steps with sleep",
+        "Avoid intense exercise too close to bedtime as it can have the opposite effect; stick to light stretching or yoga instead"
+      ],
+      "transcriptChars": 4437,
+      "descriptionWasEmpty": false,
+      "wrote": false
+    },
+    {
+      "id": 434,
+      "title": "How to Integrate Your Health & Fitness Journey Into Your Life by Structuring Your Week",
+      "playbackId": "2ULESH2pQ021TezPOLDwLJ800J02TfZuvgYlkoLvmUnde00",
+      "description": "A practical approach to making health and fitness a true priority by treating it with the same rigour you apply to your professional commitments—using your calendar as the foundation.",
+      "summary": "Many busy professionals struggle to prioritise health and fitness not because they lack motivation, but because they fail to plan for it. If you schedule meetings and deadlines because they matter, your workouts, walks, meal prep, and recovery deserve the same treatment. By actively blocking time in your calendar for every health-related activity—no matter how small—you begin to shift your priorities and build lasting habits. What starts as a necessary discipline eventually becomes automatic, but early on, scheduling everything is essential to drive consistent action.",
+      "keyTakeaways": [
+        "Prioritising your health isn't selfish—it enables you to serve others at a higher level when you're physically and mentally strong",
+        "If something isn't in your calendar, it's unlikely to get done, no matter how important it seems",
+        "Schedule all health-related activities: workouts, walks, meal prep, food shopping, even rest—treat them as non-negotiable appointments",
+        "Use a digital calendar (such as Google Calendar) to gain a clear view of your week and hold yourself accountable",
+        "Over time, scheduling builds habits that become automatic, but at the start of your journey it's a necessary tool to drive action"
+      ],
+      "transcriptChars": 3630,
+      "descriptionWasEmpty": true,
+      "wrote": false
+    },
+    {
+      "id": 432,
+      "title": "How To Overcome The 'All Or Nothing Mindset'",
+      "playbackId": "6h2E4YhmBeRzk67P8yVIYRIJLmoszArUEzSu9fX2qyA",
+      "description": "All-or-nothing thinking is a common cognitive distortion that keeps many people stuck with their health goals. This explores why perfectionism works against you and how to build sustainable progress instead.",
+      "summary": "The all-or-nothing mindset treats everything as perfect or complete failure, with no middle ground. Whilst this single-minded approach can drive success in business or sport, it's destructive for health and fitness because life is unpredictable—full of setbacks, late nights, and unexpected changes. When you believe workouts only count if they're perfect or nutrition must be flawless, every small slip feels catastrophic and kills your momentum. Real, sustainable progress comes from showing up consistently, even at half capacity, rather than waiting for perfect conditions that rarely arrive.",
+      "keyTakeaways": [
+        "Catch yourself using absolute language like 'always', 'never', 'ruined', or 'failed'—these words signal all-or-nothing thinking",
+        "When your original plan can't happen, adjust the target rather than abandoning it entirely (20 minutes at home beats skipping the gym completely)",
+        "Showing up 100% of the time at 50% capacity is far more effective than only showing up when you're at 100%",
+        "Something is always better than nothing when it comes to your health—this is the motto to live by",
+        "The days you perform at 40–50% energy are the ones that create real, sustainable change, not the days you feel perfectly motivated"
+      ],
+      "transcriptChars": 7593,
+      "descriptionWasEmpty": true,
+      "wrote": false
+    },
+    {
+      "id": 348,
+      "title": "The 6 Main Movement Patterns",
+      "playbackId": "X9VFQ01Fxs5onOznA285CZN6KyEIyiyDDrjG8rrc12Tw",
+      "description": "Complete movement literacy",
+      "summary": "While there's no single perfect workout, every smart training plan should include six fundamental movement patterns: hip hinge, squat, lunge, push, pull, and carry. These patterns ensure balanced development and help build a strong, pain-free body that performs well. You don't need to do all six in one session—the best programmes distribute them across your week. Particular attention should be paid to the hip hinge (often skipped despite being crucial) and pulling exercises, which should outnumber pushing movements at a ratio of three to one to maintain shoulder health and proper posture.",
+      "keyTakeaways": [
+        "The hip hinge is the most important movement pattern and often the most neglected—master it with patience to unlock exercises like deadlifts and protect your lower back",
+        "Single-leg work (lunges, split squats, step-ups) is essential for preventing imbalances and injury, especially if you run or play sport",
+        "Pull exercises are the most important upper body movement for shoulder health—aim for a 3:1 ratio of pulling to pushing exercises",
+        "Horizontal pulling (rows) should be prioritised over vertical pulling at a 2:1 ratio for healthy, pain-free shoulders and better posture",
+        "Carries (farmers carries, suitcase carries) are the most overlooked pattern but teach you to stay braced and stable during movement, mirroring real life"
+      ],
+      "transcriptChars": 11946,
+      "descriptionWasEmpty": false,
+      "wrote": false
+    }
+  ]
+}

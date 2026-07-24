@@ -1,0 +1,1348 @@
+{
+  "regions": [
+    {
+      "id": "jaw_tmj",
+      "label": "Jaw / TMJ",
+      "group": "head",
+      "region": "head_neck",
+      "side": null,
+      "position": {
+        "front": { "cx": 100, "cy": 25, "rx": 15, "ry": 8, "type": "ellipse" },
+        "back": { "cx": 100, "cy": 25, "rx": 15, "ry": 8, "type": "ellipse" }
+      },
+      "screeningQuestions": [
+        {
+          "id": "jaw_clicking",
+          "question": "Do you hear clicking or popping when you open your mouth?",
+          "type": "radio",
+          "options": ["Yes", "No", "Sometimes"]
+        },
+        {
+          "id": "jaw_grinding",
+          "question": "Do you grind or clench your teeth, especially at night?",
+          "type": "radio",
+          "options": ["Yes", "No", "Occasionally"]
+        },
+        {
+          "id": "jaw_opening",
+          "question": "Is it difficult or painful to open your mouth wide?",
+          "type": "radio",
+          "options": ["Yes", "No", "Sometimes"]
+        }
+      ],
+      "suggestions": {
+        "stretches": [
+          "Gentle jaw massage (circular motions, 2 minutes)",
+          "Jaw opening exercises (slow, controlled movements)",
+          "Tongue and jaw relaxation techniques"
+        ],
+        "modifications": [
+          "Avoid hard or chewy foods temporarily",
+          "Practice stress reduction techniques",
+          "Use a night guard if grinding teeth"
+        ],
+        "recoveryPlan": [
+          "Week 1-2: Reduce jaw tension, soft diet",
+          "Week 3-4: Gentle jaw mobility exercises",
+          "Week 5-6: Address underlying stress factors"
+        ]
+      }
+    },
+    {
+      "id": "neck",
+      "label": "Neck",
+      "group": "neck",
+      "region": "head_neck",
+      "side": null,
+      "position": {
+        "front": { "cx": 100, "cy": 58, "rx": 15, "ry": 12, "type": "ellipse" },
+        "back": { "cx": 100, "cy": 58, "rx": 15, "ry": 12, "type": "ellipse" }
+      },
+      "screeningQuestions": [
+        {
+          "id": "neck_stiffness",
+          "question": "Does turning your head feel stiff or restricted?",
+          "type": "radio",
+          "options": ["Yes", "No", "Sometimes"]
+        },
+        {
+          "id": "neck_headaches",
+          "question": "Do you get headaches or tension at the base of your skull?",
+          "type": "radio",
+          "options": ["Yes", "No", "Occasionally"]
+        },
+        {
+          "id": "neck_sleep",
+          "question": "Does neck pain affect your sleep?",
+          "type": "radio",
+          "options": ["Yes", "No", "Sometimes"]
+        }
+      ],
+      "suggestions": {
+        "stretches": [
+          "Gentle neck rolls (5 reps each direction)",
+          "Chin tucks (hold 5 seconds, 10 reps)",
+          "Side neck stretches (hold 30 seconds each side)"
+        ],
+        "modifications": [
+          "Reduce overhead pressing movements",
+          "Use lighter weights for upper body exercises",
+          "Focus on posture during desk work"
+        ],
+        "recoveryPlan": [
+          "Week 1-2: Daily gentle stretching, heat therapy",
+          "Week 3-4: Add light resistance exercises",
+          "Week 5-6: Gradually return to full range movements"
+        ]
+      }
+    },
+    {
+      "id": "shoulder_left",
+      "label": "Left Shoulder",
+      "group": "shoulders",
+      "region": "upper_body",
+      "side": "left",
+      "position": {
+        "front": { "cx": 60, "cy": 85, "rx": 18, "ry": 22, "type": "ellipse" },
+        "back": { "cx": 60, "cy": 85, "rx": 18, "ry": 22, "type": "ellipse" }
+      },
+      "screeningQuestions": [
+        {
+          "id": "shoulder_overhead",
+          "question": "Does overhead movement feel tight or painful?",
+          "type": "radio",
+          "options": ["Yes", "No", "Sometimes"]
+        },
+        {
+          "id": "shoulder_pushing",
+          "question": "Do pushing movements (like push-ups) hurt?",
+          "type": "radio",
+          "options": ["Yes", "No", "Only heavy weights"]
+        },
+        {
+          "id": "shoulder_clicking",
+          "question": "Do you notice any pinching or clicking?",
+          "type": "radio",
+          "options": ["Yes", "No", "Occasionally"]
+        }
+      ],
+      "suggestions": {
+        "stretches": [
+          "Doorway chest stretch (hold 30 seconds)",
+          "Cross-body shoulder stretch (hold 30 seconds each arm)",
+          "Behind-back shoulder stretch (gentle, 30 seconds)"
+        ],
+        "modifications": [
+          "Avoid overhead pressing temporarily",
+          "Use resistance bands instead of weights",
+          "Focus on rear delt strengthening"
+        ],
+        "recoveryPlan": [
+          "Week 1-2: Mobility and gentle stretching",
+          "Week 3-4: Light resistance band exercises",
+          "Week 5-6: Progressive return to overhead movements"
+        ]
+      }
+    },
+    {
+      "id": "shoulder_right",
+      "label": "Right Shoulder",
+      "group": "shoulders",
+      "region": "upper_body",
+      "side": "right",
+      "position": {
+        "front": { "cx": 140, "cy": 85, "rx": 18, "ry": 22, "type": "ellipse" },
+        "back": { "cx": 140, "cy": 85, "rx": 18, "ry": 22, "type": "ellipse" }
+      },
+      "screeningQuestions": [
+        {
+          "id": "shoulder_overhead",
+          "question": "Does overhead movement feel tight or painful?",
+          "type": "radio",
+          "options": ["Yes", "No", "Sometimes"]
+        },
+        {
+          "id": "shoulder_pushing",
+          "question": "Do pushing movements (like push-ups) hurt?",
+          "type": "radio",
+          "options": ["Yes", "No", "Only heavy weights"]
+        },
+        {
+          "id": "shoulder_clicking",
+          "question": "Do you notice any pinching or clicking?",
+          "type": "radio",
+          "options": ["Yes", "No", "Occasionally"]
+        }
+      ],
+      "suggestions": {
+        "stretches": [
+          "Doorway chest stretch (hold 30 seconds)",
+          "Cross-body shoulder stretch (hold 30 seconds each arm)",
+          "Behind-back shoulder stretch (gentle, 30 seconds)"
+        ],
+        "modifications": [
+          "Avoid overhead pressing temporarily",
+          "Use resistance bands instead of weights",
+          "Focus on rear delt strengthening"
+        ],
+        "recoveryPlan": [
+          "Week 1-2: Mobility and gentle stretching",
+          "Week 3-4: Light resistance band exercises",
+          "Week 5-6: Progressive return to overhead movements"
+        ]
+      }
+    },
+    {
+      "id": "chest_pecs",
+      "label": "Chest / Pecs",
+      "group": "chest",
+      "region": "upper_body",
+      "side": null,
+      "position": {
+        "front": { "x": 80, "y": 75, "width": 40, "height": 25, "rx": 8, "type": "rect" },
+        "back": null
+      },
+      "screeningQuestions": [
+        {
+          "id": "chest_tightness",
+          "question": "Do you feel tightness or pulling across your chest?",
+          "type": "radio",
+          "options": ["Yes", "No", "Sometimes"]
+        },
+        {
+          "id": "chest_breathing",
+          "question": "Does deep breathing feel restricted?",
+          "type": "radio",
+          "options": ["Yes", "No", "Occasionally"]
+        },
+        {
+          "id": "chest_posture",
+          "question": "Do you feel rounded shoulders or forward head posture?",
+          "type": "radio",
+          "options": ["Yes", "No", "Sometimes"]
+        }
+      ],
+      "suggestions": {
+        "stretches": [
+          "Doorway chest stretch (hold 30 seconds)",
+          "Wall chest stretch (hold 30 seconds each arm)",
+          "Foam rolling chest muscles (2 minutes)"
+        ],
+        "modifications": [
+          "Reduce bench pressing temporarily",
+          "Focus on rear delt strengthening",
+          "Improve posture during desk work"
+        ],
+        "recoveryPlan": [
+          "Week 1-2: Chest stretching and posture correction",
+          "Week 3-4: Add light resistance exercises",
+          "Week 5-6: Progressive return to pushing movements"
+        ]
+      }
+    },
+    {
+      "id": "upper_back",
+      "label": "Upper Back",
+      "group": "upper_back",
+      "region": "upper_body",
+      "side": null,
+      "position": {
+        "front": null,
+        "back": { "x": 80, "y": 75, "width": 40, "height": 25, "rx": 8, "type": "rect" }
+      },
+      "screeningQuestions": [
+        {
+          "id": "upper_back_posture",
+          "question": "Do you feel rounded shoulders or hunched posture?",
+          "type": "radio",
+          "options": ["Yes", "No", "Sometimes"]
+        },
+        {
+          "id": "upper_back_tension",
+          "question": "Do you experience tension between your shoulder blades?",
+          "type": "radio",
+          "options": ["Yes", "No", "Occasionally"]
+        },
+        {
+          "id": "upper_back_breathing",
+          "question": "Does poor posture affect your breathing?",
+          "type": "radio",
+          "options": ["Yes", "No", "Sometimes"]
+        }
+      ],
+      "suggestions": {
+        "stretches": [
+          "Thoracic spine extensions (10 reps)",
+          "Doorway chest stretches (hold 30 seconds)",
+          "Cat-cow stretches focusing on upper back (10 reps)"
+        ],
+        "modifications": [
+          "Set up ergonomic workstation",
+          "Use posture reminders throughout day",
+          "Strengthen rear deltoids and rhomboids"
+        ],
+        "recoveryPlan": [
+          "Week 1-2: Improve mobility and posture awareness",
+          "Week 3-4: Strengthen postural muscles",
+          "Week 5-6: Integrate healthy movement habits"
+        ]
+      }
+    },
+    {
+      "id": "mid_back",
+      "label": "Mid Back / Thoracic",
+      "group": "mid_back",
+      "region": "upper_body",
+      "side": null,
+      "position": {
+        "front": { "x": 82, "y": 105, "width": 36, "height": 20, "rx": 6, "type": "rect" },
+        "back": { "x": 82, "y": 105, "width": 36, "height": 20, "rx": 6, "type": "rect" }
+      },
+      "screeningQuestions": [
+        {
+          "id": "mid_back_rotation",
+          "question": "Do you feel stiffness when twisting or rotating your torso?",
+          "type": "radio",
+          "options": ["Yes", "No", "Sometimes"]
+        },
+        {
+          "id": "mid_back_posture",
+          "question": "Does prolonged sitting cause mid-back aching?",
+          "type": "radio",
+          "options": ["Yes", "No", "Occasionally"]
+        },
+        {
+          "id": "mid_back_breathing",
+          "question": "Do you feel restricted when taking deep breaths?",
+          "type": "radio",
+          "options": ["Yes", "No", "Sometimes"]
+        }
+      ],
+      "suggestions": {
+        "stretches": [
+          "Thoracic spine rotation (10 reps each side)",
+          "Cat-cow focusing on mid-back (10 reps)",
+          "Doorway chest stretch (hold 30 seconds)"
+        ],
+        "modifications": [
+          "Improve workstation ergonomics",
+          "Take movement breaks every 30 minutes",
+          "Focus on thoracic mobility exercises"
+        ],
+        "recoveryPlan": [
+          "Week 1-2: Improve thoracic mobility",
+          "Week 3-4: Strengthen postural muscles",
+          "Week 5-6: Integrate healthy movement patterns"
+        ]
+      }
+    },
+    {
+      "id": "lower_back",
+      "label": "Lower Back",
+      "group": "lower_back",
+      "region": "core",
+      "side": null,
+      "position": {
+        "front": { "x": 82, "y": 130, "width": 36, "height": 20, "rx": 6, "type": "rect" },
+        "back": { "x": 82, "y": 130, "width": 36, "height": 20, "rx": 6, "type": "rect" }
+      },
+      "screeningQuestions": [
+        {
+          "id": "back_sitting",
+          "question": "Does sitting for long periods make it worse?",
+          "type": "radio",
+          "options": ["Yes", "No", "Sometimes"]
+        },
+        {
+          "id": "back_bending",
+          "question": "Is bending forward or lifting painful?",
+          "type": "radio",
+          "options": ["Yes", "No", "Only heavy items"]
+        },
+        {
+          "id": "back_morning",
+          "question": "Do you feel stiff when you first wake up?",
+          "type": "radio",
+          "options": ["Yes", "No", "Sometimes"]
+        }
+      ],
+      "suggestions": {
+        "stretches": [
+          "Cat-cow stretch (10 reps)",
+          "Knee-to-chest stretch (hold 30 seconds each leg)",
+          "Child's pose (hold 60 seconds)"
+        ],
+        "modifications": [
+          "Avoid heavy deadlifts and squats temporarily",
+          "Use lighter weights for bent-over exercises",
+          "Focus on core strengthening"
+        ],
+        "recoveryPlan": [
+          "Week 1-2: Gentle mobility, walking, avoid aggravating movements",
+          "Week 3-4: Add core strengthening, light resistance",
+          "Week 5-6: Gradually reintroduce compound movements"
+        ]
+      }
+    },
+    {
+      "id": "elbow_left",
+      "label": "Left Elbow",
+      "group": "elbows",
+      "region": "upper_body",
+      "side": "left",
+      "position": {
+        "front": { "cx": 35, "cy": 110, "rx": 8, "ry": 10, "type": "ellipse" },
+        "back": { "cx": 35, "cy": 110, "rx": 8, "ry": 10, "type": "ellipse" }
+      },
+      "screeningQuestions": [
+        {
+          "id": "elbow_gripping",
+          "question": "Does gripping or holding objects cause elbow pain?",
+          "type": "radio",
+          "options": ["Yes", "No", "With heavy objects"]
+        },
+        {
+          "id": "elbow_tennis",
+          "question": "Do you feel pain on the outside of your elbow (tennis elbow)?",
+          "type": "radio",
+          "options": ["Yes", "No", "Sometimes"]
+        },
+        {
+          "id": "elbow_golfer",
+          "question": "Do you feel pain on the inside of your elbow (golfer's elbow)?",
+          "type": "radio",
+          "options": ["Yes", "No", "Sometimes"]
+        }
+      ],
+      "suggestions": {
+        "stretches": [
+          "Wrist extensor stretch (hold 30 seconds each arm)",
+          "Wrist flexor stretch (hold 30 seconds each arm)",
+          "Gentle elbow range of motion exercises"
+        ],
+        "modifications": [
+          "Reduce gripping exercises temporarily",
+          "Use lighter weights for arm exercises",
+          "Focus on proper grip technique"
+        ],
+        "recoveryPlan": [
+          "Week 1-2: Rest and gentle stretching",
+          "Week 3-4: Light resistance exercises",
+          "Week 5-6: Progressive return to normal activities"
+        ]
+      }
+    },
+    {
+      "id": "elbow_right",
+      "label": "Right Elbow",
+      "group": "elbows",
+      "region": "upper_body",
+      "side": "right",
+      "position": {
+        "front": { "cx": 165, "cy": 110, "rx": 8, "ry": 10, "type": "ellipse" },
+        "back": { "cx": 165, "cy": 110, "rx": 8, "ry": 10, "type": "ellipse" }
+      },
+      "screeningQuestions": [
+        {
+          "id": "elbow_gripping",
+          "question": "Does gripping or holding objects cause elbow pain?",
+          "type": "radio",
+          "options": ["Yes", "No", "With heavy objects"]
+        },
+        {
+          "id": "elbow_tennis",
+          "question": "Do you feel pain on the outside of your elbow (tennis elbow)?",
+          "type": "radio",
+          "options": ["Yes", "No", "Sometimes"]
+        },
+        {
+          "id": "elbow_golfer",
+          "question": "Do you feel pain on the inside of your elbow (golfer's elbow)?",
+          "type": "radio",
+          "options": ["Yes", "No", "Sometimes"]
+        }
+      ],
+      "suggestions": {
+        "stretches": [
+          "Wrist extensor stretch (hold 30 seconds each arm)",
+          "Wrist flexor stretch (hold 30 seconds each arm)",
+          "Gentle elbow range of motion exercises"
+        ],
+        "modifications": [
+          "Reduce gripping exercises temporarily",
+          "Use lighter weights for arm exercises",
+          "Focus on proper grip technique"
+        ],
+        "recoveryPlan": [
+          "Week 1-2: Rest and gentle stretching",
+          "Week 3-4: Light resistance exercises",
+          "Week 5-6: Progressive return to normal activities"
+        ]
+      }
+    },
+    {
+      "id": "wrist_left",
+      "label": "Left Wrist / Forearm",
+      "group": "wrists",
+      "region": "upper_body",
+      "side": "left",
+      "position": {
+        "front": { "cx": 45, "cy": 150, "rx": 6, "ry": 15, "type": "ellipse" },
+        "back": { "cx": 45, "cy": 150, "rx": 6, "ry": 15, "type": "ellipse" }
+      },
+      "screeningQuestions": [
+        {
+          "id": "wrist_typing",
+          "question": "Do your wrists hurt during or after typing/computer work?",
+          "type": "radio",
+          "options": ["Yes", "No", "After long sessions"]
+        },
+        {
+          "id": "wrist_numbness",
+          "question": "Do you experience numbness or tingling in your hands?",
+          "type": "radio",
+          "options": ["Yes", "No", "Sometimes"]
+        },
+        {
+          "id": "wrist_grip",
+          "question": "Is your grip strength weaker than usual?",
+          "type": "radio",
+          "options": ["Yes", "No", "Occasionally"]
+        }
+      ],
+      "suggestions": {
+        "stretches": [
+          "Wrist circles (10 reps each direction)",
+          "Prayer stretch (hold 30 seconds)",
+          "Tendon gliding exercises (10 reps)"
+        ],
+        "modifications": [
+          "Use ergonomic keyboard and mouse",
+          "Take frequent breaks from computer work",
+          "Avoid repetitive gripping activities"
+        ],
+        "recoveryPlan": [
+          "Week 1-2: Rest and ergonomic adjustments",
+          "Week 3-4: Gentle strengthening exercises",
+          "Week 5-6: Return to normal activities with proper technique"
+        ]
+      }
+    },
+    {
+      "id": "wrist_right",
+      "label": "Right Wrist / Forearm",
+      "group": "wrists",
+      "region": "upper_body",
+      "side": "right",
+      "position": {
+        "front": { "cx": 155, "cy": 150, "rx": 6, "ry": 15, "type": "ellipse" },
+        "back": { "cx": 155, "cy": 150, "rx": 6, "ry": 15, "type": "ellipse" }
+      },
+      "screeningQuestions": [
+        {
+          "id": "wrist_typing",
+          "question": "Do your wrists hurt during or after typing/computer work?",
+          "type": "radio",
+          "options": ["Yes", "No", "After long sessions"]
+        },
+        {
+          "id": "wrist_numbness",
+          "question": "Do you experience numbness or tingling in your hands?",
+          "type": "radio",
+          "options": ["Yes", "No", "Sometimes"]
+        },
+        {
+          "id": "wrist_grip",
+          "question": "Is your grip strength weaker than usual?",
+          "type": "radio",
+          "options": ["Yes", "No", "Occasionally"]
+        }
+      ],
+      "suggestions": {
+        "stretches": [
+          "Wrist circles (10 reps each direction)",
+          "Prayer stretch (hold 30 seconds)",
+          "Tendon gliding exercises (10 reps)"
+        ],
+        "modifications": [
+          "Use ergonomic keyboard and mouse",
+          "Take frequent breaks from computer work",
+          "Avoid repetitive gripping activities"
+        ],
+        "recoveryPlan": [
+          "Week 1-2: Rest and ergonomic adjustments",
+          "Week 3-4: Gentle strengthening exercises",
+          "Week 5-6: Return to normal activities with proper technique"
+        ]
+      }
+    },
+    {
+      "id": "hand_left",
+      "label": "Left Hand",
+      "group": "hands",
+      "region": "upper_body",
+      "side": "left",
+      "position": {
+        "front": { "cx": 50, "cy": 170, "rx": 5, "ry": 10, "type": "ellipse" },
+        "back": { "cx": 50, "cy": 170, "rx": 5, "ry": 10, "type": "ellipse" }
+      },
+      "screeningQuestions": [
+        {
+          "id": "hand_stiffness",
+          "question": "Do your fingers feel stiff, especially in the morning?",
+          "type": "radio",
+          "options": ["Yes", "No", "Sometimes"]
+        },
+        {
+          "id": "hand_swelling",
+          "question": "Do your hands or fingers swell during the day?",
+          "type": "radio",
+          "options": ["Yes", "No", "Occasionally"]
+        },
+        {
+          "id": "hand_fine_motor",
+          "question": "Do you have trouble with fine motor tasks like buttoning clothes?",
+          "type": "radio",
+          "options": ["Yes", "No", "Sometimes"]
+        }
+      ],
+      "suggestions": {
+        "stretches": [
+          "Finger stretches and flexion (10 reps each finger)",
+          "Thumb opposition exercises (10 reps each hand)",
+          "Hand and finger massage (2 minutes each hand)"
+        ],
+        "modifications": [
+          "Use adaptive tools for fine motor tasks",
+          "Apply heat before activities",
+          "Take breaks during repetitive hand tasks"
+        ],
+        "recoveryPlan": [
+          "Week 1-2: Reduce inflammation and improve mobility",
+          "Week 3-4: Gentle strengthening exercises",
+          "Week 5-6: Return to normal hand function"
+        ]
+      }
+    },
+    {
+      "id": "hand_right",
+      "label": "Right Hand",
+      "group": "hands",
+      "region": "upper_body",
+      "side": "right",
+      "position": {
+        "front": { "cx": 150, "cy": 170, "rx": 5, "ry": 10, "type": "ellipse" },
+        "back": { "cx": 150, "cy": 170, "rx": 5, "ry": 10, "type": "ellipse" }
+      },
+      "screeningQuestions": [
+        {
+          "id": "hand_stiffness",
+          "question": "Do your fingers feel stiff, especially in the morning?",
+          "type": "radio",
+          "options": ["Yes", "No", "Sometimes"]
+        },
+        {
+          "id": "hand_swelling",
+          "question": "Do your hands or fingers swell during the day?",
+          "type": "radio",
+          "options": ["Yes", "No", "Occasionally"]
+        },
+        {
+          "id": "hand_fine_motor",
+          "question": "Do you have trouble with fine motor tasks like buttoning clothes?",
+          "type": "radio",
+          "options": ["Yes", "No", "Sometimes"]
+        }
+      ],
+      "suggestions": {
+        "stretches": [
+          "Finger stretches and flexion (10 reps each finger)",
+          "Thumb opposition exercises (10 reps each hand)",
+          "Hand and finger massage (2 minutes each hand)"
+        ],
+        "modifications": [
+          "Use adaptive tools for fine motor tasks",
+          "Apply heat before activities",
+          "Take breaks during repetitive hand tasks"
+        ],
+        "recoveryPlan": [
+          "Week 1-2: Reduce inflammation and improve mobility",
+          "Week 3-4: Gentle strengthening exercises",
+          "Week 5-6: Return to normal hand function"
+        ]
+      }
+    },
+    {
+      "id": "hip_left",
+      "label": "Left Hip",
+      "group": "hips",
+      "region": "lower_body",
+      "side": "left",
+      "position": {
+        "front": { "cx": 85, "cy": 165, "rx": 15, "ry": 18, "type": "ellipse" },
+        "back": { "cx": 85, "cy": 165, "rx": 15, "ry": 18, "type": "ellipse" }
+      },
+      "screeningQuestions": [
+        {
+          "id": "hip_tightness",
+          "question": "Do your hips feel tight after sitting?",
+          "type": "radio",
+          "options": ["Yes", "No", "Sometimes"]
+        },
+        {
+          "id": "hip_walking",
+          "question": "Do you experience discomfort when walking long distances?",
+          "type": "radio",
+          "options": ["Yes", "No", "Occasionally"]
+        },
+        {
+          "id": "hip_stairs",
+          "question": "Does climbing stairs cause hip discomfort?",
+          "type": "radio",
+          "options": ["Yes", "No", "Sometimes"]
+        }
+      ],
+      "suggestions": {
+        "stretches": [
+          "Hip flexor stretches (hold 30 seconds each leg)",
+          "Pigeon pose (modified, hold 45 seconds each side)",
+          "Figure-4 hip stretches (hold 30 seconds each leg)"
+        ],
+        "modifications": [
+          "Stand and walk regularly during long sitting periods",
+          "Use proper hip hinge technique for lifting",
+          "Focus on hip mobility before workouts"
+        ],
+        "recoveryPlan": [
+          "Week 1-2: Improve hip mobility and reduce tightness",
+          "Week 3-4: Strengthen glutes and hip stabilizers",
+          "Week 5-6: Integrate functional movement patterns"
+        ]
+      }
+    },
+    {
+      "id": "hip_right",
+      "label": "Right Hip",
+      "group": "hips",
+      "region": "lower_body",
+      "side": "right",
+      "position": {
+        "front": { "cx": 115, "cy": 165, "rx": 15, "ry": 18, "type": "ellipse" },
+        "back": { "cx": 115, "cy": 165, "rx": 15, "ry": 18, "type": "ellipse" }
+      },
+      "screeningQuestions": [
+        {
+          "id": "hip_tightness",
+          "question": "Do your hips feel tight after sitting?",
+          "type": "radio",
+          "options": ["Yes", "No", "Sometimes"]
+        },
+        {
+          "id": "hip_walking",
+          "question": "Do you experience discomfort when walking long distances?",
+          "type": "radio",
+          "options": ["Yes", "No", "Occasionally"]
+        },
+        {
+          "id": "hip_stairs",
+          "question": "Does climbing stairs cause hip discomfort?",
+          "type": "radio",
+          "options": ["Yes", "No", "Sometimes"]
+        }
+      ],
+      "suggestions": {
+        "stretches": [
+          "Hip flexor stretches (hold 30 seconds each leg)",
+          "Pigeon pose (modified, hold 45 seconds each side)",
+          "Figure-4 hip stretches (hold 30 seconds each leg)"
+        ],
+        "modifications": [
+          "Stand and walk regularly during long sitting periods",
+          "Use proper hip hinge technique for lifting",
+          "Focus on hip mobility before workouts"
+        ],
+        "recoveryPlan": [
+          "Week 1-2: Improve hip mobility and reduce tightness",
+          "Week 3-4: Strengthen glutes and hip stabilizers",
+          "Week 5-6: Integrate functional movement patterns"
+        ]
+      }
+    },
+    {
+      "id": "glute_left",
+      "label": "Left Glute",
+      "group": "glutes",
+      "region": "lower_body",
+      "side": "left",
+      "position": {
+        "front": null,
+        "back": { "cx": 85, "cy": 175, "rx": 12, "ry": 15, "type": "ellipse" }
+      },
+      "screeningQuestions": [
+        {
+          "id": "glute_sitting",
+          "question": "Do you feel pain or discomfort when sitting for long periods?",
+          "type": "radio",
+          "options": ["Yes", "No", "Sometimes"]
+        },
+        {
+          "id": "glute_stairs",
+          "question": "Do you feel weakness or pain when climbing stairs?",
+          "type": "radio",
+          "options": ["Yes", "No", "Occasionally"]
+        },
+        {
+          "id": "glute_sleeping",
+          "question": "Do you have trouble sleeping on your side due to hip/glute pain?",
+          "type": "radio",
+          "options": ["Yes", "No", "Sometimes"]
+        }
+      ],
+      "suggestions": {
+        "stretches": [
+          "Pigeon pose (hold 45 seconds each side)",
+          "Figure-4 stretch (hold 30 seconds each side)",
+          "Glute bridges (10-15 reps)"
+        ],
+        "modifications": [
+          "Use a standing desk or take frequent breaks",
+          "Add glute activation exercises before workouts",
+          "Focus on single-leg strengthening"
+        ],
+        "recoveryPlan": [
+          "Week 1-2: Improve glute flexibility and reduce tightness",
+          "Week 3-4: Strengthen glutes with targeted exercises",
+          "Week 5-6: Integrate functional movement patterns"
+        ]
+      }
+    },
+    {
+      "id": "glute_right",
+      "label": "Right Glute",
+      "group": "glutes",
+      "region": "lower_body",
+      "side": "right",
+      "position": {
+        "front": null,
+        "back": { "cx": 115, "cy": 175, "rx": 12, "ry": 15, "type": "ellipse" }
+      },
+      "screeningQuestions": [
+        {
+          "id": "glute_sitting",
+          "question": "Do you feel pain or discomfort when sitting for long periods?",
+          "type": "radio",
+          "options": ["Yes", "No", "Sometimes"]
+        },
+        {
+          "id": "glute_stairs",
+          "question": "Do you feel weakness or pain when climbing stairs?",
+          "type": "radio",
+          "options": ["Yes", "No", "Occasionally"]
+        },
+        {
+          "id": "glute_sleeping",
+          "question": "Do you have trouble sleeping on your side due to hip/glute pain?",
+          "type": "radio",
+          "options": ["Yes", "No", "Sometimes"]
+        }
+      ],
+      "suggestions": {
+        "stretches": [
+          "Pigeon pose (hold 45 seconds each side)",
+          "Figure-4 stretch (hold 30 seconds each side)",
+          "Glute bridges (10-15 reps)"
+        ],
+        "modifications": [
+          "Use a standing desk or take frequent breaks",
+          "Add glute activation exercises before workouts",
+          "Focus on single-leg strengthening"
+        ],
+        "recoveryPlan": [
+          "Week 1-2: Improve glute flexibility and reduce tightness",
+          "Week 3-4: Strengthen glutes with targeted exercises",
+          "Week 5-6: Integrate functional movement patterns"
+        ]
+      }
+    },
+    {
+      "id": "quad_left",
+      "label": "Left Quad",
+      "group": "quads",
+      "region": "lower_body",
+      "side": "left",
+      "position": {
+        "front": { "cx": 85, "cy": 200, "rx": 10, "ry": 25, "type": "ellipse" },
+        "back": null
+      },
+      "screeningQuestions": [
+        {
+          "id": "quad_stairs",
+          "question": "Do your quads feel fatigued or painful when going up stairs?",
+          "type": "radio",
+          "options": ["Yes", "No", "Sometimes"]
+        },
+        {
+          "id": "quad_squatting",
+          "question": "Is squatting or getting up from low positions difficult?",
+          "type": "radio",
+          "options": ["Yes", "No", "Occasionally"]
+        },
+        {
+          "id": "quad_running",
+          "question": "Do you feel quad tightness during or after physical activity?",
+          "type": "radio",
+          "options": ["Yes", "No", "Sometimes"]
+        }
+      ],
+      "suggestions": {
+        "stretches": [
+          "Standing quad stretch (hold 30 seconds each leg)",
+          "Couch stretch (hold 45 seconds each leg)",
+          "Foam rolling quads (2 minutes each leg)"
+        ],
+        "modifications": [
+          "Reduce squat depth temporarily",
+          "Use bodyweight or lighter resistance",
+          "Focus on eccentric strengthening"
+        ],
+        "recoveryPlan": [
+          "Week 1-2: Stretching and mobility work",
+          "Week 3-4: Progressive strengthening exercises",
+          "Week 5-6: Return to full squatting and jumping activities"
+        ]
+      }
+    },
+    {
+      "id": "quad_right",
+      "label": "Right Quad",
+      "group": "quads",
+      "region": "lower_body",
+      "side": "right",
+      "position": {
+        "front": { "cx": 115, "cy": 200, "rx": 10, "ry": 25, "type": "ellipse" },
+        "back": null
+      },
+      "screeningQuestions": [
+        {
+          "id": "quad_stairs",
+          "question": "Do your quads feel fatigued or painful when going up stairs?",
+          "type": "radio",
+          "options": ["Yes", "No", "Sometimes"]
+        },
+        {
+          "id": "quad_squatting",
+          "question": "Is squatting or getting up from low positions difficult?",
+          "type": "radio",
+          "options": ["Yes", "No", "Occasionally"]
+        },
+        {
+          "id": "quad_running",
+          "question": "Do you feel quad tightness during or after physical activity?",
+          "type": "radio",
+          "options": ["Yes", "No", "Sometimes"]
+        }
+      ],
+      "suggestions": {
+        "stretches": [
+          "Standing quad stretch (hold 30 seconds each leg)",
+          "Couch stretch (hold 45 seconds each leg)",
+          "Foam rolling quads (2 minutes each leg)"
+        ],
+        "modifications": [
+          "Reduce squat depth temporarily",
+          "Use bodyweight or lighter resistance",
+          "Focus on eccentric strengthening"
+        ],
+        "recoveryPlan": [
+          "Week 1-2: Stretching and mobility work",
+          "Week 3-4: Progressive strengthening exercises",
+          "Week 5-6: Return to full squatting and jumping activities"
+        ]
+      }
+    },
+    {
+      "id": "hamstring_left",
+      "label": "Left Hamstring",
+      "group": "hamstrings",
+      "region": "lower_body",
+      "side": "left",
+      "position": {
+        "front": null,
+        "back": { "cx": 85, "cy": 200, "rx": 10, "ry": 25, "type": "ellipse" }
+      },
+      "screeningQuestions": [
+        {
+          "id": "hamstring_tight",
+          "question": "Do your hamstrings feel tight when bending forward?",
+          "type": "radio",
+          "options": ["Yes", "No", "Sometimes"]
+        },
+        {
+          "id": "hamstring_sitting",
+          "question": "Does prolonged sitting make your hamstrings feel tight?",
+          "type": "radio",
+          "options": ["Yes", "No", "Occasionally"]
+        },
+        {
+          "id": "hamstring_walking",
+          "question": "Do you feel pulling or discomfort when walking uphill?",
+          "type": "radio",
+          "options": ["Yes", "No", "Sometimes"]
+        }
+      ],
+      "suggestions": {
+        "stretches": [
+          "Standing hamstring stretch (hold 30 seconds each leg)",
+          "Lying hamstring stretch (hold 30 seconds each leg)",
+          "Seated forward fold (hold 45 seconds)"
+        ],
+        "modifications": [
+          "Reduce running or high-intensity leg exercises",
+          "Focus on gradual stretching progression",
+          "Strengthen glutes to support hamstrings"
+        ],
+        "recoveryPlan": [
+          "Week 1-2: Gentle stretching and mobility work",
+          "Week 3-4: Progressive strengthening exercises",
+          "Week 5-6: Return to full activity with proper warm-up"
+        ]
+      }
+    },
+    {
+      "id": "hamstring_right",
+      "label": "Right Hamstring",
+      "group": "hamstrings",
+      "region": "lower_body",
+      "side": "right",
+      "position": {
+        "front": null,
+        "back": { "cx": 115, "cy": 200, "rx": 10, "ry": 25, "type": "ellipse" }
+      },
+      "screeningQuestions": [
+        {
+          "id": "hamstring_tight",
+          "question": "Do your hamstrings feel tight when bending forward?",
+          "type": "radio",
+          "options": ["Yes", "No", "Sometimes"]
+        },
+        {
+          "id": "hamstring_sitting",
+          "question": "Does prolonged sitting make your hamstrings feel tight?",
+          "type": "radio",
+          "options": ["Yes", "No", "Occasionally"]
+        },
+        {
+          "id": "hamstring_walking",
+          "question": "Do you feel pulling or discomfort when walking uphill?",
+          "type": "radio",
+          "options": ["Yes", "No", "Sometimes"]
+        }
+      ],
+      "suggestions": {
+        "stretches": [
+          "Standing hamstring stretch (hold 30 seconds each leg)",
+          "Lying hamstring stretch (hold 30 seconds each leg)",
+          "Seated forward fold (hold 45 seconds)"
+        ],
+        "modifications": [
+          "Reduce running or high-intensity leg exercises",
+          "Focus on gradual stretching progression",
+          "Strengthen glutes to support hamstrings"
+        ],
+        "recoveryPlan": [
+          "Week 1-2: Gentle stretching and mobility work",
+          "Week 3-4: Progressive strengthening exercises",
+          "Week 5-6: Return to full activity with proper warm-up"
+        ]
+      }
+    },
+    {
+      "id": "knee_left",
+      "label": "Left Knee",
+      "group": "knees",
+      "region": "lower_body",
+      "side": "left",
+      "position": {
+        "front": { "cx": 85, "cy": 240, "rx": 12, "ry": 12, "type": "ellipse" },
+        "back": { "cx": 85, "cy": 240, "rx": 12, "ry": 12, "type": "ellipse" }
+      },
+      "screeningQuestions": [
+        {
+          "id": "knee_stairs",
+          "question": "Do stairs feel uncomfortable or painful?",
+          "type": "radio",
+          "options": ["Yes", "No", "Going down only"]
+        },
+        {
+          "id": "knee_squatting",
+          "question": "Does squatting or kneeling hurt?",
+          "type": "radio",
+          "options": ["Yes", "No", "Deep squats only"]
+        },
+        {
+          "id": "knee_swelling",
+          "question": "Do you notice any swelling or stiffness?",
+          "type": "radio",
+          "options": ["Yes", "No", "After exercise"]
+        }
+      ],
+      "suggestions": {
+        "stretches": [
+          "Quad stretch (hold 30 seconds each leg)",
+          "Hamstring stretch (hold 30 seconds each leg)",
+          "Calf stretch (hold 30 seconds each leg)"
+        ],
+        "modifications": [
+          "Reduce squat depth temporarily",
+          "Use bodyweight or light resistance",
+          "Focus on single-leg strengthening"
+        ],
+        "recoveryPlan": [
+          "Week 1-2: Ice after activity, gentle range of motion",
+          "Week 3-4: Add strengthening exercises, partial range",
+          "Week 5-6: Progressive return to full squatting"
+        ]
+      }
+    },
+    {
+      "id": "knee_right",
+      "label": "Right Knee",
+      "group": "knees",
+      "region": "lower_body",
+      "side": "right",
+      "position": {
+        "front": { "cx": 115, "cy": 240, "rx": 12, "ry": 12, "type": "ellipse" },
+        "back": { "cx": 115, "cy": 240, "rx": 12, "ry": 12, "type": "ellipse" }
+      },
+      "screeningQuestions": [
+        {
+          "id": "knee_stairs",
+          "question": "Do stairs feel uncomfortable or painful?",
+          "type": "radio",
+          "options": ["Yes", "No", "Going down only"]
+        },
+        {
+          "id": "knee_squatting",
+          "question": "Does squatting or kneeling hurt?",
+          "type": "radio",
+          "options": ["Yes", "No", "Deep squats only"]
+        },
+        {
+          "id": "knee_swelling",
+          "question": "Do you notice any swelling or stiffness?",
+          "type": "radio",
+          "options": ["Yes", "No", "After exercise"]
+        }
+      ],
+      "suggestions": {
+        "stretches": [
+          "Quad stretch (hold 30 seconds each leg)",
+          "Hamstring stretch (hold 30 seconds each leg)",
+          "Calf stretch (hold 30 seconds each leg)"
+        ],
+        "modifications": [
+          "Reduce squat depth temporarily",
+          "Use bodyweight or light resistance",
+          "Focus on single-leg strengthening"
+        ],
+        "recoveryPlan": [
+          "Week 1-2: Ice after activity, gentle range of motion",
+          "Week 3-4: Add strengthening exercises, partial range",
+          "Week 5-6: Progressive return to full squatting"
+        ]
+      }
+    },
+    {
+      "id": "calf_left",
+      "label": "Left Calf",
+      "group": "calves",
+      "region": "lower_body",
+      "side": "left",
+      "position": {
+        "front": { "cx": 85, "cy": 275, "rx": 8, "ry": 20, "type": "ellipse" },
+        "back": { "cx": 85, "cy": 275, "rx": 8, "ry": 20, "type": "ellipse" }
+      },
+      "screeningQuestions": [
+        {
+          "id": "calf_cramps",
+          "question": "Do you experience calf cramps, especially at night?",
+          "type": "radio",
+          "options": ["Yes", "No", "Sometimes"]
+        },
+        {
+          "id": "calf_walking",
+          "question": "Do your calves feel tight or painful when walking?",
+          "type": "radio",
+          "options": ["Yes", "No", "Occasionally"]
+        },
+        {
+          "id": "calf_stretching",
+          "question": "Do your calves feel very tight when stretching?",
+          "type": "radio",
+          "options": ["Yes", "No", "Sometimes"]
+        }
+      ],
+      "suggestions": {
+        "stretches": [
+          "Standing calf stretch against wall (hold 30 seconds each leg)",
+          "Seated calf stretch with towel (hold 30 seconds each leg)",
+          "Downward dog pose (hold 45 seconds)"
+        ],
+        "modifications": [
+          "Gradually increase walking or running distance",
+          "Use proper footwear with heel support",
+          "Stay hydrated and maintain electrolyte balance"
+        ],
+        "recoveryPlan": [
+          "Week 1-2: Gentle stretching and massage",
+          "Week 3-4: Progressive calf strengthening",
+          "Week 5-6: Return to full activity with proper warm-up"
+        ]
+      }
+    },
+    {
+      "id": "calf_right",
+      "label": "Right Calf",
+      "group": "calves",
+      "region": "lower_body",
+      "side": "right",
+      "position": {
+        "front": { "cx": 115, "cy": 275, "rx": 8, "ry": 20, "type": "ellipse" },
+        "back": { "cx": 115, "cy": 275, "rx": 8, "ry": 20, "type": "ellipse" }
+      },
+      "screeningQuestions": [
+        {
+          "id": "calf_cramps",
+          "question": "Do you experience calf cramps, especially at night?",
+          "type": "radio",
+          "options": ["Yes", "No", "Sometimes"]
+        },
+        {
+          "id": "calf_walking",
+          "question": "Do your calves feel tight or painful when walking?",
+          "type": "radio",
+          "options": ["Yes", "No", "Occasionally"]
+        },
+        {
+          "id": "calf_stretching",
+          "question": "Do your calves feel very tight when stretching?",
+          "type": "radio",
+          "options": ["Yes", "No", "Sometimes"]
+        }
+      ],
+      "suggestions": {
+        "stretches": [
+          "Standing calf stretch against wall (hold 30 seconds each leg)",
+          "Seated calf stretch with towel (hold 30 seconds each leg)",
+          "Downward dog pose (hold 45 seconds)"
+        ],
+        "modifications": [
+          "Gradually increase walking or running distance",
+          "Use proper footwear with heel support",
+          "Stay hydrated and maintain electrolyte balance"
+        ],
+        "recoveryPlan": [
+          "Week 1-2: Gentle stretching and massage",
+          "Week 3-4: Progressive calf strengthening",
+          "Week 5-6: Return to full activity with proper warm-up"
+        ]
+      }
+    },
+    {
+      "id": "ankle_left",
+      "label": "Left Ankle & Foot",
+      "group": "ankles",
+      "region": "lower_body",
+      "side": "left",
+      "position": {
+        "front": { "cx": 85, "cy": 310, "rx": 10, "ry": 15, "type": "ellipse" },
+        "back": { "cx": 85, "cy": 310, "rx": 10, "ry": 15, "type": "ellipse" }
+      },
+      "screeningQuestions": [
+        {
+          "id": "ankle_stiffness",
+          "question": "Do your ankles feel stiff in the morning?",
+          "type": "radio",
+          "options": ["Yes", "No", "Sometimes"]
+        },
+        {
+          "id": "foot_pain",
+          "question": "Do you experience foot pain during or after walking?",
+          "type": "radio",
+          "options": ["Yes", "No", "Occasionally"]
+        },
+        {
+          "id": "balance_stability",
+          "question": "Do you feel unstable or have balance concerns?",
+          "type": "radio",
+          "options": ["Yes", "No", "Sometimes"]
+        }
+      ],
+      "suggestions": {
+        "stretches": [
+          "Calf stretches against wall (hold 30 seconds each leg)",
+          "Ankle circles and flexion (10 reps each direction)",
+          "Toe stretches and curls (10 reps each foot)"
+        ],
+        "modifications": [
+          "Wear supportive footwear",
+          "Gradually increase walking distance",
+          "Practice balance exercises daily"
+        ],
+        "recoveryPlan": [
+          "Week 1-2: Reduce inflammation and improve mobility",
+          "Week 3-4: Strengthen foot and ankle muscles",
+          "Week 5-6: Enhance balance and proprioception"
+        ]
+      }
+    },
+    {
+      "id": "ankle_right",
+      "label": "Right Ankle & Foot",
+      "group": "ankles",
+      "region": "lower_body",
+      "side": "right",
+      "position": {
+        "front": { "cx": 115, "cy": 310, "rx": 10, "ry": 15, "type": "ellipse" },
+        "back": { "cx": 115, "cy": 310, "rx": 10, "ry": 15, "type": "ellipse" }
+      },
+      "screeningQuestions": [
+        {
+          "id": "ankle_stiffness",
+          "question": "Do your ankles feel stiff in the morning?",
+          "type": "radio",
+          "options": ["Yes", "No", "Sometimes"]
+        },
+        {
+          "id": "foot_pain",
+          "question": "Do you experience foot pain during or after walking?",
+          "type": "radio",
+          "options": ["Yes", "No", "Occasionally"]
+        },
+        {
+          "id": "balance_stability",
+          "question": "Do you feel unstable or have balance concerns?",
+          "type": "radio",
+          "options": ["Yes", "No", "Sometimes"]
+        }
+      ],
+      "suggestions": {
+        "stretches": [
+          "Calf stretches against wall (hold 30 seconds each leg)",
+          "Ankle circles and flexion (10 reps each direction)",
+          "Toe stretches and curls (10 reps each foot)"
+        ],
+        "modifications": [
+          "Wear supportive footwear",
+          "Gradually increase walking distance",
+          "Practice balance exercises daily"
+        ],
+        "recoveryPlan": [
+          "Week 1-2: Reduce inflammation and improve mobility",
+          "Week 3-4: Strengthen foot and ankle muscles",
+          "Week 5-6: Enhance balance and proprioception"
+        ]
+      }
+    }
+  ]
+}

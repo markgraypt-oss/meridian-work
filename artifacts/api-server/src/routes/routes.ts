@@ -923,19 +923,21 @@ function getRuleBasedRecommendations(intake: any, programs: any[], paths: any[],
 
   let matchedPath = null;
   if (intake.primaryGoal) {
+    // Keyed on the onboarding GOAL_OPTIONS ids (mobile), targeting REAL learning
+    // path categories (training / nutrition / recovery / sleep / stress). The old
+    // map mixed in programme-goal strings ('hypertrophy', 'mobility'…) that no
+    // onboarding goal ever sends, and pointed at 'exercise' (barely used) instead
+    // of 'training' (the main education category), so most goals fell through.
     const goalToCategory: Record<string, string[]> = {
-      'recovery': ['recovery', 'stress'],
-      'general_strength': ['exercise'],
-      'hypertrophy': ['exercise', 'nutrition'],
-      'conditioning': ['exercise'],
-      'mobility': ['recovery', 'exercise'],
-      'weight_loss': ['nutrition', 'exercise'],
-      'recovery_mobility': ['recovery', 'exercise'],
-      'conditioning_endurance': ['exercise'],
-      'pain_management': ['recovery'],
-      'muscle_building': ['exercise', 'nutrition'],
+      general_strength: ['training'],
+      muscle_building: ['training', 'nutrition'],
+      weight_loss: ['nutrition', 'training'],
+      recovery_mobility: ['recovery', 'training'],
+      conditioning: ['training'],
+      pain_management: ['recovery'],
+      active_recovery: ['recovery', 'sleep'],
     };
-    const categories = goalToCategory[intake.primaryGoal] || ['exercise'];
+    const categories = goalToCategory[intake.primaryGoal] || ['training'];
     matchedPath = paths.find(p => categories.includes(p.category)) || paths[0] || null;
   } else {
     matchedPath = paths[0] || null;
@@ -946,7 +948,7 @@ function getRuleBasedRecommendations(intake: any, programs: any[], paths: any[],
     const cat = (h.category || '').toLowerCase();
     if (intake.primaryGoal === 'weight_loss' && (cat.includes('nutrition') || cat.includes('neat'))) score += 5;
     if (intake.primaryGoal === 'general_strength' && cat.includes('daily')) score += 3;
-    if (intake.primaryGoal === 'mobility' && cat.includes('daily')) score += 3;
+    if ((intake.primaryGoal === 'recovery_mobility' || intake.primaryGoal === 'active_recovery') && (cat.includes('daily') || cat.includes('recovery'))) score += 3;
     if (intake.deskBased === 'yes' && (cat.includes('neat') || cat.includes('daily'))) score += 2;
     if (intake.stressLevel === 'high' || intake.stressLevel === 'very high') {
       if (cat.includes('daily') || cat.includes('maintenance')) score += 2;

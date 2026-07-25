@@ -591,9 +591,41 @@ function deriveMovementScreeningFlags(screening: any): {
   };
 }
 
+// Onboarding sends experience as beginner/intermediate/EXPERIENCED, but every
+// programme's `difficulty` uses beginner/intermediate/ADVANCED (schema + admin
+// ProgramForm enum). Without this mapping the exact-match level filter drops
+// every programme for an "experienced" user. Normalise here so matching,
+// validation and event snapshots all speak the programme vocabulary.
+function normalizeExperienceLevel(level: any): string {
+  const v = (level || '').toString().toLowerCase().trim();
+  if (v === 'experienced') return 'advanced';
+  return v;
+}
+
+// Maps the onboarding "primary goal" ids (GOAL_OPTIONS in mobile onboarding.tsx)
+// onto the programme `goal` taxonomy (schema: programs.goal). Used as a SOFT
+// preference in recommendation matching — never a hard filter, so a goal with no
+// dedicated main programme (e.g. weight_loss) still returns level/equipment-fit
+// programmes. Tune these lists freely; they are the goal-personalisation layer.
+const PRIMARY_GOAL_TO_PROGRAMME_GOALS: Record<string, string[]> = {
+  general_strength: ['general_strength', 'max_strength', 'power'],
+  muscle_building: ['hypertrophy', 'muscular_endurance', 'general_strength'],
+  weight_loss: ['conditioning', 'hiit', 'muscular_endurance', 'general_strength'],
+  recovery_mobility: ['mobility', 'mobility_stretching', 'active_recovery', 'recovery', 'yoga'],
+  conditioning: ['conditioning', 'hiit', 'muscular_endurance'],
+  pain_management: ['corrective', 'mobility', 'active_recovery', 'recovery'],
+  active_recovery: ['active_recovery', 'recovery', 'mobility_stretching', 'yoga'],
+};
+
+function mappedProgrammeGoals(primaryGoal: any): string[] {
+  const key = (primaryGoal || '').toString().toLowerCase().trim();
+  return PRIMARY_GOAL_TO_PROGRAMME_GOALS[key] || [];
+}
+
 function buildRecommendationPrompt(intake: any, programs: any[], paths: any[], habits: any[], coachingContext: string = '', successMetrics?: Map<number, { completionRate: number; avgCompletionPercent: number; sampleSize: number }>): string {
+  const goalTargets = mappedProgrammeGoals(intake.primaryGoal);
   const programSummaries = programs.map(p => {
-    let line = `ID:${p.id} "${p.title}" equipment:${p.equipment} difficulty:${p.difficulty} duration:${p.duration}min days/wk:${p.trainingDaysPerWeek} requires:[${(p.requiredEquipment || []).join(',')}]`;
+    let line = `ID:${p.id} "${p.title}" goal:${p.goal} equipment:${p.equipment} difficulty:${p.difficulty} duration:${p.duration}min days/wk:${p.trainingDaysPerWeek} requires:[${(p.requiredEquipment || []).join(',')}]`;
     if (successMetrics) {
       const m = successMetrics.get(p.id);
       if (m && m.sampleSize >= 3) {
@@ -614,6 +646,7 @@ MATCHING RULES (strict priority order):
 4. DURATION (preference): Programme duration per session should fit within the user's available time.
 5. EQUIPMENT ACCESS: "Full gym access" means all equipment is available. Otherwise, check the "requires" list for each programme and only recommend it if the user has access to all required equipment. Do not recommend programmes requiring equipment the user does not have.
 6. SUCCESS DATA: Some programmes include success_data showing completion rates from similar users. Prefer programmes with higher completion rates when other factors are equal. This data improves over time as more users complete programmes.
+7. PRIMARY GOAL (strong preference, NOT a hard filter): The user's primary goal maps to preferred programme "goal" values (listed below). Among programmes that pass the hard filters (environment, level, equipment), strongly prefer those whose "goal" is in the preferred list. Only if none of the level/equipment-appropriate programmes match the goal should you recommend the best remaining fit — never break the environment/level/equipment rules to chase a goal match.
 
 USER TRAINING PARAMETERS:
 - Experience level: ${intake.experienceLevel || 'unknown'}
@@ -621,6 +654,7 @@ USER TRAINING PARAMETERS:
 - Equipment access: ${(intake.equipment || []).join(', ') || 'unknown'}
 - Time per session: ${intake.timeAvailability || 'unknown'}
 - Preferred frequency: ${intake.workoutFrequency || 'unknown'} days/week
+- Primary goal: ${intake.primaryGoal || 'unknown'}${goalTargets.length ? ` (prefer programmes with goal in: ${goalTargets.join(', ')})` : ''}
 ${(() => {
   const screeningFlags = deriveMovementScreeningFlags(intake.movementScreening);
   if (screeningFlags.activeFlags.length === 0) return '';
@@ -774,10 +808,11 @@ function equipmentAccessMatches(userEquipment: string[], programEquipment: strin
 
 function getRuleBasedRecommendations(intake: any, programs: any[], paths: any[], habits: any[], successMetrics?: Map<number, { completionRate: number; avgCompletionPercent: number; sampleSize: number }>): { programs: any[]; path: any; habits: any[] } {
   const env = intake.trainingEnvironment || intake.environment || '';
-  const userLevel = intake.experienceLevel || '';
+  const userLevel = normalizeExperienceLevel(intake.experienceLevel);
   const userFreq = parseInt(intake.workoutFrequency) || 0;
   const userTime = parseTimeAvailability(intake.timeAvailability);
   const userEquipment = intake.equipment || [];
+  const goalTargets = mappedProgrammeGoals(intake.primaryGoal);
 
   let candidates = programs.map(p => {
     let score = 0;
@@ -808,6 +843,13 @@ function getRuleBasedRecommendations(intake: any, programs: any[], paths: any[],
         if (p.duration <= userTime) score += 5;
         else if (p.duration <= userTime + 15) score += 2;
         else score -= 3;
+      }
+
+      // Primary-goal preference (soft): boost programmes whose goal matches the
+      // user's onboarding goal. Weighted below env/level so it never overrides a
+      // hard-filter match, but enough to separate goal-fit programmes at the top.
+      if (goalTargets.length > 0 && p.goal && goalTargets.includes(p.goal)) {
+        score += 9;
       }
 
       // Boost from historical success metrics (feedback loop)
@@ -868,6 +910,7 @@ function getRuleBasedRecommendations(intake: any, programs: any[], paths: any[],
         if (diff <= 1) softScore += 5;
         else if (diff <= 2) softScore += 2;
       }
+      if (goalTargets.length > 0 && c.goal && goalTargets.includes(c.goal)) softScore += 6;
       return { ...c, score: softScore, eliminated: false };
     });
     softCandidates.sort((a, b) => b.score - a.score);
@@ -1361,7 +1404,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
           const enrollment = await storage.enrollUserInProgram(userId, selectedProgramme.id, new Date(), 'main');
           // Log enrolled event for feedback loop
           try {
-            const onboardingIntake = mergedData.coachingIntake || {};
+            // Mobile stores the intake under `coaching` (not `coachingIntake`),
+            // so the old key always yielded an empty snapshot and the
+            // profile-bucketed success metrics could never see enrollments.
+            const onboardingIntake = mergedData.coaching || mergedData.coachingIntake || {};
             await storage.createRecommendationEvent({
               userId,
               programId: selectedProgramme.id,
@@ -1369,7 +1415,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
               source: 'onboarding',
               intakeSnapshot: {
                 trainingEnvironment: onboardingIntake.trainingEnvironment || onboardingIntake.environment,
-                experienceLevel: onboardingIntake.experienceLevel,
+                experienceLevel: normalizeExperienceLevel(onboardingIntake.experienceLevel),
                 frequency: onboardingIntake.workoutFrequency || onboardingIntake.frequency,
                 sessionDuration: onboardingIntake.timeAvailability || onboardingIntake.sessionDuration,
                 equipment: onboardingIntake.equipment,
@@ -1463,6 +1509,29 @@ export async function registerRoutes(app: Express): Promise<Server> {
         }
       }
 
+      // Persist a non-weight goal chosen during onboarding as a real goal record.
+      // Weight-type goals are already handled above via weightGoalData; here we
+      // capture the "custom" goals (functional strength, move better, etc.) that
+      // were previously collected but never saved, so the coach, nutrition and
+      // goals surfaces can all see the user's stated focus.
+      const selectedGoalData = mergedData.recommendations?.selectedGoal || mergedData.selectedGoal;
+      if (!isRedo && selectedGoalData?.title && selectedGoalData.type !== 'bodyweight') {
+        try {
+          await storage.createGoal({
+            userId,
+            type: 'custom',
+            title: selectedGoalData.title,
+            description: selectedGoalData.description || null,
+            templateId: selectedGoalData.id || null,
+            startDate: new Date(),
+            progress: 0,
+            isCompleted: false,
+          });
+        } catch (err) {
+          console.error("Error creating custom goal from onboarding:", err);
+        }
+      }
+
       const painAreas = mergedData.coaching?.painAreas;
       if (!isRedo && Array.isArray(painAreas) && painAreas.length > 0) {
         const areaToBodyPart: Record<string, string> = {
@@ -1517,6 +1586,14 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       if (!intake) {
         return res.status(400).json({ message: "Intake data is required" });
+      }
+
+      // Normalise the onboarding experience tier ("experienced") onto the
+      // programme difficulty vocabulary ("advanced") so the exact-match level
+      // filter, the AI prompt, and every logged intake snapshot agree. Without
+      // this an "experienced" user matches zero programmes on level.
+      if (intake.experienceLevel) {
+        intake.experienceLevel = normalizeExperienceLevel(intake.experienceLevel);
       }
 
       const allPrograms = await storage.getPrograms();

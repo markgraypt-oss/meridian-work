@@ -20152,8 +20152,11 @@ Respond as the coach. Be personalised, reference their actual data and specific 
         "Suggest a workout I can do today",
       ];
 
+      let hasHistory = false;
+
       try {
         const recentCheckIns = await storage.getUserCheckIns(userId, 3);
+        if (recentCheckIns.length > 0) hasHistory = true;
         if (recentCheckIns.length >= 2) {
           contextual.push("Analyse my check-in trends");
           contextual.push("What patterns do you see in my check-ins?");
@@ -20171,6 +20174,7 @@ Respond as the coach. Be personalised, reference their actual data and specific 
       try {
         const workoutLogs = await storage.getUserWorkoutLogs(userId, 3);
         if (workoutLogs.length > 0) {
+          hasHistory = true;
           contextual.push("Show recent workout trends");
         }
       } catch {}
@@ -20178,9 +20182,27 @@ Respond as the coach. Be personalised, reference their actual data and specific 
       try {
         const enrollments = await storage.getUserEnrolledPrograms(userId);
         if (enrollments.length > 0) {
+          hasHistory = true;
           contextual.push("How is my programme going");
         }
       } catch {}
+
+      // Cold start: a brand-new user with no history gets inviting starters
+      // instead of generic wellness questions.
+      if (!hasHistory) {
+        const starters = [
+          "Build me a plan",
+          "What programme would suit me best",
+          "I've got a niggle I want to train around",
+          "What should I focus on first",
+          "Show me a session I can do today",
+        ];
+        for (let i = starters.length - 1; i > 0; i--) {
+          const j = Math.floor(Math.random() * (i + 1));
+          [starters[i], starters[j]] = [starters[j], starters[i]];
+        }
+        return res.json({ suggestions: starters.slice(0, 4) });
+      }
 
       for (let i = general.length - 1; i > 0; i--) {
         const j = Math.floor(Math.random() * (i + 1));
@@ -20263,6 +20285,26 @@ Respond as the coach. Be personalised, reference their actual data and specific 
         }
       }
 
+      // First-open greeting: a brand-new user has no data to reference, so open
+      // on the goal they gave at onboarding rather than empty health metrics.
+      const [ngEnroll, ngLogs, ngCheckins] = await Promise.all([
+        storage.getUserEnrolledPrograms(userId).catch(() => [] as any[]),
+        storage.getUserWorkoutLogs(userId, 1).catch(() => [] as any[]),
+        storage.getUserCheckIns(userId, 1).catch(() => [] as any[]),
+      ]);
+      const isNewUser = ngEnroll.length === 0 && ngLogs.length === 0 && ngCheckins.length === 0;
+      const GOAL_PHRASES: Record<string, string> = {
+        general_strength: 'building overall strength',
+        muscle_building: 'building muscle',
+        weight_loss: 'losing weight',
+        recovery_mobility: 'moving better and easing stiffness',
+        conditioning: 'improving your conditioning and endurance',
+        pain_management: 'managing pain and training around it',
+        active_recovery: 'active recovery and keeping fresh',
+      };
+      const primaryGoalId = (onboardingData?.coaching?.primaryGoal as string) || '';
+      const goalPhrase = GOAL_PHRASES[primaryGoalId] || null;
+
       const now = new Date();
       const hour = now.getHours();
       let timeOfDay = 'morning';
@@ -20286,7 +20328,7 @@ Respond as the coach. Be personalised, reference their actual data and specific 
       ];
       const selectedTopic = topicCategories[Math.floor(Math.random() * topicCategories.length)];
 
-      const systemPrompt = `You are a proactive digital performance coach inside MeridianWork, a corporate wellness platform. You are opening the chat with the user with one short, warm message based on their current health data.
+      const returningUserPrompt = `You are a proactive digital performance coach inside MeridianWork, a corporate wellness platform. You are opening the chat with the user with one short, warm message based on their current health data.
 
 PREFERRED TOPIC FOR THIS GREETING: ${selectedTopic}
 Build the greeting around this topic if real data is available. If nothing supports it, pick another aspect of the user's recent data (sleep, recovery, mood, training, streaks).
@@ -20322,6 +20364,30 @@ RULES:
 ${coachingContext}${userDataContext}${onboardingContext}${crossCoachContext}
 
 Generate the opening message now. Two short sentences plus a single low-effort question. No nutrition or hydration mentions of any kind.`;
+
+      const newUserPrompt = `You are Mark, the coach inside MeridianWork, opening the chat with a brand-new user who has just set up (or is partway through). They have no training history yet, so do NOT reference any health numbers, sleep, HRV, streaks or workouts, there is none.
+
+WHAT TO DO:
+- Greet ${userName} warmly and welcome them to MeridianWork.
+${goalPhrase ? `- Open on the goal they told you about: ${goalPhrase}. Show you were listening.` : '- Ask what they want to focus on first.'}
+- Offer one clear, low-effort next step (lining up their first session, or picking a programme).
+- End with a single question they can answer with a tap or a short line.
+
+VOICE + RULES:
+- One or two short sentences plus one question. Warm and punchy, never a lecture.
+- Do NOT use em dashes. Use commas or full stops.
+- Do NOT use bullet points, numbered lists or headers.
+- Do NOT raise food, nutrition, calories or hydration.
+- Do NOT give medical advice.
+- Sound like Mark: direct, warm, plain-spoken British, backs things with a reason, no hype.
+
+It is currently ${timeOfDay} on ${dayOfWeek}.
+
+${coachingContext}${onboardingContext}
+
+Write the opening message now.`;
+
+      const systemPrompt = isNewUser ? newUserPrompt : returningUserPrompt;
 
       const response = await aiCall({
         feature: 'proactive_greeting',

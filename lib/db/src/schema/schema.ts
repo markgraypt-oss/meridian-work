@@ -64,6 +64,7 @@ export const users = pgTable("users", {
   onboardingDismissed: boolean("onboarding_dismissed").default(false),
   onboardingStep: integer("onboarding_step").default(0),
   onboardingData: jsonb("onboarding_data"),
+  welcomeSeenAt: timestamp("welcome_seen_at"), // first-run coach welcome bubble dismissed
   movementScreeningFlags: jsonb("movement_screening_flags"),
   dismissedWeeklyCheckinId: integer("dismissed_weekly_checkin_id"),
   dismissedConnectNudge: boolean("dismissed_connect_nudge").default(false),

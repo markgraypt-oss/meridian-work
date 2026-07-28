@@ -1833,6 +1833,75 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // ── New-user setup state ──────────────────────────────────────────────
+  // Powers the coach welcome bubble + Home "Get started" checklist.
+  // Thin reprojection of existing user state; no AI call.
+  // See claude/new-user-welcome-ux-spec.md.
+  app.get('/api/setup/state', isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = req.user.claims.sub;
+      const { getUserStateSnapshot } = await import('../coach/userState');
+      const [user, snapshot, conversations] = await Promise.all([
+        storage.getUser(userId),
+        getUserStateSnapshot(userId).catch(() => null),
+        storage.getCoachConversations(userId).catch(() => [] as any[]),
+      ]);
+      if (!user) {
+        return res.status(404).json({ message: "User not found" });
+      }
+
+      const onboardingDone = !!user.onboardingCompleted;
+      const hasProgramme = !!snapshot?.training?.activeEnrollment;
+      const hasGoal = (snapshot?.goals?.activeCount ?? 0) > 0;
+      const hasWorkoutLog = snapshot?.training?.lastWorkoutDaysAgo != null;
+      const metCoach = (conversations?.length ?? 0) > 0;
+
+      const rawSteps = [
+        { key: 'onboarding', label: 'Finish setup', route: '/onboarding', done: onboardingDone },
+        { key: 'programme', label: 'Pick your programme', route: '/training/main-programme', done: hasProgramme },
+        { key: 'goal', label: 'Set a goal', route: '/goals/new', done: hasGoal },
+        { key: 'first_workout', label: 'First workout', route: '/training/main-programme', done: hasProgramme && hasWorkoutLog },
+        { key: 'meet_coach', label: 'Meet the coach', route: 'coach', done: metCoach },
+      ];
+
+      let currentAssigned = false;
+      const steps = rawSteps.map((s) => {
+        const current = !s.done && !currentAssigned;
+        if (current) currentAssigned = true;
+        return { ...s, current };
+      });
+      const completeCount = rawSteps.filter((s) => s.done).length;
+
+      res.json({
+        welcomeSeenAt: user.welcomeSeenAt ?? null,
+        steps,
+        completeCount,
+        total: rawSteps.length,
+      });
+    } catch (error) {
+      console.error("Error building setup state:", error);
+      res.status(500).json({ message: "Failed to build setup state" });
+    }
+  });
+
+  // Mark the first-run coach welcome as seen (idempotent).
+  app.post('/api/setup/welcome-seen', isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = req.user.claims.sub;
+      const user = await storage.getUser(userId);
+      if (!user) {
+        return res.status(404).json({ message: "User not found" });
+      }
+      if (!user.welcomeSeenAt) {
+        await storage.updateUser(userId, { welcomeSeenAt: new Date() });
+      }
+      res.json({ success: true });
+    } catch (error) {
+      console.error("Error marking welcome seen:", error);
+      res.status(500).json({ message: "Failed to mark welcome seen" });
+    }
+  });
+
   // Admin user management routes
   app.get('/api/admin/users', isAuthenticated, async (req: any, res) => {
     try {

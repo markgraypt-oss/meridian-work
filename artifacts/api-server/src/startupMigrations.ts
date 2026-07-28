@@ -1174,3 +1174,105 @@ export async function revokeEmptyBurnoutBadgesOnce(): Promise<void> {
     console.error("[startup-migration] revoke empty burnout badges failed:", e?.message || e);
   }
 }
+
+let hasRunRevokeEmptyAiBadges = false;
+const REVOKE_EMPTY_AI_BADGES_FLAG = "revoke_empty_ai_badges_v1";
+
+// Corrective: opening the AI coach seeds an assistant greeting message into a
+// new conversation, and the badge stat used to count EVERY message (including
+// that greeting), so "AI Curious" (and potentially AI Regular/Power User via
+// repeated proactive greetings) fired without the user sending anything. The
+// stat now counts only role='user' messages; strip any of these three badges
+// from users whose real user-message count is below the badge's target.
+export async function revokeEmptyAiBadgesOnce(): Promise<void> {
+  if (hasRunRevokeEmptyAiBadges) return;
+  hasRunRevokeEmptyAiBadges = true;
+
+  try {
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS system_flags (
+        key text PRIMARY KEY,
+        created_at timestamp DEFAULT now()
+      )
+    `);
+    const existing = await pool.query(
+      `SELECT 1 FROM system_flags WHERE key = $1 LIMIT 1`,
+      [REVOKE_EMPTY_AI_BADGES_FLAG],
+    );
+    if ((existing.rowCount ?? 0) > 0) return;
+
+    const result = await pool.query(`
+      WITH um AS (
+        SELECT user_id, COALESCE(SUM((
+          SELECT COUNT(*) FROM jsonb_array_elements(messages) m WHERE m->>'role' = 'user'
+        )), 0) AS user_msgs
+        FROM coach_conversations GROUP BY user_id
+      )
+      DELETE FROM user_badges ub
+      USING badges b
+      WHERE ub.badge_id = b.id
+        AND b.name IN ('AI Curious', 'AI Regular', 'AI Power User')
+        AND COALESCE((SELECT user_msgs FROM um WHERE um.user_id = ub.user_id), 0) < CASE b.name
+              WHEN 'AI Curious' THEN 1
+              WHEN 'AI Regular' THEN 10
+              WHEN 'AI Power User' THEN 50
+            END
+    `);
+    console.log(`[startup-migration] revoke empty AI badges: removed ${result.rowCount} wrongful badge(s)`);
+
+    await pool.query(
+      `INSERT INTO system_flags (key) VALUES ($1) ON CONFLICT (key) DO NOTHING`,
+      [REVOKE_EMPTY_AI_BADGES_FLAG],
+    );
+  } catch (e: any) {
+    console.error("[startup-migration] revoke empty AI badges failed:", e?.message || e);
+  }
+}
+
+let hasRunRevokePerfectRecord = false;
+const REVOKE_PERFECT_RECORD_FLAG = "revoke_invalid_perfect_record_v1";
+
+// Corrective: "Perfect Record" (complete every programme you enrolled in, min 3)
+// was awarded to users who had quit a programme — quitting DELETES the
+// enrollment row, so completion_rate read 100%. The stat now also requires
+// zero 'abandoned' recommendation events; remove the badge from anyone with a
+// recorded quit or fewer than 3 completed programmes. Once per database.
+export async function revokeInvalidPerfectRecordOnce(): Promise<void> {
+  if (hasRunRevokePerfectRecord) return;
+  hasRunRevokePerfectRecord = true;
+
+  try {
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS system_flags (
+        key text PRIMARY KEY,
+        created_at timestamp DEFAULT now()
+      )
+    `);
+    const existing = await pool.query(
+      `SELECT 1 FROM system_flags WHERE key = $1 LIMIT 1`,
+      [REVOKE_PERFECT_RECORD_FLAG],
+    );
+    if ((existing.rowCount ?? 0) > 0) return;
+
+    const result = await pool.query(`
+      DELETE FROM user_badges ub
+      USING badges b
+      WHERE ub.badge_id = b.id
+        AND b.name = 'Perfect Record'
+        AND (
+          (SELECT COUNT(*) FROM user_program_enrollments e
+             WHERE e.user_id = ub.user_id AND e.status = 'completed') < 3
+          OR EXISTS (SELECT 1 FROM recommendation_events re
+             WHERE re.user_id = ub.user_id AND re.event_type = 'abandoned')
+        )
+    `);
+    console.log(`[startup-migration] revoke invalid Perfect Record: removed ${result.rowCount} wrongful badge(s)`);
+
+    await pool.query(
+      `INSERT INTO system_flags (key) VALUES ($1) ON CONFLICT (key) DO NOTHING`,
+      [REVOKE_PERFECT_RECORD_FLAG],
+    );
+  } catch (e: any) {
+    console.error("[startup-migration] revoke invalid Perfect Record failed:", e?.message || e);
+  }
+}

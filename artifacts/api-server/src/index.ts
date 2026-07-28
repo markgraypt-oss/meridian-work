@@ -27,7 +27,7 @@ if (Number.isNaN(port) || port <= 0) {
   server.listen({ port, host: "0.0.0.0", reusePort: true }, () => {
     logger.info({ port }, "Server listening");
 
-    import("./startupMigrations").then(({ runSchemaSelfHealOnce, runProfileImageMigrationOnce, seedMeditationsOnce, seedAiPromptsOnce, repairBodyweightGoalUnitsOnce, normalizeRecipeMacrosOnce, seedBadgesV2Once, retireDroppedDeskBadgesOnce, fixHabitTemplateDescriptionsOnce, seedReadinessBadgesOnce, dedupeCheckInsOnce, backfillContentTagsOnce, revokeEmptyBurnoutBadgesOnce }) => {
+    import("./startupMigrations").then(({ runSchemaSelfHealOnce, runProfileImageMigrationOnce, seedMeditationsOnce, seedAiPromptsOnce, repairBodyweightGoalUnitsOnce, normalizeRecipeMacrosOnce, seedBadgesV2Once, retireDroppedDeskBadgesOnce, fixHabitTemplateDescriptionsOnce, seedReadinessBadgesOnce, dedupeCheckInsOnce, backfillContentTagsOnce, revokeEmptyBurnoutBadgesOnce, revokeEmptyAiBadgesOnce, revokeInvalidPerfectRecordOnce }) => {
       runSchemaSelfHealOnce()
         .catch((e: any) => logger.error({ e }, "[startup-migration] schema self-heal failed"))
         .then(() => {
@@ -43,6 +43,8 @@ if (Number.isNaN(port) || port <= 0) {
           dedupeCheckInsOnce().catch((e: any) => logger.error({ e }, "[startup-migration] dedupe-check-ins failed"));
           backfillContentTagsOnce().catch((e: any) => logger.error({ e }, "[startup-migration] content-tag backfill failed"));
           revokeEmptyBurnoutBadgesOnce().catch((e: any) => logger.error({ e }, "[startup-migration] revoke empty burnout badges failed"));
+          revokeEmptyAiBadgesOnce().catch((e: any) => logger.error({ e }, "[startup-migration] revoke empty AI badges failed"));
+          revokeInvalidPerfectRecordOnce().catch((e: any) => logger.error({ e }, "[startup-migration] revoke invalid Perfect Record failed"));
         });
     }).catch((e: any) => logger.error({ e }, "[startup-migration] startup migrations import failed"));
 

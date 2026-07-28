@@ -1124,3 +1124,52 @@ export async function backfillWriteupsOnce(): Promise<void> {
   }
 }
 
+
+let hasRunRevokeEmptyBurnoutBadges = false;
+const REVOKE_EMPTY_BURNOUT_BADGES_FLAG = "revoke_empty_burnout_badges_v1";
+
+// Corrective: the burnout engine persists a cold-start PLACEHOLDER row
+// (score 0, data_source_count 0) the first time a user with no data opens the
+// app. The badge stats used to count those rows, so brand-new users were
+// wrongly awarded burnout badges ("Self-Aware" on a 0/0 score, and — via the
+// same placeholder — "In the Green", "Bounce Back", "Steady State"). The stat
+// queries now filter to data_source_count > 0, but awardBadge never revokes,
+// so remove any of these four badges held by users who have NO real burnout
+// score at all. Once per database, idempotent, guarded by system_flags.
+export async function revokeEmptyBurnoutBadgesOnce(): Promise<void> {
+  if (hasRunRevokeEmptyBurnoutBadges) return;
+  hasRunRevokeEmptyBurnoutBadges = true;
+
+  try {
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS system_flags (
+        key text PRIMARY KEY,
+        created_at timestamp DEFAULT now()
+      )
+    `);
+    const existing = await pool.query(
+      `SELECT 1 FROM system_flags WHERE key = $1 LIMIT 1`,
+      [REVOKE_EMPTY_BURNOUT_BADGES_FLAG],
+    );
+    if ((existing.rowCount ?? 0) > 0) return;
+
+    const result = await pool.query(`
+      DELETE FROM user_badges ub
+      USING badges b
+      WHERE ub.badge_id = b.id
+        AND b.name IN ('Self-Aware', 'In the Green', 'Bounce Back', 'Steady State')
+        AND NOT EXISTS (
+          SELECT 1 FROM burnout_scores bs
+          WHERE bs.user_id = ub.user_id AND bs.data_source_count > 0
+        )
+    `);
+    console.log(`[startup-migration] revoke empty burnout badges: removed ${result.rowCount} wrongful badge(s)`);
+
+    await pool.query(
+      `INSERT INTO system_flags (key) VALUES ($1) ON CONFLICT (key) DO NOTHING`,
+      [REVOKE_EMPTY_BURNOUT_BADGES_FLAG],
+    );
+  } catch (e: any) {
+    console.error("[startup-migration] revoke empty burnout badges failed:", e?.message || e);
+  }
+}

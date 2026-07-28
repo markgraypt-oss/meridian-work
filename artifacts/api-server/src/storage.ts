@@ -12488,13 +12488,13 @@ export class DatabaseStorage implements IStorage {
 
     // ---- BURNOUT ----
     const [burnoutCount] = await db.select({ count: sql<number>`count(*)` }).from(burnoutScores)
-      .where(eq(burnoutScores.userId, userId));
+      .where(and(eq(burnoutScores.userId, userId), sql`${burnoutScores.dataSourceCount} > 0`));
     stats.burnout_scores_count = Number(burnoutCount?.count || 0);
 
     const bouncedBackRes = await pool.query(`
       SELECT CASE WHEN COUNT(*) > 0 THEN 1 ELSE 0 END::integer AS bounced
       FROM burnout_scores b_low
-      WHERE b_low.user_id = $1 AND b_low.score <= 33
+      WHERE b_low.user_id = $1 AND b_low.score <= 33 AND b_low.data_source_count > 0
         AND EXISTS (
           SELECT 1 FROM burnout_scores b_high
           WHERE b_high.user_id = $1 AND b_high.score >= 67
@@ -12562,7 +12562,7 @@ export class DatabaseStorage implements IStorage {
     );
 
     stats.burnout_lowest_tier_days = await this.computeStreak(
-      `SELECT DISTINCT date_trunc('day', computed_date)::date AS d FROM burnout_scores WHERE user_id = $1 AND score <= 33`,
+      `SELECT DISTINCT date_trunc('day', computed_date)::date AS d FROM burnout_scores WHERE user_id = $1 AND score <= 33 AND data_source_count > 0`,
       [userId]
     );
 

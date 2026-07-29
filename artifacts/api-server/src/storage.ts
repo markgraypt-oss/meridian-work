@@ -741,7 +741,7 @@ export interface IStorage {
   // Meals operations
   getMeals(userId: string): Promise<Meal[]>;
   createMeal(meal: InsertMeal): Promise<Meal>;
-  deleteMeal(id: number): Promise<void>;
+  deleteMeal(id: number, userId: string): Promise<boolean>;
 
   // Progress photos operations
   getProgressPhotos(userId: string): Promise<ProgressPhoto[]>;
@@ -934,8 +934,8 @@ export interface IStorage {
   getFoodLogsForDate(userId: string, date: Date): Promise<FoodLog[]>;
   getNutritionHistory(userId: string, days: number): Promise<{ date: string; calories: number; protein: number; carbs: number; fat: number }[]>;
   createFoodLog(log: InsertFoodLog): Promise<FoodLog>;
-  updateFoodLog(id: number, updates: Partial<InsertFoodLog>): Promise<FoodLog>;
-  deleteFoodLog(id: number): Promise<void>;
+  updateFoodLog(id: number, updates: Partial<InsertFoodLog>, userId: string): Promise<FoodLog | undefined>;
+  deleteFoodLog(id: number, userId: string): Promise<boolean>;
 
   // Supplement operations
   getUserSupplements(userId: string): Promise<Supplement[]>;
@@ -956,10 +956,10 @@ export interface IStorage {
   getMealLogWithFoods(mealLogId: number): Promise<{ mealLog: MealLog; foods: MealFoodEntry[] } | null>;
   createMealLog(log: InsertMealLog): Promise<MealLog>;
   getOrCreateMealLog(userId: string, date: Date, mealName: string): Promise<MealLog>;
-  deleteMealLog(id: number): Promise<void>;
+  deleteMealLog(id: number, userId: string): Promise<boolean>;
   addFoodToMeal(entry: InsertMealFoodEntry): Promise<MealFoodEntry>;
-  updateMealFoodEntry(id: number, updates: Partial<InsertMealFoodEntry>): Promise<MealFoodEntry>;
-  deleteMealFoodEntry(id: number): Promise<void>;
+  updateMealFoodEntry(id: number, updates: Partial<InsertMealFoodEntry>, userId: string): Promise<MealFoodEntry | undefined>;
+  deleteMealFoodEntry(id: number, userId: string): Promise<boolean>;
   getMealDayTotals(userId: string, date: Date): Promise<{ calories: number; protein: number; carbs: number; fat: number }>;
   
   // Food History operations
@@ -4680,8 +4680,11 @@ export class DatabaseStorage implements IStorage {
     return created;
   }
 
-  async deleteMeal(id: number): Promise<void> {
-    await db.delete(meals).where(eq(meals.id, id));
+  async deleteMeal(id: number, userId: string): Promise<boolean> {
+    const rows = await db.delete(meals)
+      .where(and(eq(meals.id, id), eq(meals.userId, userId)))
+      .returning({ id: meals.id });
+    return rows.length > 0;
   }
 
   // Progress photos operations
@@ -10504,20 +10507,23 @@ export class DatabaseStorage implements IStorage {
     return created;
   }
 
-  async updateFoodLog(id: number, updates: Partial<InsertFoodLog>): Promise<FoodLog> {
+  async updateFoodLog(id: number, updates: Partial<InsertFoodLog>, userId: string): Promise<FoodLog | undefined> {
     const [updated] = await db
       .update(foodLogs)
       .set({
         ...updates,
         updatedAt: new Date(),
       })
-      .where(eq(foodLogs.id, id))
+      .where(and(eq(foodLogs.id, id), eq(foodLogs.userId, userId)))
       .returning();
     return updated;
   }
 
-  async deleteFoodLog(id: number): Promise<void> {
-    await db.delete(foodLogs).where(eq(foodLogs.id, id));
+  async deleteFoodLog(id: number, userId: string): Promise<boolean> {
+    const rows = await db.delete(foodLogs)
+      .where(and(eq(foodLogs.id, id), eq(foodLogs.userId, userId)))
+      .returning({ id: foodLogs.id });
+    return rows.length > 0;
   }
 
   // ============================================
@@ -10824,8 +10830,11 @@ export class DatabaseStorage implements IStorage {
     return created;
   }
 
-  async deleteMealLog(id: number): Promise<void> {
-    await db.delete(mealLogs).where(eq(mealLogs.id, id));
+  async deleteMealLog(id: number, userId: string): Promise<boolean> {
+    const rows = await db.delete(mealLogs)
+      .where(and(eq(mealLogs.id, id), eq(mealLogs.userId, userId)))
+      .returning({ id: mealLogs.id });
+    return rows.length > 0;
   }
 
   async addFoodToMeal(entry: InsertMealFoodEntry): Promise<MealFoodEntry> {
@@ -10849,17 +10858,20 @@ export class DatabaseStorage implements IStorage {
     return created;
   }
 
-  async updateMealFoodEntry(id: number, updates: Partial<InsertMealFoodEntry>): Promise<MealFoodEntry> {
+  async updateMealFoodEntry(id: number, updates: Partial<InsertMealFoodEntry>, userId: string): Promise<MealFoodEntry | undefined> {
     const [updated] = await db
       .update(mealFoodEntries)
       .set(updates)
-      .where(eq(mealFoodEntries.id, id))
+      .where(and(eq(mealFoodEntries.id, id), eq(mealFoodEntries.userId, userId)))
       .returning();
     return updated;
   }
 
-  async deleteMealFoodEntry(id: number): Promise<void> {
-    await db.delete(mealFoodEntries).where(eq(mealFoodEntries.id, id));
+  async deleteMealFoodEntry(id: number, userId: string): Promise<boolean> {
+    const rows = await db.delete(mealFoodEntries)
+      .where(and(eq(mealFoodEntries.id, id), eq(mealFoodEntries.userId, userId)))
+      .returning({ id: mealFoodEntries.id });
+    return rows.length > 0;
   }
 
   async getMealDayTotals(userId: string, date: Date): Promise<{ calories: number; protein: number; carbs: number; fat: number }> {

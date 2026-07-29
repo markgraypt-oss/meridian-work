@@ -3679,7 +3679,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.post('/api/exercises', isAuthenticated, async (req, res) => {
+  app.post('/api/exercises', isAuthenticated, requireAdmin, async (req, res) => {
     try {
       const exerciseData = insertExerciseLibraryItemSchema.parse(req.body);
       const exercise = await storage.createExercise(exerciseData);
@@ -3693,7 +3693,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.put('/api/exercises/:id', isAuthenticated, async (req, res) => {
+  app.put('/api/exercises/:id', isAuthenticated, requireAdmin, async (req, res) => {
     try {
       const exerciseData = insertExerciseLibraryItemSchema.partial().parse(req.body);
       const exercise = await storage.updateExercise(parseInt(req.params.id), exerciseData);
@@ -3707,7 +3707,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.delete('/api/exercises/:id', isAuthenticated, async (req, res) => {
+  app.delete('/api/exercises/:id', isAuthenticated, requireAdmin, async (req, res) => {
     try {
       await storage.deleteExercise(parseInt(req.params.id));
       res.status(204).send();
@@ -4774,7 +4774,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.post('/api/programs/recalculate-all-equipment', isAuthenticated, async (req, res) => {
+  app.post('/api/programs/recalculate-all-equipment', isAuthenticated, requireAdmin, async (req, res) => {
     try {
       const allPrograms = await db.select({ id: programs.id, title: programs.title }).from(programs);
       const results: Record<number, string> = {};
@@ -4793,7 +4793,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.post('/api/programs/:id/recalculate-equipment', isAuthenticated, async (req, res) => {
+  app.post('/api/programs/:id/recalculate-equipment', isAuthenticated, requireAdmin, async (req, res) => {
     try {
       const programId = parseInt(req.params.id);
       const level = await updateProgramEquipmentAuto(programId);
@@ -5967,11 +5967,16 @@ Return format: {"category": "strength|cardio|hiit|mobility|recovery", "difficult
   });
 
   // Add exercise to workout log
-  app.post('/api/workout-logs/:logId/exercises', isAuthenticated, async (req, res) => {
+  app.post('/api/workout-logs/:logId/exercises', isAuthenticated, async (req: any, res) => {
     try {
+      const userId = req.user.claims.sub;
       const logId = parseInt(req.params.logId);
+      const ownerLog = await storage.getWorkoutLogById(logId);
+      if (!ownerLog || ownerLog.userId !== userId) {
+        return res.status(404).json({ message: "Workout log not found" });
+      }
       const exerciseData = req.body;
-      
+
       const exerciseLog = await storage.createWorkoutExerciseLog({
         workoutLogId: logId,
         ...exerciseData,
@@ -6008,9 +6013,14 @@ Return format: {"category": "strength|cardio|hiit|mobility|recovery", "difficult
   // that route once per exercise when starting a workout — a full network
   // round trip each. Creation order follows array order, so positions are
   // preserved exactly as the sequential calls produced them.
-  app.post('/api/workout-logs/:logId/exercises/batch', isAuthenticated, async (req, res) => {
+  app.post('/api/workout-logs/:logId/exercises/batch', isAuthenticated, async (req: any, res) => {
     try {
+      const userId = req.user.claims.sub;
       const logId = parseInt(req.params.logId);
+      const ownerLog = await storage.getWorkoutLogById(logId);
+      if (!ownerLog || ownerLog.userId !== userId) {
+        return res.status(404).json({ message: "Workout log not found" });
+      }
       const items = req.body?.exercises;
       if (!Array.isArray(items)) {
         return res.status(400).json({ message: "exercises must be an array" });
@@ -11362,7 +11372,7 @@ Rules:
   });
 
   // Admin routes - Videos
-  app.post('/api/videos', isAuthenticated, async (req, res) => {
+  app.post('/api/videos', isAuthenticated, requireAdmin, async (req, res) => {
     try {
       const videoData = insertVideoSchema.parse(req.body);
       const video = await storage.createVideo(videoData);
@@ -11373,7 +11383,7 @@ Rules:
     }
   });
 
-  app.put('/api/videos/:id', isAuthenticated, async (req, res) => {
+  app.put('/api/videos/:id', isAuthenticated, requireAdmin, async (req, res) => {
     try {
       const id = parseInt(req.params.id);
       const videoData = insertVideoSchema.partial().parse(req.body);
@@ -11385,7 +11395,7 @@ Rules:
     }
   });
 
-  app.delete('/api/videos/:id', isAuthenticated, async (req, res) => {
+  app.delete('/api/videos/:id', isAuthenticated, requireAdmin, async (req, res) => {
     try {
       const id = parseInt(req.params.id);
       await storage.deleteVideo(id);
@@ -11543,7 +11553,7 @@ Rules:
   });
 
   // Admin routes - Exercise Library
-  app.post('/api/exercise-library', isAuthenticated, async (req, res) => {
+  app.post('/api/exercise-library', isAuthenticated, requireAdmin, async (req, res) => {
     try {
       const exerciseData = insertExerciseLibraryItemSchema.parse(req.body);
       const exercise = await storage.createExercise(exerciseData);
@@ -11557,7 +11567,7 @@ Rules:
     }
   });
 
-  app.put('/api/exercise-library/:id', isAuthenticated, async (req, res) => {
+  app.put('/api/exercise-library/:id', isAuthenticated, requireAdmin, async (req, res) => {
     try {
       const id = parseInt(req.params.id);
       const exerciseData = insertExerciseLibraryItemSchema.partial().parse(req.body);
@@ -11572,7 +11582,7 @@ Rules:
     }
   });
 
-  app.delete('/api/exercise-library/:id', isAuthenticated, async (req, res) => {
+  app.delete('/api/exercise-library/:id', isAuthenticated, requireAdmin, async (req, res) => {
     try {
       const id = parseInt(req.params.id);
       await storage.deleteExercise(id);
@@ -12012,10 +12022,12 @@ Rules:
     }
   });
 
-  app.delete('/api/meals/:id', isAuthenticated, async (req, res) => {
+  app.delete('/api/meals/:id', isAuthenticated, async (req: any, res) => {
     try {
+      const userId = req.user.claims.sub;
       const id = parseInt(req.params.id);
-      await storage.deleteMeal(id);
+      const ok = await storage.deleteMeal(id, userId);
+      if (!ok) return res.status(404).json({ message: "Meal not found" });
       res.json({ success: true });
     } catch (error) {
       console.error("Error deleting meal:", error);
@@ -12765,7 +12777,7 @@ Rules:
   });
 
   // Create learning path
-  app.post('/api/learning-paths', isAuthenticated, async (req, res) => {
+  app.post('/api/learning-paths', isAuthenticated, requireAdmin, async (req, res) => {
     try {
       const { title, description, topicId } = req.body;
       
@@ -12801,7 +12813,7 @@ Rules:
   });
 
   // Update learning path
-  app.patch('/api/learning-paths/:id', isAuthenticated, async (req, res) => {
+  app.patch('/api/learning-paths/:id', isAuthenticated, requireAdmin, async (req, res) => {
     try {
       const id = parseInt(req.params.id);
       const { title, description, imageUrl, difficulty, estimatedDuration, isRecommended } = req.body;
@@ -12828,7 +12840,7 @@ Rules:
   });
 
   // Delete learning path
-  app.delete('/api/learning-paths/:id', isAuthenticated, async (req, res) => {
+  app.delete('/api/learning-paths/:id', isAuthenticated, requireAdmin, async (req, res) => {
     try {
       const id = parseInt(req.params.id);
       await db.delete(learningPaths).where(eq(learningPaths.id, id));
@@ -12840,7 +12852,7 @@ Rules:
   });
 
   // Delete path content item
-  app.delete('/api/learning-paths/content/:id', isAuthenticated, async (req, res) => {
+  app.delete('/api/learning-paths/content/:id', isAuthenticated, requireAdmin, async (req, res) => {
     try {
       const id = parseInt(req.params.id);
       await db.delete(pathContentItems).where(eq(pathContentItems.id, id));
@@ -12853,7 +12865,7 @@ Rules:
 
   // Create topic-level content item with Mux video (JSON)
   // Now inserts into learnContentLibrary (unified content library) instead of deprecated topicContentItems
-  app.post('/api/learn-topics/:topicId/content', isAuthenticated, async (req, res, next) => {
+  app.post('/api/learn-topics/:topicId/content', isAuthenticated, requireAdmin, async (req, res, next) => {
     // Check if it's a JSON request with muxPlaybackId (no file upload)
     if (req.is('application/json')) {
       try {
@@ -12963,7 +12975,7 @@ Rules:
   });
 
   // Create learning path content item with file upload or muxPlaybackId
-  app.post('/api/learning-paths/:pathId/content', isAuthenticated, async (req, res, next) => {
+  app.post('/api/learning-paths/:pathId/content', isAuthenticated, requireAdmin, async (req, res, next) => {
     const pathId = parseInt(req.params.pathId);
 
     // Handle JSON request with muxPlaybackId for video
@@ -13050,7 +13062,7 @@ Rules:
   });
 
   // Update content item
-  app.patch('/api/learning-paths/content/:id', isAuthenticated, (req, res) => {
+  app.patch('/api/learning-paths/content/:id', isAuthenticated, requireAdmin, (req, res) => {
     const id = parseInt(req.params.id);
     
     // If there's a file, handle multipart form data
@@ -13140,7 +13152,7 @@ Rules:
   });
 
   // Update content library item (for topic content)
-  app.patch('/api/content-library/:id', isAuthenticated, async (req: any, res) => {
+  app.patch('/api/content-library/:id', isAuthenticated, requireAdmin, async (req: any, res) => {
     try {
       const id = parseInt(req.params.id);
       const { title, description, muxPlaybackId } = req.body;
@@ -13227,7 +13239,7 @@ Rules:
   });
 
   // Add existing video to learning path
-  app.post('/api/learning-paths/:pathId/add-video', isAuthenticated, async (req: any, res) => {
+  app.post('/api/learning-paths/:pathId/add-video', isAuthenticated, requireAdmin, async (req: any, res) => {
     try {
       const pathId = parseInt(req.params.pathId);
       const { videoId } = req.body;
@@ -13451,7 +13463,7 @@ Rules:
   });
 
   // Create new content library item
-  app.post('/api/content-library', isAuthenticated, async (req: any, res) => {
+  app.post('/api/content-library', isAuthenticated, requireAdmin, async (req: any, res) => {
     try {
       const item = await storage.createContentLibraryItem(req.body);
       // Fire-and-forget AI tagging (skips items created with tags already
@@ -13474,7 +13486,7 @@ Rules:
 
   // Update content library item
   // Delete content library item
-  app.delete('/api/content-library/:id', isAuthenticated, async (req: any, res) => {
+  app.delete('/api/content-library/:id', isAuthenticated, requireAdmin, async (req: any, res) => {
     try {
       const id = parseInt(req.params.id);
       await storage.deleteContentLibraryItem(id);
@@ -13486,7 +13498,7 @@ Rules:
   });
 
   // Add content to learning path
-  app.post('/api/learning-paths/:pathId/library-content', isAuthenticated, async (req: any, res) => {
+  app.post('/api/learning-paths/:pathId/library-content', isAuthenticated, requireAdmin, async (req: any, res) => {
     try {
       const pathId = parseInt(req.params.pathId);
       const { libraryItemId, orderIndex: providedOrderIndex } = req.body;
@@ -13507,7 +13519,7 @@ Rules:
   });
 
   // Remove content from learning path
-  app.delete('/api/learning-paths/:pathId/library-content/:libraryItemId', isAuthenticated, async (req: any, res) => {
+  app.delete('/api/learning-paths/:pathId/library-content/:libraryItemId', isAuthenticated, requireAdmin, async (req: any, res) => {
     try {
       const pathId = parseInt(req.params.pathId);
       const libraryItemId = parseInt(req.params.libraryItemId);
@@ -13520,7 +13532,7 @@ Rules:
   });
 
   // Reorder content in learning path
-  app.put('/api/learning-paths/:pathId/reorder', isAuthenticated, async (req: any, res) => {
+  app.put('/api/learning-paths/:pathId/reorder', isAuthenticated, requireAdmin, async (req: any, res) => {
     try {
       const pathId = parseInt(req.params.pathId);
       const { itemIds } = req.body;
@@ -14053,6 +14065,7 @@ Rules:
   // Update food log
   app.put('/api/nutrition/food/:id', isAuthenticated, async (req: any, res) => {
     try {
+      const userId = req.user.claims.sub;
       const { id } = req.params;
       const { mealCategory, foodName, calories, protein, carbs, fat, notes, servingSize, servingSizeUnit, servingQuantity } = req.body;
 
@@ -14067,7 +14080,7 @@ Rules:
           servingSize,
           servingSizeUnit,
           servingQuantity,
-        });
+        }, userId);
         if (entry) {
           return res.json(entry);
         }
@@ -14087,7 +14100,8 @@ Rules:
         servingSize,
         servingSizeUnit,
         servingQuantity,
-      });
+      }, userId);
+      if (!log) return res.status(404).json({ message: "Food entry not found" });
       res.json(log);
     } catch (error) {
       console.error("Error updating food log:", error);
@@ -14098,8 +14112,10 @@ Rules:
   // Delete food log
   app.delete('/api/nutrition/food/:id', isAuthenticated, async (req: any, res) => {
     try {
+      const userId = req.user.claims.sub;
       const { id } = req.params;
-      await storage.deleteFoodLog(parseInt(id));
+      const ok = await storage.deleteFoodLog(parseInt(id), userId);
+      if (!ok) return res.status(404).json({ message: "Food entry not found" });
       res.json({ success: true });
     } catch (error) {
       console.error("Error deleting food log:", error);
@@ -14266,9 +14282,10 @@ Rules:
   // Update food entry in a meal
   app.put('/api/nutrition/meals/food/:id', isAuthenticated, async (req: any, res) => {
     try {
+      const userId = req.user.claims.sub;
       const { id } = req.params;
       const { servingSize, servingSizeUnit, servingQuantity, calories, protein, carbs, fat } = req.body;
-      
+
       const updated = await storage.updateMealFoodEntry(parseInt(id), {
         servingSize,
         servingSizeUnit,
@@ -14277,8 +14294,9 @@ Rules:
         protein,
         carbs,
         fat,
-      });
-      
+      }, userId);
+      if (!updated) return res.status(404).json({ message: "Food entry not found" });
+
       res.json(updated);
     } catch (error) {
       console.error("Error updating food entry:", error);
@@ -14289,8 +14307,10 @@ Rules:
   // Delete food entry from a meal
   app.delete('/api/nutrition/meals/food/:id', isAuthenticated, async (req: any, res) => {
     try {
+      const userId = req.user.claims.sub;
       const { id } = req.params;
-      await storage.deleteMealFoodEntry(parseInt(id));
+      const ok = await storage.deleteMealFoodEntry(parseInt(id), userId);
+      if (!ok) return res.status(404).json({ message: "Food entry not found" });
       res.json({ success: true });
     } catch (error) {
       console.error("Error deleting food entry:", error);
@@ -14301,8 +14321,10 @@ Rules:
   // Delete entire meal log
   app.delete('/api/nutrition/meals/:id', isAuthenticated, async (req: any, res) => {
     try {
+      const userId = req.user.claims.sub;
       const { id } = req.params;
-      await storage.deleteMealLog(parseInt(id));
+      const ok = await storage.deleteMealLog(parseInt(id), userId);
+      if (!ok) return res.status(404).json({ message: "Meal not found" });
       res.json({ success: true });
     } catch (error) {
       console.error("Error deleting meal:", error);

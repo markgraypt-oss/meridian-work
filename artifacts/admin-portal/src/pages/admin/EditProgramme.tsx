@@ -77,6 +77,16 @@ export default function EditProgrammePage() {
     enabled: programId > 0,
   });
 
+  const { data: workoutTemplates } = useQuery({
+    queryKey: ["/api/programs", programId, "workout-templates"],
+    queryFn: async () => {
+      const res = await fetch(`/api/programs/${programId}/workout-templates`);
+      if (!res.ok) throw new Error("Failed to fetch workout templates");
+      return res.json() as Promise<{ name: string }[]>;
+    },
+    enabled: programId > 0,
+  });
+
   const form = useForm<ProgrammeFormData>({
     resolver: zodResolver(programFormSchema),
     defaultValues: {
@@ -113,10 +123,14 @@ export default function EditProgrammePage() {
 
   useEffect(() => {
     const subscription = form.watch(() => {
-      markDirty();
+      if (form.formState.isDirty) {
+        markDirty();
+      } else {
+        markClean();
+      }
     });
     return () => subscription.unsubscribe();
-  }, [form, markDirty]);
+  }, [form, markDirty, markClean]);
 
   useEffect(() => {
     const savedTab = sessionStorage.getItem('programmeFormTab');
@@ -420,7 +434,7 @@ export default function EditProgrammePage() {
                   <div>
                     <label className="text-sm font-medium">Training Days per Week</label>
                     <div className="mt-2 text-sm text-muted-foreground">
-                      {program.trainingDaysPerWeek || 0} workouts
+                      {workoutTemplates ? workoutTemplates.length : (program.trainingDaysPerWeek || 0)} workouts
                       <span className="block text-xs mt-1">Based on workouts in Workout Content</span>
                     </div>
                   </div>

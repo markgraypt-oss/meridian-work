@@ -533,7 +533,7 @@ export interface IStorage {
   deleteProgrammeWorkout(workoutId: number): Promise<void>;
 
   // Program enrollment operations
-  enrollUserInProgram(userId: string, programId: number, startDate?: Date, programType?: 'main' | 'supplementary'): Promise<any>;
+  enrollUserInProgram(userId: string, programId: number, startDate?: Date, programType?: 'main' | 'supplementary', forceReplace?: boolean, allowQueue?: boolean): Promise<any>;
   scheduleProgram(userId: string, programId: number, startDate: Date, programType?: 'main' | 'supplementary'): Promise<any>;
   getUserEnrolledPrograms(userId: string): Promise<any[]>;
   isUserEnrolledInProgram(userId: string, programId: number): Promise<boolean>;
@@ -1974,6 +1974,12 @@ export class DatabaseStorage implements IStorage {
       )!);
     }
 
+    // Archived (soft-deleted) programmes never appear in any listing.
+    conditions.push(or(
+      eq(programs.archived, false),
+      isNull(programs.archived)
+    )!);
+
     if (filters?.goal && filters.goal !== 'All Goals') {
       conditions.push(eq(programs.goal, filters.goal.toLowerCase().replace(' ', '_')));
     }
@@ -2279,7 +2285,7 @@ export class DatabaseStorage implements IStorage {
   }
 
   // Program enrollment operations
-  async enrollUserInProgram(userId: string, programId: number, startDate?: Date, programType: 'main' | 'supplementary' = 'main', forceReplace: boolean = false): Promise<any> {
+  async enrollUserInProgram(userId: string, programId: number, startDate?: Date, programType: 'main' | 'supplementary' = 'main', forceReplace: boolean = false, allowQueue: boolean = false): Promise<any> {
     // Get program details to calculate total workouts and end date
     const [program] = await db.select().from(programs).where(eq(programs.id, programId));
     if (!program) throw new Error('Program not found');
@@ -2306,7 +2312,11 @@ export class DatabaseStorage implements IStorage {
         const newStart = startDate ? new Date(startDate) : new Date();
         // Allow scheduling if the new programme starts after the existing one ends
         const noOverlap = existing.endDate && new Date(existing.endDate) < newStart;
-        if (!noOverlap) {
+        // allowQueue (admin "schedule next") lets a future-dated main be queued
+        // behind the current one even if the dates overlap — it auto-switches
+        // over on its start date (see getUserProgramTimeline promotion).
+        const willBeScheduled = !!(startDate && startDate > new Date());
+        if (!noOverlap && !(allowQueue && willBeScheduled)) {
           const existingProgram = await this.getProgramById(existing.programId);
           const error: any = new Error('User already has an active or scheduled main program');
           error.code = 'PROGRAMME_CONFLICT';
@@ -2319,11 +2329,17 @@ export class DatabaseStorage implements IStorage {
       }
 
       if (existingMain.length > 0 && forceReplace) {
-        // Mark the old one as completed
+        // Switching immediately: close out the old one. Only count it as a
+        // genuine 'completed' if they actually finished it; otherwise 'ended'
+        // (ended early) so completion stats/badges stay honest.
+        const old = existingMain[0];
+        const finishedIt = old.totalWorkouts > 0 && old.workoutsCompleted >= old.totalWorkouts;
+        const nowTs = new Date();
+        const todayMidnight = new Date(nowTs.getFullYear(), nowTs.getMonth(), nowTs.getDate());
         await db
           .update(userProgramEnrollments)
-          .set({ status: 'completed' })
-          .where(eq(userProgramEnrollments.id, existingMain[0].id));
+          .set({ status: finishedIt ? 'completed' : 'ended', completedAt: nowTs, endDate: todayMidnight })
+          .where(eq(userProgramEnrollments.id, old.id));
       }
     }
 
@@ -2442,9 +2458,15 @@ export class DatabaseStorage implements IStorage {
     // Get programme to know total weeks
     const [program] = await db.select().from(programs).where(eq(programs.id, programId));
     if (!program) return;
-
     const totalWeeks = program.weeks || 1;
+    await this.snapshotEnrollmentWeeks(enrollmentId, programId, 1, totalWeeks);
+  }
 
+  // Insert enrollment snapshot rows for weeks [fromWeek..toWeek], resolving each
+  // week via the authored template + inheritance (weeks past the last authored
+  // week repeat it). Used for the initial snapshot (1..weeks) and for topping up
+  // when a coach EXTENDS an enrollment beyond its authored length.
+  async snapshotEnrollmentWeeks(enrollmentId: number, programId: number, fromWeek: number, toWeek: number): Promise<void> {
     // Resolve the authored per-week template (with inheritance) once.
     const { maxWeek, authored } = await this.buildAuthoredWorkoutMap(programId);
     if (authored.size === 0) {
@@ -2458,7 +2480,7 @@ export class DatabaseStorage implements IStorage {
     const sortedPositions = Array.from(positions).sort((a, b) => a - b);
 
     // Snapshot EACH week independently, resolving that week's workouts via inheritance.
-    for (let weekNum = 1; weekNum <= totalWeeks; weekNum++) {
+    for (let weekNum = fromWeek; weekNum <= toWeek; weekNum++) {
       for (const pos of sortedPositions) {
         const templateWorkouts = this.resolveWorkoutsForWeekDay(authored, maxWeek, weekNum, pos);
 
@@ -2521,7 +2543,68 @@ export class DatabaseStorage implements IStorage {
       }
     }
 
-    console.log(`Created per-week enrollment snapshot for ${totalWeeks} weeks of program ${programId}`);
+    console.log(`Snapshotted weeks ${fromWeek}-${toWeek} for program ${programId} (enrollment ${enrollmentId})`);
+  }
+
+  // Extend or shorten an enrollment by writing a new end date. Tops up the
+  // workout snapshot if the new length runs past the authored weeks (extra weeks
+  // repeat the last authored week), refreshes the cached total, and re-activates
+  // a programme that had already completed/ended.
+  async updateEnrollmentEndDate(enrollmentId: number, newEndDate: Date): Promise<any> {
+    const [enr] = await db.select().from(userProgramEnrollments).where(eq(userProgramEnrollments.id, enrollmentId));
+    if (!enr) throw new Error('Enrollment not found');
+
+    const start = new Date(enr.startDate as any);
+    const startMid = new Date(start.getFullYear(), start.getMonth(), start.getDate());
+    const end = new Date(newEndDate.getFullYear(), newEndDate.getMonth(), newEndDate.getDate());
+    if (end < startMid) throw new Error('End date cannot be before the start date');
+
+    const daysSpan = Math.floor((end.getTime() - startMid.getTime()) / 86400000) + 1; // inclusive
+    const neededWeeks = Math.max(1, Math.ceil(daysSpan / 7));
+
+    // Top up the snapshot if the new length runs past what's already snapshotted.
+    const [snap] = await db
+      .select({ maxWeek: sql<number>`COALESCE(MAX(${enrollmentWorkouts.weekNumber}), 0)` })
+      .from(enrollmentWorkouts)
+      .where(eq(enrollmentWorkouts.enrollmentId, enrollmentId));
+    const snapMax = Number(snap?.maxWeek || 0);
+    if (neededWeeks > snapMax) {
+      await this.snapshotEnrollmentWeeks(enrollmentId, enr.programId, snapMax + 1, neededWeeks);
+    }
+
+    // Refresh cached total workouts from the snapshot.
+    const [tot] = await db
+      .select({ count: sql<number>`count(*)` })
+      .from(enrollmentWorkouts)
+      .where(eq(enrollmentWorkouts.enrollmentId, enrollmentId));
+    const newTotal = Number(tot?.count || 0);
+
+    const now = new Date();
+    const todayMid = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+    const reactivate = (enr.status === 'completed' || enr.status === 'ended') && end >= todayMid;
+
+    const [updated] = await db
+      .update(userProgramEnrollments)
+      .set({
+        endDate: end,
+        totalWorkouts: newTotal > 0 ? newTotal : enr.totalWorkouts,
+        ...(reactivate ? { status: 'active', completedAt: null } : {}),
+      })
+      .where(eq(userProgramEnrollments.id, enrollmentId))
+      .returning();
+    return updated;
+  }
+
+  async programHasEnrollments(programId: number): Promise<boolean> {
+    const [row] = await db.select({ id: userProgramEnrollments.id })
+      .from(userProgramEnrollments)
+      .where(eq(userProgramEnrollments.programId, programId))
+      .limit(1);
+    return !!row;
+  }
+
+  async archiveProgram(id: number): Promise<void> {
+    await db.update(programs).set({ archived: true }).where(eq(programs.id, id));
   }
 
   // Backfill existing enrollments that don't have snapshot data
@@ -2796,6 +2879,7 @@ export class DatabaseStorage implements IStorage {
         programWeeks: programs.weeks,
         programImageUrl: programs.imageUrl,
         sourceType: programs.sourceType,
+        completedAt: userProgramEnrollments.completedAt,
       })
       .from(userProgramEnrollments)
       .innerJoin(programs, eq(userProgramEnrollments.programId, programs.id))
@@ -2831,12 +2915,46 @@ export class DatabaseStorage implements IStorage {
       if (enrollment.status === 'active' && enrollment.endDate) {
         const endDate = new Date(this.bucketToUserLocalDay(enrollment.endDate as any, userTzForExpire));
         if (today > endDate) {
+          const completedTs = new Date();
           await db.update(userProgramEnrollments)
-            .set({ status: 'completed' })
+            .set({ status: 'completed', completedAt: completedTs })
             .where(eq(userProgramEnrollments.id, enrollment.id));
           enrollment.status = 'completed';
+          (enrollment as any).completedAt = completedTs;
         }
       }
+    }
+
+    // Auto switch-over: promote a scheduled main whose start date has arrived to
+    // 'active', ending any still-running main early. This is the only thing that
+    // turns a queued/scheduled programme into the live one (no cron needed).
+    const dueScheduled = mainEnrollments
+      .filter(e => e.status === 'scheduled' && e.startDate && new Date(this.bucketToUserLocalDay(e.startDate as any, userTzForExpire)) <= today)
+      .sort((a, b) => new Date(a.startDate as any).getTime() - new Date(b.startDate as any).getTime());
+    if (dueScheduled.length > 0) {
+      const promote = dueScheduled[dueScheduled.length - 1]; // most recently-started due one wins
+      const nowTs = new Date();
+      const stillActive = mainEnrollments.find(e => e.status === 'active');
+      if (stillActive && stillActive.id !== promote.id) {
+        await db.update(userProgramEnrollments)
+          .set({ status: 'ended', completedAt: nowTs, endDate: today })
+          .where(eq(userProgramEnrollments.id, stillActive.id));
+        stillActive.status = 'ended';
+        (stillActive as any).completedAt = nowTs;
+      }
+      // Any earlier due scheduled mains we skipped over never ran → mark ended.
+      for (const skipped of dueScheduled) {
+        if (skipped.id !== promote.id) {
+          await db.update(userProgramEnrollments)
+            .set({ status: 'ended', completedAt: nowTs })
+            .where(eq(userProgramEnrollments.id, skipped.id));
+          skipped.status = 'ended';
+        }
+      }
+      await db.update(userProgramEnrollments)
+        .set({ status: 'active' })
+        .where(eq(userProgramEnrollments.id, promote.id));
+      promote.status = 'active';
     }
 
     // Find the currently ACTIVE main programme - must be status='active'
@@ -2850,10 +2968,10 @@ export class DatabaseStorage implements IStorage {
     return {
       current,
       scheduled: mainEnrollments.filter(e => e.status === 'scheduled'),
-      completed: mainEnrollments.filter(e => e.status === 'completed'),
+      completed: mainEnrollments.filter(e => e.status === 'completed' || e.status === 'ended'),
       currentSupplementary: activeSupplementary,
       scheduledSupplementary: supplementaryEnrollments.filter(e => e.status === 'scheduled'),
-      completedSupplementary: supplementaryEnrollments.filter(e => e.status === 'completed'),
+      completedSupplementary: supplementaryEnrollments.filter(e => e.status === 'completed' || e.status === 'ended'),
       activeRecoveryPlans,
     };
   }

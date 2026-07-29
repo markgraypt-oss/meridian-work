@@ -207,6 +207,7 @@ export const programs = pgTable("programs", {
   source: text("source").notNull().default("manual"),
   generationInputs: jsonb("generation_inputs"), // raw inputs used by AI generator (goal/equipment/duration/etc.)
   visibility: text("visibility").notNull().default("public"), // 'public' (shown in the library) or 'private' (coach-built, client-only)
+  archived: boolean("archived").notNull().default(false), // soft-deleted: hidden from library/builder but kept so client history survives
   createdAt: timestamp("created_at").defaultNow(),
 });
 
@@ -531,7 +532,8 @@ export const userProgramEnrollments = pgTable("user_program_enrollments", {
   programId: integer("program_id").notNull().references(() => programs.id, { onDelete: "cascade" }),
   startDate: timestamp("start_date").notNull(),
   endDate: timestamp("end_date"), // calculated from start + program weeks, or custom
-  status: text("status").notNull().default("scheduled"), // 'scheduled', 'active', 'completed', 'paused'
+  status: text("status").notNull().default("scheduled"), // 'scheduled', 'active', 'completed', 'ended' (coach ended/switched early), 'paused'
+  completedAt: timestamp("completed_at"), // set when it completes or is ended early; null while active/scheduled
   programType: text("program_type").notNull().default("main"), // 'main' or 'supplementary'
   workoutsCompleted: integer("workouts_completed").notNull().default(0), // track progress
   totalWorkouts: integer("total_workouts").notNull().default(0), // cached from program

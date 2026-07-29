@@ -2136,13 +2136,28 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const programId = parseInt(req.body?.programId);
       if (!programId) return res.status(400).json({ message: "programId is required" });
 
+      const programType = req.body?.programType === 'supplementary' ? 'supplementary' : 'main';
+      const startDateRaw = req.body?.startDate;
+      const startDate = startDateRaw ? new Date(startDateRaw) : undefined;
+
       const target = await storage.getUser(targetUserId);
       if (!target) return res.status(404).json({ message: "User not found" });
       const program = await storage.getProgramById(programId);
       if (!program) return res.status(404).json({ message: "Programme not found" });
 
-      const forceReplace = req.body?.forceReplace ?? true;
-      const enrollment = await storage.enrollUserInProgram(targetUserId, programId, undefined, 'main', forceReplace);
+      let enrollment;
+      if (programType === 'supplementary') {
+        // Supplementary runs alongside the main; a future startDate queues it.
+        enrollment = await storage.enrollUserInProgram(targetUserId, programId, startDate, 'supplementary');
+      } else if (startDate && startDate > new Date()) {
+        // Main with a future start = QUEUE it behind the current programme; it
+        // auto-switches over on its start date. Don't touch the current one.
+        enrollment = await storage.enrollUserInProgram(targetUserId, programId, startDate, 'main', false, true);
+      } else {
+        // Main, start now = replace the current programme immediately.
+        const forceReplace = req.body?.forceReplace ?? true;
+        enrollment = await storage.enrollUserInProgram(targetUserId, programId, undefined, 'main', forceReplace);
+      }
       res.status(201).json(enrollment);
     } catch (error: any) {
       console.error("Error assigning programme to user:", error);
@@ -2153,7 +2168,52 @@ export async function registerRoutes(app: Express): Promise<Server> {
           existingEnrollment: error.existingEnrollment,
         });
       }
+      if (typeof error?.message === 'string' && error.message.includes('already has 3')) {
+        return res.status(400).json({ message: error.message });
+      }
       res.status(500).json({ message: "Failed to assign programme" });
+    }
+  });
+
+  // Admin: read a client's full programme timeline (current / scheduled / history
+  // / supplementary) for the client-management panel.
+  app.get('/api/admin/users/:userId/timeline', isAuthenticated, requireAdmin, async (req: any, res) => {
+    try {
+      const timeline = await storage.getUserProgramTimeline(req.params.userId);
+      res.json(timeline);
+    } catch (error) {
+      console.error("Error fetching client timeline:", error);
+      res.status(500).json({ message: "Failed to fetch client timeline" });
+    }
+  });
+
+  // Admin: extend / shorten a client's enrollment. Body: { extendWeeks } to move
+  // the end out (or in, if negative) by whole weeks, or { endDate: 'YYYY-MM-DD' }
+  // to set an exact end date. Tops up workout content for any extra weeks.
+  app.patch('/api/admin/enrollments/:id/length', isAuthenticated, requireAdmin, async (req: any, res) => {
+    try {
+      const enrollmentId = parseInt(req.params.id);
+      if (!enrollmentId) return res.status(400).json({ message: "Invalid enrollment id" });
+      const enr = await storage.getEnrollmentById(enrollmentId);
+      if (!enr) return res.status(404).json({ message: "Enrollment not found" });
+
+      const { endDate, extendWeeks } = req.body || {};
+      let newEnd: Date | null = null;
+      if (endDate) {
+        newEnd = new Date(endDate);
+      } else if (typeof extendWeeks === 'number') {
+        const base = enr.endDate ? new Date(enr.endDate) : new Date();
+        newEnd = new Date(base);
+        newEnd.setDate(newEnd.getDate() + Math.round(extendWeeks * 7));
+      }
+      if (!newEnd || isNaN(newEnd.getTime())) {
+        return res.status(400).json({ message: "Provide endDate (YYYY-MM-DD) or extendWeeks (number)" });
+      }
+      const updated = await storage.updateEnrollmentEndDate(enrollmentId, newEnd);
+      res.json(updated);
+    } catch (error: any) {
+      console.error("Error updating enrollment length:", error);
+      res.status(500).json({ message: error?.message || "Failed to update programme length" });
     }
   });
 
@@ -9761,8 +9821,16 @@ Rules:
       const id = parseInt(req.params.id);
       const authz = await canEditProgramme(id, req.user.claims.sub);
       if (!authz.ok) return res.status(authz.status!).json({ message: authz.message });
+      // If anyone has ever been enrolled (incl. completed client history), soft-
+      // delete: archive it so it leaves the library/builder but the history and
+      // its workout logs stay intact. Only hard-delete unused programmes.
+      const hasHistory = await storage.programHasEnrollments(id);
+      if (hasHistory) {
+        await storage.archiveProgram(id);
+        return res.json({ success: true, archived: true, message: "This programme has client history, so it was archived (hidden from the library) rather than deleted." });
+      }
       await storage.deleteProgram(id);
-      res.json({ success: true });
+      res.json({ success: true, deleted: true });
     } catch (error) {
       console.error("Error deleting program:", error);
       res.status(500).json({ message: "Failed to delete program" });

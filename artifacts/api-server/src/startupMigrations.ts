@@ -44,6 +44,10 @@ const SELF_HEAL_DDL: string[] = [
   // Private client programmes: library visibility + client role
   `ALTER TABLE programs ADD COLUMN IF NOT EXISTS visibility text NOT NULL DEFAULT 'public'`,
   `ALTER TABLE users ADD COLUMN IF NOT EXISTS role text NOT NULL DEFAULT 'user'`,
+  // Client programme management: record when an enrollment finished / was ended early
+  `ALTER TABLE user_program_enrollments ADD COLUMN IF NOT EXISTS completed_at timestamp`,
+  // Soft-delete for programmes that have client history (kept, just hidden)
+  `ALTER TABLE programs ADD COLUMN IF NOT EXISTS archived boolean NOT NULL DEFAULT false`,
 
   // Coach chat education recommendations (tappable video/path cards)
   `CREATE TABLE IF NOT EXISTS coach_recommendations (

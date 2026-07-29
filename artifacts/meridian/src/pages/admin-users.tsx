@@ -14,6 +14,7 @@ import { Plus, Edit, Trash2, User, Search, ClipboardList } from "lucide-react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { apiRequest } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
+import { ClientProgrammesDialog } from "@/components/admin/ClientProgrammesDialog";
 
 type UserData = {
   id: string;
@@ -52,7 +53,6 @@ export default function AdminUsers() {
   const [isNewCompany, setIsNewCompany] = useState(false);
   const [newCompanyName, setNewCompanyName] = useState("");
   const [assignUser, setAssignUser] = useState<UserData | null>(null);
-  const [assignProgrammeId, setAssignProgrammeId] = useState<string>("");
 
   const { data: users = [], isLoading: usersLoading } = useQuery<UserData[]>({
     queryKey: ["/api/admin/users"],
@@ -112,30 +112,6 @@ export default function AdminUsers() {
     },
     onError: (error: any) => {
       toast({ title: "Failed to delete user", description: error.message, variant: "destructive" });
-    },
-  });
-
-  const programmesQuery = useQuery<any[]>({
-    queryKey: ["/api/programs", "assign"],
-    queryFn: async () => {
-      const res = await fetch("/api/programs");
-      if (!res.ok) throw new Error("Failed to load programmes");
-      return res.json();
-    },
-    enabled: !!assignUser,
-  });
-
-  const assignMutation = useMutation({
-    mutationFn: async ({ userId, programId }: { userId: string; programId: number }) => {
-      return apiRequest("POST", `/api/admin/users/${userId}/enroll`, { programId });
-    },
-    onSuccess: () => {
-      setAssignUser(null);
-      setAssignProgrammeId("");
-      toast({ title: "Programme assigned", description: "It's now the client's active programme." });
-    },
-    onError: (error: any) => {
-      toast({ title: "Failed to assign programme", description: error.message, variant: "destructive" });
     },
   });
 
@@ -268,7 +244,7 @@ export default function AdminUsers() {
                     </div>
                   </div>
                   <div className="flex gap-2">
-                    <Button variant="ghost" size="icon" title="Assign programme" onClick={() => { setAssignUser(u); setAssignProgrammeId(""); }}>
+                    <Button variant="ghost" size="icon" title="Manage programmes" onClick={() => setAssignUser(u)}>
                       <ClipboardList className="h-4 w-4" />
                     </Button>
                     <Button variant="ghost" size="icon" onClick={() => openEditForm(u)}>
@@ -415,40 +391,11 @@ export default function AdminUsers() {
         </DialogContent>
       </Dialog>
 
-      <Dialog open={!!assignUser} onOpenChange={(open) => { if (!open) { setAssignUser(null); setAssignProgrammeId(""); } }}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>Assign programme{assignUser ? ` to ${assignUser.firstName || assignUser.email}` : ""}</DialogTitle>
-          </DialogHeader>
-          <div className="space-y-4">
-            <p className="text-sm text-muted-foreground">
-              This becomes the client's active programme (replacing any current one). Private programmes are listed here for admins.
-            </p>
-            <Select value={assignProgrammeId} onValueChange={setAssignProgrammeId}>
-              <SelectTrigger>
-                <SelectValue placeholder="Select a programme" />
-              </SelectTrigger>
-              <SelectContent>
-                {(programmesQuery.data || []).map((p: any) => (
-                  <SelectItem key={p.id} value={String(p.id)}>
-                    {p.title}{p.visibility === "private" ? " (Private)" : ""}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </div>
-          <DialogFooter>
-            <Button type="button" variant="outline" onClick={() => { setAssignUser(null); setAssignProgrammeId(""); }}>Cancel</Button>
-            <Button
-              type="button"
-              disabled={!assignProgrammeId || assignMutation.isPending}
-              onClick={() => assignUser && assignMutation.mutate({ userId: assignUser.id, programId: parseInt(assignProgrammeId) })}
-            >
-              Assign
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+      <ClientProgrammesDialog
+        user={assignUser}
+        open={!!assignUser}
+        onClose={() => setAssignUser(null)}
+      />
 
       <AlertDialog open={!!deleteUserId} onOpenChange={() => {
         setDeleteUserId(null);

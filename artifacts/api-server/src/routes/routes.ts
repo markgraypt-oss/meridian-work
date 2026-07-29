@@ -7064,6 +7064,25 @@ Rules:
     }
   });
 
+  // Snooze a reassessment reminder to a future date (remind me in N days)
+  app.post('/api/reassessment-reminders/:id/snooze', isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = req.user.claims.sub;
+      const reminderId = parseInt(req.params.id);
+      if (isNaN(reminderId)) return res.status(400).json({ message: "Invalid reminder id" });
+      const days = Number(req.body?.days);
+      if (!Number.isInteger(days) || days < 1 || days > 365) {
+        return res.status(400).json({ message: "days must be an integer between 1 and 365" });
+      }
+      const updated = await storage.snoozeReassessmentReminder(reminderId, userId, days);
+      if (!updated) return res.status(403).json({ message: "Reminder not found or does not belong to you" });
+      res.json(updated);
+    } catch (error) {
+      console.error("Error snoozing reassessment reminder:", error);
+      res.status(500).json({ message: "Failed to snooze reminder" });
+    }
+  });
+
   // Check if user has an active Body Map issue with Programme Impact
   // Used for post-enrolment safety check
   app.get('/api/body-map/active-issue', isAuthenticated, async (req: any, res) => {

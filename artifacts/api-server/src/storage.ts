@@ -682,6 +682,7 @@ export interface IStorage {
   getRemindersForDate(userId: string, date: Date): Promise<ReassessmentReminder[]>;
   getAllReassessmentReminders(userId: string): Promise<ReassessmentReminder[]>;
   getReassessmentRemindersByBodyArea(userId: string, bodyArea: string): Promise<ReassessmentReminder[]>;
+  snoozeReassessmentReminder(reminderId: number, userId: string, days: number): Promise<ReassessmentReminder | null>;
 
   // Bookmark operations (favorites)
   getUserBookmarks(userId: string): Promise<Bookmark[]>;
@@ -4454,6 +4455,28 @@ export class DatabaseStorage implements IStorage {
       .set({
         dismissedAt: new Date(),
         dismissedReason: reason ?? null,
+      })
+      .where(
+        and(
+          eq(reassessmentReminders.id, reminderId),
+          eq(reassessmentReminders.userId, userId)
+        )
+      )
+      .returning();
+    return updated ?? null;
+  }
+
+  // Push a reminder's due date out by N days and re-arm it as 'scheduled'.
+  // Clears any prior dismissal so a snoozed reminder reappears on its new date.
+  async snoozeReassessmentReminder(reminderId: number, userId: string, days: number): Promise<ReassessmentReminder | null> {
+    const dueAt = new Date(Date.now() + days * 24 * 60 * 60 * 1000);
+    const [updated] = await db
+      .update(reassessmentReminders)
+      .set({
+        dueAt,
+        status: 'scheduled',
+        dismissedAt: null,
+        dismissedReason: null,
       })
       .where(
         and(

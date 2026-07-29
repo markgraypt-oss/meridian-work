@@ -10,6 +10,7 @@ import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Plus, Pencil, Trash2, X, Music, Loader2, Check, Image as ImageIcon } from "lucide-react";
+import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
 import { uploadAudioFile, uploadErrorMessage } from "@/lib/uploadAudio";
 import { uploadImageFile } from "@/lib/uploadImage";
 import type { Meditation } from "@shared/schema";
@@ -49,6 +50,7 @@ export default function AdminMeditations() {
   const [formData, setFormData] = useState<MeditationFormData>(defaultFormData);
   const [isUploading, setIsUploading] = useState(false);
   const [uploadPct, setUploadPct] = useState(0);
+  const [deleteMeditationId, setDeleteMeditationId] = useState<number | null>(null);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const [isCoverUploading, setIsCoverUploading] = useState(false);
   const coverInputRef = useRef<HTMLInputElement | null>(null);
@@ -393,9 +395,7 @@ export default function AdminMeditations() {
                       variant="ghost"
                       size="icon"
                       className="h-8 w-8 text-red-500 hover:text-red-600"
-                      onClick={() => {
-                        if (confirm(`Delete "${m.title}"? This cannot be undone.`)) deleteMutation.mutate(m.id);
-                      }}
+                      onClick={() => setDeleteMeditationId(m.id)}
                     >
                       <Trash2 className="h-3.5 w-3.5" />
                     </Button>
@@ -413,6 +413,26 @@ export default function AdminMeditations() {
           <p className="text-muted-foreground">No meditations yet. Click "Add Meditation" to create one and upload its audio.</p>
         </Card>
       )}
+      <AlertDialog open={!!deleteMeditationId} onOpenChange={() => setDeleteMeditationId(null)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete Meditation</AlertDialogTitle>
+            <AlertDialogDescription>
+              Are you sure you want to delete this meditation? This action cannot be undone.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={() => deleteMeditationId && deleteMutation.mutate(deleteMeditationId)}
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+              disabled={deleteMutation.isPending}
+            >
+              Delete
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }

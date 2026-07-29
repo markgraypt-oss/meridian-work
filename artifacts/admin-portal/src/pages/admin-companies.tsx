@@ -155,10 +155,12 @@ export default function AdminCompanies() {
   const [showCompanyForm, setShowCompanyForm] = useState(false);
   const [editingCompany, setEditingCompany] = useState<CompanyData | null>(null);
   const [deleteCompanyId, setDeleteCompanyId] = useState<number | null>(null);
+  const [deleteCompanyConfirmText, setDeleteCompanyConfirmText] = useState("");
 
   const [showBenefitForm, setShowBenefitForm] = useState(false);
   const [editingBenefit, setEditingBenefit] = useState<BenefitData | null>(null);
   const [deleteBenefitId, setDeleteBenefitId] = useState<number | null>(null);
+  const [deleteDeptId, setDeleteDeptId] = useState<number | null>(null);
 
   const [showAssignUser, setShowAssignUser] = useState(false);
   const [assignUserSearch, setAssignUserSearch] = useState("");
@@ -875,7 +877,7 @@ export default function AdminCompanies() {
                       <Button variant="ghost" size="icon" className="h-5 w-5" onClick={() => { setEditingDept(d); setDeptName(d.name); setShowDeptForm(true); }}>
                         <Edit className="h-3 w-3" />
                       </Button>
-                      <Button variant="ghost" size="icon" className="h-5 w-5" onClick={() => deleteDeptMutation.mutate(d.id)}>
+                      <Button variant="ghost" size="icon" className="h-5 w-5" onClick={() => setDeleteDeptId(d.id)}>
                         <Trash2 className="h-3 w-3 text-destructive" />
                       </Button>
                     </div>
@@ -1171,6 +1173,7 @@ export default function AdminCompanies() {
 
       {renderCompanyDialog()}
       {renderDeleteCompanyDialog()}
+      {renderDeleteDeptDialog()}
     </div>
   );
 
@@ -1399,20 +1402,33 @@ export default function AdminCompanies() {
 
   function renderDeleteCompanyDialog() {
     return (
-      <AlertDialog open={!!deleteCompanyId} onOpenChange={() => setDeleteCompanyId(null)}>
+      <AlertDialog open={!!deleteCompanyId} onOpenChange={() => { setDeleteCompanyId(null); setDeleteCompanyConfirmText(""); }}>
         <AlertDialogContent>
           <AlertDialogHeader>
             <AlertDialogTitle>Delete Company</AlertDialogTitle>
             <AlertDialogDescription>
-              Are you sure you want to delete this company? This action cannot be undone. All associated benefits will also be removed.
+              This will permanently delete the company and all associated benefits. This action cannot be undone.
             </AlertDialogDescription>
           </AlertDialogHeader>
+          <div className="space-y-2 py-2">
+            <Label htmlFor="deleteCompanyConfirm" className="text-sm font-medium">
+              Type <span className="font-bold text-destructive">DELETE</span> to confirm
+            </Label>
+            <Input
+              id="deleteCompanyConfirm"
+              value={deleteCompanyConfirmText}
+              onChange={(e) => setDeleteCompanyConfirmText(e.target.value)}
+              placeholder="DELETE"
+              className="font-mono"
+              autoComplete="off"
+            />
+          </div>
           <AlertDialogFooter>
             <AlertDialogCancel>Cancel</AlertDialogCancel>
             <AlertDialogAction
               onClick={() => deleteCompanyId && deleteCompanyMutation.mutate(deleteCompanyId)}
               className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
-              disabled={deleteCompanyMutation.isPending}
+              disabled={deleteCompanyMutation.isPending || deleteCompanyConfirmText !== "DELETE"}
             >
               Delete
             </AlertDialogAction>
@@ -1500,6 +1516,31 @@ export default function AdminCompanies() {
           </form>
         </DialogContent>
       </Dialog>
+    );
+  }
+
+  function renderDeleteDeptDialog() {
+    return (
+      <AlertDialog open={!!deleteDeptId} onOpenChange={() => setDeleteDeptId(null)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete Department</AlertDialogTitle>
+            <AlertDialogDescription>
+              Are you sure you want to delete this department? This action cannot be undone.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={() => deleteDeptId && deleteDeptMutation.mutate(deleteDeptId)}
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+              disabled={deleteDeptMutation.isPending}
+            >
+              Delete
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     );
   }
 

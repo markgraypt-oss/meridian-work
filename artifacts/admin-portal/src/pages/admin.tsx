@@ -85,6 +85,7 @@ export default function AdminPanel() {
   const [pathsPage, setPathsPage] = useState(1);
   const [selectedVideoTopic, setSelectedVideoTopic] = useState<string | null>(null);
   const [editingContentItem, setEditingContentItem] = useState<any | null>(null);
+  const [showDeleteContentConfirm, setShowDeleteContentConfirm] = useState(false);
   const [editingContentTitle, setEditingContentTitle] = useState("");
   const [editingContentDescription, setEditingContentDescription] = useState("");
   const [editingContentFile, setEditingContentFile] = useState<File | null>(null);
@@ -2963,11 +2964,7 @@ export default function AdminPanel() {
               <div className="flex gap-2 justify-between pt-4">
                 <Button
                   variant="destructive"
-                  onClick={() => {
-                    if (confirm('Are you sure you want to delete this content? This action cannot be undone.')) {
-                      deleteContentMutation.mutate(editingContentItem.id);
-                    }
-                  }}
+                  onClick={() => setShowDeleteContentConfirm(true)}
                   disabled={deleteContentMutation.isPending}
                 >
                   {deleteContentMutation.isPending ? 'Deleting...' : 'Delete'}
@@ -3445,6 +3442,27 @@ export default function AdminPanel() {
         </div>
       )}
       <AiProgrammeWizard open={aiWizardOpen} onOpenChange={setAiWizardOpen} defaultProgrammeType={aiWizardType} />
+
+      <AlertDialog open={showDeleteContentConfirm} onOpenChange={setShowDeleteContentConfirm}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete Content</AlertDialogTitle>
+            <AlertDialogDescription>
+              Are you sure you want to delete this content? This action cannot be undone.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={() => editingContentItem && deleteContentMutation.mutate(editingContentItem.id)}
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+              disabled={deleteContentMutation.isPending}
+            >
+              Delete
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }

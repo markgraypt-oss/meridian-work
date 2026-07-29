@@ -24,6 +24,9 @@ interface BlockExercise {
   tempo?: string;
   load?: string;
   notes?: string;
+  durationType?: 'text' | 'timer';
+  isRest?: boolean;
+  restDuration?: string;
 }
 
 interface WorkoutBlock {

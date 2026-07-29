@@ -27,6 +27,7 @@ const programFormSchema = z.object({
   imageUrl: z.string().optional().or(z.literal("")),
   tags: z.array(z.string()).optional(),
   category: z.array(z.string()).optional(),
+  visibility: z.enum(["public", "private"]).optional(),
 });
 
 type ProgrammeFormData = z.infer<typeof programFormSchema>;
@@ -64,12 +65,13 @@ export default function AddProgrammePage() {
       title: "",
       description: "",
       goal: "strength",
-      equipment: "full_gym" as any,
+      equipment: "full_gym",
       weeks: 12,
       difficulty: "intermediate",
       imageUrl: "",
       tags: [],
       category: [],
+      visibility: "public",
     },
   });
 
@@ -88,6 +90,7 @@ export default function AddProgrammePage() {
         tags: data.tags || [],
         category: data.category || [],
         programmeType: programmeType,
+        visibility: data.visibility || "public",
       };
 
       const response = await fetch("/api/programs", {
@@ -308,6 +311,27 @@ export default function AddProgrammePage() {
                 )}
               />
             </div>
+
+            <FormField
+              control={form.control}
+              name="visibility"
+              render={({ field }) => (
+                <FormItem className="flex flex-row items-start gap-3 rounded-lg border border-border p-4">
+                  <FormControl>
+                    <Checkbox
+                      checked={field.value === "private"}
+                      onCheckedChange={(checked) => field.onChange(checked ? "private" : "public")}
+                    />
+                  </FormControl>
+                  <div className="space-y-1 leading-none">
+                    <FormLabel>Private (client-only)</FormLabel>
+                    <p className="text-xs text-muted-foreground">
+                      Hidden from the public library. Only you and clients you assign it to can see it.
+                    </p>
+                  </div>
+                </FormItem>
+              )}
+            />
 
             <div className="flex gap-8 items-start">
               <FormField

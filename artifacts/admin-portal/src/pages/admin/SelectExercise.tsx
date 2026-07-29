@@ -5,6 +5,14 @@ import TopHeader from '@/components/TopHeader';
 import { useLocation } from 'wouter';
 import { ExerciseSelector } from '@/components/admin/ExerciseSelector';
 
+function stripBasePath(path: string): string {
+  const base = (import.meta.env.BASE_URL || "/").replace(/\/$/, "");
+  if (base && path.startsWith(base)) {
+    return path.slice(base.length) || "/";
+  }
+  return path;
+}
+
 export default function SelectExercisePage() {
   const [, navigate] = useLocation();
   
@@ -32,7 +40,7 @@ export default function SelectExercisePage() {
       sessionStorage.setItem('selectedExerciseId', exerciseId.toString());
       sessionStorage.setItem('returningFromExerciseSelection', 'true');
     }
-    const returnPath = sessionStorage.getItem('exerciseSelectionReturnPath') || '/admin/create-workout';
+    const returnPath = stripBasePath(sessionStorage.getItem('exerciseSelectionReturnPath') || '/admin/create-workout');
     sessionStorage.removeItem('exerciseSelectionReturnPath');
     navigate(returnPath, { replace: true });
   };
@@ -44,7 +52,7 @@ export default function SelectExercisePage() {
         onBack={() => {
           sessionStorage.removeItem('selectedExerciseId');
           sessionStorage.removeItem('wodMovementFilter');
-          const returnPath = sessionStorage.getItem('exerciseSelectionReturnPath') || '/admin/create-workout';
+          const returnPath = stripBasePath(sessionStorage.getItem('exerciseSelectionReturnPath') || '/admin/create-workout');
           sessionStorage.removeItem('exerciseSelectionReturnPath');
           navigate(returnPath, { replace: true });
         }}

@@ -30,6 +30,7 @@ const programFormSchema = z.object({
   imageUrl: z.string().optional().or(z.literal("")),
   tags: z.array(z.string()).optional(),
   category: z.array(z.string()).optional(),
+  visibility: z.enum(["public", "private"]).optional(),
 });
 
 type ProgrammeFormData = z.infer<typeof programFormSchema>;
@@ -88,6 +89,7 @@ export default function EditProgrammePage() {
       imageUrl: "",
       tags: [],
       category: [],
+      visibility: "public",
     },
   });
 
@@ -103,6 +105,7 @@ export default function EditProgrammePage() {
         imageUrl: program.imageUrl || "",
         tags: program.tags || [],
         category: program?.category || [],
+        visibility: ((program as any).visibility as "public" | "private") || "public",
       });
       markClean();
     }
@@ -422,6 +425,27 @@ export default function EditProgrammePage() {
                     </div>
                   </div>
                 </div>
+
+                <FormField
+                  control={form.control}
+                  name="visibility"
+                  render={({ field }) => (
+                    <FormItem className="flex flex-row items-start gap-3 rounded-lg border border-border p-4">
+                      <FormControl>
+                        <Checkbox
+                          checked={field.value === "private"}
+                          onCheckedChange={(checked) => field.onChange(checked ? "private" : "public")}
+                        />
+                      </FormControl>
+                      <div className="space-y-1 leading-none">
+                        <FormLabel>Private (client-only)</FormLabel>
+                        <p className="text-xs text-muted-foreground">
+                          Hidden from the public library. Only you and clients you assign it to can see it.
+                        </p>
+                      </div>
+                    </FormItem>
+                  )}
+                />
 
                 <FormField
                   control={form.control}

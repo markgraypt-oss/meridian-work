@@ -1,3 +1,4 @@
 - [Meridian port gotchas](meridian-port-gotchas.md) — key fixes needed when porting this app to the pnpm workspace structure
 - [Typecheck baseline noise](typecheck-baseline.md) — meridian + lib/db have ~200 pre-existing tsc errors; diff against baseline, fix only new ones.
 - [drizzle-zod v4 + SQL array params](drizzle-zod-v4.md) — lib/db schemas must import zod/v4; raw drizzle `ANY(${array})` makes a tuple, use ARRAY[] via sql.join.
+- [Admin parity after merges](admin-parity-after-merges.md) — merges can revert mirrored admin files/parity script; re-check parity and pick newest side per file.

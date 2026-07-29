@@ -340,21 +340,17 @@ export default function AddProgrammePage() {
                 render={({ field }) => (
                   <FormItem>
                     <FormLabel>Length (weeks)</FormLabel>
-                    <Select onValueChange={(val) => field.onChange(parseInt(val))} value={field.value?.toString() || ""}>
-                      <FormControl>
-                        <SelectTrigger data-testid="input-programme-weeks" className="w-32">
-                          <SelectValue placeholder="Select weeks" />
-                        </SelectTrigger>
-                      </FormControl>
-                      <SelectContent>
-                        <SelectItem value="2">2 Weeks</SelectItem>
-                        <SelectItem value="4">4 Weeks</SelectItem>
-                        <SelectItem value="6">6 Weeks</SelectItem>
-                        <SelectItem value="8">8 Weeks</SelectItem>
-                        <SelectItem value="10">10 Weeks</SelectItem>
-                        <SelectItem value="12">12 Weeks</SelectItem>
-                      </SelectContent>
-                    </Select>
+                    <FormControl>
+                      <Input
+                        data-testid="input-programme-weeks"
+                        type="number"
+                        min={1}
+                        max={52}
+                        className="w-32"
+                        value={field.value ?? ""}
+                        onChange={(e) => field.onChange(e.target.value === "" ? "" : parseInt(e.target.value))}
+                      />
+                    </FormControl>
                     <FormMessage />
                   </FormItem>
                 )}

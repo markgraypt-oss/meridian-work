@@ -261,6 +261,21 @@ export function ProgrammeBlockManager({ workoutId, programId, programmeType, onB
             });
             
             toast({ title: 'Exercise added', description: 'Remember to save your changes' });
+            
+            // Scroll back to the newly-added exercise after render
+            const blockSection = sessionStorage.getItem('selectedBlockSection');
+            const blockType = sessionStorage.getItem('selectedBlockType');
+            setTimeout(() => {
+              if (blockType === 'single') {
+                // Single: scroll to the section heading so the user sees the block in context
+                const sectionEl = document.querySelector(`[data-section="${blockSection}"]`);
+                sectionEl?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+              } else {
+                // Superset / triset / circuit: scroll directly to the block card
+                const blockEl = document.querySelector(`[data-block-id="${blockIdNum}"]`);
+                blockEl?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+              }
+            }, 300);
           }
         }
         
@@ -276,6 +291,8 @@ export function ProgrammeBlockManager({ workoutId, programId, programmeType, onB
         sessionStorage.removeItem('editingProgrammeWorkoutId');
         sessionStorage.removeItem('programmeFormTab');
         sessionStorage.removeItem('exerciseSelectionReturnPath');
+        sessionStorage.removeItem('selectedBlockSection');
+        sessionStorage.removeItem('selectedBlockType');
         
         setIsInitialized(true);
         return;
@@ -568,6 +585,8 @@ export function ProgrammeBlockManager({ workoutId, programId, programmeType, onB
 
     sessionStorage.setItem('exerciseSelectionReturnPath', window.location.pathname + window.location.search);
     sessionStorage.setItem('selectedProgrammeBlockId', blockId.toString());
+    sessionStorage.setItem('selectedBlockSection', block.section);
+    sessionStorage.setItem('selectedBlockType', block.blockType);
     sessionStorage.setItem('editingProgrammeId', programId.toString());
     sessionStorage.setItem('editingProgrammeWorkoutId', workoutId.toString());
     sessionStorage.setItem('programmeFormTab', 'exercises');
@@ -781,7 +800,7 @@ export function ProgrammeBlockManager({ workoutId, programId, programmeType, onB
 
   const renderSection = (section: 'warmup' | 'main', sectionBlocks: WorkoutBlock[], title: string) => {
     return (
-      <div className="w-full space-y-4">
+      <div className="w-full space-y-4" data-section={section}>
         <div className="flex items-center justify-between">
           <h3 className="text-lg font-semibold">{title}</h3>
         </div>

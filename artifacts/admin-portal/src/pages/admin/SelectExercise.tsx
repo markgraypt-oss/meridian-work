@@ -1,6 +1,5 @@
 import { useMemo } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import { Button } from '@/components/ui/button';
 import TopHeader from '@/components/TopHeader';
 import { useLocation } from 'wouter';
 import { ExerciseSelector } from '@/components/admin/ExerciseSelector';
@@ -58,8 +57,9 @@ export default function SelectExercisePage() {
         }}
       />
       
-      <div className="flex-1 overflow-y-auto pt-14 px-4 pb-20">
-        <div className="max-w-2xl mx-auto">
+      {/* ExerciseSelector owns its own scroll — do NOT put overflow-y-auto here */}
+      <div className="flex-1 min-h-0 pt-14 px-4">
+        <div className="max-w-2xl mx-auto h-full">
           <ExerciseSelector 
             exercises={filteredExercises}
             onAddExercise={handleAddExercise}

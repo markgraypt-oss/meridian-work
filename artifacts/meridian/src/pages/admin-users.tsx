@@ -10,7 +10,7 @@ import { Switch } from "@/components/ui/switch";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
-import { Plus, Edit, Trash2, User, Search } from "lucide-react";
+import { Plus, Edit, Trash2, User, Search, ClipboardList } from "lucide-react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { apiRequest } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
@@ -22,6 +22,7 @@ type UserData = {
   lastName: string | null;
   companyName: string | null;
   isAdmin: boolean | null;
+  role?: string | null;
   createdAt: string | null;
   hasPassword?: boolean;
 };
@@ -46,9 +47,12 @@ export default function AdminUsers() {
     lastName: "",
     companyName: "",
     isAdmin: false,
+    role: "user" as "user" | "client",
   });
   const [isNewCompany, setIsNewCompany] = useState(false);
   const [newCompanyName, setNewCompanyName] = useState("");
+  const [assignUser, setAssignUser] = useState<UserData | null>(null);
+  const [assignProgrammeId, setAssignProgrammeId] = useState<string>("");
 
   const { data: users = [], isLoading: usersLoading } = useQuery<UserData[]>({
     queryKey: ["/api/admin/users"],
@@ -111,8 +115,32 @@ export default function AdminUsers() {
     },
   });
 
+  const programmesQuery = useQuery<any[]>({
+    queryKey: ["/api/programs", "assign"],
+    queryFn: async () => {
+      const res = await fetch("/api/programs");
+      if (!res.ok) throw new Error("Failed to load programmes");
+      return res.json();
+    },
+    enabled: !!assignUser,
+  });
+
+  const assignMutation = useMutation({
+    mutationFn: async ({ userId, programId }: { userId: string; programId: number }) => {
+      return apiRequest("POST", `/api/admin/users/${userId}/enroll`, { programId });
+    },
+    onSuccess: () => {
+      setAssignUser(null);
+      setAssignProgrammeId("");
+      toast({ title: "Programme assigned", description: "It's now the client's active programme." });
+    },
+    onError: (error: any) => {
+      toast({ title: "Failed to assign programme", description: error.message, variant: "destructive" });
+    },
+  });
+
   const resetForm = () => {
-    setFormData({ email: "", firstName: "", lastName: "", companyName: "", isAdmin: false });
+    setFormData({ email: "", firstName: "", lastName: "", companyName: "", isAdmin: false, role: "user" });
     setIsNewCompany(false);
     setNewCompanyName("");
   };
@@ -133,6 +161,7 @@ export default function AdminUsers() {
       lastName: userData.lastName || "",
       companyName: company,
       isAdmin: userData.isAdmin || false,
+      role: (userData.role as "user" | "client") || "user",
     });
     if (company && !companyInList) {
       setIsNewCompany(true);
@@ -232,10 +261,16 @@ export default function AdminUsers() {
                         {u.isAdmin && (
                           <span className="text-xs text-primary font-medium">Admin</span>
                         )}
+                        {u.role === "client" && (
+                          <span className="text-xs text-emerald-600 font-medium">Client</span>
+                        )}
                       </div>
                     </div>
                   </div>
                   <div className="flex gap-2">
+                    <Button variant="ghost" size="icon" title="Assign programme" onClick={() => { setAssignUser(u); setAssignProgrammeId(""); }}>
+                      <ClipboardList className="h-4 w-4" />
+                    </Button>
                     <Button variant="ghost" size="icon" onClick={() => openEditForm(u)}>
                       <Edit className="h-4 w-4" />
                     </Button>
@@ -357,6 +392,17 @@ export default function AdminUsers() {
                 onCheckedChange={(checked) => setFormData({ ...formData, isAdmin: checked })}
               />
             </div>
+            <div className="flex items-center justify-between">
+              <div>
+                <Label htmlFor="isClient">Coaching client</Label>
+                <p className="text-xs text-muted-foreground">Private 1:1 client — lets you assign bespoke programmes</p>
+              </div>
+              <Switch
+                id="isClient"
+                checked={formData.role === "client"}
+                onCheckedChange={(checked) => setFormData({ ...formData, role: checked ? "client" : "user" })}
+              />
+            </div>
             <DialogFooter>
               <Button type="button" variant="outline" onClick={() => setShowUserForm(false)}>
                 Cancel
@@ -366,6 +412,41 @@ export default function AdminUsers() {
               </Button>
             </DialogFooter>
           </form>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={!!assignUser} onOpenChange={(open) => { if (!open) { setAssignUser(null); setAssignProgrammeId(""); } }}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Assign programme{assignUser ? ` to ${assignUser.firstName || assignUser.email}` : ""}</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4">
+            <p className="text-sm text-muted-foreground">
+              This becomes the client's active programme (replacing any current one). Private programmes are listed here for admins.
+            </p>
+            <Select value={assignProgrammeId} onValueChange={setAssignProgrammeId}>
+              <SelectTrigger>
+                <SelectValue placeholder="Select a programme" />
+              </SelectTrigger>
+              <SelectContent>
+                {(programmesQuery.data || []).map((p: any) => (
+                  <SelectItem key={p.id} value={String(p.id)}>
+                    {p.title}{p.visibility === "private" ? " (Private)" : ""}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+          <DialogFooter>
+            <Button type="button" variant="outline" onClick={() => { setAssignUser(null); setAssignProgrammeId(""); }}>Cancel</Button>
+            <Button
+              type="button"
+              disabled={!assignProgrammeId || assignMutation.isPending}
+              onClick={() => assignUser && assignMutation.mutate({ userId: assignUser.id, programId: parseInt(assignProgrammeId) })}
+            >
+              Assign
+            </Button>
+          </DialogFooter>
         </DialogContent>
       </Dialog>
 

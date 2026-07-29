@@ -896,7 +896,7 @@ export function ProgrammeBlockManager({ workoutId, programId, programmeType, onB
                                 <SelectTrigger className="h-8 text-xs">
                                   <SelectValue />
                                 </SelectTrigger>
-                                <SelectContent>
+                                <SelectContent className="max-h-60">
                                   <SelectItem value="text">Text</SelectItem>
                                   <SelectItem value="timer">Time</SelectItem>
                                 </SelectContent>
@@ -912,7 +912,7 @@ export function ProgrammeBlockManager({ workoutId, programId, programmeType, onB
                                 <SelectTrigger className="h-8 text-xs">
                                   <SelectValue placeholder="Select" />
                                 </SelectTrigger>
-                                <SelectContent>
+                                <SelectContent className="max-h-60">
                                   {generateTimeOptions(10).map((option) => (
                                     <SelectItem key={option} value={option}>
                                       {option}
@@ -940,7 +940,7 @@ export function ProgrammeBlockManager({ workoutId, programId, programmeType, onB
                                 <SelectTrigger className="h-8 text-xs">
                                   <SelectValue placeholder="Rest" />
                                 </SelectTrigger>
-                                <SelectContent>
+                                <SelectContent className="max-h-60">
                                   {generateTimeOptions(10).map((option) => (
                                     <SelectItem key={option} value={option}>
                                       {option}
@@ -1023,7 +1023,7 @@ export function ProgrammeBlockManager({ workoutId, programId, programmeType, onB
                 <SelectTrigger className="w-20 h-8">
                   <SelectValue />
                 </SelectTrigger>
-                <SelectContent>
+                <SelectContent className="max-h-60">
                   {[1, 2, 3, 4, 5, 6, 7, 8, 9, 10].map((num) => (
                     <SelectItem key={num} value={num.toString()}>
                       {num}
@@ -1041,7 +1041,7 @@ export function ProgrammeBlockManager({ workoutId, programId, programmeType, onB
                 <SelectTrigger className="w-24 h-8">
                   <SelectValue />
                 </SelectTrigger>
-                <SelectContent>
+                <SelectContent className="max-h-60">
                   <SelectItem value="none">No rest</SelectItem>
                   {generateTimeOptions(5).map((option) => (
                     <SelectItem key={option} value={option}>
@@ -1083,7 +1083,7 @@ export function ProgrammeBlockManager({ workoutId, programId, programmeType, onB
                             <SelectTrigger className="w-20 h-7 text-xs">
                               <SelectValue />
                             </SelectTrigger>
-                            <SelectContent>
+                            <SelectContent className="max-h-60">
                               {generateTimeOptions(5).map((option) => (
                                 <SelectItem key={option} value={option}>
                                   {option}
@@ -1183,7 +1183,7 @@ export function ProgrammeBlockManager({ workoutId, programId, programmeType, onB
                             <SelectTrigger className="h-8 text-xs">
                               <SelectValue />
                             </SelectTrigger>
-                            <SelectContent>
+                            <SelectContent className="max-h-60">
                               <SelectItem value="text">Text</SelectItem>
                               <SelectItem value="timer">Time</SelectItem>
                             </SelectContent>
@@ -1198,7 +1198,7 @@ export function ProgrammeBlockManager({ workoutId, programId, programmeType, onB
                               <SelectTrigger className="h-8 text-xs">
                                 <SelectValue placeholder="Select" />
                               </SelectTrigger>
-                              <SelectContent>
+                              <SelectContent className="max-h-60">
                                 {generateTimeOptions(10).map((option) => (
                                   <SelectItem key={option} value={option}>
                                     {option}
@@ -1297,7 +1297,7 @@ export function ProgrammeBlockManager({ workoutId, programId, programmeType, onB
                           <SelectTrigger className="w-24 h-8 text-xs">
                             <SelectValue />
                           </SelectTrigger>
-                          <SelectContent>
+                          <SelectContent className="max-h-60">
                             {generateTimeOptions(5).map((option) => (
                               <SelectItem key={option} value={option}>
                                 {option}
@@ -1389,7 +1389,7 @@ export function ProgrammeBlockManager({ workoutId, programId, programmeType, onB
                           <SelectTrigger className="w-16 h-7 text-xs">
                             <SelectValue />
                           </SelectTrigger>
-                          <SelectContent>
+                          <SelectContent className="max-h-60">
                             {[1, 2, 3, 4, 5, 6, 7, 8, 9, 10].map((num) => (
                               <SelectItem key={num} value={num.toString()}>
                                 {num}
@@ -1407,7 +1407,7 @@ export function ProgrammeBlockManager({ workoutId, programId, programmeType, onB
                           <SelectTrigger className="w-20 h-7 text-xs">
                             <SelectValue />
                           </SelectTrigger>
-                          <SelectContent>
+                          <SelectContent className="max-h-60">
                             <SelectItem value="none">No rest</SelectItem>
                             {generateTimeOptions(5).map((option) => (
                               <SelectItem key={option} value={option}>
@@ -1438,7 +1438,7 @@ export function ProgrammeBlockManager({ workoutId, programId, programmeType, onB
                                   <SelectTrigger className="w-20 h-7 text-xs">
                                     <SelectValue />
                                   </SelectTrigger>
-                                  <SelectContent>
+                                  <SelectContent className="max-h-60">
                                     {generateTimeOptions(5).map((option) => (
                                       <SelectItem key={option} value={option}>
                                         {option}
@@ -1538,7 +1538,7 @@ export function ProgrammeBlockManager({ workoutId, programId, programmeType, onB
                                   <SelectTrigger className="h-8 text-xs">
                                     <SelectValue />
                                   </SelectTrigger>
-                                  <SelectContent>
+                                  <SelectContent className="max-h-60">
                                     <SelectItem value="text">Text</SelectItem>
                                     <SelectItem value="timer">Time</SelectItem>
                                   </SelectContent>
@@ -1553,7 +1553,7 @@ export function ProgrammeBlockManager({ workoutId, programId, programmeType, onB
                                     <SelectTrigger className="h-8 text-xs">
                                       <SelectValue placeholder="Select" />
                                     </SelectTrigger>
-                                    <SelectContent>
+                                    <SelectContent className="max-h-60">
                                       {generateTimeOptions(10).map((option) => (
                                         <SelectItem key={option} value={option}>
                                           {option}
@@ -1683,7 +1683,7 @@ export function ProgrammeBlockManager({ workoutId, programId, programmeType, onB
                     <SelectTrigger data-testid="select-workout-type">
                       <SelectValue />
                     </SelectTrigger>
-                    <SelectContent>
+                    <SelectContent className="max-h-60">
                       {Object.entries(WORKOUT_TYPE_INFO).map(([key, info]) => {
                         const Icon = info.icon;
                         return (
@@ -1719,7 +1719,7 @@ export function ProgrammeBlockManager({ workoutId, programId, programmeType, onB
                     <SelectTrigger data-testid="select-workout-edit-category">
                       <SelectValue />
                     </SelectTrigger>
-                    <SelectContent>
+                    <SelectContent className="max-h-60">
                       {CATEGORIES.map((cat) => (
                         <SelectItem key={cat.toLowerCase()} value={cat.toLowerCase()}>{cat}</SelectItem>
                       ))}
@@ -1735,7 +1735,7 @@ export function ProgrammeBlockManager({ workoutId, programId, programmeType, onB
                     <SelectTrigger data-testid="select-workout-edit-difficulty">
                       <SelectValue />
                     </SelectTrigger>
-                    <SelectContent>
+                    <SelectContent className="max-h-60">
                       {DIFFICULTIES.map((diff) => (
                         <SelectItem key={diff.toLowerCase()} value={diff.toLowerCase()}>{diff}</SelectItem>
                       ))}

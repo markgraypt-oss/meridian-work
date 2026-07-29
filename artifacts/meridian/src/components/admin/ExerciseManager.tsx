@@ -233,7 +233,7 @@ export function ExerciseManager({ exercises: initialExercises, onExercisesChange
                         <SelectTrigger className="h-8 text-xs">
                           <SelectValue placeholder="Select exercise" />
                         </SelectTrigger>
-                        <SelectContent>
+                        <SelectContent className="max-h-60">
                           {(libraryExercises as any[]).map((ex: any) => (
                             <SelectItem key={ex.id} value={ex.id.toString()}>
                               {ex.name}
@@ -270,7 +270,7 @@ export function ExerciseManager({ exercises: initialExercises, onExercisesChange
                                 <SelectTrigger className="h-8 text-xs px-1 [&_svg]:w-3">
                                   <SelectValue />
                                 </SelectTrigger>
-                                <SelectContent>
+                                <SelectContent className="max-h-60">
                                   <SelectItem value="time">Time</SelectItem>
                                   <SelectItem value="text">Text</SelectItem>
                                 </SelectContent>
@@ -292,7 +292,7 @@ export function ExerciseManager({ exercises: initialExercises, onExercisesChange
                               <SelectTrigger className="h-8 text-xs px-1 [&_svg]:w-3">
                                 <SelectValue />
                               </SelectTrigger>
-                              <SelectContent>
+                              <SelectContent className="max-h-60">
                                 {generateTimeOptions(30).map(time => (
                                   <SelectItem key={time} value={time}>{time}</SelectItem>
                                 ))}

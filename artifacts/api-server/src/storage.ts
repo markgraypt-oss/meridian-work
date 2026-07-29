@@ -420,7 +420,7 @@ export interface IStorage {
   getUserByEmailWithPassword(email: string): Promise<User | undefined>;
   getUserByIdentifierWithPassword(identifier: string): Promise<User | undefined>;
   getAllUsers(): Promise<User[]>;
-  createUser(user: { email: string; password: string; firstName?: string; lastName?: string; isAdmin?: boolean }): Promise<User>;
+  createUser(user: { email: string; password?: string; firstName?: string; lastName?: string; isAdmin?: boolean; role?: string; companyName?: string }): Promise<User>;
   updateUser(id: string, data: Partial<{ email: string; password: string; firstName: string; lastName: string; isAdmin: boolean; profileImageUrl: string; firstLoginAt: Date; onboardingCompleted: boolean; onboardingStep: number; onboardingData: any; welcomeSeenAt: Date; displayName: string; dateOfBirth: string; gender: string; height: number; heightUnit: string; weightUnit: string; distanceUnit: string; timeFormat: string; dateFormat: string }>): Promise<User>;
   markFirstLogin(userId: string): Promise<boolean>;
   deleteUser(id: string): Promise<void>;
@@ -536,6 +536,7 @@ export interface IStorage {
   enrollUserInProgram(userId: string, programId: number, startDate?: Date, programType?: 'main' | 'supplementary'): Promise<any>;
   scheduleProgram(userId: string, programId: number, startDate: Date, programType?: 'main' | 'supplementary'): Promise<any>;
   getUserEnrolledPrograms(userId: string): Promise<any[]>;
+  isUserEnrolledInProgram(userId: string, programId: number): Promise<boolean>;
   getEnrollmentById(enrollmentId: number): Promise<any | null>;
   getUserProgramTimeline(userId: string): Promise<any>;
   getEnrolledProgramDetails(userId: string, enrollmentId: number): Promise<any>;
@@ -1368,7 +1369,7 @@ export class DatabaseStorage implements IStorage {
     return await db.select().from(users).orderBy(desc(users.createdAt));
   }
 
-  async createUser(userData: { email: string; password: string; firstName?: string; lastName?: string; isAdmin?: boolean }): Promise<User> {
+  async createUser(userData: { email: string; password?: string; firstName?: string; lastName?: string; isAdmin?: boolean; role?: string; companyName?: string }): Promise<User> {
     const id = crypto.randomUUID();
     const [user] = await db
       .insert(users)
@@ -1379,6 +1380,7 @@ export class DatabaseStorage implements IStorage {
         firstName: userData.firstName || null,
         lastName: userData.lastName || null,
         isAdmin: userData.isAdmin || false,
+        role: userData.role || 'user',
       })
       .returning();
     return user;
@@ -1951,6 +1953,7 @@ export class DatabaseStorage implements IStorage {
     duration?: string;
     programmeType?: string;
     includeUserCreated?: boolean;
+    includePrivate?: boolean;
   }): Promise<Program[]> {
     const conditions = [];
     
@@ -1961,7 +1964,16 @@ export class DatabaseStorage implements IStorage {
         isNull(programs.sourceType)
       )!);
     }
-    
+
+    // Private (coach-built, client-only) programmes are hidden from the library
+    // unless the caller is explicitly allowed to see them (admin listing).
+    if (!filters?.includePrivate) {
+      conditions.push(or(
+        eq(programs.visibility, 'public'),
+        isNull(programs.visibility)
+      )!);
+    }
+
     if (filters?.goal && filters.goal !== 'All Goals') {
       conditions.push(eq(programs.goal, filters.goal.toLowerCase().replace(' ', '_')));
     }
@@ -1977,6 +1989,14 @@ export class DatabaseStorage implements IStorage {
     }
     
     return await db.select().from(programs).orderBy(desc(programs.createdAt));
+  }
+
+  async isUserEnrolledInProgram(userId: string, programId: number): Promise<boolean> {
+    const [row] = await db.select({ id: userProgramEnrollments.id })
+      .from(userProgramEnrollments)
+      .where(and(eq(userProgramEnrollments.userId, userId), eq(userProgramEnrollments.programId, programId)))
+      .limit(1);
+    return !!row;
   }
 
   async getUserCreatedPrograms(userId: string): Promise<Program[]> {

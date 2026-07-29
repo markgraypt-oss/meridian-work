@@ -103,6 +103,51 @@ async function requireAdmin(req: any, res: any, next: any) {
   }
 }
 
+// Resolve the caller's user id from the session WITHOUT rejecting when it's
+// absent (mirrors isAuthenticated but returns null instead of a 401). Lets a
+// public read route stay open for public content while still enforcing access
+// on private content.
+async function optionalUserId(req: any): Promise<string | null> {
+  try {
+    const mobileSessionId = req.headers['x-session-id'] as string | undefined;
+    if (mobileSessionId && req.sessionStore) {
+      return await new Promise((resolve) => {
+        req.sessionStore.get(mobileSessionId, (err: any, session: any) => {
+          const su = session?.passport?.user;
+          if (err || !su?.expires_at || Math.floor(Date.now() / 1000) > su.expires_at) return resolve(null);
+          resolve(su?.claims?.sub ?? null);
+        });
+      });
+    }
+    const u = req.user as any;
+    if (typeof req.isAuthenticated === 'function' && req.isAuthenticated() && u?.expires_at && Math.floor(Date.now() / 1000) <= u.expires_at) {
+      return u?.claims?.sub ?? null;
+    }
+  } catch {}
+  return null;
+}
+
+// Read-guard for programme content. Public programmes are readable by anyone;
+// private (coach-built, client-only) programmes only by an admin or a user
+// enrolled in them. On denial it writes a 404 (not 403, so it never confirms a
+// private programme exists) and returns false — callers must `return` at once.
+async function assertProgrammeReadable(req: any, res: any, programId: number): Promise<boolean> {
+  const program = await storage.getProgramById(programId);
+  if (!program) {
+    res.status(404).json({ message: "Program not found" });
+    return false;
+  }
+  if ((program as any).visibility !== 'private') return true;
+  const userId = await optionalUserId(req);
+  if (userId) {
+    const me = await storage.getUser(userId);
+    if (me?.isAdmin) return true;
+    if (await storage.isUserEnrolledInProgram(userId, programId)) return true;
+  }
+  res.status(404).json({ message: "Program not found" });
+  return false;
+}
+
 // Per-user rate limiters for AI endpoints. Keyed on session user id, falls
 // back to IP for unauthenticated callers (shouldn't happen on these routes).
 const aiVisionRateLimit = rateLimit({
@@ -1998,7 +2043,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(403).json({ message: "Admin access required" });
       }
 
-      const { email, firstName, lastName, companyName, isAdmin } = req.body;
+      const { email, firstName, lastName, companyName, isAdmin, role } = req.body;
       if (!email) {
         return res.status(400).json({ message: "Email is required" });
       }
@@ -2014,6 +2059,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         lastName,
         companyName,
         isAdmin: isAdmin || false,
+        role: role || 'user',
       });
 
       const token = generateResetToken();
@@ -2054,7 +2100,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
 
       const targetId = req.params.id;
-      const { email, firstName, lastName, companyName, isAdmin } = req.body;
+      const { email, firstName, lastName, companyName, isAdmin, role } = req.body;
 
       const updateData: any = {};
       if (email) updateData.email = email;
@@ -2062,6 +2108,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       if (lastName !== undefined) updateData.lastName = lastName;
       if (companyName !== undefined) updateData.companyName = companyName;
       if (isAdmin !== undefined) updateData.isAdmin = isAdmin;
+      if (role !== undefined) updateData.role = role;
 
       const updatedUser = await storage.updateUser(targetId, updateData);
       res.json({
@@ -2071,11 +2118,42 @@ export async function registerRoutes(app: Express): Promise<Server> {
         lastName: updatedUser.lastName,
         companyName: updatedUser.companyName,
         isAdmin: updatedUser.isAdmin,
+        role: updatedUser.role,
         createdAt: updatedUser.createdAt,
       });
     } catch (error) {
       console.error("Error updating user:", error);
       res.status(500).json({ message: "Failed to update user" });
+    }
+  });
+
+  // Admin: assign (enrol) a user into a programme. Used to drop a bespoke
+  // private programme straight into a coaching client's active slot. Defaults
+  // to forceReplace so it takes over the client's current main programme.
+  app.post('/api/admin/users/:userId/enroll', isAuthenticated, requireAdmin, async (req: any, res) => {
+    try {
+      const targetUserId = req.params.userId;
+      const programId = parseInt(req.body?.programId);
+      if (!programId) return res.status(400).json({ message: "programId is required" });
+
+      const target = await storage.getUser(targetUserId);
+      if (!target) return res.status(404).json({ message: "User not found" });
+      const program = await storage.getProgramById(programId);
+      if (!program) return res.status(404).json({ message: "Programme not found" });
+
+      const forceReplace = req.body?.forceReplace ?? true;
+      const enrollment = await storage.enrollUserInProgram(targetUserId, programId, undefined, 'main', forceReplace);
+      res.status(201).json(enrollment);
+    } catch (error: any) {
+      console.error("Error assigning programme to user:", error);
+      if (error?.code === 'PROGRAMME_CONFLICT') {
+        return res.status(409).json({
+          code: 'PROGRAMME_CONFLICT',
+          message: 'User already has an active programme',
+          existingEnrollment: error.existingEnrollment,
+        });
+      }
+      res.status(500).json({ message: "Failed to assign programme" });
     }
   });
 
@@ -3727,14 +3805,17 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Program routes
-  app.get('/api/programs', async (req, res) => {
+  app.get('/api/programs', async (req: any, res) => {
     try {
       const { goal, equipment, duration, programmeType } = req.query;
+      const uid = await optionalUserId(req);
+      const me = uid ? await storage.getUser(uid) : null;
       const programs = await storage.getPrograms({
         goal: goal as string,
         equipment: equipment as string,
         duration: duration as string,
         programmeType: programmeType as string,
+        includePrivate: !!me?.isAdmin,
       });
       res.json(programs);
     } catch (error) {
@@ -3743,9 +3824,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.get('/api/programs/:id', async (req, res) => {
+  app.get('/api/programs/:id', async (req: any, res) => {
     try {
       const id = parseInt(req.params.id);
+      if (!(await assertProgrammeReadable(req, res, id))) return;
       const program = await storage.getProgramById(id);
       if (!program) {
         return res.status(404).json({ message: "Program not found" });
@@ -4423,9 +4505,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Programme workout routes - template view (admin/library)
-  app.get('/api/programme-workouts/:id', async (req, res) => {
+  app.get('/api/programme-workouts/:id', async (req: any, res) => {
     try {
       const id = parseInt(req.params.id);
+      const guardPid = await programIdForProgrammeWorkout(id);
+      if (guardPid && !(await assertProgrammeReadable(req, res, guardPid))) return;
       const workout = await storage.getProgrammeWorkoutById(id);
       if (!workout) {
         return res.status(404).json({ message: "Workout not found" });
@@ -4644,9 +4728,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.get('/api/programme-workouts/:id/exercises', async (req, res) => {
+  app.get('/api/programme-workouts/:id/exercises', async (req: any, res) => {
     try {
       const id = parseInt(req.params.id);
+      const guardPid = await programIdForProgrammeWorkout(id);
+      if (guardPid && !(await assertProgrammeReadable(req, res, guardPid))) return;
       const exercises = await storage.getProgramExercises(id);
       res.json(exercises);
     } catch (error) {
@@ -4659,9 +4745,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Library/template endpoint: ALWAYS returns the original template blocks,
   // never enrolled/substituted data. Enrolled views must use
   // /api/my-programs/:enrollmentId/workouts/:workoutId instead.
-  app.get('/api/programme-workouts/:id/blocks', async (req, res) => {
+  app.get('/api/programme-workouts/:id/blocks', async (req: any, res) => {
     try {
       const id = parseInt(req.params.id);
+      const guardPid = await programIdForProgrammeWorkout(id);
+      if (guardPid && !(await assertProgrammeReadable(req, res, guardPid))) return;
       const blocks = await storage.getProgrammeWorkoutBlocks(id);
       res.json(blocks);
     } catch (error) {
@@ -11594,9 +11682,10 @@ Rules:
   });
 
   // Program workouts route
-  app.get('/api/programs/:programId/workouts', async (req, res) => {
+  app.get('/api/programs/:programId/workouts', async (req: any, res) => {
     try {
       const programId = parseInt(req.params.programId);
+      if (!(await assertProgrammeReadable(req, res, programId))) return;
       // Library endpoint: ALWAYS returns the original programme template,
       // never enrolled/substituted data. Enrolled views must use
       // /api/my-programs/:enrollmentId/enrollment-workouts instead.
@@ -11609,9 +11698,10 @@ Rules:
   });
 
   // Programme workout templates route - returns deduplicated workouts grouped by name
-  app.get('/api/programs/:programId/workout-templates', async (req, res) => {
+  app.get('/api/programs/:programId/workout-templates', async (req: any, res) => {
     try {
       const programId = parseInt(req.params.programId);
+      if (!(await assertProgrammeReadable(req, res, programId))) return;
       const weekParam = req.query.week ? parseInt(req.query.week as string) : undefined;
       const templates = await storage.getProgrammeWorkoutTemplates(programId, weekParam);
       res.json(templates);
@@ -11622,9 +11712,10 @@ Rules:
   });
 
   // Per-week progression matrix (public): powers the library preview + hub "how it progresses" table.
-  app.get('/api/programs/:id/progression', async (req, res) => {
+  app.get('/api/programs/:id/progression', async (req: any, res) => {
     try {
       const programId = parseInt(req.params.id);
+      if (!(await assertProgrammeReadable(req, res, programId))) return;
       const data = await storage.getProgramProgression(programId);
       if (!data) return res.status(404).json({ message: "Programme not found" });
       res.json(data);
@@ -11804,9 +11895,10 @@ Rules:
   });
 
   // Program exercises routes (all exercises in a programme)
-  app.get('/api/programs/:programId/exercises', async (req, res) => {
+  app.get('/api/programs/:programId/exercises', async (req: any, res) => {
     try {
       const programId = parseInt(req.params.programId);
+      if (!(await assertProgrammeReadable(req, res, programId))) return;
       const exercises = await storage.getAllProgramExercises(programId);
       res.json(exercises);
     } catch (error) {

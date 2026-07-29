@@ -41,6 +41,10 @@ const SELF_HEAL_DDL: string[] = [
   `ALTER TABLE meditations ADD COLUMN IF NOT EXISTS cover_image_url text`,
   `ALTER TABLE users ADD COLUMN IF NOT EXISTS welcome_seen_at timestamp`,
 
+  // Private client programmes: library visibility + client role
+  `ALTER TABLE programs ADD COLUMN IF NOT EXISTS visibility text NOT NULL DEFAULT 'public'`,
+  `ALTER TABLE users ADD COLUMN IF NOT EXISTS role text NOT NULL DEFAULT 'user'`,
+
   // Coach chat education recommendations (tappable video/path cards)
   `CREATE TABLE IF NOT EXISTS coach_recommendations (
      id serial PRIMARY KEY,

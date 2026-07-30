@@ -9,6 +9,7 @@ import { Input } from "@/components/ui/input";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { apiRequest } from "@/lib/queryClient";
 import { BlockManager } from "@/components/admin/BlockManager";
+import { uploadImageFile, uploadErrorMessage } from "@/lib/uploadImage";
 
 interface ExerciseSet {
   reps: string;
@@ -59,7 +60,9 @@ export default function CreateCorrectiveRoutinePage() {
     intervalRounds: 4,
     intervalRestAfterRound: "60 sec",
     muxPlaybackId: "",
+    imageUrl: "",
   });
+  const [uploadingImage, setUploadingImage] = useState(false);
   
   const { markDirty, markClean, handleNavigation, UnsavedChangesDialog } = useUnsavedChanges();
   const initialFormRef = useRef<string | null>(null);
@@ -178,6 +181,21 @@ export default function CreateCorrectiveRoutinePage() {
 
   const isEditing = !!formData.id;
 
+  const handleImageUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    if (!file) return;
+    try {
+      setUploadingImage(true);
+      const objectPath = await uploadImageFile(file, { visibility: "public" });
+      setFormData(prev => ({ ...prev, imageUrl: objectPath }));
+      toast({ title: "Image uploaded" });
+    } catch (error) {
+      toast({ title: "Upload failed", description: uploadErrorMessage(error), variant: "destructive" });
+    } finally {
+      setUploadingImage(false);
+    }
+  };
+
   const createRoutineMutation = useMutation({
     mutationFn: (data: any) => {
       console.log("Submitting corrective routine data:", JSON.stringify(data, null, 2));
@@ -238,7 +256,39 @@ export default function CreateCorrectiveRoutinePage() {
                   rows={3} 
                 />
               </div>
-              
+
+              <div>
+                <label className="text-sm font-medium text-foreground">Cover Image (2:3 portrait)</label>
+                <div className="mt-2 flex items-start gap-4">
+                  {formData.imageUrl ? (
+                    <div className="relative w-24 h-36 flex-shrink-0">
+                      <img
+                        src={formData.imageUrl}
+                        alt="Cover"
+                        className="w-24 h-36 object-cover rounded-lg border border-border"
+                        onError={(e) => (e.currentTarget.style.display = 'none')}
+                      />
+                      <button
+                        type="button"
+                        className="absolute top-1 right-1 h-5 w-5 rounded-full bg-destructive text-destructive-foreground flex items-center justify-center text-xs font-bold hover:bg-destructive/80"
+                        onClick={() => setFormData(prev => ({ ...prev, imageUrl: '' }))}
+                      >✕</button>
+                    </div>
+                  ) : (
+                    <label className="w-24 h-36 flex-shrink-0 flex flex-col items-center justify-center border-2 border-dashed border-border rounded-lg cursor-pointer hover:border-primary hover:bg-accent transition-colors">
+                      <span className="text-2xl text-muted-foreground mb-1">+</span>
+                      <span className="text-xs text-muted-foreground text-center leading-tight">Upload<br/>image</span>
+                      <input type="file" accept="image/jpeg,image/png,image/webp" onChange={handleImageUpload} disabled={uploadingImage} className="hidden" />
+                    </label>
+                  )}
+                  <div className="flex flex-col gap-1 pt-1">
+                    <p className="text-xs text-muted-foreground">JPEG, PNG or WebP · max 10 MB</p>
+                    <p className="text-xs text-muted-foreground">Portrait 2:3 ratio recommended</p>
+                    {uploadingImage && <p className="text-xs text-blue-500">Uploading…</p>}
+                  </div>
+                </div>
+              </div>
+
               <div className="pt-2">
                 <label className="text-sm font-medium text-foreground block mb-3">Routine Type</label>
                 <div className="space-y-2">

@@ -3865,6 +3865,35 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Program routes
+
+  // Turn a stored programme cover (image_url) into something the mobile <Image> can load.
+  // data: URLs (base64) and /uploads/... pass through unchanged; /objects/... (admin uploads to
+  // object storage) become a signed, short-lived GET url — mirrors the progress-picture flow.
+  const resolveProgrammeImageUrl = async (stored: string | null | undefined): Promise<string | null | undefined> => {
+    if (!stored || !stored.startsWith('/objects/')) return stored;
+    try {
+      const svc = new ObjectStorageService();
+      const objectFile = await svc.getObjectEntityFile(stored);
+      const bucketId = process.env.DEFAULT_OBJECT_STORAGE_BUCKET_ID
+        || 'replit-objstore-deb212d3-bb3d-41c5-b53a-2fdbdc2253dd';
+      const signRes = await fetch('http://127.0.0.1:1106/object-storage/signed-object-url', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          bucket_name: bucketId,
+          object_name: objectFile.name,
+          method: 'GET',
+          expires_at: new Date(Date.now() + 3600 * 1000).toISOString(),
+        }),
+      });
+      if (!signRes.ok) return stored;
+      const { signed_url } = await signRes.json() as any;
+      return signed_url || stored;
+    } catch {
+      return stored;
+    }
+  };
+
   app.get('/api/programs', async (req: any, res) => {
     try {
       const { goal, equipment, duration, programmeType } = req.query;
@@ -3877,7 +3906,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
         programmeType: programmeType as string,
         includePrivate: !!me?.isAdmin,
       });
-      res.json(programs);
+      const withCovers = await Promise.all(
+        (programs as any[]).map(async (p) => ({ ...p, imageUrl: await resolveProgrammeImageUrl(p.imageUrl) }))
+      );
+      res.json(withCovers);
     } catch (error) {
       console.error("Error fetching programs:", error);
       res.status(500).json({ message: "Failed to fetch programs" });
@@ -3892,7 +3924,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       if (!program) {
         return res.status(404).json({ message: "Program not found" });
       }
-      res.json(program);
+      res.json({ ...program, imageUrl: await resolveProgrammeImageUrl(program.imageUrl) });
     } catch (error) {
       console.error("Error fetching program:", error);
       res.status(500).json({ message: "Failed to fetch program" });

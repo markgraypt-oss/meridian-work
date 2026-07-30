@@ -46,6 +46,8 @@ const SELF_HEAL_DDL: string[] = [
   `ALTER TABLE users ADD COLUMN IF NOT EXISTS role text NOT NULL DEFAULT 'user'`,
   // Client programme management: record when an enrollment finished / was ended early
   `ALTER TABLE user_program_enrollments ADD COLUMN IF NOT EXISTS completed_at timestamp`,
+  // AI programme review: cached coach review/feedback for the enrolled programme
+  `ALTER TABLE user_program_enrollments ADD COLUMN IF NOT EXISTS review jsonb`,
   // Soft-delete for programmes that have client history (kept, just hidden)
   `ALTER TABLE programs ADD COLUMN IF NOT EXISTS archived boolean NOT NULL DEFAULT false`,
 

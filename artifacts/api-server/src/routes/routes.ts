@@ -4652,6 +4652,37 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // AI programme review — cached coach feedback for the user's enrolled programme.
+  app.get('/api/my-programs/:enrollmentId/review', isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = req.user.claims.sub;
+      const enrollmentId = parseInt(req.params.enrollmentId);
+      if (!enrollmentId) return res.status(400).json({ message: "Invalid enrollment id" });
+      const { getOrGenerateProgrammeReview } = await import("../coach/programmeReview");
+      const result = await getOrGenerateProgrammeReview(userId, enrollmentId);
+      if (!result) return res.status(404).json({ message: "No review available" });
+      res.json(result);
+    } catch (error: any) {
+      console.error("Error fetching programme review:", error?.message || error);
+      res.status(500).json({ message: "Failed to fetch review" });
+    }
+  });
+
+  app.post('/api/my-programs/:enrollmentId/review/refresh', isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = req.user.claims.sub;
+      const enrollmentId = parseInt(req.params.enrollmentId);
+      if (!enrollmentId) return res.status(400).json({ message: "Invalid enrollment id" });
+      const { generateProgrammeReview } = await import("../coach/programmeReview");
+      const result = await generateProgrammeReview(userId, enrollmentId);
+      if (!result) return res.status(404).json({ message: "Could not generate review" });
+      res.json(result);
+    } catch (error: any) {
+      console.error("Error refreshing programme review:", error?.message || error);
+      res.status(500).json({ message: "Failed to refresh review" });
+    }
+  });
+
   app.get('/api/my-programs/:enrollmentId/enrollment-workouts', isAuthenticated, async (req: any, res) => {
     try {
       const userId = req.user.claims.sub;

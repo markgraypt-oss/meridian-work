@@ -537,6 +537,7 @@ export const userProgramEnrollments = pgTable("user_program_enrollments", {
   programType: text("program_type").notNull().default("main"), // 'main' or 'supplementary'
   workoutsCompleted: integer("workouts_completed").notNull().default(0), // track progress
   totalWorkouts: integer("total_workouts").notNull().default(0), // cached from program
+  review: jsonb("review"), // cached AI programme review wrapper: { v, review, snapshot, generatedAt }
   orderIndex: integer("order_index").notNull().default(0), // for sequencing multiple enrollments
   createdAt: timestamp("created_at").defaultNow(),
 });

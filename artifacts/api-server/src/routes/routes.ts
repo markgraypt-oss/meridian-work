@@ -12982,6 +12982,24 @@ Rules:
     }
   });
 
+  // Featured learning path for The Lab home hero. Driven by the existing
+  // `isRecommended` flag — returns the most recent recommended path, or null
+  // (mobile hides the hero when null). No hardcoding.
+  app.get('/api/learn/featured', isAuthenticated, async (req, res) => {
+    try {
+      const [path] = await db
+        .select()
+        .from(learningPaths)
+        .where(eq(learningPaths.isRecommended, true))
+        .orderBy(desc(learningPaths.createdAt))
+        .limit(1);
+      res.json(path ?? null);
+    } catch (error) {
+      console.error("Error fetching featured learning path:", error);
+      res.status(500).json({ message: "Failed to fetch featured learning path" });
+    }
+  });
+
   // Learning Paths routes
   app.get('/api/learning-paths', isAuthenticated, async (req, res) => {
     try {

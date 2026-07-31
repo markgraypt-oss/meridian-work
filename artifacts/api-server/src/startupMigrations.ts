@@ -10,6 +10,7 @@ let hasRunBodyweightGoalUnitRepair = false;
 let hasRunRecipeMacrosNormalize = false;
 let hasRunDedupeCheckIns = false;
 let hasRunLabTopicCovers = false;
+let hasRunLabPathCovers = false;
 
 /**
  * Idempotent self-heal for schema columns that the app needs but that may not
@@ -1361,5 +1362,47 @@ export async function seedLabTopicCoversOnce(): Promise<void> {
     }
   } catch (e: any) {
     console.error("[startup-migration] lab topic covers failed:", e?.message || e);
+  }
+}
+
+// ── The Lab: path covers ────────────────────────────────────────────────────
+// Same idempotent ingest as topic covers, but keyed by learning_paths.id.
+// Append new { id, url } entries here as path covers are generated.
+const LAB_PATH_COVERS: { id: number; url: string }[] = [
+  { id: 12, url: "https://cms-toolkit-artifacts.artlist.io/content/-t-e-x-t_-t-o_-i-m-a-g-e-v1/media__4/image-090b79ba-742e-4cd7-a78f-daaa5118b91e.png?Expires=2100880399&Key-Pair-Id=K2ZDLYDZI2R1DF&Signature=ZZLvDXSfcKp2wTa5WtU3ZPjcCP5v5lBZeREtuPIqQMXxmLR8rENK7QRgSNXMj7mS9SL7kvlgD3iSslrhk5NDN~Vq60vxEM-hPqCOJSn-wG7jMf1QCbwTFK8r2XrVXpCtin8s5HpbmBKkLfoeWSWRWelyyY6Ehlcdr0xgwb42UUwRvB00esnLsmh~~wZ-Jn2r2sny~c2osBZvjo01g-MLFC-dNf~pZxO2Hi1IkLhS7QOnQd3S9AVlZOp~v9joxXmjQADUNlJXrdQG07hLfRmxyCQ82Y6~we5gEhW9UUzzfglb252dBv994rePufc6Zxkg0LAdBUuFjIUr9YLrf4Ep1Q__" },
+  { id: 28, url: "https://cms-toolkit-artifacts.artlist.io/content/-t-e-x-t_-t-o_-i-m-a-g-e-v1/media__6/image-1c054689-8f42-4088-9455-a7dead0529f0.png?Expires=2100880388&Key-Pair-Id=K2ZDLYDZI2R1DF&Signature=ZteYps83OJ8C6xRHhMk3U99YK5VRkBTKk6e4ZxRd7LbzpHzP3SG2nsO9TS47ey6yePPsHWtuxuXo06ntrVm16kt5Or8ioiNLI4xn-nEpDvbrSwxmVENzUOFqjvOB~7fpoSuGZGNA7IByNAPg65km~xly9yzlRIPbpHj4I-Q5Kl4L~m1xqwY3MQsY1qC4bAX~wD0OWZy-HXG67BNSss-B~O5GRFFujCUhsFdoBCcttw6oBuaReX9Yq1v3Ocnt86ITh4fO-hcS1WleE6pANeh5u5OENMpJmdvy9vZordUA07rb~0W-n~DwfZT753Nn1Y6wKKH9tpVg5Y02QFx8OmW8nA__" },
+];
+
+export async function seedLabPathCoversOnce(): Promise<void> {
+  if (hasRunLabPathCovers) return;
+  hasRunLabPathCovers = true;
+  try {
+    for (const cover of LAB_PATH_COVERS) {
+      try {
+        const row = await pool.query(
+          `SELECT id, image_url FROM learning_paths WHERE id = $1 LIMIT 1`,
+          [cover.id],
+        );
+        if ((row.rowCount ?? 0) === 0) continue;
+        const { image_url } = row.rows[0];
+        if (image_url) {
+          const s = String(image_url).trim();
+          if (s.startsWith("/objects/") || s.startsWith("http")) continue;
+        }
+        const resp = await fetch(cover.url);
+        if (!resp.ok) {
+          console.error(`[startup-migration] lab-path-cover fetch failed for path ${cover.id}: ${resp.status}`);
+          continue;
+        }
+        const buffer = Buffer.from(await resp.arrayBuffer());
+        const objectPath = await uploadBufferAsPublicLabCover(buffer, "image/png");
+        await pool.query(`UPDATE learning_paths SET image_url = $1 WHERE id = $2`, [objectPath, cover.id]);
+        console.log(`[startup-migration] lab-path-cover set for path ${cover.id} -> ${objectPath}`);
+      } catch (inner: any) {
+        console.error(`[startup-migration] lab-path-cover failed for path ${cover.id}:`, inner?.message || inner);
+      }
+    }
+  } catch (e: any) {
+    console.error("[startup-migration] lab path covers failed:", e?.message || e);
   }
 }

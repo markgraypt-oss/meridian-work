@@ -269,12 +269,20 @@ export async function gatherInputsForDay(
   const ci = ciRows[0];
 
   // --- Today's wearable metrics ---
+  // Provider priority MUST be honoured here, 100% of the time, exactly as it is
+  // everywhere else in the app. NEVER pick a provider by sync recency: the
+  // mobile app re-pushes Apple Health on almost every open, so updatedAt-order
+  // would let Apple Health silently override WHOOP/Oura for sleep/HRV/RHR.
+  // Merge all of the day's provider rows through the shared per-metric priority
+  // tables (PHYSIO: oura>whoop>apple>google for sleep/HRV/RHR; ACTIVITY:
+  // apple>google>oura>whoop for steps/energy; strain: WHOOP-only) and read the
+  // single merged row. See mergeMetricsPerDay in ./wearables.
+  const { mergeMetricsPerDay } = await import("./wearables");
   const wearableRows = await db
     .select()
     .from(wearableMetricsDaily)
-    .where(and(eq(wearableMetricsDaily.userId, userId), eq(wearableMetricsDaily.date, dateKey)))
-    .orderBy(desc(wearableMetricsDaily.updatedAt));
-  const wear = wearableRows[0];
+    .where(and(eq(wearableMetricsDaily.userId, userId), eq(wearableMetricsDaily.date, dateKey)));
+  const wear = mergeMetricsPerDay(wearableRows)[0];
 
   const sources: ReadinessInputSources = {
     sleep: null,
@@ -425,13 +433,14 @@ export async function gatherInputsForDay(
   const yesterdayStart = startOfLocalDay(yesterdayKey);
   const yesterdayEnd = endOfLocalDay(yesterdayKey);
 
+  // Same rule as today's row: honour provider priority, never sync recency.
+  // WHOOP strain in particular is WHOOP-only, so an Apple Health row synced
+  // later must not shadow the WHOOP row that actually carries strainScore.
   const yWearRows = await db
     .select()
     .from(wearableMetricsDaily)
-    .where(and(eq(wearableMetricsDaily.userId, userId), eq(wearableMetricsDaily.date, yesterdayKey)))
-    .orderBy(desc(wearableMetricsDaily.updatedAt))
-    .limit(1);
-  const yw = yWearRows[0];
+    .where(and(eq(wearableMetricsDaily.userId, userId), eq(wearableMetricsDaily.date, yesterdayKey)));
+  const yw = mergeMetricsPerDay(yWearRows)[0];
 
   // Step 1: WHOOP strain (stored 0-210 representing 0-21 real strain → 0-10 stress)
   let yesterdayStress: number | null = null;

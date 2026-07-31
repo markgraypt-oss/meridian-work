@@ -9852,11 +9852,16 @@ export class DatabaseStorage implements IStorage {
       .where(eq(sleepEntries.userId, userId))
       .orderBy(desc(sleepEntries.date));
 
-    const wearRows = await db
+    const wearRowsRaw = await db
       .select()
       .from(wearableMetricsDaily)
       .where(and(eq(wearableMetricsDaily.userId, userId), sql`${wearableMetricsDaily.sleepMinutes} IS NOT NULL`))
       .orderBy(desc(wearableMetricsDaily.date));
+    // Honour provider priority (100% of the time): collapse multi-provider days
+    // to one canonical row per date via the shared per-metric merge, instead of
+    // letting arbitrary DB row order decide which provider wins.
+    const { mergeMetricsPerDay } = await import("./wearables");
+    const wearRows = mergeMetricsPerDay(wearRowsRaw as any);
 
     const byDate = new Map<string, SleepEntryWithSource>();
 
@@ -9938,11 +9943,16 @@ export class DatabaseStorage implements IStorage {
       .where(eq(stepEntries.userId, userId))
       .orderBy(desc(stepEntries.date));
 
-    const wearRows = await db
+    const wearRowsRaw = await db
       .select()
       .from(wearableMetricsDaily)
       .where(and(eq(wearableMetricsDaily.userId, userId), sql`${wearableMetricsDaily.steps} IS NOT NULL`))
       .orderBy(desc(wearableMetricsDaily.date));
+    // Honour provider priority (100% of the time): collapse multi-provider days
+    // to one canonical row per date via the shared per-metric merge, instead of
+    // letting arbitrary DB row order decide which provider wins.
+    const { mergeMetricsPerDay } = await import("./wearables");
+    const wearRows = mergeMetricsPerDay(wearRowsRaw as any);
 
     const byDate = new Map<string, StepEntryWithSource>();
 
@@ -10247,11 +10257,16 @@ export class DatabaseStorage implements IStorage {
   // ============================================
 
   async getVO2MaxEntries(userId: string): Promise<{ id: number; date: string; vo2MaxMlKgMin: number }[]> {
-    const rows = await db
+    const rowsRaw = await db
       .select()
       .from(wearableMetricsDaily)
       .where(and(eq(wearableMetricsDaily.userId, userId), sql`${wearableMetricsDaily.vo2MaxMlKgMin} IS NOT NULL`))
       .orderBy(desc(wearableMetricsDaily.date));
+    // Honour provider priority (100% of the time): collapse multi-provider days
+    // to one canonical row per date via the shared per-metric merge, instead of
+    // letting arbitrary DB row order decide which provider wins.
+    const { mergeMetricsPerDay } = await import("./wearables");
+    const rows = mergeMetricsPerDay(rowsRaw as any);
 
     return rows.map(r => ({
       id: r.id,
@@ -10391,11 +10406,16 @@ export class DatabaseStorage implements IStorage {
       .where(eq(caloricBurnEntries.userId, userId))
       .orderBy(desc(caloricBurnEntries.date));
 
-    const wearRows = await db
+    const wearRowsRaw = await db
       .select()
       .from(wearableMetricsDaily)
       .where(and(eq(wearableMetricsDaily.userId, userId), sql`${wearableMetricsDaily.caloriesBurned} IS NOT NULL`))
       .orderBy(desc(wearableMetricsDaily.date));
+    // Honour provider priority (100% of the time): collapse multi-provider days
+    // to one canonical row per date via the shared per-metric merge, instead of
+    // letting arbitrary DB row order decide which provider wins.
+    const { mergeMetricsPerDay } = await import("./wearables");
+    const wearRows = mergeMetricsPerDay(wearRowsRaw as any);
 
     const byDate = new Map<string, any>();
 
@@ -10456,11 +10476,16 @@ export class DatabaseStorage implements IStorage {
       .where(eq(exerciseMinutesEntries.userId, userId))
       .orderBy(desc(exerciseMinutesEntries.date));
 
-    const wearRows = await db
+    const wearRowsRaw = await db
       .select()
       .from(wearableMetricsDaily)
       .where(and(eq(wearableMetricsDaily.userId, userId), sql`${wearableMetricsDaily.activeMinutes} IS NOT NULL`))
       .orderBy(desc(wearableMetricsDaily.date));
+    // Honour provider priority (100% of the time): collapse multi-provider days
+    // to one canonical row per date via the shared per-metric merge, instead of
+    // letting arbitrary DB row order decide which provider wins.
+    const { mergeMetricsPerDay } = await import("./wearables");
+    const wearRows = mergeMetricsPerDay(wearRowsRaw as any);
 
     const byDate = new Map<string, ExerciseMinutesEntryWithSource>();
 

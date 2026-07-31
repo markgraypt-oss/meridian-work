@@ -22623,13 +22623,21 @@ RULES:
           db.select({ completedAt: workoutLogs.completedAt, autoCalculatedVolume: workoutLogs.autoCalculatedVolume })
             .from(workoutLogs)
             .where(and(eq(workoutLogs.userId, userId), eq(workoutLogs.status, "completed"), gte(workoutLogs.completedAt, windowStart), lt(workoutLogs.completedAt, windowEnd))),
-          db.select({ date: wearableMetricsDaily.date, steps: wearableMetricsDaily.steps, activeMinutes: wearableMetricsDaily.activeMinutes, restingHrBpm: wearableMetricsDaily.restingHrBpm, hrvMs: wearableMetricsDaily.hrvMs })
+          db.select()
             .from(wearableMetricsDaily)
             .where(and(eq(wearableMetricsDaily.userId, userId), gte(wearableMetricsDaily.date, windowStartStr), lt(wearableMetricsDaily.date, windowEndStr))),
           db.select({ date: restingHREntries.date, bpm: restingHREntries.bpm })
             .from(restingHREntries)
             .where(and(eq(restingHREntries.userId, userId), gte(restingHREntries.date, windowStart), lt(restingHREntries.date, windowEnd))),
         ]);
+
+        // Wearable rows MUST honour provider priority, 100% of the time. Merge
+        // all provider rows into one canonical row per date via the shared
+        // per-metric priority (WHOOP/Oura win HRV·RHR·sleep; Apple/Google win
+        // steps·activity) BEFORE bucketing, so trends never average two
+        // providers for the same day nor pick one by arbitrary DB order.
+        const { mergeMetricsPerDay } = await import("../wearables");
+        const wearableDailyMerged = mergeMetricsPerDay(wearableDaily as any);
 
         const inBucket = (d: Date, b: { weekStart: Date; weekEnd: Date }) => d >= b.weekStart && d < b.weekEnd;
 
@@ -22664,7 +22672,7 @@ RULES:
           const bEndStr = b.weekEnd.toISOString().slice(0, 10);
           const stepsByDay = new Map<string, number>();
           // Wearable first (higher priority)
-          for (const w of wearableDaily as any[]) {
+          for (const w of wearableDailyMerged as any[]) {
             if (w.date >= bStartStr && w.date < bEndStr && w.steps != null) {
               stepsByDay.set(w.date, Number(w.steps));
             }
@@ -22681,7 +22689,7 @@ RULES:
 
           // Active minutes: merge wearable + manual, prefer wearable per day
           const activeByDay = new Map<string, number>();
-          for (const w of wearableDaily as any[]) {
+          for (const w of wearableDailyMerged as any[]) {
             if (w.date >= bStartStr && w.date < bEndStr && w.activeMinutes != null) {
               activeByDay.set(w.date, Number(w.activeMinutes));
             }
@@ -22699,7 +22707,7 @@ RULES:
 
           // Resting HR: wearable preferred, manual fallback per day
           const hrByDay = new Map<string, number>();
-          for (const w of wearableDaily as any[]) {
+          for (const w of wearableDailyMerged as any[]) {
             if (w.date >= bStartStr && w.date < bEndStr && w.restingHrBpm != null) {
               hrByDay.set(w.date, Number(w.restingHrBpm));
             }
@@ -22714,7 +22722,7 @@ RULES:
           const avgRestingHr = hrVals.length ? Math.round(hrVals.reduce((a, v) => a + v, 0) / hrVals.length) : null;
 
           // HRV: wearable only (there is no manual HRV table)
-          const hrvVals = (wearableDaily as any[])
+          const hrvVals = (wearableDailyMerged as any[])
             .filter((w) => w.date >= bStartStr && w.date < bEndStr && w.hrvMs != null)
             .map((w) => Number(w.hrvMs));
           const avgHrvMs = hrvVals.length ? Math.round(hrvVals.reduce((a, v) => a + v, 0) / hrvVals.length) : null;

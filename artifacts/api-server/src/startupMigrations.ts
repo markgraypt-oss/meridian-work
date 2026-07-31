@@ -9,6 +9,7 @@ let hasRunSchemaSelfHeal = false;
 let hasRunBodyweightGoalUnitRepair = false;
 let hasRunRecipeMacrosNormalize = false;
 let hasRunDedupeCheckIns = false;
+let hasRunLabTopicCovers = false;
 
 /**
  * Idempotent self-heal for schema columns that the app needs but that may not
@@ -1284,5 +1285,75 @@ export async function revokeInvalidPerfectRecordOnce(): Promise<void> {
     );
   } catch (e: any) {
     console.error("[startup-migration] revoke invalid Perfect Record failed:", e?.message || e);
+  }
+}
+
+// ── The Lab: topic covers ───────────────────────────────────────────────────
+// One-time ingest of the object-hero topic covers into our OWN Object Storage,
+// so the app never hotlinks an external CDN. Idempotent: only fills a topic
+// whose image_url is still empty (never overwrites an admin-set cover), and
+// re-tries any that failed on the next boot. Source URLs are long-lived signed
+// links; once copied into Object Storage they are never fetched again.
+const LAB_TOPIC_COVERS: { slug: string; url: string }[] = [
+  { slug: "sleep", url: "https://cms-toolkit-artifacts.artlist.io/content/-t-e-x-t_-t-o_-i-m-a-g-e-v1/media__10/image-7a5f5c2f-ba45-4d53-9601-032a94165022.png?Expires=2100874914&Key-Pair-Id=K2ZDLYDZI2R1DF&Signature=0gHB2mBhPzm6LVtPjAgbbyJPb3Qs4mLdbY7pz3IPLm74nzGKkNY5sfOwijF3fgM0PKOSrt~Xx0~-s6fz8gieNAA3yu9ykcbCip~SUp2DL5sOwGnTG9wYLitwB9ctnGyOIZ8ptKdKXH696kLyGSP7nTiLdk9ekzptBf4UNeoL-T5ictuwwYKVob~EEAotfc-r7mCutG5PhxHzMs6fEmfTZxOkRpYqkPXDSDaVkI2ks~pvsZOvuMBMXDSXYxaXM6LaiQkZhj0jwDEYLxMsURmMazhfNTOPfgScv42Kz~KypIGw768HfpMgoCLaL42upEndOu-PvJIZw2wHFmJFtkkafg__" },
+  { slug: "stress-burnout", url: "https://cms-toolkit-artifacts.artlist.io/content/-t-e-x-t_-t-o_-i-m-a-g-e-v1/media__1/image-6dbd92cc-6da5-4d95-b803-2780c3547bff.png?Expires=2100874914&Key-Pair-Id=K2ZDLYDZI2R1DF&Signature=pnH~KGVe4Sfdey2ZwsPQXx0mkml3Wb9sw0ds2E84WzoHHHQ6rroZMlpKQAs~YwPFuT1LZVAdOYPFb-BHACle8nUPBtcYdHDLqcwErnGTegxEpYtITA3mEEdptHnX5oWefkeBafJwjhSlkavrzvXzFjvW1p9K60ld7NNB0O7TMPM2-LNhVA-vGpOCzQUiEWg3X7Ov5LHDf1dMAufrF1oDAqsWmWRx1OMBsviup6Ny-2faC~jKbp0XFuMq1Ha01miKv34IY2f7Q55Y4XDwA57wj2Bz8seAhufUtu3S~MiryDtGGrn61axH8JpN0u6BEsOeV~AJG4c2xkCpTAJTRWWS4A__" },
+  { slug: "movement", url: "https://cms-toolkit-artifacts.artlist.io/content/-t-e-x-t_-t-o_-i-m-a-g-e-v1/media__3/image-9e7de082-8d96-42d4-8800-d94e08945329.png?Expires=2100874914&Key-Pair-Id=K2ZDLYDZI2R1DF&Signature=rRRDkNbcQ~0-kngK1cWC0lfFYXNkPBtqumBoBsjub-PyAfxMdCvwf-u9fR1L~bsdxbS18ATQY1LyGWZw4G7~dsTdRiS7jy3euiFeFZrV9VCxX3rDpUs9GgCo27Bo6hLTvSEdrbsPp0VHIuVLIPAUSiNSzYHMgrnFgC5uVWgaK8tRWsfqWSIpI6iMMq6xDLQ4ggiZPEXzFxE5YCogQmgkhPu-SrBJndDZGxdogaJ62ElV-8DQxzEqGPesa3f4Wo9fFtVpCuCh1NISvZF0BMdD6sFjwAmc5Rsbhe8uLY69~EQlShjP7Uji8jVK5bmjhSQ8gkqcHmZ--kUmWwzCPcDwvg__" },
+  { slug: "mindset", url: "https://cms-toolkit-artifacts.artlist.io/content/-t-e-x-t_-t-o_-i-m-a-g-e-v1/media__2/image-4e3d8fc3-4d63-41e1-a99e-98ed405c74d2.png?Expires=2100874919&Key-Pair-Id=K2ZDLYDZI2R1DF&Signature=ufm1jgV0XxqAit~N3O7vbQxaSM2NT8OJNeqcUXqPB0i01UdP5alx9SXarsFCEese0kaZ0yydAYeFM8Vncm1Z5SEwQA42KD46Y78RiGLDFouR1O3X00XbiZ0RTEqGOsYUBzqYkXvuL12hE-a6Lxt5P26phNovgiEU65jI-p0n9~ru-~VKN7iWRqj~xry8gsGINWB3BAikAqqiU-mEQpoqi5yOoamBeCdVwheeSlB87GIDufS55ShP0HFgIAWZ7jmDWHXTz1a7-ihc9Y7oCIEmsvZf5JSaEy8x78em7dx5W3kLwMc0BbJzKiAM1HI9NYQXMoIyH-ItqeiHVcTWxCnOgw__" },
+  { slug: "nutrition", url: "https://cms-toolkit-artifacts.artlist.io/content/-t-e-x-t_-t-o_-i-m-a-g-e-v1/media__7/image-477e1a4a-e147-4bac-8d85-414fa2e87d19.png?Expires=2100874924&Key-Pair-Id=K2ZDLYDZI2R1DF&Signature=Li4tcWls7dHihvR8dh1LIYE9iFhclNrHj7RBKUXnx2q~Hv7cA3UCpY6XkU44AlE0Mue-lnzgXq0C~0ZPQzbJSv7KZnQc2WNbuUTDLglg7THuYffd5E13nCgn4F~osyA2Ecvr2o9Yr5Sg5Iy-BDPif-eAsyEhkC7jXYNDPnDEf1AMXjXdDmZiV6B5CkNOH7fdHdTSkI4EDMBVyj3~Ve1TKiihCPXYg7-VCl6E6QcPBp8D-GfLA3ts6iLUlgNCBNlz3qHZZjeE71Dr~Ynit28vXdwhd2NjCFE3NW~kEpCLvGzbsXmL39kSzHtH-41xtHckUxznoSr7Q5Q91~zEAuMufw__" },
+  { slug: "travel-routine", url: "https://cms-toolkit-artifacts.artlist.io/content/-t-e-x-t_-t-o_-i-m-a-g-e-v1/media__2/image-b416b366-6fb2-415d-9965-c6fe105cf2bf.png?Expires=2100874924&Key-Pair-Id=K2ZDLYDZI2R1DF&Signature=dCiUeSHbNOux2Zki7lCD0cK9~0sLighwL~1Lz-skwDw~fQppzu~SgyaY5AJJxGTkWbM4rcHvHT~eDz-oHYQI~I3L7JfaRJfLZw9gdRZh9xiAFCJ3k4-BuSQmzU99oaI0W58-FQMKs4qF65-9cTfyRfE04rXkC1oMUntZ2QVFXMTW1ssXQl2XQ-7lJTxwyoKgHy65U4y5-vJa2TES73ylljlRyuzZmtQuaNYy~tvIGpIDJBLHErWmnofT-qyxqB62A7TKnVU9jHLl-Q6T16xHIhn3zJFcjmJjtwe32iDGFsFdnfQlEkWZmcsIZiPYRBn34zmu2S-KPbXLZbJaNMIrWw__" },
+  { slug: "productivity", url: "https://cms-toolkit-artifacts.artlist.io/content/-t-e-x-t_-t-o_-i-m-a-g-e-v1/media__8/image-4ce18cdb-6d01-4a02-b704-01b320ff634a.png?Expires=2100874939&Key-Pair-Id=K2ZDLYDZI2R1DF&Signature=Rvs1b57dj55u6DD45IEKysVrxUKa3jhkVoyG0XGpuT0-MIQgz8s54UgFkSB1M-74D2NT0LSKrsqJnOZFyiLP7DmyalVxpGY4tr~kt3D~dQecTzyx8g2ZRugLwBhOGJN~O1fNcQ5n611nc8aCi1mfS6UUEXYhGF1TXBUVR1Q1LrBaa3kw~Ts2XK6WzCRVB6ifvtBLS-SVSvVMjB0KRkpeR0Ye13B402jDRbeP7lXV30OuIJLvUbqj8PkJIDY4zyUazkbPuVq5Sns7dK-x7r64dGc1hAGD32WIDuEU3lTzwYnSrth7~q3-n35Pkes1mxYGiEzQ9f0tVRI6R7y7wH-GDw__" },
+];
+
+async function uploadBufferAsPublicLabCover(buffer: Buffer, contentType: string): Promise<string> {
+  const svc = new ObjectStorageService();
+  const privateDir = svc.getPrivateObjectDir();
+  const trimmedDir = privateDir.endsWith("/") ? privateDir.slice(0, -1) : privateDir;
+  const entityId = `lab-covers/${randomUUID()}`;
+  const fullPath = `${trimmedDir}/${entityId}`;
+  const parts = fullPath.replace(/^\//, "").split("/");
+  const bucketName = parts[0];
+  const objectName = parts.slice(1).join("/");
+  const file = objectStorageClient.bucket(bucketName).file(objectName);
+  await file.save(buffer, {
+    contentType,
+    metadata: {
+      contentType,
+      metadata: {
+        "custom:aclPolicy": JSON.stringify({ owner: "system", visibility: "public" }),
+      },
+    },
+    resumable: false,
+  });
+  return `/objects/${entityId}`;
+}
+
+export async function seedLabTopicCoversOnce(): Promise<void> {
+  if (hasRunLabTopicCovers) return;
+  hasRunLabTopicCovers = true;
+  try {
+    for (const cover of LAB_TOPIC_COVERS) {
+      try {
+        const row = await pool.query(
+          `SELECT id, image_url FROM learn_topics WHERE slug = $1 LIMIT 1`,
+          [cover.slug],
+        );
+        if ((row.rowCount ?? 0) === 0) continue;
+        const { id, image_url } = row.rows[0];
+        if (image_url && String(image_url).trim().length > 0) continue; // already set — leave it
+        const resp = await fetch(cover.url);
+        if (!resp.ok) {
+          console.error(`[startup-migration] lab-cover fetch failed for ${cover.slug}: ${resp.status}`);
+          continue;
+        }
+        const buffer = Buffer.from(await resp.arrayBuffer());
+        const objectPath = await uploadBufferAsPublicLabCover(buffer, "image/png");
+        await pool.query(`UPDATE learn_topics SET image_url = $1 WHERE id = $2`, [objectPath, id]);
+        console.log(`[startup-migration] lab-cover set for ${cover.slug} -> ${objectPath}`);
+      } catch (inner: any) {
+        console.error(`[startup-migration] lab-cover failed for ${cover.slug}:`, inner?.message || inner);
+      }
+    }
+  } catch (e: any) {
+    console.error("[startup-migration] lab topic covers failed:", e?.message || e);
   }
 }

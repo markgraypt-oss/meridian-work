@@ -10690,6 +10690,7 @@ Rules:
           workoutType: programmeWorkout.workoutType || 'regular',
           category: programmeWorkout.category || 'strength',
           programName: programmeWorkout.programName,
+          programImageUrl: programmeWorkout.programImageUrl ?? null,
           isProgramme: true,
           isExtra: false,
           isCompleted: !!completedLog,

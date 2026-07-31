@@ -104,7 +104,14 @@ export class ObjectStorageService {
       const isPublic = aclPolicy?.visibility === "public";
       const contentType = metadata.contentType || "application/octet-stream";
       const size = Number(metadata.size);
-      const cacheControl = `${isPublic ? "public" : "private"}, max-age=${cacheTtlSec}`;
+      // Images live at immutable UUID paths (/objects/uploads/<uuid>) and never
+      // change once uploaded, so cache them for a year and mark them immutable.
+      // The client then serves cover art / thumbnails straight from disk with no
+      // revalidation — nothing re-downloads on re-entry. Non-image objects
+      // (e.g. meditation audio/video) keep the shorter default TTL.
+      const isImage = contentType.startsWith("image/");
+      const effectiveTtlSec = isImage ? 31536000 : cacheTtlSec;
+      const cacheControl = `${isPublic ? "public" : "private"}, max-age=${effectiveTtlSec}${isImage ? ", immutable" : ""}`;
 
       // Honor HTTP Range requests so that audio/video can stream and seek.
       // Media elements (<audio>/<video>) issue Range requests and stall if the

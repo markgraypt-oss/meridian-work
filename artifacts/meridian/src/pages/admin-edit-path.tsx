@@ -44,6 +44,7 @@ export default function AdminEditPath() {
 
   const [editingTitle, setEditingTitle] = useState("");
   const [editingDescription, setEditingDescription] = useState("");
+  const [editingFeatured, setEditingFeatured] = useState(false);
   const [showAddContentModal, setShowAddContentModal] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
   const [deleteContentId, setDeleteContentId] = useState<number | null>(null);
@@ -80,6 +81,7 @@ export default function AdminEditPath() {
     if (learningPath) {
       setEditingTitle(learningPath.title || "");
       setEditingDescription(learningPath.description || "");
+      setEditingFeatured(!!learningPath.isRecommended);
       initialLoadRef.current = false;
       markClean();
     }
@@ -89,7 +91,7 @@ export default function AdminEditPath() {
     if (!initialLoadRef.current) {
       markDirty();
     }
-  }, [editingTitle, editingDescription, markDirty]);
+  }, [editingTitle, editingDescription, editingFeatured, markDirty]);
 
   const updatePathMutation = useMutation({
     mutationFn: async () => {
@@ -97,6 +99,7 @@ export default function AdminEditPath() {
         title: editingTitle,
         description: editingDescription,
         estimatedDuration: calculatedDuration,
+        isRecommended: editingFeatured,
       });
     },
     onSuccess: () => {
@@ -237,6 +240,22 @@ export default function AdminEditPath() {
                   placeholder="Enter path description"
                   data-testid="textarea-path-description"
                 />
+              </div>
+
+              <div className="flex items-center justify-between rounded-lg border border-border bg-background px-3 py-3">
+                <div>
+                  <label className="text-sm font-medium text-foreground">Featured on The Lab home</label>
+                  <p className="text-xs text-slate-500 mt-0.5">Shows this path in the hero at the top of The Lab. Newest featured path wins if more than one is on.</p>
+                </div>
+                <Button
+                  type="button"
+                  variant={editingFeatured ? "default" : "outline"}
+                  size="sm"
+                  onClick={() => setEditingFeatured((v) => !v)}
+                  data-testid="button-toggle-featured"
+                >
+                  {editingFeatured ? "Featured" : "Off"}
+                </Button>
               </div>
 
               <div className="flex gap-2 pt-4">

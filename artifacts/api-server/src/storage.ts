@@ -7489,7 +7489,7 @@ export class DatabaseStorage implements IStorage {
     if (!program) return null;
     const totalWeeks = program.weeks || 1;
     const { maxWeek, authored } = await this.buildAuthoredWorkoutMap(programId);
-    if (authored.size === 0) return { weeks: totalWeeks, sessions: [] };
+    if (authored.size === 0) return { weeks: totalWeeks, sessions: [], phased: false, phases: [] };
 
     const positions = new Set<number>();
     for (const pm of authored.values()) for (const pos of pm.keys()) positions.add(pos);
@@ -7505,39 +7505,85 @@ export class DatabaseStorage implements IStorage {
       return allSame ? `${n}×${reps[0]}` : reps.join('/');
     };
 
-    const sessions: any[] = [];
+    // Resolve each position's per-week workout + exercise list once (reused for both views).
+    const blockCache = new Map<number, any[]>();
+    const exListFor = async (wo: any): Promise<any[]> => {
+      let list = blockCache.get(wo.id);
+      if (!list) {
+        const blocks = await this.getProgrammeWorkoutBlocks(wo.id);
+        list = [];
+        for (const b of blocks) {
+          if (b.section !== 'main') continue;
+          for (const e of (b.exercises || [])) list.push({ name: e.exerciseName || e.name, reps: summarise(e.sets) });
+        }
+        blockCache.set(wo.id, list);
+      }
+      return list;
+    };
+
+    const posData: { pos: number; perWeekWo: any[]; perWeekEx: any[] }[] = [];
     for (const pos of sortedPos) {
       const perWeekWo: any[] = [];
       for (let w = 1; w <= totalWeeks; w++) {
         perWeekWo.push(this.resolveWorkoutsForWeekDay(authored, maxWeek, w, pos)[0] || null);
       }
-      const firstWo = perWeekWo.find(Boolean);
-      if (!firstWo) continue;
-
-      const cache = new Map<number, any[]>();
       const perWeekEx: any[] = [];
-      for (const wo of perWeekWo) {
-        if (!wo) { perWeekEx.push(null); continue; }
-        let list = cache.get(wo.id);
-        if (!list) {
-          const blocks = await this.getProgrammeWorkoutBlocks(wo.id);
-          list = [];
-          for (const b of blocks) {
-            if (b.section !== 'main') continue;
-            for (const e of (b.exercises || [])) list.push({ name: e.exerciseName || e.name, reps: summarise(e.sets) });
-          }
-          cache.set(wo.id, list);
-        }
-        perWeekEx.push(list);
-      }
-      const canonical = perWeekEx.find(Boolean) || [];
+      for (const wo of perWeekWo) perWeekEx.push(wo ? await exListFor(wo) : null);
+      posData.push({ pos, perWeekWo, perWeekEx });
+    }
+
+    const sig = (list: any[] | null): string => list ? list.map((e: any) => e.name).join('|') : '';
+
+    // Phased = the exercise SET (not just the reps) changes across weeks for any day slot.
+    let phased = false;
+    for (const pd of posData) {
+      const sigs = pd.perWeekEx.filter(Boolean).map((l: any) => sig(l));
+      if (new Set(sigs).size > 1) { phased = true; break; }
+    }
+
+    // Grid sessions (unchanged shape; used for non-phased programmes).
+    const sessions: any[] = [];
+    for (const pd of posData) {
+      const firstWo = pd.perWeekWo.find(Boolean);
+      if (!firstWo) continue;
+      const canonical = pd.perWeekEx.find(Boolean) || [];
       const exercises = canonical.map((ex: any, i: number) => ({
         name: ex.name,
-        repsByWeek: perWeekEx.map((list: any) => (list && list[i]) ? list[i].reps : null),
+        repsByWeek: pd.perWeekEx.map((list: any) => (list && list[i]) ? list[i].reps : null),
       }));
-      sessions.push({ day: pos + 1, name: firstWo.name, exercises });
+      sessions.push({ day: pd.pos + 1, name: firstWo.name, exercises });
     }
-    return { weeks: totalWeeks, sessions };
+
+    // Phase blocks (for phased programmes): group consecutive weeks whose exercise set is
+    // identical, on a representative day slot (all training days match within a week).
+    const phases: any[] = [];
+    if (phased) {
+      const rep = posData.find((pd) => pd.perWeekWo.some(Boolean));
+      if (rep) {
+        let start = 1;
+        for (let w = 2; w <= totalWeeks + 1; w++) {
+          if (w > totalWeeks || sig(rep.perWeekEx[w - 1]) !== sig(rep.perWeekEx[start - 1])) {
+            const end = w - 1;
+            const wo = rep.perWeekWo[start - 1];
+            const list = rep.perWeekEx[start - 1] || [];
+            if (wo && list.length) {
+              const weeks: number[] = [];
+              for (let k = start; k <= end; k++) weeks.push(k);
+              phases.push({
+                label: start === end ? `Week ${start}` : `Weeks ${start}–${end}`,
+                weeks,
+                name: wo.name,
+                workoutId: wo.id,
+                exercises: list.map((ex: any) => ({ name: ex.name, reps: ex.reps })),
+              });
+            }
+            start = w;
+          }
+        }
+      }
+    }
+
+    return { weeks: totalWeeks, sessions, phased, phases };
   }
 
   async getProgrammeWorkoutTemplates(programId: number, weekNumber?: number): Promise<any[]> {

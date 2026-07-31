@@ -1339,7 +1339,13 @@ export async function seedLabTopicCoversOnce(): Promise<void> {
         );
         if ((row.rowCount ?? 0) === 0) continue;
         const { id, image_url } = row.rows[0];
-        if (image_url && String(image_url).trim().length > 0) continue; // already set — leave it
+        // Skip only if it's already our hosted cover (/objects/...) or an
+        // admin-set absolute URL. Legacy relative paths like "/7_...png" are
+        // broken and get overwritten with the real cover.
+        if (image_url) {
+          const s = String(image_url).trim();
+          if (s.startsWith("/objects/") || s.startsWith("http")) continue;
+        }
         const resp = await fetch(cover.url);
         if (!resp.ok) {
           console.error(`[startup-migration] lab-cover fetch failed for ${cover.slug}: ${resp.status}`);

@@ -5287,6 +5287,19 @@ export async function registerRoutes(app: Express): Promise<Server> {
         }
       }
 
+      // Programme sessions carry no workoutId (they link via programmeId +
+      // week/day), so fall back to the enrolled programme's cover image.
+      if (!coverImageUrl && log.programmeId) {
+        try {
+          const program = await storage.getProgramById(log.programmeId);
+          if (program) {
+            coverImageUrl = program.imageUrl || null;
+          }
+        } catch {
+          // Programme lookup is best-effort; ignore failures
+        }
+      }
+
       res.json({
         ...log,
         exercises: exercisesWithSets,

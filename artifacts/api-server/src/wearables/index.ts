@@ -254,11 +254,50 @@ async function syncStepGoalsAndHabits(userId: string, metrics: NormalisedDailyMe
   }
 }
 
+// Serialize token refreshes per connection within this process. WHOOP and Oura
+// hand out SINGLE-USE refresh tokens: the morning burst of WHOOP webhooks (sleep
+// + recovery + workout arrive together) plus the hourly scheduler can refresh
+// the SAME token concurrently. The first call consumes it and receives a new
+// one; every other concurrent call then fails with invalid_grant — and the old
+// code treated that as "condemn the connection" (needs_reauth), auto-dropping a
+// perfectly healthy WHOOP link through no fault of the user. This chain runs
+// refreshes for a given connection one-at-a-time, so only the first refreshes
+// and the rest reuse the fresh token.
+const refreshChains = new Map<number, Promise<any>>();
+function withConnLock<T>(connId: number, fn: () => Promise<T>): Promise<T> {
+  const prev = refreshChains.get(connId) ?? Promise.resolve();
+  const run = prev.then(fn, fn);
+  // Keep the chain alive for the next caller; swallow errors on the stored link
+  // so one failure never rejects the next queued refresh.
+  refreshChains.set(connId, run.then(() => {}, () => {}));
+  return run;
+}
+
+function tokenExpired(c: { tokenExpiresAt: Date | string | null } | undefined | null): boolean {
+  return !!(c && c.tokenExpiresAt && new Date(c.tokenExpiresAt).getTime() < Date.now() + 60_000);
+}
+
 async function refreshIfNeeded(conn: WearableConnection, adapter: WearableAdapter): Promise<string | null> {
-  let accessToken = decryptToken(conn.accessTokenEnc);
-  const refreshToken = decryptToken(conn.refreshTokenEnc);
-  const expired = conn.tokenExpiresAt && new Date(conn.tokenExpiresAt).getTime() < Date.now() + 60_000;
-  if (expired && refreshToken && adapter.refresh) {
+  // Fast path: token still valid — no refresh, no lock.
+  if (!tokenExpired(conn) || !adapter.refresh) {
+    return decryptToken(conn.accessTokenEnc);
+  }
+
+  return withConnLock(conn.id, async () => {
+    // Re-read inside the lock: a sibling sync on this instance may have just
+    // refreshed while we were queued. Reuse its fresh token (and clear any stale
+    // needs_reauth flag) instead of burning our now-stale refresh token.
+    const [cur] = await db.select().from(wearableConnections).where(eq(wearableConnections.id, conn.id));
+    if (cur && !tokenExpired(cur)) {
+      if (cur.status === "needs_reauth") {
+        await db.update(wearableConnections).set({ status: "connected", updatedAt: new Date() }).where(eq(wearableConnections.id, cur.id));
+      }
+      return decryptToken(cur.accessTokenEnc);
+    }
+
+    const refreshToken = decryptToken((cur ?? conn).refreshTokenEnc);
+    if (!refreshToken) return null;
+
     try {
       const fresh = await adapter.refresh(refreshToken);
       await upsertConnection(conn.userId, conn.provider as WearableProvider, {
@@ -267,15 +306,21 @@ async function refreshIfNeeded(conn: WearableConnection, adapter: WearableAdapte
         tokenExpiresAt: fresh.expiresAt ?? null,
         status: "connected",
       });
-      accessToken = fresh.accessToken;
+      return fresh.accessToken;
     } catch (err: any) {
       const msg = String(err?.message || err);
-      // Only condemn the connection when WHOOP/Oura actually rejected the refresh
-      // token itself (invalid_grant / invalid_token / 400 / 401). Transient
-      // failures (network, 5xx, timeouts) must NOT flip the row to needs_reauth,
-      // or one blip kills auto-sync until the user manually reconnects. On a
-      // transient error we leave status untouched so the next scheduled tick
-      // retries with the SAME refresh token.
+      // Cross-instance race guard: another worker (separate process/instance) may
+      // have refreshed while our HTTP call was in flight. If the stored token is
+      // valid again, recover with it rather than condemning the connection.
+      const [after] = await db.select().from(wearableConnections).where(eq(wearableConnections.id, conn.id));
+      if (after && !tokenExpired(after)) {
+        if (after.status === "needs_reauth") {
+          await db.update(wearableConnections).set({ status: "connected", updatedAt: new Date() }).where(eq(wearableConnections.id, after.id));
+        }
+        return decryptToken(after.accessTokenEnc);
+      }
+      // Only condemn on a genuine token rejection. Transient failures (network,
+      // 5xx, timeouts) leave status untouched so the next tick retries.
       const fatal = /invalid_grant|invalid_token|unauthorized|\b400\b|\b401\b/i.test(msg);
       if (fatal) {
         await db.update(wearableConnections)
@@ -288,8 +333,7 @@ async function refreshIfNeeded(conn: WearableConnection, adapter: WearableAdapte
       }
       return null;
     }
-  }
-  return accessToken;
+  });
 }
 
 export async function syncProvider(userId: string, provider: WearableProvider, opts: { days?: number; trigger?: string } = {}): Promise<{ daysSynced: number; status: "ok" | "error"; error?: string }> {
@@ -308,7 +352,11 @@ export async function syncProvider(userId: string, provider: WearableProvider, o
       status, completedAt: new Date(), daysSynced, errorMessage: errorMessage || null,
     }).where(eq(wearableSyncLogs.id, logRow.id));
     await db.update(wearableConnections).set({
-      lastSyncAt: new Date(), lastSyncStatus: status, lastSyncError: errorMessage || null, updatedAt: new Date(),
+      lastSyncAt: new Date(), lastSyncStatus: status, lastSyncError: errorMessage || null,
+      // A successful sync proves the connection is healthy — clear any stale
+      // needs_reauth flag so a transient blip self-heals in the UI.
+      ...(status === "ok" ? { status: "connected" } : {}),
+      updatedAt: new Date(),
     }).where(and(eq(wearableConnections.userId, userId), eq(wearableConnections.provider, provider)));
   };
 

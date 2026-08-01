@@ -326,6 +326,25 @@ async function refreshIfNeeded(conn: WearableConnection, adapter: WearableAdapte
         await db.update(wearableConnections)
           .set({ status: "needs_reauth", lastSyncStatus: "error", lastSyncError: msg })
           .where(eq(wearableConnections.id, conn.id));
+        // Never let a disconnect be silent. Alert the user ONCE, on the
+        // connected -> needs_reauth transition only (the scheduler retries
+        // needs_reauth rows hourly, so guard against re-alerting every tick).
+        if (conn.status !== "needs_reauth") {
+          try {
+            const { notify } = await import("../notifications");
+            const label = PROVIDER_LABELS[conn.provider as WearableProvider] || conn.provider;
+            await notify({
+              userId: conn.userId,
+              category: "admin",
+              title: `${label} disconnected`,
+              body: `MeridianWork lost its connection to ${label} and has stopped syncing. Open Wearables & Integrations and tap Connect to restore your sleep, recovery and HRV data.`,
+              data: { url: "/profile/integrations", provider: conn.provider, kind: "wearable_disconnected" },
+              disableEmail: true,
+            });
+          } catch (notifyErr) {
+            console.error("[wearables] disconnect notification failed:", notifyErr);
+          }
+        }
       } else {
         await db.update(wearableConnections)
           .set({ lastSyncStatus: "error", lastSyncError: msg })

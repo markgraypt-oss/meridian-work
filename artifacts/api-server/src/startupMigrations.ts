@@ -1598,6 +1598,55 @@ async function ensureLifeStagePath(
   return ins.rows[0].id;
 }
 
+// Covers for the life-stage topics (by slug) and paths (by "slug::title"),
+// ingested into our own Object Storage on boot — same pattern as the other Lab
+// covers. Only fills a row whose image_url is still empty.
+const LAB_LIFE_STAGE_TOPIC_COVERS: Record<string, string> = {
+  "start-here": "https://cms-toolkit-artifacts.artlist.io/content/-t-e-x-t_-t-o_-i-m-a-g-e-v1/media__8/image-4b6f8c3d-2410-4a96-b2de-0ea12c8d8a96.png?Expires=2101056220&Key-Pair-Id=K2ZDLYDZI2R1DF&Signature=yKTWMJHo-NQBYkSGiMhJsapDTcDOBGLhovFJN87Bx4eG9X6QjjSPq3PE9k2rkkgckJuhUgT5WzkauPZGtPfx1EOPuMsqF7juChJsiaOsiBiFB4a4tvdwxSxtZlSwTEaLzSr2agjhe9FionwhrTp-7aY2KEOtSLPwjGTafviDVjSN-H3~97fzQPo0T~Ibw3e0PhdqvFBWbuDcoowBuxIP5AtelDLQxLs-JRed~-l4dLoy7gPA-OUrx6QidnC~xmu2vn-AZpfSNd2AbRRZJdrXxBqvYUMEUQbX7hwgxAeYRONbET-I6dcPPMQ~G92xSWwBFGq2Avg8ER0wD7HUXW5xaw__",
+  "for-men": "https://cms-toolkit-artifacts.artlist.io/content/-t-e-x-t_-t-o_-i-m-a-g-e-v1/media__2/image-4a29b631-8e15-4082-af61-f1656040b201.png?Expires=2101056228&Key-Pair-Id=K2ZDLYDZI2R1DF&Signature=F~EyvyylfVu66o3gWObpKqmLMDhAfe14jKjj5BjJb5gLRWkMqqsRO~RV4MMfs-sqz8wg7--b851qv2szsjsvT9jNz8DjLecHr-804-tJyTvELsJDKL2lbScrQ2wiLEiV2kIOZePy4kjkqqzPGCQNdwgMcwYMVer0npKs82Ydkz1L3ugam4iGAaW69LWX~EcUwQ6ltBvdV9~WXo9fr~28fxAUmvTx5pP2pQIUrlzG0ndSYqLDFJd4M4Qe~65a3N7vtT4~EOqRCQBFZmazLM5Dy8FGUAxGoYVwvf7dCjNfB5x1-t~uSiIUQbekPNxpaqmQrgfNz4YcFwkkStdEtOtODw__",
+  "for-women": "https://cms-toolkit-artifacts.artlist.io/content/-t-e-x-t_-t-o_-i-m-a-g-e-v1/media__9/image-a9eb5d9c-2ba0-443b-b198-07a3f34b61dc.png?Expires=2101056228&Key-Pair-Id=K2ZDLYDZI2R1DF&Signature=uPkqVbdNcAFR3~3klA1dOvr3M3p3mGQHpUvjCs3leJxy7kKHSX9LjHvgIy6KVgPVL1Ypy9dtm-uUQ3T-UmCIErYhFbUoe4nL3Hp84xz~HcaiEc-UTvKDGRVmskB4V1E2gRw7-SG49ohy11haP-7usObEhhmvy00ggzW3JXcttmEnhhI4SXg3Z42MqqhDDjVGiAmSM5o6~-HBVwXtkRd5Pwo5II0r3LqI338eb~2Ig2BzpbhRFdPgxMPOTkLs7yqDqI817YNVyVwcsunnM9vg0ID3brBtY8VfdWovL2L~tCnAe~8Xq18sYsHrRrfhPboGGfuDz3BrvRxuA~tCDM0JnQ__",
+  "over-50s": "https://cms-toolkit-artifacts.artlist.io/content/-t-e-x-t_-t-o_-i-m-a-g-e-v1/media__1/image-9fef6dfa-1c70-4565-a5b3-870f7e2feebc.png?Expires=2101056234&Key-Pair-Id=K2ZDLYDZI2R1DF&Signature=SkrLUBbpHkQeUvDa9uTskRXmc8IQCpi2R74hkQS1JYEGi0LtlOiLXjRRq3Q3DisBCc5xqaKMCdAx-VTyJqCXVRuhsC8INAdam6TdmRUj1XS~cs5Rbpw7vJN9qpFiSQdoXeLIpRgXaHUL7o1gmL~HbCCXPHwU5UOPNi4DPcuf-AzObC57Nb3Cp5ps4xD49xYGsUhVmRe5XjTQh~ayzeknPF3kbUPny6uQu-~2U0Lv3p0-DQUY9OT~UvH7R7iGC2bhD5nbP9RBycl5KkWEG5A1Ifn2aIIY-2tXIqOJN3HS93tzCH6CjXvvGQ0nrcumNDM18Qvbq5TOc0FtbObQE4Cqxg__",
+};
+
+const LAB_LIFE_STAGE_PATH_COVERS: Record<string, string> = {
+  "start-here::Getting Clear on What You Want": "https://cms-toolkit-artifacts.artlist.io/content/-t-e-x-t_-t-o_-i-m-a-g-e-v1/media__1/image-37894a09-3b7e-4e10-abfc-43aa64c52c34.png?Expires=2101056232&Key-Pair-Id=K2ZDLYDZI2R1DF&Signature=kuFpU7wPJlG3WMzAxk8tM43aeeWxvW4uStKsyUlG8uzpE~RveSab5DVwpnoktO-xiDzrRmz~WaXysyMlcekLop5qcSaLhEA0wenTEZ3Sn0VS8LdsCwWBsfixfUlmNtHmFzm0PegmWUgW8xLJ5iKXJLwrjzV7ojlGM-xb5N67HDZG2VgSoiGwg7MdJnYGPebpLBvxLBaCA4ykpph9gGfr1WRmpkUJ0azcLSiHg3LVgqPyA~RHks8m-bwKiJx0w1iBAls38ztyIoRumFqrR2BsyE2gjSB-E8iZXiCImciCAQgdurHPDdXW-40dqh0YrR~e9f9YznpblrGUNY16f5l7bA__",
+  "start-here::Getting the Most From Your AI Coach": "https://cms-toolkit-artifacts.artlist.io/content/-t-e-x-t_-t-o_-i-m-a-g-e-v1/media__1/image-5991f388-7aae-42eb-b266-e05e1a397a8d.png?Expires=2101056243&Key-Pair-Id=K2ZDLYDZI2R1DF&Signature=uHG39sBZpD1fBl~utcFN5LAltAkVib90mau3r1xY3QrwwdZCMOuG0PFdzCVUSPkyMNtd8ljJgMYVlNbHzTpkyzYLGyOvDqThz2UlsFrmDbt2DJmWNylVa0oux7MXIZgZy7LcQjC~UL2rO1Mi3wvRDQz6S~8J8StHeEtiB5mudoyrOLJ-8LZd2bw-yAz7Z9bidVjyPn01To8irPEJdy9mcO-k7iWtR2O36E4Zqo-XW1ZpJp~3A4dt0xLxLiiFzsYWZTuVQsvBmzRc274LIVRMTMmbtQCQlxpCPNcXJsjlfEQroZnNhZK~xC8ZOrzCY3kKGsCYF-koHdWHK9efgzhYJA__",
+  "for-men::Men's Heart Health": "https://cms-toolkit-artifacts.artlist.io/content/-t-e-x-t_-t-o_-i-m-a-g-e-v1/media__3/image-0efef156-278c-4ac8-8505-bf36bc116797.png?Expires=2101056245&Key-Pair-Id=K2ZDLYDZI2R1DF&Signature=LZQ2PJqll5M8FYfdc8JEZTlseLd3ZBf6HyZb9E8TS623h9zcjp40vmgxkUykUM9si5z1WLkJphFlVvk0S~t61z6n36KR7SQ9H8w7XpVXO4vaQr~OIiAj7wlqO9d1L8y-s1eBIphUkOwKBzWl8SVjF1NkbNELE6ulVtYgIyO4Ga0zyXOiMGFjCarPgHZLsZCzsNAVjXKdMyBI1bXBcV5i8VeV5phezlsr0s7NXMemKB5m7XA30tC0leLpOw0bdIe-~pybTypzUYauKr1GQOagyAYoLe3PXu7jn0LTZk2cKNKdd8sLyZg1VSyr2bO2RGumRWhEeXdOnNIqkX~8GwUFLA__",
+  "for-men::Men's Health Essentials": "https://cms-toolkit-artifacts.artlist.io/content/-t-e-x-t_-t-o_-i-m-a-g-e-v1/media__5/image-17833be7-57f3-4460-a547-14f0121c7d88.png?Expires=2101056251&Key-Pair-Id=K2ZDLYDZI2R1DF&Signature=F7D88zf2YWscv2YBPjVrPCTzAivHDwImZDPYZVI7Oa8r0ilcOKu5u-eU5f1G4XSAyHtX1Jq30DRLAeV7PJUcHb6nLgatau6vmLFePjpVEjn2P-xTu3oOneDNLSbmcTEBFOZqHCqKKw3BxwLNJHaq3OKf2ES2AsJNkB7XjmbNVg4SVTH151njk2rK-JJ1M7~wuGR9327aRPQuACzpjI6qXygCfdD~hh3w9RV7luhX2zEGbDTIty-4rkit5uWFyvHqyR648UL9ZNRG-5CeR7oZnbIsnKNyKLzDUm6oJZElVtCku9SlnrDSJjF9kuxCEiAt7B9lXlsAXfFY6ONPFq-NCA__",
+  "for-women::Training Through Menopause": "https://cms-toolkit-artifacts.artlist.io/content/-t-e-x-t_-t-o_-i-m-a-g-e-v1/media__9/image-cff40180-3e8c-4815-aa27-e748f7a5ec60.png?Expires=2101056264&Key-Pair-Id=K2ZDLYDZI2R1DF&Signature=hremvenA9caN7FwHGdzESpCrkIJpx8r2y0S9MZxaHACkZPtVqFoBaRPBSlXtRucHR8jbBD5xhhdrlq-uLghTZzfO2jrC35aJ1iLv4mTStnnrqepdg70IND1k~AZlvdsLlmrTwvEebAbr5iasM7mql3RKyXj6Qlctue4ND442RCuRBZAYjIW05VpKOkVwLjtv3b14c5245lAzcP~8Unvwl3HtpQn8~jwUfZjhENDiFHADc0Vq8ZXLHT8J2ONBYrTuIsa3BGO17XHgaXPl1FjEmPnn-UE2-6O1qIwVULoHy5ir7elnclkavH5scbkb-wDzuCVBk2dFdM5bqoovWYyxqg__",
+  "for-women::Women's Health Essentials": "https://cms-toolkit-artifacts.artlist.io/content/-t-e-x-t_-t-o_-i-m-a-g-e-v1/media__6/image-798e7416-2fec-4902-a9a9-8de352a7f88e.png?Expires=2101056260&Key-Pair-Id=K2ZDLYDZI2R1DF&Signature=T6se4sVAbT-9xg3jjh7P2yOEWGXopUcvizmN4BbmLanVL6K0H3UhHwjBBDUXK7gSwybsesXarF~rmdBW42pizXqvuC33mzsdhNoU4yCUyKzScqrRpiNRntqCYsIHUDv9irZRuEDeCFTqehTex-7O0TY5Uk8sUBjM20UOeLx8OXqJewSjEfTgTTjg9U-LiCZ2YsFBXX39X7cRHNectuaLzrBCI12NlyopOLZEc0t2FTvQphZmZvbVGhmuWd0qOzh2~n3ZYOFXp6XHSF8sIylMckrtLtgeJn5zBkNSFfdbU1j1NombyUnwzg2WCZOO91WTN1OB1PzFepK-r4WZMe-uhQ__",
+  "over-50s::Eating Well After 50": "https://cms-toolkit-artifacts.artlist.io/content/-t-e-x-t_-t-o_-i-m-a-g-e-v1/media__9/image-fbb08e84-0652-4569-932c-b43b2b98bb88.png?Expires=2101056269&Key-Pair-Id=K2ZDLYDZI2R1DF&Signature=ipwipmL9Fd2hQtsn6y01d9~BMoElxoLYIOVerKgQ~vSfjsR4FwbXe1aGJqqW0FwiYXfQ6kLlLA-Y1eNfqEKz7hVXvBkROigh4DpoPNQ5zkGrNwcVKk9gLf~D8fCogHcBEprjlEyJUPyvCyubf86LsA3iSke9lzDchkBz1j6E6R~XfdV9UcD4WE-IvKj-ZbWzdFoNy5TJg-7yi6ElxA6QMJ2VgZrxAd9oQTaJWLgcdOdSLF2Oj5afx9ji5KBLZxdTBpJJq9MXp5FJaRYsz-BJJfNlFyg8iRs2LujPW4xrg8amHLIME~DWxoOieTYP-kW6t6pmRRmm3XrlOVdhhp2DnQ__",
+  "over-50s::Strong and Pain-Free After 50": "https://cms-toolkit-artifacts.artlist.io/content/-t-e-x-t_-t-o_-i-m-a-g-e-v1/media__6/image-a0f52d89-76ea-4465-9e2b-b47fe17751b2.png?Expires=2101056266&Key-Pair-Id=K2ZDLYDZI2R1DF&Signature=EOYWheSS6Ayg-mKwt4Hndg1YSTgsiK~-5TOOXDU-FnrZj21NtmSL3wXHFZVDYRnThfoVnhbrPEkfR~GaZ0Q6F5WvBk0zv4n5rQQtwpdqGjCpt2h6K5vCwGGiodAZVvh3-l05gyXCmNU6DKIA0O8-slAA4yBbHFyQ8v-iOwV68W7Iq~2GyNitgemm3-cdrOkHi1XaZsIPLDkvtpXZQ2QKQSgbe5D8rRSny2cXy9IKrSAc-2sEfmoyhuVK7x0-ATgcu1bB~3rZ5MFiUoERPEOWiB3vNzsPN81GKZx0brDvn5VW9udI9W5jzqncrCiQjhVH5LxDuUhT7psRF8rFBWZ9ug__",
+};
+
+async function ingestLifeStageCover(
+  table: "learn_topics" | "learning_paths",
+  id: number,
+  url: string | undefined,
+): Promise<void> {
+  if (!url) return;
+  try {
+    const row = await pool.query(`SELECT image_url FROM ${table} WHERE id = $1 LIMIT 1`, [id]);
+    if ((row.rowCount ?? 0) === 0) return;
+    const current = row.rows[0].image_url;
+    if (current) {
+      const s = String(current).trim();
+      if (s.startsWith("/objects/") || s.startsWith("http")) return; // already set
+    }
+    const resp = await fetch(url);
+    if (!resp.ok) {
+      console.error(`[startup-migration] life-stage cover fetch failed for ${table} ${id}: ${resp.status}`);
+      return;
+    }
+    const buffer = Buffer.from(await resp.arrayBuffer());
+    const objectPath = await uploadBufferAsPublicLabCover(buffer, "image/png");
+    await pool.query(`UPDATE ${table} SET image_url = $1 WHERE id = $2`, [objectPath, id]);
+    console.log(`[startup-migration] life-stage cover set for ${table} ${id} -> ${objectPath}`);
+  } catch (e: any) {
+    console.error(`[startup-migration] life-stage cover failed for ${table} ${id}:`, e?.message || e);
+  }
+}
+
 export async function seedLabLifeStageOnce(): Promise<void> {
   if (hasRunLabLifeStage) return;
   hasRunLabLifeStage = true;
@@ -1605,9 +1654,11 @@ export async function seedLabLifeStageOnce(): Promise<void> {
     for (const topic of LAB_LIFE_STAGE_TOPICS) {
       try {
         const topicId = await ensureLifeStageTopic(topic);
+        await ingestLifeStageCover("learn_topics", topicId, LAB_LIFE_STAGE_TOPIC_COVERS[topic.slug]);
         for (let pi = 0; pi < topic.paths.length; pi++) {
           const p = topic.paths[pi];
           const pathId = await ensureLifeStagePath(topicId, topic.slug, p, pi);
+          await ingestLifeStageCover("learning_paths", pathId, LAB_LIFE_STAGE_PATH_COVERS[`${topic.slug}::${p.title}`]);
           // Only seed placeholders into a path that has no content yet, so a
           // re-run (or a later boot) never duplicates lessons.
           const existingContent = await storage.getPathContentFromLibrary(pathId);

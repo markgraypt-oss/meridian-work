@@ -103,15 +103,7 @@ export default function ResetPassword() {
         return;
       }
 
-      if (data.autoLogin) {
-        toast({
-          title: "Welcome!",
-          description: "Your account is ready. Taking you to your dashboard...",
-        });
-        window.location.href = "/";
-      } else {
-        setIsSuccess(true);
-      }
+      setIsSuccess(true);
     } catch (error) {
       toast({
         title: "Error",
@@ -176,12 +168,14 @@ export default function ResetPassword() {
               <h2 className="text-xl font-semibold text-foreground mb-2">{isInvite ? "Account Ready!" : "Password Reset"}</h2>
               <p className="text-muted-foreground text-sm mb-6">
                 {isInvite 
-                  ? "Your account has been set up successfully. You can now sign in with your password."
+                  ? "Your account has been set up successfully. You can now sign in on the Meridian app with your email and password."
                   : "Your password has been successfully reset. You can now sign in with your new password."}
               </p>
-              <Link href="/landing">
-                <Button className="w-full">Sign In</Button>
-              </Link>
+              {!isInvite && (
+                <Link href="/landing">
+                  <Button className="w-full">Sign In</Button>
+                </Link>
+              )}
             </div>
           </CardContent>
         </Card>

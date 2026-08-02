@@ -321,11 +321,11 @@ export async function setupAuth(app: Express) {
         return res.status(400).json({ message: "Token and password are required" });
       }
 
-      if (password.length < 8) {
-        return res.status(400).json({ message: "Password must be at least 8 characters" });
+      if (password.length < 12) {
+        return res.status(400).json({ message: "Password must be at least 12 characters" });
       }
 
-      const passwordRegex = /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[!@#$%^&*(),.?":{}|<>]).{8,}$/;
+      const passwordRegex = /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[!@#$%^&*(),.?":{}|<>]).{12,}$/;
       if (!passwordRegex.test(password)) {
         return res.status(400).json({ message: "Password must include uppercase, lowercase, number, and special character" });
       }
@@ -349,26 +349,9 @@ export async function setupAuth(app: Express) {
       await storage.updateUser(resetToken.userId, { password: hashedPassword });
       await storage.markPasswordResetTokenUsed(hashedToken);
 
+      // Never auto-login after invite setup — account setup must not open the web app.
       if (isInvite) {
-        const user = await storage.getUser(resetToken.userId);
-        if (user) {
-          req.session.user = {
-            claims: {
-              sub: user.id,
-              email: user.email,
-              first_name: user.firstName,
-              last_name: user.lastName,
-            },
-            expires_at: Math.floor(Date.now() / 1000) + (7 * 24 * 60 * 60),
-          };
-          await new Promise<void>((resolve, reject) => {
-            req.session.save((err: any) => {
-              if (err) reject(err);
-              else resolve();
-            });
-          });
-          return res.json({ success: true, autoLogin: true, message: "Account created and logged in" });
-        }
+        return res.json({ success: true, message: "Account created successfully" });
       }
 
       res.json({ success: true, message: "Password has been reset successfully" });

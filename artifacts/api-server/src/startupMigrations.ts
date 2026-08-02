@@ -1424,3 +1424,212 @@ export async function seedLabPathCoversOnce(): Promise<void> {
     console.error("[startup-migration] lab path covers failed:", e?.message || e);
   }
 }
+
+// ── The Lab: life-stage & onboarding sections ───────────────────────────────
+// Adds four new Lab topics — "Start Here" (new-user orientation), "For Men",
+// "For Women" and "Over 50s" — with their paths and a set of "coming soon"
+// placeholder lessons, so users can see what's planned before the videos are
+// filmed. There is no API to create a topic, so this runs as a boot migration.
+// Fully idempotent: topics are keyed by slug and paths by (topic, title) and
+// are only created when absent; lessons are only added to a path that currently
+// has no content, so re-runs never duplicate. Covers are added later (the tile
+// falls back to its tint until then).
+let hasRunLabLifeStage = false;
+
+type LifeStagePath = { title: string; description: string; lessons: string[] };
+type LifeStageTopic = {
+  slug: string;
+  title: string;
+  description: string;
+  icon: string;
+  orderIndex: number;
+  paths: LifeStagePath[];
+};
+
+const LAB_LIFE_STAGE_TOPICS: LifeStageTopic[] = [
+  {
+    slug: "start-here",
+    title: "Start Here",
+    description: "New here? Get clear on what you want and how Meridian works for you.",
+    icon: "🧭",
+    orderIndex: 0,
+    paths: [
+      {
+        title: "Getting Clear on What You Want",
+        description: "Before the how, the what and the why — a short, honest look at where you are and where you want to go.",
+        lessons: [
+          "How Are You, Really?",
+          "What You Want From Your Health",
+          "Understanding Your Own Patterns",
+          "Setting a Goal That Fits Your Life",
+        ],
+      },
+      {
+        title: "Getting the Most From Your AI Coach",
+        description: "How to use your coach so it actually works for you.",
+        lessons: [
+          "What Your Coach Can Do",
+          "How to Talk to Your Coach",
+          "Turning a Conversation Into a Plan",
+        ],
+      },
+    ],
+  },
+  {
+    slug: "for-men",
+    title: "For Men",
+    description: "Health and training essentials for men.",
+    icon: "♂️",
+    orderIndex: 8,
+    paths: [
+      {
+        title: "Men's Heart Health",
+        description: "The single biggest health risk for most men — and the levers that move it.",
+        lessons: [
+          "Why Heart Health Matters",
+          "Knowing Your Numbers",
+          "Training Your Heart",
+          "Eating for a Healthy Heart",
+          "Stress, Sleep and Your Heart",
+        ],
+      },
+      {
+        title: "Men's Health Essentials",
+        description: "The fundamentals of staying strong, lean and healthy through the years.",
+        lessons: [
+          "Building and Keeping Muscle",
+          "Understanding Testosterone",
+          "Why Belly Fat Matters",
+          "Health Checks Worth Knowing About",
+        ],
+      },
+    ],
+  },
+  {
+    slug: "for-women",
+    title: "For Women",
+    description: "Health and training through every stage, from strength basics to menopause.",
+    icon: "♀️",
+    orderIndex: 9,
+    paths: [
+      {
+        title: "Training Through Menopause",
+        description: "What changes, why strength comes first, and how to protect your bones — capable, not fragile.",
+        lessons: [
+          "What Changes in Peri and Menopause",
+          "Why Strength Training Comes First",
+          "Protecting Your Bones",
+          "Movement for Symptoms and Mood",
+          "Protein and Nutrition Through Menopause",
+        ],
+      },
+      {
+        title: "Women's Health Essentials",
+        description: "The fundamentals, minus the myths — strength, cycle, nutrition and pelvic health.",
+        lessons: [
+          "Strength Training: Myths and Truths",
+          "Training With Your Cycle",
+          "Iron, Protein and Bone Health",
+          "Pelvic Floor Basics",
+        ],
+      },
+    ],
+  },
+  {
+    slug: "over-50s",
+    title: "Over 50s",
+    description: "Stay strong, capable and pain-free as you age.",
+    icon: "🌿",
+    orderIndex: 10,
+    paths: [
+      {
+        title: "Eating Well After 50",
+        description: "Fuelling your body for muscle, bone and energy as your needs change.",
+        lessons: [
+          "Protein as You Age",
+          "Eating for Bone Density",
+          "Muscle and Staying Strong",
+          "Appetite, Hydration and Energy",
+        ],
+      },
+      {
+        title: "Strong and Pain-Free After 50",
+        description: "Building real strength safely, with balance and joints in mind.",
+        lessons: [
+          "Setting Goals That Fit Your Age",
+          "Building Strength Safely",
+          "Balance and Staying on Your Feet",
+          "Training Around Aches and Joints",
+        ],
+      },
+    ],
+  },
+];
+
+async function ensureLifeStageTopic(t: LifeStageTopic): Promise<number> {
+  const existing = await pool.query(`SELECT id FROM learn_topics WHERE slug = $1 LIMIT 1`, [t.slug]);
+  if ((existing.rowCount ?? 0) > 0) return existing.rows[0].id;
+  const ins = await pool.query(
+    `INSERT INTO learn_topics (title, slug, description, icon, order_index, is_active)
+     VALUES ($1, $2, $3, $4, $5, true) RETURNING id`,
+    [t.title, t.slug, t.description, t.icon, t.orderIndex],
+  );
+  console.log(`[startup-migration] lab life-stage topic created: ${t.slug} -> ${ins.rows[0].id}`);
+  return ins.rows[0].id;
+}
+
+async function ensureLifeStagePath(
+  topicId: number,
+  category: string,
+  p: LifeStagePath,
+  orderIndex: number,
+): Promise<number> {
+  const existing = await pool.query(
+    `SELECT id FROM learning_paths WHERE topic_id = $1 AND title = $2 LIMIT 1`,
+    [topicId, p.title],
+  );
+  if ((existing.rowCount ?? 0) > 0) return existing.rows[0].id;
+  const ins = await pool.query(
+    `INSERT INTO learning_paths (title, description, topic_id, category, estimated_duration, order_index)
+     VALUES ($1, $2, $3, $4, 0, $5) RETURNING id`,
+    [p.title, p.description, topicId, category, orderIndex],
+  );
+  console.log(`[startup-migration] lab life-stage path created: "${p.title}" -> ${ins.rows[0].id}`);
+  return ins.rows[0].id;
+}
+
+export async function seedLabLifeStageOnce(): Promise<void> {
+  if (hasRunLabLifeStage) return;
+  hasRunLabLifeStage = true;
+  try {
+    for (const topic of LAB_LIFE_STAGE_TOPICS) {
+      try {
+        const topicId = await ensureLifeStageTopic(topic);
+        for (let pi = 0; pi < topic.paths.length; pi++) {
+          const p = topic.paths[pi];
+          const pathId = await ensureLifeStagePath(topicId, topic.slug, p, pi);
+          // Only seed placeholders into a path that has no content yet, so a
+          // re-run (or a later boot) never duplicates lessons.
+          const existingContent = await storage.getPathContentFromLibrary(pathId);
+          if ((existingContent?.length ?? 0) > 0) continue;
+          for (let li = 0; li < p.lessons.length; li++) {
+            const item = await storage.createContentLibraryItem({
+              topicId,
+              title: p.lessons[li],
+              description: "Coming soon",
+              contentType: "coming_soon",
+              contentUrl: "coming-soon",
+              isRequired: true,
+            } as any);
+            await storage.addContentToPath(pathId, item.id, li);
+          }
+          console.log(`[startup-migration] lab life-stage lessons seeded for path ${pathId} (${p.lessons.length})`);
+        }
+      } catch (inner: any) {
+        console.error(`[startup-migration] lab life-stage failed for ${topic.slug}:`, inner?.message || inner);
+      }
+    }
+  } catch (e: any) {
+    console.error("[startup-migration] lab life-stage seed failed:", e?.message || e);
+  }
+}

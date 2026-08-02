@@ -27,7 +27,7 @@ if (Number.isNaN(port) || port <= 0) {
   server.listen({ port, host: "0.0.0.0", reusePort: true }, () => {
     logger.info({ port }, "Server listening");
 
-    import("./startupMigrations").then(({ runSchemaSelfHealOnce, runProfileImageMigrationOnce, seedMeditationsOnce, seedAiPromptsOnce, repairBodyweightGoalUnitsOnce, normalizeRecipeMacrosOnce, seedBadgesV2Once, retireDroppedDeskBadgesOnce, fixHabitTemplateDescriptionsOnce, seedReadinessBadgesOnce, dedupeCheckInsOnce, backfillContentTagsOnce, revokeEmptyBurnoutBadgesOnce, revokeEmptyAiBadgesOnce, revokeInvalidPerfectRecordOnce, seedLabTopicCoversOnce, seedLabPathCoversOnce }) => {
+    import("./startupMigrations").then(({ runSchemaSelfHealOnce, runProfileImageMigrationOnce, seedMeditationsOnce, seedAiPromptsOnce, repairBodyweightGoalUnitsOnce, normalizeRecipeMacrosOnce, seedBadgesV2Once, retireDroppedDeskBadgesOnce, fixHabitTemplateDescriptionsOnce, seedReadinessBadgesOnce, dedupeCheckInsOnce, backfillContentTagsOnce, revokeEmptyBurnoutBadgesOnce, revokeEmptyAiBadgesOnce, revokeInvalidPerfectRecordOnce, seedLabTopicCoversOnce, seedLabPathCoversOnce, seedLabLifeStageOnce }) => {
       runSchemaSelfHealOnce()
         .catch((e: any) => logger.error({ e }, "[startup-migration] schema self-heal failed"))
         .then(() => {
@@ -47,6 +47,7 @@ if (Number.isNaN(port) || port <= 0) {
           revokeInvalidPerfectRecordOnce().catch((e: any) => logger.error({ e }, "[startup-migration] revoke invalid Perfect Record failed"));
           seedLabTopicCoversOnce().catch((e: any) => logger.error({ e }, "[startup-migration] lab topic covers failed"));
           seedLabPathCoversOnce().catch((e: any) => logger.error({ e }, "[startup-migration] lab path covers failed"));
+          seedLabLifeStageOnce().catch((e: any) => logger.error({ e }, "[startup-migration] lab life-stage failed"));
         });
     }).catch((e: any) => logger.error({ e }, "[startup-migration] startup migrations import failed"));
 

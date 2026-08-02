@@ -6899,6 +6899,65 @@ Rules:
     }
   });
 
+  // Custom check-in questions (user-defined Y/N questions on the daily check-in).
+  // The GET handler was missing on the deployed server, causing API 404s from the
+  // mobile app (Sentry issue: withScope$argument_0 on GET /api/custom-check-in-questions).
+  app.get('/api/custom-check-in-questions', isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = req.user.claims.sub;
+      const questions = await storage.getCustomCheckInQuestions(userId);
+      res.json(questions);
+    } catch (error) {
+      console.error("Error fetching custom check-in questions:", error);
+      res.status(500).json({ message: "Failed to fetch custom check-in questions" });
+    }
+  });
+
+  app.post('/api/custom-check-in-questions', isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = req.user.claims.sub;
+      const label = typeof req.body?.label === 'string' ? req.body.label.trim() : '';
+      if (!label) return res.status(400).json({ message: "label is required" });
+      const sortOrder = Number.isFinite(Number(req.body?.sortOrder)) ? Number(req.body.sortOrder) : 0;
+      const question = await storage.createCustomCheckInQuestion(userId, label, sortOrder);
+      res.status(201).json(question);
+    } catch (error) {
+      console.error("Error creating custom check-in question:", error);
+      res.status(500).json({ message: "Failed to create custom check-in question" });
+    }
+  });
+
+  app.put('/api/custom-check-in-questions/:id', isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = req.user.claims.sub;
+      const id = parseInt(req.params.id, 10);
+      if (!Number.isFinite(id)) return res.status(400).json({ message: "invalid id" });
+      const updates: { label?: string; sortOrder?: number; isActive?: boolean } = {};
+      if (typeof req.body?.label === 'string') updates.label = req.body.label.trim();
+      if (req.body?.sortOrder !== undefined) updates.sortOrder = Number(req.body.sortOrder);
+      if (req.body?.isActive !== undefined) updates.isActive = !!req.body.isActive;
+      const question = await storage.updateCustomCheckInQuestion(userId, id, updates);
+      if (!question) return res.status(404).json({ message: "Not found" });
+      res.json(question);
+    } catch (error) {
+      console.error("Error updating custom check-in question:", error);
+      res.status(500).json({ message: "Failed to update custom check-in question" });
+    }
+  });
+
+  app.delete('/api/custom-check-in-questions/:id', isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = req.user.claims.sub;
+      const id = parseInt(req.params.id, 10);
+      if (!Number.isFinite(id)) return res.status(400).json({ message: "invalid id" });
+      await storage.deleteCustomCheckInQuestion(userId, id);
+      res.json({ success: true });
+    } catch (error) {
+      console.error("Error deleting custom check-in question:", error);
+      res.status(500).json({ message: "Failed to delete custom check-in question" });
+    }
+  });
+
   app.post('/api/check-ins', isAuthenticated, async (req: any, res) => {
     try {
       const userId = req.user.claims.sub;

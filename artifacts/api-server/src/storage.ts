@@ -4210,6 +4210,72 @@ export class DatabaseStorage implements IStorage {
       .limit(limit);
   }
 
+  // Custom check-in questions — user-defined Y/N questions shown on the daily
+  // check-in. Backed by the custom_check_in_questions table (created in
+  // startupMigrations). No Drizzle schema table exists for it, so these use
+  // raw parameterised SQL via pool.query. Columns are aliased to camelCase to
+  // match the JSON shape the rest of the API returns.
+  async getCustomCheckInQuestions(userId: string): Promise<any[]> {
+    const result = await pool.query(
+      `SELECT id, label, sort_order AS "sortOrder", is_active AS "isActive", created_at AS "createdAt"
+       FROM custom_check_in_questions
+       WHERE user_id = $1 AND is_active = true
+       ORDER BY sort_order ASC, id ASC`,
+      [userId]
+    );
+    return result.rows;
+  }
+
+  async getCustomCheckInQuestionById(userId: string, id: number): Promise<any | undefined> {
+    const result = await pool.query(
+      `SELECT id, label, sort_order AS "sortOrder", is_active AS "isActive", created_at AS "createdAt"
+       FROM custom_check_in_questions WHERE user_id = $1 AND id = $2`,
+      [userId, id]
+    );
+    return result.rows[0];
+  }
+
+  async createCustomCheckInQuestion(userId: string, label: string, sortOrder = 0): Promise<any> {
+    const result = await pool.query(
+      `INSERT INTO custom_check_in_questions (user_id, label, sort_order)
+       VALUES ($1, $2, $3)
+       RETURNING id, label, sort_order AS "sortOrder", is_active AS "isActive", created_at AS "createdAt"`,
+      [userId, label, sortOrder]
+    );
+    return result.rows[0];
+  }
+
+  async updateCustomCheckInQuestion(
+    userId: string,
+    id: number,
+    updates: { label?: string; sortOrder?: number; isActive?: boolean }
+  ): Promise<any | undefined> {
+    const sets: string[] = [];
+    const params: any[] = [];
+    let i = 1;
+    if (updates.label !== undefined) { sets.push(`label = $${i++}`); params.push(updates.label); }
+    if (updates.sortOrder !== undefined) { sets.push(`sort_order = $${i++}`); params.push(updates.sortOrder); }
+    if (updates.isActive !== undefined) { sets.push(`is_active = $${i++}`); params.push(updates.isActive); }
+    if (sets.length === 0) return this.getCustomCheckInQuestionById(userId, id);
+    const userParam = i++; params.push(userId);
+    const idParam = i++; params.push(id);
+    const result = await pool.query(
+      `UPDATE custom_check_in_questions SET ${sets.join(', ')}
+       WHERE user_id = $${userParam} AND id = $${idParam}
+       RETURNING id, label, sort_order AS "sortOrder", is_active AS "isActive", created_at AS "createdAt"`,
+      params
+    );
+    return result.rows[0];
+  }
+
+  async deleteCustomCheckInQuestion(userId: string, id: number): Promise<void> {
+    // Soft-delete: mark inactive so any historical answers stay intact.
+    await pool.query(
+      `UPDATE custom_check_in_questions SET is_active = false WHERE user_id = $1 AND id = $2`,
+      [userId, id]
+    );
+  }
+
   async createCheckIn(checkIn: InsertCheckIn): Promise<CheckIn> {
     const [newCheckIn] = await db.insert(checkIns).values(checkIn).returning();
     return newCheckIn;

@@ -1660,47 +1660,23 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const activePaths = allPaths.filter((p: any) => p.isActive !== false);
       const activeHabits = allHabitTemplates.filter((h: any) => h.isActive !== false);
 
-      const enrichedPrograms = await Promise.all(activePrograms.map(async (prog: any) => {
-        try {
-          const weeks = await db.select().from(programWeeks).where(eq(programWeeks.programId, prog.id));
-          if (weeks.length === 0) return { ...prog, requiredEquipment: [], exerciseMovementPatterns: [], exerciseLevels: [] };
-          const equipmentSet = new Set<string>();
-          const movementSet = new Set<string>();
-          const levelSet = new Set<string>();
-          for (const week of weeks) {
-            const days = await db.select().from(programDays).where(eq(programDays.weekId, week.id));
-            for (const day of days) {
-              const dayWorkouts = await db.select().from(programmeWorkouts).where(eq(programmeWorkouts.dayId, day.id));
-              for (const workout of dayWorkouts) {
-                const blocks = await storage.getProgrammeWorkoutBlocks(workout.id);
-                for (const block of blocks) {
-                  for (const ex of (block.exercises || [])) {
-                    if (ex.exerciseLibraryId) {
-                      const libEntry = await storage.getExerciseById(ex.exerciseLibraryId);
-                      if (libEntry?.equipment) {
-                        for (const eqItem of libEntry.equipment) {
-                          if (eqItem) equipmentSet.add(eqItem);
-                        }
-                      }
-                      if (libEntry?.movement) {
-                        for (const m of libEntry.movement) {
-                          if (m) movementSet.add(m);
-                        }
-                      }
-                      if (libEntry?.level) {
-                        levelSet.add(libEntry.level);
-                      }
-                    }
-                  }
-                }
-              }
-            }
-          }
-          return { ...prog, requiredEquipment: Array.from(equipmentSet), exerciseMovementPatterns: Array.from(movementSet), exerciseLevels: Array.from(levelSet) };
-        } catch {
-          return { ...prog, requiredEquipment: [], exerciseMovementPatterns: [], exerciseLevels: [] };
-        }
-      }));
+      // Enrich every active programme with the equipment / movement / level
+      // fingerprint of the exercises it contains. Batched in the storage layer
+      // (a fixed handful of inArray queries) instead of the previous
+      // per-exercise getExerciseById fan-out, which issued thousands of DB
+      // round-trips and made the first (cold) onboarding request slow enough to
+      // hang the app.
+      let enrichmentByProgram: Map<number, { requiredEquipment: string[]; exerciseMovementPatterns: string[]; exerciseLevels: string[] }>;
+      try {
+        enrichmentByProgram = await storage.getProgramEnrichmentByProgramIds(activePrograms.map((p: any) => p.id));
+      } catch (enrichErr) {
+        console.error("Error enriching programmes for recommendations:", enrichErr);
+        enrichmentByProgram = new Map();
+      }
+      const enrichedPrograms = activePrograms.map((prog: any) => {
+        const e = enrichmentByProgram.get(prog.id) || { requiredEquipment: [], exerciseMovementPatterns: [], exerciseLevels: [] };
+        return { ...prog, requiredEquipment: e.requiredEquipment, exerciseMovementPatterns: e.exerciseMovementPatterns, exerciseLevels: e.exerciseLevels };
+      });
 
       let recommendedPrograms: any[] = [];
       let recommendedPath: any = null;

@@ -8175,6 +8175,100 @@ export class DatabaseStorage implements IStorage {
     return result;
   }
 
+  // Onboarding recommender enrichment. For a set of programme ids, derive each
+  // programme's equipment / movement-pattern / difficulty-level fingerprint from
+  // the exercise-library entries used across its workouts. Done as a fixed
+  // handful of inArray queries (weeks -> days -> workouts -> blocks -> block
+  // exercises joined to the library), regardless of library size. This replaces
+  // a per-exercise getExerciseById fan-out that issued thousands of DB
+  // round-trips and made the first (cold) onboarding request slow enough to
+  // hang the app. Returns a map with an empty fingerprint for every requested
+  // id, so callers can look up any programme without null checks.
+  async getProgramEnrichmentByProgramIds(
+    programIds: number[]
+  ): Promise<Map<number, { requiredEquipment: string[]; exerciseMovementPatterns: string[]; exerciseLevels: string[] }>> {
+    const result = new Map<number, { requiredEquipment: string[]; exerciseMovementPatterns: string[]; exerciseLevels: string[] }>();
+    for (const id of programIds) result.set(id, { requiredEquipment: [], exerciseMovementPatterns: [], exerciseLevels: [] });
+    if (programIds.length === 0) return result;
+
+    // 1. weeks -> programme
+    const weeks = await db
+      .select({ id: programWeeks.id, programId: programWeeks.programId })
+      .from(programWeeks)
+      .where(inArray(programWeeks.programId, programIds));
+    if (weeks.length === 0) return result;
+    const weekToProgram = new Map<number, number>();
+    for (const w of weeks) weekToProgram.set(w.id, w.programId);
+
+    // 2. days -> programme
+    const days = await db
+      .select({ id: programDays.id, weekId: programDays.weekId })
+      .from(programDays)
+      .where(inArray(programDays.weekId, weeks.map(w => w.id)));
+    if (days.length === 0) return result;
+    const dayToProgram = new Map<number, number>();
+    for (const d of days) {
+      const p = weekToProgram.get(d.weekId);
+      if (p !== undefined) dayToProgram.set(d.id, p);
+    }
+
+    // 3. workouts -> programme
+    const workoutRows = await db
+      .select({ id: programmeWorkouts.id, dayId: programmeWorkouts.dayId })
+      .from(programmeWorkouts)
+      .where(inArray(programmeWorkouts.dayId, days.map(d => d.id)));
+    if (workoutRows.length === 0) return result;
+    const workoutToProgram = new Map<number, number>();
+    for (const wk of workoutRows) {
+      const p = dayToProgram.get(wk.dayId);
+      if (p !== undefined) workoutToProgram.set(wk.id, p);
+    }
+
+    // 4. blocks -> programme
+    const blockRows = await db
+      .select({ id: programmeWorkoutBlocks.id, workoutId: programmeWorkoutBlocks.workoutId })
+      .from(programmeWorkoutBlocks)
+      .where(inArray(programmeWorkoutBlocks.workoutId, workoutRows.map(w => w.id)));
+    if (blockRows.length === 0) return result;
+    const blockToProgram = new Map<number, number>();
+    for (const b of blockRows) {
+      const p = workoutToProgram.get(b.workoutId);
+      if (p !== undefined) blockToProgram.set(b.id, p);
+    }
+
+    // 5. block exercises joined to the library -> equipment / movement / level
+    const exRows = await db
+      .select({
+        blockId: programmeBlockExercises.blockId,
+        equipment: exerciseLibrary.equipment,
+        movement: exerciseLibrary.movement,
+        level: exerciseLibrary.level,
+      })
+      .from(programmeBlockExercises)
+      .leftJoin(exerciseLibrary, eq(programmeBlockExercises.exerciseLibraryId, exerciseLibrary.id))
+      .where(inArray(programmeBlockExercises.blockId, blockRows.map(b => b.id)));
+
+    const sets = new Map<number, { equipment: Set<string>; movement: Set<string>; level: Set<string> }>();
+    for (const id of programIds) sets.set(id, { equipment: new Set<string>(), movement: new Set<string>(), level: new Set<string>() });
+    for (const row of exRows) {
+      const programId = blockToProgram.get(row.blockId);
+      if (programId === undefined) continue;
+      const bucket = sets.get(programId);
+      if (!bucket) continue;
+      if (Array.isArray(row.equipment)) for (const e of row.equipment) if (e) bucket.equipment.add(e);
+      if (Array.isArray(row.movement)) for (const m of row.movement) if (m) bucket.movement.add(m);
+      if (row.level) bucket.level.add(row.level);
+    }
+    for (const [programId, bucket] of sets) {
+      result.set(programId, {
+        requiredEquipment: Array.from(bucket.equipment),
+        exerciseMovementPatterns: Array.from(bucket.movement),
+        exerciseLevels: Array.from(bucket.level),
+      });
+    }
+    return result;
+  }
+
   async getProgrammeWorkoutBlocks(workoutId: number): Promise<any[]> {
     // Helper function to get blocks with exercises for a workout
     const getBlocksWithExercises = async (wId: number) => {

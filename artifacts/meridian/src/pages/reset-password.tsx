@@ -4,7 +4,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Mountain, ArrowLeft, CheckCircle, AlertCircle, Loader2, Eye, EyeOff, Check, X } from "lucide-react";
+import { ArrowLeft, CheckCircle, AlertCircle, Loader2, Eye, EyeOff, Check, X } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 
 export default function ResetPassword() {
@@ -19,7 +19,7 @@ export default function ResetPassword() {
   const [confirmPassword, setConfirmPassword] = useState("");
   
   const passwordRequirements = {
-    minLength: password.length >= 8,
+    minLength: password.length >= 12,
     hasUppercase: /[A-Z]/.test(password),
     hasLowercase: /[a-z]/.test(password),
     hasNumber: /[0-9]/.test(password),
@@ -103,15 +103,7 @@ export default function ResetPassword() {
         return;
       }
 
-      if (data.autoLogin) {
-        toast({
-          title: "Welcome!",
-          description: "Your account is ready. Taking you to your dashboard...",
-        });
-        window.location.href = "/";
-      } else {
-        setIsSuccess(true);
-      }
+      setIsSuccess(true);
     } catch (error) {
       toast({
         title: "Error",
@@ -176,12 +168,14 @@ export default function ResetPassword() {
               <h2 className="text-xl font-semibold text-foreground mb-2">{isInvite ? "Account Ready!" : "Password Reset"}</h2>
               <p className="text-muted-foreground text-sm mb-6">
                 {isInvite 
-                  ? "Your account has been set up successfully. You can now sign in with your password."
+                  ? "Your account has been set up successfully. You can now sign in on the Meridian app with your email and password."
                   : "Your password has been successfully reset. You can now sign in with your new password."}
               </p>
-              <Link href="/landing">
-                <Button className="w-full">Sign In</Button>
-              </Link>
+              {!isInvite && (
+                <Link href="/landing">
+                  <Button className="w-full">Sign In</Button>
+                </Link>
+              )}
             </div>
           </CardContent>
         </Card>
@@ -195,9 +189,9 @@ export default function ResetPassword() {
         <CardContent className="pt-8 pb-8 px-6">
           <div className="flex flex-col items-center text-center mb-8">
             <div className="flex items-center mb-2">
-              <Mountain className="h-10 w-10 text-primary mr-3" />
-              <span className="font-bold text-2xl text-foreground">MeridianWork</span>
+              <span className="font-bold text-2xl text-foreground">Meridian Work</span>
             </div>
+            <p className="text-muted-foreground text-sm">Corporate wellness intelligence</p>
             <h2 className="text-lg font-medium text-foreground mt-4">
               {isInvite ? "Create Your Password" : "Set New Password"}
             </h2>
@@ -220,7 +214,7 @@ export default function ResetPassword() {
                   onChange={(e) => setPassword(e.target.value)}
                   required
                   disabled={isLoading}
-                  minLength={8}
+                  minLength={12}
                   className="pr-10"
                 />
                 <button
@@ -237,7 +231,7 @@ export default function ResetPassword() {
                 <div className="mt-2 space-y-1 text-xs">
                   <div className={`flex items-center gap-1.5 ${passwordRequirements.minLength ? 'text-green-600' : 'text-muted-foreground'}`}>
                     {passwordRequirements.minLength ? <Check className="h-3 w-3" /> : <X className="h-3 w-3" />}
-                    At least 8 characters
+                    At least 12 characters
                   </div>
                   <div className={`flex items-center gap-1.5 ${passwordRequirements.hasUppercase ? 'text-green-600' : 'text-muted-foreground'}`}>
                     {passwordRequirements.hasUppercase ? <Check className="h-3 w-3" /> : <X className="h-3 w-3" />}
@@ -272,7 +266,7 @@ export default function ResetPassword() {
                   onChange={(e) => setConfirmPassword(e.target.value)}
                   required
                   disabled={isLoading}
-                  minLength={8}
+                  minLength={12}
                   className="pr-10"
                 />
                 <button

@@ -32,7 +32,7 @@ async function sendPasswordResetEmail(email: string, token: string, baseUrl: str
       subject: "Reset Your Password",
       html: `
         <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; background-color: #ffffff;">
-          <img src="${baseUrl}/email-banner.png" alt="MeridianWork" style="width: 100%; max-height: 120px; object-fit: cover; display: block;" />
+          <img src="${baseUrl}/email-banner.png" alt="MeridianWork" style="width: 100%; max-width: 600px; height: auto; display: block; border: 0;" />
           <div style="padding: 20px;">
             <h2 style="color: #333; font-size: 28px; margin: 0 0 16px 0;">Password Reset Request</h2>
             <p style="font-size: 18px; line-height: 1.6; color: #333; margin-bottom: 16px;">You requested to reset your password for the MeridianWork Platform.</p>
@@ -40,6 +40,8 @@ async function sendPasswordResetEmail(email: string, token: string, baseUrl: str
             <a href="${resetUrl}" style="display: inline-block; background-color: #09b5f9; color: #ffffff !important; padding: 14px 28px; text-decoration: none; border-radius: 6px; margin: 16px 0; font-size: 18px; font-weight: 600;">Reset Password</a>
             <p style="color: #666; font-size: 15px; margin-top: 24px;">This link will expire in 1 hour.</p>
             <p style="color: #666; font-size: 15px;">If you didn't request this, you can safely ignore this email.</p>
+            <p style="font-size: 15px; line-height: 1.6; color: #333; margin-top: 28px; margin-bottom: 0;">Best regards,</p>
+            <p style="font-size: 15px; line-height: 1.4; color: #333; margin: 4px 0 0 0;"><strong>Mark Gray</strong><br/>Owner, MeridianWork</p>
           </div>
         </div>
       `,
@@ -72,7 +74,7 @@ export async function sendUserInviteEmail(email: string, token: string, baseUrl:
       subject: "Welcome to MeridianWork - Set Up Your Account",
       html: `
         <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; background-color: #ffffff;">
-          <img src="${baseUrl}/email-banner.png" alt="MeridianWork" style="width: 100%; max-height: 120px; object-fit: cover; display: block;" />
+          <img src="${baseUrl}/email-banner.png" alt="MeridianWork" style="width: 100%; max-width: 600px; height: auto; display: block; border: 0;" />
           <div style="padding: 20px;">
             <h2 style="color: #333; font-size: 28px; margin: 0 0 16px 0;">Welcome to MeridianWork - Peak performance at work!</h2>
             <p style="font-size: 18px; line-height: 1.6; color: #333; margin-bottom: 16px;">${greeting}</p>
@@ -81,6 +83,8 @@ export async function sendUserInviteEmail(email: string, token: string, baseUrl:
             <a href="${setupUrl}" style="display: inline-block; background-color: #09b5f9; color: #ffffff !important; padding: 14px 28px; text-decoration: none; border-radius: 6px; margin: 16px 0; font-size: 18px; font-weight: 600;">Set Up Your Account</a>
             <p style="color: #666; font-size: 15px; margin-top: 24px;">This link will expire in 24 hours.</p>
             <p style="color: #666; font-size: 15px;">If you have any questions, please contact your administrator.</p>
+            <p style="font-size: 15px; line-height: 1.6; color: #333; margin-top: 28px; margin-bottom: 0;">Best regards,</p>
+            <p style="font-size: 15px; line-height: 1.4; color: #333; margin: 4px 0 0 0;"><strong>Mark Gray</strong><br/>Owner, MeridianWork</p>
           </div>
         </div>
       `,

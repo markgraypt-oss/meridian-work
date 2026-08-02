@@ -438,6 +438,7 @@ const uploadDoc = multer({
 
 import { computeBurnoutScore } from '../burnoutEngine';
 import { computeCyclePhase } from '../cyclePhase';
+import { normalizeSex } from '../coach/lifeStage';
 import { trackCalibrationEvent, trackRecoveryModeActivation, generateCalibrationReport, getLevel as getBurnoutLevel, writePhysiologicalSnapshot } from '../burnoutCalibration';
 import { burnoutScores, insertCompanySchema, insertCompanyBenefitSchema, checkIns, bodyMapLogs, departments, companyInvites, usageAlerts, insertAiPromptSchema, workdayBreakLogs, aiInsightReads, recoveryModePeriods, physiologicalSnapshots, cycleSettings, cycleLogs } from "@workspace/db";
 
@@ -801,6 +802,39 @@ function environmentMatches(userEnv: string, programEquipment: string): boolean 
   return true;
 }
 
+// Is this programme written for a specific sex? The population signal lives in
+// different places depending on how the programme was authored, and the two
+// kinds of field need different sensitivity:
+//  - category / tags are DELIBERATE audience markers (an enum-ish list), so a
+//    'female' / 'menopause' token there is a clear signal.
+//  - title / who-it's-for is FREE TEXT, where "men and women" is inclusive, not
+//    female-specific — so there we only trust unambiguous markers (menopause,
+//    or a possessive "women's").
+// Returns null for general-population programmes (the common case).
+function programmeAudienceSex(p: any): 'male' | 'female' | null {
+  const structured = [
+    ...(Array.isArray(p?.category) ? p.category : []),
+    ...(Array.isArray(p?.tags) ? p.tags : []),
+  ].filter(Boolean).join(' ').toLowerCase();
+  if (/\b(menopause|perimenopause|female|women|womens|woman)\b/.test(structured) || /women'?s\b/.test(structured)) return 'female';
+  if (/\b(male|mens|man)\b/.test(structured) || /men'?s\b/.test(structured)) return 'male';
+
+  const freeText = `${p?.title || ''} ${p?.whoItsFor || ''}`.toLowerCase();
+  if (/\b(menopause|perimenopause)\b/.test(freeText) || /women'?s\b/.test(freeText)) return 'female';
+  return null;
+}
+
+// A programme is allowed for a user's sex unless it is written for the OTHER
+// sex. Unknown user sex (null — not shared, or not yet captured) never filters,
+// keeping recommendations inclusive. This is a HARD rule: a menopause programme
+// must never surface for a male, in the AI path, the rule-based path, or the
+// fallback.
+function programmeAllowedForSex(p: any, userSex: 'male' | 'female' | null): boolean {
+  if (!userSex) return true;
+  const audience = programmeAudienceSex(p);
+  return audience === null || audience === userSex;
+}
+
 function equipmentAccessMatches(userEquipment: string[], programEquipment: string, requiredEquipment?: string[]): boolean {
   if (!userEquipment || userEquipment.length === 0) return true;
   if (userEquipment.includes('Full gym access')) return true;
@@ -945,19 +979,27 @@ function getRuleBasedRecommendations(intake: any, programs: any[], paths: any[],
   let eligible = candidates.filter(c => !c.eliminated);
 
   if (eligible.length === 0) {
-    const softCandidates = candidates.map(c => {
-      let softScore = 0;
-      if (environmentMatches(env, c.equipment)) softScore += 10;
-      if (equipmentAccessMatches(userEquipment, c.equipment, c.requiredEquipment)) softScore += 5;
-      if (userLevel && c.difficulty === userLevel) softScore += 8;
-      if (userFreq > 0 && c.trainingDaysPerWeek) {
-        const diff = Math.abs(userFreq - c.trainingDaysPerWeek);
-        if (diff <= 1) softScore += 5;
-        else if (diff <= 2) softScore += 2;
-      }
-      if (goalTargets.length > 0 && c.goal && goalTargets.includes(c.goal)) softScore += 6;
-      return { ...c, score: softScore, eliminated: false };
-    });
+    // Fallback when nothing clears every hard filter. We relax the SOFT
+    // constraints (level, equipment, frequency, duration, goal) to still offer
+    // something — but environment stays HARD. A home user must never be shown a
+    // full_gym programme they can't actually do; better to return fewer (even
+    // none) than a wrong-environment match. Gender was already scoped out
+    // upstream, so it needs no re-check here.
+    const softCandidates = candidates
+      .filter(c => environmentMatches(env, c.equipment))
+      .map(c => {
+        let softScore = 0;
+        softScore += 10; // all survivors match the environment
+        if (equipmentAccessMatches(userEquipment, c.equipment, c.requiredEquipment)) softScore += 5;
+        if (userLevel && c.difficulty === userLevel) softScore += 8;
+        if (userFreq > 0 && c.trainingDaysPerWeek) {
+          const diff = Math.abs(userFreq - c.trainingDaysPerWeek);
+          if (diff <= 1) softScore += 5;
+          else if (diff <= 2) softScore += 2;
+        }
+        if (goalTargets.length > 0 && c.goal && goalTargets.includes(c.goal)) softScore += 6;
+        return { ...c, score: softScore, eliminated: false };
+      });
     softCandidates.sort((a, b) => b.score - a.score);
     eligible = softCandidates.slice(0, 3);
   }
@@ -1678,6 +1720,22 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return { ...prog, requiredEquipment: e.requiredEquipment, exerciseMovementPatterns: e.exerciseMovementPatterns, exerciseLevels: e.exerciseLevels };
       });
 
+      // Resolve the user's sex and drop sex-specific programmes written for the
+      // OTHER sex BEFORE any matching runs, so the AI prompt, the rule-based
+      // scorer, and the fallback all operate on an already-gender-safe list — a
+      // menopause programme can never reach a male. Prefer the sex sent in the
+      // intake (the profile step holds it in memory during onboarding); fall back
+      // to the stored user record for clients that don't send it yet. Unknown sex
+      // never filters, keeping things inclusive.
+      let userSex = normalizeSex(intake.gender);
+      if (!userSex) {
+        try {
+          const u = await storage.getUser(userId);
+          userSex = normalizeSex(u?.gender);
+        } catch { /* stored gender is best-effort; unknown sex just skips the filter */ }
+      }
+      const scopedPrograms = enrichedPrograms.filter((p: any) => programmeAllowedForSex(p, userSex));
+
       let recommendedPrograms: any[] = [];
       let recommendedPath: any = null;
       let recommendedHabits: any[] = [];
@@ -1709,7 +1767,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
         if (config) {
           const coachingContext = await getCoachingContext('onboarding_recommendations');
-          const prompt = buildRecommendationPrompt(intake, enrichedPrograms, activePaths, activeHabits, coachingContext, successMetricsMap);
+          const prompt = buildRecommendationPrompt(intake, scopedPrograms, activePaths, activeHabits, coachingContext, successMetricsMap);
           const aiResponse = await aiCall({
             feature: 'onboarding_recommendations',
             userId,
@@ -1719,7 +1777,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
             model: config.model,
           });
 
-          const parsed = parseAiRecommendations(aiResponse.text, enrichedPrograms, activePaths, activeHabits, intake.experienceLevel);
+          const parsed = parseAiRecommendations(aiResponse.text, scopedPrograms, activePaths, activeHabits, intake.experienceLevel);
           if (parsed.programs.length > 0) {
             const env = intake.trainingEnvironment || intake.environment || '';
             const userLevel = intake.experienceLevel || '';
@@ -1744,7 +1802,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
 
       if (!aiUsed) {
-        const result = getRuleBasedRecommendations(intake, enrichedPrograms, activePaths, activeHabits, successMetricsMap);
+        const result = getRuleBasedRecommendations(intake, scopedPrograms, activePaths, activeHabits, successMetricsMap);
         recommendedPrograms = result.programs;
         recommendedPath = result.path;
         recommendedHabits = result.habits;

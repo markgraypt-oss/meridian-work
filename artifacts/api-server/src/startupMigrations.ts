@@ -1289,6 +1289,77 @@ export async function revokeInvalidPerfectRecordOnce(): Promise<void> {
   }
 }
 
+let hasRunStripEmDashesFromDescriptions = false;
+const STRIP_EM_DASHES_DESCRIPTIONS_FLAG = "strip_em_dashes_descriptions_v1";
+
+// One-off content cleanup: strip em dashes (U+2014) from every programme and
+// workout description shown in the app and replace each with a comma, matching
+// Mark's copy style. An em dash is used as a spaced pause ("the hinge is the
+// star — done fresh"), so we collapse any whitespace around it into ", "
+// ("the hinge is the star, done fresh"). Covers the content library
+// (programs.description + who_its_for, programme_workouts.description,
+// workouts.description) AND the per-user copies currently live in enrolled
+// programmes (enrollment_workouts.description and the user's own
+// custom_description override) so no existing enrolment keeps a stale em dash.
+// Only rows that actually contain an em dash are touched. Once per database,
+// idempotent, guarded by system_flags. NOTE: does not touch titles/names, and
+// new AI-generated descriptions can reintroduce em dashes — see handoff notes.
+export async function stripEmDashesFromDescriptionsOnce(): Promise<void> {
+  if (hasRunStripEmDashesFromDescriptions) return;
+  hasRunStripEmDashesFromDescriptions = true;
+
+  try {
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS system_flags (
+        key text PRIMARY KEY,
+        created_at timestamp DEFAULT now()
+      )
+    `);
+    const existing = await pool.query(
+      `SELECT 1 FROM system_flags WHERE key = $1 LIMIT 1`,
+      [STRIP_EM_DASHES_DESCRIPTIONS_FLAG],
+    );
+    if ((existing.rowCount ?? 0) > 0) return;
+
+    // Each target: [table, column]. Only descriptions/whoItsFor — never titles.
+    const targets: [string, string][] = [
+      ["programs", "description"],
+      ["programs", "who_its_for"],
+      ["programme_workouts", "description"],
+      ["workouts", "description"],
+      ["enrollment_workouts", "description"],
+      ["user_enrollment_workout_customizations", "custom_description"],
+    ];
+
+    let total = 0;
+    for (const [table, column] of targets) {
+      // Replace [whitespace]* em-dash [whitespace]* with ", ". chr(8212) keeps
+      // the em dash out of the source file so encoding can never mangle it.
+      const result = await pool.query(
+        `UPDATE ${table}
+            SET ${column} = regexp_replace(
+              ${column},
+              '[[:space:]]*' || chr(8212) || '[[:space:]]*',
+              ', ',
+              'g'
+            )
+          WHERE ${column} LIKE '%' || chr(8212) || '%'`,
+      );
+      const n = result.rowCount ?? 0;
+      total += n;
+      console.log(`[startup-migration] strip em dashes: ${table}.${column} — ${n} row(s)`);
+    }
+    console.log(`[startup-migration] strip em dashes from descriptions: ${total} row(s) updated total`);
+
+    await pool.query(
+      `INSERT INTO system_flags (key) VALUES ($1) ON CONFLICT (key) DO NOTHING`,
+      [STRIP_EM_DASHES_DESCRIPTIONS_FLAG],
+    );
+  } catch (e: any) {
+    console.error("[startup-migration] strip em dashes from descriptions failed:", e?.message || e);
+  }
+}
+
 // ── The Lab: topic covers ───────────────────────────────────────────────────
 // One-time ingest of the object-hero topic covers into our OWN Object Storage,
 // so the app never hotlinks an external CDN. Idempotent: only fills a topic

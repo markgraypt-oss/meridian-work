@@ -27,7 +27,7 @@ if (Number.isNaN(port) || port <= 0) {
   server.listen({ port, host: "0.0.0.0", reusePort: true }, () => {
     logger.info({ port }, "Server listening");
 
-    import("./startupMigrations").then(({ runSchemaSelfHealOnce, runProfileImageMigrationOnce, seedMeditationsOnce, seedAiPromptsOnce, repairBodyweightGoalUnitsOnce, normalizeRecipeMacrosOnce, seedBadgesV2Once, retireDroppedDeskBadgesOnce, fixHabitTemplateDescriptionsOnce, seedReadinessBadgesOnce, dedupeCheckInsOnce, backfillContentTagsOnce, revokeEmptyBurnoutBadgesOnce, revokeEmptyAiBadgesOnce, revokeInvalidPerfectRecordOnce, seedLabTopicCoversOnce, seedLabPathCoversOnce, seedLabLifeStageOnce }) => {
+    import("./startupMigrations").then(({ runSchemaSelfHealOnce, runProfileImageMigrationOnce, seedMeditationsOnce, seedAiPromptsOnce, repairBodyweightGoalUnitsOnce, normalizeRecipeMacrosOnce, seedBadgesV2Once, retireDroppedDeskBadgesOnce, fixHabitTemplateDescriptionsOnce, seedReadinessBadgesOnce, dedupeCheckInsOnce, backfillContentTagsOnce, revokeEmptyBurnoutBadgesOnce, revokeEmptyAiBadgesOnce, revokeInvalidPerfectRecordOnce, seedLabTopicCoversOnce, seedLabPathCoversOnce, seedLabLifeStageOnce, stripEmDashesFromDescriptionsOnce }) => {
       runSchemaSelfHealOnce()
         .catch((e: any) => logger.error({ e }, "[startup-migration] schema self-heal failed"))
         .then(() => {
@@ -48,6 +48,7 @@ if (Number.isNaN(port) || port <= 0) {
           seedLabTopicCoversOnce().catch((e: any) => logger.error({ e }, "[startup-migration] lab topic covers failed"));
           seedLabPathCoversOnce().catch((e: any) => logger.error({ e }, "[startup-migration] lab path covers failed"));
           seedLabLifeStageOnce().catch((e: any) => logger.error({ e }, "[startup-migration] lab life-stage failed"));
+          stripEmDashesFromDescriptionsOnce().catch((e: any) => logger.error({ e }, "[startup-migration] strip em dashes from descriptions failed"));
         });
     }).catch((e: any) => logger.error({ e }, "[startup-migration] startup migrations import failed"));
 

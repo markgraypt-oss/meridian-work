@@ -127,9 +127,20 @@ export async function getOrGenerateBriefing(
   // the whole point of this check is to prevent user-visible drift like
   // "13,289 steps yesterday" while the wearable now reads 13,307.
   if (existing && (existing as any).source !== "fallback") {
-    const stored = (existing.contextSnapshot as BriefingContextSnapshot | null)?.wearable;
-    const fresh = await buildWearableSnapshot(userId);
-    if (wearableSnapshotsEqual(stored, fresh)) return existing;
+    const stored = existing.contextSnapshot as BriefingContextSnapshot | null;
+    const fresh = await buildContextSnapshot(userId);
+    // Regenerate when ANY user-visible input the briefing quotes has changed —
+    // not just the wearable snapshot. The Daily Readiness Score and the day's
+    // check-in are quoted in the copy but come from separate sources, so they
+    // must be part of the drift trigger too; otherwise the text silently lags
+    // (e.g. coach says readiness 48 while the ring shows 59 after a check-in).
+    if (
+      wearableSnapshotsEqual(stored?.wearable, fresh?.wearable) &&
+      (stored?.readinessScore ?? null) === (fresh?.readinessScore ?? null) &&
+      checkInSnapshotsEqual(stored?.lastCheckIn, fresh?.lastCheckIn)
+    ) {
+      return existing;
+    }
     // Fall through to regeneration. The lock below covers concurrent
     // dashboard requests so we only regenerate once.
   }
@@ -334,6 +345,11 @@ interface WearableDaySnapshot {
 }
 
 interface BriefingContextSnapshot {
+  // App-computed Daily Readiness Score (0-100), quoted in the briefing copy.
+  // Part of the drift trigger so a score change (e.g. after a check-in)
+  // regenerates the briefing instead of leaving copy that disagrees with the
+  // Daily Readiness ring on the dashboard.
+  readinessScore?: number | null;
   lastCheckIn?: {
     date: Date | string | null;
     mood: number | null;
@@ -405,11 +421,29 @@ function wearableSnapshotsEqual(
   return true;
 }
 
+function checkInSnapshotsEqual(
+  a: BriefingContextSnapshot["lastCheckIn"] | undefined | null,
+  b: BriefingContextSnapshot["lastCheckIn"] | undefined | null,
+): boolean {
+  if (!a && !b) return true;
+  if (!a || !b) return false;
+  const key = (c: NonNullable<BriefingContextSnapshot["lastCheckIn"]>) =>
+    [c.date ? new Date(c.date).getTime() : "null", c.mood, c.energy, c.stress, c.sleep, c.clarity].join("|");
+  return key(a) === key(b);
+}
+
 async function buildContextSnapshot(userId: string): Promise<BriefingContextSnapshot | null> {
   // Snapshot of inputs used to generate the briefing. The `wearable` field
   // is also the drift-detection source of truth - see wearableSnapshotsEqual.
   const snap: BriefingContextSnapshot = {};
   snap.wearable = await buildWearableSnapshot(userId);
+  try {
+    const { getTodayForUser } = await import("../dailyReadiness");
+    const dr = await getTodayForUser(userId);
+    snap.readinessScore = dr?.score ?? null;
+  } catch (e) {
+    console.error("[coach-briefing] readiness snapshot failed:", e);
+  }
   try {
     const checkIns = await storage.getUserCheckIns(userId, 1);
     const c = checkIns?.[0];

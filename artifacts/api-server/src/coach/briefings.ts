@@ -125,12 +125,14 @@ export async function getOrGenerateBriefing(
   // wait), so the app shows its normal waiting state. The mobile piggyback
   // sync + hourly scheduler keep this window short.
   {
-    const { getConnectedOauthProvider, oauthPhysioArrived } = await import("../wearables");
-    const holdProvider = await getConnectedOauthProvider(userId);
-    if (holdProvider && !(await oauthPhysioArrived(userId, holdProvider, dateKey))) {
-      console.log(`[coach-briefing] holding ${type} ${dateKey} for ${userId}: waiting for ${holdProvider} sync`);
+    const { getOauthPhysioHold } = await import("../wearables");
+    const gate = await getOauthPhysioHold(userId, dateKey);
+    if (gate.hold) {
+      console.log(`[coach-briefing] holding ${type} ${dateKey} for ${userId}: waiting for ${gate.provider} sync`);
       return existing && (existing as any).source !== "fallback" ? existing : null;
     }
+    // gate.degraded: generate anyway — buildReadinessAndBaselineText injects a
+    // prompt note so the coach reminds the user to reconnect the wearable.
   }
 
   // Drift contract: a stored briefing is only served if the wearable
@@ -313,6 +315,16 @@ async function buildReadinessAndBaselineText(userId: string, dateKey: string): P
     } else {
       lines.push("\n(No physiological baselines yet — user is still in the first 30 days, so do not compare to baseline. Just describe today's numbers plainly.)");
     }
+
+    // Degraded-wearable note: connection broken 48h+, physio unavailable.
+    try {
+      const { getOauthPhysioHold, PROVIDER_LABELS } = await import("../wearables");
+      const gate = await getOauthPhysioHold(userId, dateKey);
+      if (gate.degraded && gate.provider) {
+        const label = (PROVIDER_LABELS as any)[gate.provider] || gate.provider;
+        lines.push(`\n- IMPORTANT: The user's ${label} has been disconnected for over 48 hours and is sending no data. Sleep, HRV and resting HR are unavailable (never substituted from another source); today's readiness runs on check-ins and activity only. Gently but clearly remind the user to reconnect ${label} in Wearables & Integrations to restore full readiness accuracy. Do not guess or invent physiological values.`);
+      }
+    } catch {}
 
     return lines.join("\n");
   } catch {

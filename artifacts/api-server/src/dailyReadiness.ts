@@ -627,16 +627,18 @@ export async function computeAndStoreForUserDay(
   // hold the score entirely. The mobile piggyback sync + hourly scheduler
   // make this window short; the dashboard shows its normal "building" state.
   if (isToday) {
-    const { getConnectedOauthProvider, oauthPhysioArrived } = await import("./wearables");
-    const holdProvider = await getConnectedOauthProvider(userId);
-    if (holdProvider && !(await oauthPhysioArrived(userId, holdProvider, dateKey))) {
-      console.log(`[daily-readiness] holding ${dateKey} for ${userId}: waiting for ${holdProvider} sync`);
+    const { getOauthPhysioHold } = await import("./wearables");
+    const gate = await getOauthPhysioHold(userId, dateKey);
+    if (gate.hold) {
+      console.log(`[daily-readiness] holding ${dateKey} for ${userId}: waiting for ${gate.provider} sync`);
       return {
         inputs: { sleep: null, energy: null, trainingLoad: null, hrv: null, rhr: null },
         inputCount: 0,
         score: null,
       };
     }
+    // gate.degraded: connection broken 48h+ — compute from check-ins/activity
+    // only. Physio stays blank via stripNonOauthPhysio (Apple never fills in).
   }
 
   const { inputs, sources, raws } = await gatherInputsForDay(userId, dateKey);

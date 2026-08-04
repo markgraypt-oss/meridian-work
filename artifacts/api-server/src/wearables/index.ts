@@ -664,6 +664,51 @@ export async function oauthPhysioArrived(
   );
 }
 
+// Graduated hold decision, shared by readiness, the briefing generator and
+// the API routes so the three can never drift apart.
+//   hold=true      -> provider connected, today's physio not yet imported, and
+//                     the connection is either healthy (normal morning wait —
+//                     minutes, thanks to piggyback sync) or only recently
+//                     broken. Score + briefing wait.
+//   degraded=true  -> connection has been BROKEN (needs_reauth) with no data
+//                     for 48h+. Check-in-only scores RESUME so the app is not
+//                     dead for an inattentive user — but physio stays blank
+//                     (stripNonOauthPhysio still applies; Apple NEVER fills
+//                     in) and the coach keeps prompting to reconnect.
+export interface OauthPhysioHold {
+  hold: boolean;
+  provider: WearableProvider | null;
+  degraded: boolean;
+}
+
+const DEGRADE_AFTER_MS = 48 * 60 * 60 * 1000;
+
+export async function getOauthPhysioHold(userId: string, dateKey: string): Promise<OauthPhysioHold> {
+  const provider = await getConnectedOauthProvider(userId);
+  if (!provider) return { hold: false, provider: null, degraded: false };
+  if (await oauthPhysioArrived(userId, provider, dateKey)) {
+    return { hold: false, provider, degraded: false };
+  }
+  const conn = await getConnection(userId, provider);
+  if (conn?.status === "needs_reauth") {
+    const [newest] = await db
+      .select({ date: wearableMetricsDaily.date })
+      .from(wearableMetricsDaily)
+      .where(and(
+        eq(wearableMetricsDaily.userId, userId),
+        eq(wearableMetricsDaily.provider, provider),
+      ))
+      .orderBy(desc(wearableMetricsDaily.date))
+      .limit(1);
+    // No data ever, or newest data older than the degrade window -> degrade.
+    const newestMs = newest ? new Date(`${newest.date}T00:00:00Z`).getTime() : 0;
+    if (Date.now() - newestMs > DEGRADE_AFTER_MS) {
+      return { hold: false, provider, degraded: true };
+    }
+  }
+  return { hold: true, provider, degraded: false };
+}
+
 // Blank any physio field on a merged row that was sourced from a non-OAuth
 // provider. Call when getConnectedOauthProvider() returned a provider.
 export function stripNonOauthPhysio<T extends MergedDailyMetric>(row: T | undefined): T | undefined {

@@ -4051,11 +4051,16 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       const enriched = await Promise.all(workouts.map(async (w: any) => {
         const est = calculateServerWorkoutDuration(w);
+        // Most library workouts carry a placeholder duration of 30. When we can
+        // reliably estimate the real time from the exercise/set/rest data
+        // (est >= 5), surface that instead; otherwise keep the stored value so
+        // workouts with empty block JSONB don't collapse to a bogus 0.
+        const resolvedDuration = est >= 5 ? est : w.duration;
         let imageUrl = w.imageUrl || null;
         if (!imageUrl) {
           imageUrl = await storage.getWorkoutFirstExerciseImage(w.id);
         }
-        return { ...w, imageUrl, estimatedDuration: est };
+        return { ...w, duration: resolvedDuration, imageUrl, estimatedDuration: est };
       }));
 
       res.json(enriched);
@@ -4152,7 +4157,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
       
       const est = calculateServerWorkoutDuration(workout);
-      res.json({ ...workout, estimatedDuration: est });
+      const resolvedDuration = est >= 5 ? est : workout.duration;
+      res.json({ ...workout, duration: resolvedDuration, estimatedDuration: est });
     } catch (error) {
       console.error("Error fetching workout:", error);
       res.status(500).json({ message: "Failed to fetch workout" });

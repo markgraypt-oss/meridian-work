@@ -590,6 +590,60 @@ export function mergeMetricsPerDay(rows: WearableMetricsDaily[]): MergedDailyMet
   return out;
 }
 
+// ─── OAuth physio gate ──────────────────────────────────────────────────────
+// HARD RULE: when the user has a WHOOP or Oura connection, physiological
+// metrics (sleep, HRV, RHR, sleep stages/score) come from that provider ONLY.
+// Apple Health / Google Fit NEVER stand in for physio — not while waiting for
+// the morning sync, not to fill gaps. Activity metrics (steps, calories,
+// active minutes) still flow from Apple/Google as usual (they hold activity
+// priority). Readiness and the coach briefing HOLD until the OAuth provider's
+// physio data for the day has actually been imported.
+
+// A connection that is not explicitly disconnected counts: needs_reauth users
+// have been notified and the scheduler retries them — Apple must not silently
+// take over physio in the meantime.
+export async function getConnectedOauthProvider(userId: string): Promise<WearableProvider | null> {
+  const conns = await getConnections(userId);
+  const c = conns.find(
+    (x) => (x.provider === "whoop" || x.provider === "oura") && x.status !== "disconnected",
+  );
+  return (c?.provider as WearableProvider) ?? null;
+}
+
+// Has the provider's physio for this date actually landed in our DB?
+export async function oauthPhysioArrived(
+  userId: string,
+  provider: WearableProvider,
+  dateKey: string,
+): Promise<boolean> {
+  const [row] = await db
+    .select()
+    .from(wearableMetricsDaily)
+    .where(and(
+      eq(wearableMetricsDaily.userId, userId),
+      eq(wearableMetricsDaily.date, dateKey),
+      eq(wearableMetricsDaily.provider, provider),
+    ));
+  return !!row && (
+    row.sleepMinutes != null || row.sleepScore != null ||
+    row.hrvMs != null || row.restingHrBpm != null
+  );
+}
+
+// Blank any physio field on a merged row that was sourced from a non-OAuth
+// provider. Call when getConnectedOauthProvider() returned a provider.
+export function stripNonOauthPhysio<T extends MergedDailyMetric>(row: T | undefined): T | undefined {
+  if (!row) return row;
+  for (const f of PHYSIO_FIELDS) {
+    const src = row._sources?.[f];
+    if (src && src !== "whoop" && src !== "oura") {
+      (row as any)[f] = null;
+      delete row._sources[f];
+    }
+  }
+  return row;
+}
+
 // Convenience: fetch + merge in one call. Returns one clean row per date with
 // per-metric source selection already applied.
 export async function getMergedDailyMetrics(userId: string, days = 30): Promise<MergedDailyMetric[]> {

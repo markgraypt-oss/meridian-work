@@ -118,6 +118,21 @@ export async function getOrGenerateBriefing(
   const dateKey = todayKeyForUser(userTz, date);
   const existing = await storage.getCoachBriefingForDay(userId, dateKey, type);
 
+  // HOLD: with WHOOP/Oura connected, the briefing is not generated until that
+  // provider's physio data for today has been imported — Apple/Google numbers
+  // must never appear in coach copy as stand-ins. The briefing endpoint
+  // already returns 204 for "no briefing yet" (same as the pre-check-in
+  // wait), so the app shows its normal waiting state. The mobile piggyback
+  // sync + hourly scheduler keep this window short.
+  {
+    const { getConnectedOauthProvider, oauthPhysioArrived } = await import("../wearables");
+    const holdProvider = await getConnectedOauthProvider(userId);
+    if (holdProvider && !(await oauthPhysioArrived(userId, holdProvider, dateKey))) {
+      console.log(`[coach-briefing] holding ${type} ${dateKey} for ${userId}: waiting for ${holdProvider} sync`);
+      return existing && (existing as any).source !== "fallback" ? existing : null;
+    }
+  }
+
   // Drift contract: a stored briefing is only served if the wearable
   // snapshot it was generated from still matches the current wearable
   // snapshot exactly. If anything has changed (e.g. Apple Health backfilled

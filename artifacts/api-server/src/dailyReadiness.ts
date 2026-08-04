@@ -277,12 +277,19 @@ export async function gatherInputsForDay(
   // tables (PHYSIO: oura>whoop>apple>google for sleep/HRV/RHR; ACTIVITY:
   // apple>google>oura>whoop for steps/energy; strain: WHOOP-only) and read the
   // single merged row. See mergeMetricsPerDay in ./wearables.
-  const { mergeMetricsPerDay } = await import("./wearables");
+  const { mergeMetricsPerDay, getConnectedOauthProvider, stripNonOauthPhysio } = await import("./wearables");
+  // HARD RULE: with WHOOP/Oura connected, Apple/Google NEVER supply physio
+  // (sleep/HRV/RHR) — not as a stopgap, not to fill gaps. Blank any physio
+  // field the merge sourced from a non-OAuth provider so readiness can only
+  // ever be computed from the dedicated wearable (or manual log / check-in).
+  const oauthProvider = await getConnectedOauthProvider(userId);
   const wearableRows = await db
     .select()
     .from(wearableMetricsDaily)
     .where(and(eq(wearableMetricsDaily.userId, userId), eq(wearableMetricsDaily.date, dateKey)));
-  const wear = mergeMetricsPerDay(wearableRows)[0];
+  const wear = oauthProvider
+    ? stripNonOauthPhysio(mergeMetricsPerDay(wearableRows)[0])
+    : mergeMetricsPerDay(wearableRows)[0];
 
   const sources: ReadinessInputSources = {
     sleep: null,
@@ -440,7 +447,9 @@ export async function gatherInputsForDay(
     .select()
     .from(wearableMetricsDaily)
     .where(and(eq(wearableMetricsDaily.userId, userId), eq(wearableMetricsDaily.date, yesterdayKey)));
-  const yw = mergeMetricsPerDay(yWearRows)[0];
+  const yw = oauthProvider
+    ? stripNonOauthPhysio(mergeMetricsPerDay(yWearRows)[0])
+    : mergeMetricsPerDay(yWearRows)[0];
 
   // Step 1: WHOOP strain (stored 0-210 representing 0-21 real strain → 0-10 stress)
   let yesterdayStress: number | null = null;
@@ -607,6 +616,25 @@ export async function computeAndStoreForUserDay(
         },
         inputCount: existing.inputCount ?? 0,
         score: existing.score ?? null,
+      };
+    }
+  }
+
+  // HOLD: with WHOOP/Oura connected, today's readiness is NOT computed until
+  // that provider's physio data for today has been imported. Apple/Google
+  // never stand in (see stripNonOauthPhysio), and a partial score computed
+  // from check-in-only inputs would just get revised an hour later — so we
+  // hold the score entirely. The mobile piggyback sync + hourly scheduler
+  // make this window short; the dashboard shows its normal "building" state.
+  if (isToday) {
+    const { getConnectedOauthProvider, oauthPhysioArrived } = await import("./wearables");
+    const holdProvider = await getConnectedOauthProvider(userId);
+    if (holdProvider && !(await oauthPhysioArrived(userId, holdProvider, dateKey))) {
+      console.log(`[daily-readiness] holding ${dateKey} for ${userId}: waiting for ${holdProvider} sync`);
+      return {
+        inputs: { sleep: null, energy: null, trainingLoad: null, hrv: null, rhr: null },
+        inputCount: 0,
+        score: null,
       };
     }
   }

@@ -485,6 +485,7 @@ import {
   insertSupplementLogSchema,
   nutritionGoals,
   foodLogs,
+  coachAccessRequests,
   supplements,
   supplementLogs,
   insertWorkdayPositionSchema,
@@ -1436,6 +1437,159 @@ export async function registerRoutes(app: Express): Promise<Server> {
     } catch (error) {
       console.error("Error fetching user:", error);
       res.status(500).json({ message: "Failed to fetch user" });
+    }
+  });
+
+  // ============ COACH ACCESS CONSENT ============
+  // A coach/admin requests read access to a coaching client's progress data.
+  // The client (role='client') grants or declines, and can revoke afterwards.
+  // Statuses: none | pending | granted | denied | revoked.
+
+  // Client: is there a pending request for me?
+  app.get('/api/coach-access/pending', isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = req.user.claims.sub;
+      const [row] = await db.select().from(coachAccessRequests)
+        .where(and(eq(coachAccessRequests.clientUserId, userId), eq(coachAccessRequests.status, 'pending')))
+        .orderBy(desc(coachAccessRequests.requestedAt)).limit(1);
+      if (!row) return res.json({ pending: false, request: null });
+      res.json({ pending: true, request: {
+        id: row.id, clientUserId: row.clientUserId, status: row.status,
+        requestedAt: row.requestedAt, respondedAt: row.respondedAt,
+      } });
+    } catch (error) {
+      console.error("Error fetching coach-access pending:", error);
+      res.status(500).json({ message: "Failed to fetch pending request" });
+    }
+  });
+
+  // Client: current access status.
+  app.get('/api/coach-access/status', isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = req.user.claims.sub;
+      const [row] = await db.select().from(coachAccessRequests)
+        .where(eq(coachAccessRequests.clientUserId, userId))
+        .orderBy(desc(coachAccessRequests.requestedAt)).limit(1);
+      if (!row) return res.json({ status: 'none', requestId: null, requestedAt: null, respondedAt: null });
+      res.json({ status: row.status, requestId: row.id, requestedAt: row.requestedAt, respondedAt: row.respondedAt });
+    } catch (error) {
+      console.error("Error fetching coach-access status:", error);
+      res.status(500).json({ message: "Failed to fetch status" });
+    }
+  });
+
+  // Client: accept or decline a pending request.
+  app.post('/api/coach-access/:requestId/respond', isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = req.user.claims.sub;
+      const requestId = parseInt(req.params.requestId, 10);
+      if (!Number.isFinite(requestId)) return res.status(400).json({ message: "Invalid request id" });
+      const accept = req.body?.accept === true;
+      const [row] = await db.select().from(coachAccessRequests).where(eq(coachAccessRequests.id, requestId)).limit(1);
+      // Verify the request belongs to the signed-in client and is still pending.
+      if (!row || row.clientUserId !== userId) return res.status(404).json({ message: "Request not found" });
+      if (row.status !== 'pending') return res.status(409).json({ message: "Request is no longer pending" });
+      const [updated] = await db.update(coachAccessRequests)
+        .set({ status: accept ? 'granted' : 'denied', respondedAt: new Date() })
+        .where(eq(coachAccessRequests.id, requestId)).returning();
+      res.json({ message: accept ? "Access granted" : "Access declined", request: updated });
+    } catch (error) {
+      console.error("Error responding to coach-access request:", error);
+      res.status(500).json({ message: "Failed to respond" });
+    }
+  });
+
+  // Client: revoke a previously granted access.
+  app.post('/api/coach-access/revoke', isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = req.user.claims.sub;
+      const [row] = await db.select().from(coachAccessRequests)
+        .where(and(eq(coachAccessRequests.clientUserId, userId), eq(coachAccessRequests.status, 'granted')))
+        .orderBy(desc(coachAccessRequests.requestedAt)).limit(1);
+      if (!row) return res.status(404).json({ message: "No granted access to revoke" });
+      const [updated] = await db.update(coachAccessRequests)
+        .set({ status: 'revoked', respondedAt: new Date() })
+        .where(eq(coachAccessRequests.id, row.id)).returning();
+      res.json({ message: "Access revoked", request: updated });
+    } catch (error) {
+      console.error("Error revoking coach access:", error);
+      res.status(500).json({ message: "Failed to revoke" });
+    }
+  });
+
+  // Coach/admin: does the coach currently have granted access to a client?
+  // Guard helper for gating any coach-facing view of a client's data.
+  async function coachHasClientAccess(clientUserId: string): Promise<boolean> {
+    const [row] = await db.select().from(coachAccessRequests)
+      .where(eq(coachAccessRequests.clientUserId, clientUserId))
+      .orderBy(desc(coachAccessRequests.requestedAt)).limit(1);
+    return row?.status === 'granted';
+  }
+  (app as any).coachHasClientAccess = coachHasClientAccess;
+
+  // Coach/admin: send an access request to a coaching client.
+  app.post('/api/admin/coach-access/request', isAuthenticated, requireAdmin, async (req: any, res) => {
+    try {
+      const coachUserId = req.user.claims.sub;
+      const clientUserId = String(req.body?.clientUserId || '');
+      if (!clientUserId) return res.status(400).json({ message: "clientUserId required" });
+      const client = await storage.getUser(clientUserId);
+      if (!client) return res.status(404).json({ message: "Client not found" });
+      if ((client as any).role !== 'client') return res.status(400).json({ message: "User is not a coaching client" });
+      // Reuse an existing pending request rather than stacking duplicates.
+      const [existingPending] = await db.select().from(coachAccessRequests)
+        .where(and(eq(coachAccessRequests.clientUserId, clientUserId), eq(coachAccessRequests.status, 'pending')))
+        .orderBy(desc(coachAccessRequests.requestedAt)).limit(1);
+      let row = existingPending;
+      if (!row) {
+        const inserted = await db.insert(coachAccessRequests)
+          .values({ clientUserId, coachUserId, status: 'pending' }).returning();
+        row = inserted[0];
+      }
+      // Push + in-app notification with a deep link to the consent screen.
+      try {
+        const { notify } = await import('../notifications');
+        await notify({
+          userId: clientUserId,
+          category: 'system' as any,
+          title: "Coach access request",
+          body: "Your coach is requesting access to your progress data. Tap to review.",
+          data: { url: '/profile/privacy-security?coach-access=1', requestId: row.id },
+          force: true,
+        });
+      } catch (nerr) {
+        console.error("coach-access notify failed:", nerr);
+      }
+      res.status(201).json({ message: "Request sent", request: row });
+    } catch (error) {
+      console.error("Error sending coach-access request:", error);
+      res.status(500).json({ message: "Failed to send request" });
+    }
+  });
+
+  // Coach/admin: list coaching clients with their latest access status.
+  app.get('/api/admin/coach-access/clients', isAuthenticated, requireAdmin, async (req: any, res) => {
+    try {
+      const clientRows = await db.select().from(users).where(eq(users.role, 'client'));
+      const out = [];
+      for (const c of clientRows) {
+        const [row] = await db.select().from(coachAccessRequests)
+          .where(eq(coachAccessRequests.clientUserId, c.id))
+          .orderBy(desc(coachAccessRequests.requestedAt)).limit(1);
+        out.push({
+          clientUserId: c.id,
+          name: [c.firstName, c.lastName].filter(Boolean).join(' ') || c.email || c.id,
+          email: c.email,
+          status: row?.status || 'none',
+          requestId: row?.id || null,
+          requestedAt: row?.requestedAt || null,
+          respondedAt: row?.respondedAt || null,
+        });
+      }
+      res.json({ clients: out });
+    } catch (error) {
+      console.error("Error listing coach-access clients:", error);
+      res.status(500).json({ message: "Failed to list clients" });
     }
   });
 
@@ -19624,25 +19778,15 @@ Keep your response concise, practical, and evidence-based. This is general guida
       // Extra fields are ignored by app versions that don't know them.
       let waitingForWearable = false;
       let waitingProvider: string | null = null;
-      let wearableDegraded = false;
       try {
-        const { getOauthPhysioHold, PROVIDER_LABELS } = await import('../wearables');
-        const gate = await getOauthPhysioHold(userId, today);
-        if (gate.provider) {
-          const label = PROVIDER_LABELS[gate.provider] || gate.provider;
-          if (gate.hold) {
-            waitingForWearable = true;
-            waitingProvider = label;
-          } else if (gate.degraded) {
-            // Broken 48h+: check-in-only scores resumed; clients can label
-            // the missing physio ("Reconnect WHOOP"). Unknown fields are
-            // ignored by current app builds.
-            wearableDegraded = true;
-            waitingProvider = label;
-          }
+        const { getConnectedOauthProvider, oauthPhysioArrived, PROVIDER_LABELS } = await import('../wearables');
+        const holdProvider = await getConnectedOauthProvider(userId);
+        if (holdProvider && !(await oauthPhysioArrived(userId, holdProvider, today))) {
+          waitingForWearable = true;
+          waitingProvider = PROVIDER_LABELS[holdProvider] || holdProvider;
         }
       } catch {}
-      res.json({ enabled: true, waitingForWearable, waitingProvider, wearableDegraded, ...data });
+      res.json({ enabled: true, waitingForWearable, waitingProvider, ...data });
     } catch (error: any) {
       console.error("Error fetching daily readiness today:", error?.message);
       res.status(500).json({ message: "Failed to load readiness" });
@@ -20464,13 +20608,13 @@ Respond as the coach. Be personalised, reference their actual data and specific 
         // disappears on its own: once the wearable syncs, the gate opens and
         // the real briefing is generated and served instead.
         try {
-          const { getOauthPhysioHold, PROVIDER_LABELS } = await import('../wearables');
-          const dr = await import('../dailyReadiness');
-          const dateKey = dr.todayKey(_userTz);
-          const gate = await getOauthPhysioHold(userId, dateKey);
-          if (gate.hold && gate.provider) {
-            {
-              const label = PROVIDER_LABELS[gate.provider] || gate.provider;
+          const { getConnectedOauthProvider, oauthPhysioArrived, PROVIDER_LABELS } = await import('../wearables');
+          const holdProvider = await getConnectedOauthProvider(userId);
+          if (holdProvider) {
+            const dr = await import('../dailyReadiness');
+            const dateKey = dr.todayKey(_userTz);
+            if (!(await oauthPhysioArrived(userId, holdProvider, dateKey))) {
+              const label = PROVIDER_LABELS[holdProvider] || holdProvider;
               return res.json({
                 id: -1,
                 userId,

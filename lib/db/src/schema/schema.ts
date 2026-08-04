@@ -2788,6 +2788,25 @@ export type CoachMemory = typeof coachMemory.$inferSelect;
 export type InsertCoachMemory = typeof coachMemory.$inferInsert;
 export const insertCoachMemorySchema = createInsertSchema(coachMemory).omit({ id: true, createdAt: true, updatedAt: true });
 
+// Coach access consent — a coach/admin requests read access to a coaching
+// client's progress data; the client (role='client') grants or declines, and
+// can revoke afterwards. Latest row per client wins.
+// Statuses: 'pending' | 'granted' | 'denied' | 'revoked'.
+export const coachAccessRequests = pgTable("coach_access_requests", {
+  id: serial("id").primaryKey(),
+  clientUserId: varchar("client_user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+  coachUserId: varchar("coach_user_id").references(() => users.id, { onDelete: "set null" }),
+  status: text("status").notNull().default("pending"),
+  requestedAt: timestamp("requested_at").defaultNow(),
+  respondedAt: timestamp("responded_at"),
+}, (t) => [
+  index("coach_access_client_idx").on(t.clientUserId),
+]);
+
+export type CoachAccessRequest = typeof coachAccessRequests.$inferSelect;
+export type InsertCoachAccessRequest = typeof coachAccessRequests.$inferInsert;
+export const insertCoachAccessRequestSchema = createInsertSchema(coachAccessRequests).omit({ id: true, requestedAt: true, respondedAt: true });
+
 // Recommendation feedback loop - tracks recommendation outcomes for AI learning
 export const recommendationEvents = pgTable("recommendation_events", {
   id: serial("id").primaryKey(),

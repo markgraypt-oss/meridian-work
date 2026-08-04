@@ -36,6 +36,17 @@ const SELF_HEAL_DDL: string[] = [
   `CREATE UNIQUE INDEX IF NOT EXISTS idx_report_settings_global_singleton ON report_settings (company_name) WHERE company_name IS NULL`,
   `ALTER TABLE report_settings ADD COLUMN IF NOT EXISTS min_active_users integer NOT NULL DEFAULT 10`,
 
+  // Coach access consent (client grants/revokes a coach's read access).
+  `CREATE TABLE IF NOT EXISTS coach_access_requests (
+     id serial PRIMARY KEY,
+     client_user_id varchar NOT NULL,
+     coach_user_id varchar,
+     status text NOT NULL DEFAULT 'pending',
+     requested_at timestamp DEFAULT now(),
+     responded_at timestamp
+   )`,
+  `CREATE INDEX IF NOT EXISTS coach_access_client_idx ON coach_access_requests (client_user_id)`,
+
   // workday rotation: pause-without-remove
   `ALTER TABLE workday_user_profiles ADD COLUMN IF NOT EXISTS active_positions text[]`,
   `ALTER TABLE habits ADD COLUMN IF NOT EXISTS reminder_timezone_offset integer`,

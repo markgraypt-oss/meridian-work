@@ -1459,7 +1459,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       } });
     } catch (error) {
       console.error("Error fetching coach-access pending:", error);
-      res.status(500).json({ message: "Failed to fetch pending request" });
+      res.status(500).json({ message: "Failed to fetch pending request", detail: String((error as any)?.message || error).slice(0, 300) });
     }
   });
 
@@ -1474,7 +1474,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       res.json({ status: row.status, requestId: row.id, requestedAt: row.requestedAt, respondedAt: row.respondedAt });
     } catch (error) {
       console.error("Error fetching coach-access status:", error);
-      res.status(500).json({ message: "Failed to fetch status" });
+      res.status(500).json({ message: "Failed to fetch status", detail: String((error as any)?.message || error).slice(0, 300) });
     }
   });
 

@@ -45,6 +45,16 @@ const SELF_HEAL_DDL: string[] = [
      requested_at timestamp DEFAULT now(),
      responded_at timestamp
    )`,
+  // Reconcile columns in case an OLDER coach_access_requests table already exists
+  // in this database (e.g. from the retired layout) with a different shape — the
+  // CREATE above is a no-op then, so bring every column the code selects up to
+  // date. All nullable (no NOT NULL) so they apply even to a table with rows.
+  `ALTER TABLE coach_access_requests ADD COLUMN IF NOT EXISTS client_user_id varchar`,
+  `ALTER TABLE coach_access_requests ADD COLUMN IF NOT EXISTS coach_user_id varchar`,
+  `ALTER TABLE coach_access_requests ADD COLUMN IF NOT EXISTS status text`,
+  `ALTER TABLE coach_access_requests ALTER COLUMN status SET DEFAULT 'pending'`,
+  `ALTER TABLE coach_access_requests ADD COLUMN IF NOT EXISTS requested_at timestamp DEFAULT now()`,
+  `ALTER TABLE coach_access_requests ADD COLUMN IF NOT EXISTS responded_at timestamp`,
   `CREATE INDEX IF NOT EXISTS coach_access_client_idx ON coach_access_requests (client_user_id)`,
 
   // workday rotation: pause-without-remove

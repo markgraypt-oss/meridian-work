@@ -19510,7 +19510,20 @@ Keep your response concise, practical, and evidence-based. Do not use em dashes.
       const today = dr.todayKey(userTz);
       await dr.computeAndStoreForUserDay(userId, today);
       const data = await dr.getTodayForUser(userId);
-      res.json({ enabled: true, ...data });
+      // Surface WHY the score is absent while the WHOOP/Oura hold is active,
+      // so clients can label the empty ring ("Waiting for WHOOP sync").
+      // Extra fields are ignored by app versions that don't know them.
+      let waitingForWearable = false;
+      let waitingProvider: string | null = null;
+      try {
+        const { getConnectedOauthProvider, oauthPhysioArrived, PROVIDER_LABELS } = await import('../wearables');
+        const holdProvider = await getConnectedOauthProvider(userId);
+        if (holdProvider && !(await oauthPhysioArrived(userId, holdProvider, today))) {
+          waitingForWearable = true;
+          waitingProvider = PROVIDER_LABELS[holdProvider] || holdProvider;
+        }
+      } catch {}
+      res.json({ enabled: true, waitingForWearable, waitingProvider, ...data });
     } catch (error: any) {
       console.error("Error fetching daily readiness today:", error?.message);
       res.status(500).json({ message: "Failed to load readiness" });
@@ -20324,6 +20337,38 @@ Respond as the coach. Be personalised, reference their actual data and specific 
       const { getOrGenerateBriefing } = await import('../coach/briefings');
       const briefing = await getOrGenerateBriefing(userId, type);
       if (!briefing || (briefing as any).source === 'fallback') {
+        // If generation is being HELD because the user's WHOOP/Oura data for
+        // today hasn't synced yet, tell them WHY instead of leaving the coach
+        // silent. Serve a synthetic, never-persisted coach message the app
+        // renders like any briefing (truthy id so it displays; readAt null so
+        // it shows unread; read/dismiss POSTs on id -1 fail harmlessly). It
+        // disappears on its own: once the wearable syncs, the gate opens and
+        // the real briefing is generated and served instead.
+        try {
+          const { getConnectedOauthProvider, oauthPhysioArrived, PROVIDER_LABELS } = await import('../wearables');
+          const holdProvider = await getConnectedOauthProvider(userId);
+          if (holdProvider) {
+            const dr = await import('../dailyReadiness');
+            const dateKey = dr.todayKey(_userTz);
+            if (!(await oauthPhysioArrived(userId, holdProvider, dateKey))) {
+              const label = PROVIDER_LABELS[holdProvider] || holdProvider;
+              return res.json({
+                id: -1,
+                userId,
+                type,
+                briefingDate: dateKey,
+                source: 'system',
+                readAt: null,
+                dismissedAt: null,
+                content: {
+                  opener: `Waiting on your ${label} data. Your readiness score and briefing are held until last night's sleep and recovery come through from ${label} — open the ${label} app for a few seconds so it syncs, then check back here. Steps and activity are already flowing in the meantime.`,
+                },
+              });
+            }
+          }
+        } catch (e: any) {
+          console.error('[coach-briefing] hold-notice check failed:', e?.message || e);
+        }
         return res.status(204).end();
       }
       res.json(briefing);

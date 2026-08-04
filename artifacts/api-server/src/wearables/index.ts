@@ -293,7 +293,8 @@ async function refreshIfNeeded(conn: WearableConnection, adapter: WearableAdapte
     // a manual reconnect. A Postgres advisory xact-lock keyed on the
     // connection id makes every instance take turns: the first refreshes,
     // the rest wake, re-read, and reuse the fresh token.
-    return await db.transaction(async (tx) => {
+    let notifyDisconnect = false;
+    const token = await db.transaction(async (tx) => {
     await tx.execute(sql`SELECT pg_advisory_xact_lock(42117, ${conn.id})`);
 
     // Re-read inside the lock: another worker (this instance or any other)
@@ -311,7 +312,19 @@ async function refreshIfNeeded(conn: WearableConnection, adapter: WearableAdapte
     if (!refreshToken) return null;
 
     try {
-      const fresh = await adapter.refresh(refreshToken);
+      // Never hold the advisory lock + a pool connection on a hung HTTP
+      // call: time the refresh out after 20s. The timeout message does NOT
+      // match the fatal regex, so a trip is treated as transient (status
+      // untouched, retried next tick). Rare edge: if the provider actually
+      // processed the refresh after we gave up, the stored token is consumed
+      // and the NEXT attempt fails fatally — acceptable, and reuse-detection
+      // does not fire for a single late consumer.
+      const fresh = await Promise.race([
+        adapter.refresh(refreshToken),
+        new Promise<never>((_, reject) =>
+          setTimeout(() => reject(new Error("refresh timed out after 20s")), 20_000),
+        ),
+      ]);
       await tx.update(wearableConnections).set({
         accessTokenEnc: encryptToken(fresh.accessToken),
         refreshTokenEnc: encryptToken(fresh.refreshToken ?? refreshToken),
@@ -328,28 +341,24 @@ async function refreshIfNeeded(conn: WearableConnection, adapter: WearableAdapte
       // 5xx, timeouts) leave status untouched so the next tick retries.
       const fatal = /invalid_grant|invalid_token|unauthorized|\b400\b|\b401\b/i.test(msg);
       if (fatal) {
+        // Reconnect-interleave guard: the OAuth callback writes new tokens
+        // WITHOUT taking this lock. If the user re-authorised while our
+        // (doomed) refresh call was in flight, the row now carries a NEW
+        // token family — the encrypted string always changes on rewrite
+        // (random IVs). Never stamp needs_reauth over a fresh reconnect;
+        // skip, and the next sync uses the new tokens.
+        const [latest] = await tx.select().from(wearableConnections).where(eq(wearableConnections.id, conn.id));
+        if (latest && latest.refreshTokenEnc !== (cur ?? conn).refreshTokenEnc) {
+          console.log(`[wearables] refresh failed but tokens were replaced mid-flight (re-auth) — not condemning conn ${conn.id}`);
+          return null;
+        }
         await tx.update(wearableConnections)
           .set({ status: "needs_reauth", lastSyncStatus: "error", lastSyncError: msg })
           .where(eq(wearableConnections.id, conn.id));
-        // Never let a disconnect be silent. Alert the user ONCE, on the
-        // connected -> needs_reauth transition only (the scheduler retries
-        // needs_reauth rows hourly, so guard against re-alerting every tick).
-        if (conn.status !== "needs_reauth") {
-          try {
-            const { notify } = await import("../notifications");
-            const label = PROVIDER_LABELS[conn.provider as WearableProvider] || conn.provider;
-            await notify({
-              userId: conn.userId,
-              category: "admin",
-              title: `${label} disconnected`,
-              body: `MeridianWork lost its connection to ${label} and has stopped syncing. Open Wearables & Integrations and tap Connect to restore your sleep, recovery and HRV data.`,
-              data: { url: "/profile/integrations", provider: conn.provider, kind: "wearable_disconnected" },
-              disableEmail: true,
-            });
-          } catch (notifyErr) {
-            console.error("[wearables] disconnect notification failed:", notifyErr);
-          }
-        }
+        // Alert the user ONCE, on the connected -> needs_reauth transition
+        // only — fired AFTER the transaction commits (see below), never while
+        // holding the advisory lock + a pool connection.
+        if (conn.status !== "needs_reauth") notifyDisconnect = true;
       } else {
         await tx.update(wearableConnections)
           .set({ lastSyncStatus: "error", lastSyncError: msg })
@@ -358,6 +367,25 @@ async function refreshIfNeeded(conn: WearableConnection, adapter: WearableAdapte
       return null;
     }
     });
+
+    if (notifyDisconnect) {
+      try {
+        const { notify } = await import("../notifications");
+        const label = PROVIDER_LABELS[conn.provider as WearableProvider] || conn.provider;
+        await notify({
+          userId: conn.userId,
+          category: "admin",
+          title: `${label} disconnected`,
+          body: `MeridianWork lost its connection to ${label} and has stopped syncing. Open Wearables & Integrations and tap Connect to restore your sleep, recovery and HRV data.`,
+          data: { url: "/profile/integrations", provider: conn.provider, kind: "wearable_disconnected" },
+          disableEmail: true,
+        });
+      } catch (notifyErr) {
+        console.error("[wearables] disconnect notification failed:", notifyErr);
+      }
+    }
+
+    return token;
   });
 }
 

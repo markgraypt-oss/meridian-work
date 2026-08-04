@@ -1802,6 +1802,13 @@ export class DatabaseStorage implements IStorage {
   }
 
   async upsertExpoPushToken(userId: string, token: string, platform: "ios" | "android"): Promise<UserPushToken> {
+    // A physical device (identified by its Expo push token) belongs to exactly
+    // one account at a time. Detach this token from any OTHER user first, so an
+    // account that was previously signed in on this device stops receiving its
+    // push notifications here after someone else logs in.
+    await db
+      .delete(userPushTokens)
+      .where(and(eq(userPushTokens.token, token), ne(userPushTokens.userId, userId)));
     const existing = await db
       .select()
       .from(userPushTokens)

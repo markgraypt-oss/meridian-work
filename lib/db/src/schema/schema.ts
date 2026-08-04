@@ -466,6 +466,13 @@ export const checkIns = pgTable("check_ins", {
   // (modest score contribution), the AI coach (heavy context input), and the
   // early warning narratives (critical for making explanations specific not generic).
   notesAnalysis: jsonb("notes_analysis"),
+  // Answers to the user's custom Y/N check-in questions, keyed by question id,
+  // e.g. { "1": true, "2": false }. NULL when the user has no custom questions.
+  // The question definitions live in custom_check_in_questions; this stores what
+  // the user answered for each on a given day so completed/edit views can show them.
+  // Reuses the pre-existing custom_responses column (added in startupMigrations but
+  // never wired into the ORM/routes until now).
+  customResponses: jsonb("custom_responses"),
   createdAt: timestamp("created_at").defaultNow(),
 });
 

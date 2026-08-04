@@ -15120,6 +15120,20 @@ Rules:
       const supplements = await storage.getUserSupplements(userId);
       const currentStack = supplements.map(s => `${s.name} (${s.dosage || 'no dosage'}, ${s.timeOfDay})`).join(', ');
 
+      // Age + gender so dose ranges can be tailored (iron, calcium, vitamin D,
+      // B12 and protein needs all shift with age and sex).
+      const suppUser = await storage.getUser(userId);
+      let ageGenderContext = '';
+      {
+        const dob = suppUser?.dateOfBirth ? new Date(suppUser.dateOfBirth) : null;
+        const age = dob && !isNaN(dob.getTime()) ? Math.floor((Date.now() - dob.getTime()) / 31557600000) : null;
+        const parts: string[] = [];
+        if (age && age > 0 && age < 120) parts.push(`${age} years old`);
+        if (suppUser?.gender) parts.push(String(suppUser.gender).toLowerCase());
+        ageGenderContext = parts.length ? `User: ${parts.join(', ')}.` : '';
+      }
+      const { SUPPLEMENT_DOSING } = await import('../coach/coachNutrition');
+
       let bodyMapContext = '';
       try {
         const bodyMapLogs = await storage.getBodyMapLogs(userId);
@@ -15147,16 +15161,20 @@ Rules:
 
       const prompt = `You are a sports nutrition and supplement expert. Analyse this user's current supplement stack and provide personalised recommendations.
 
+${ageGenderContext}
 Current stack: ${currentStack || 'No supplements added yet'}
 ${bodyMapContext}
 ${goalsContext}
 
+Tailor every dosage range to the user's age and gender using this reference. State ranges, not fixed doses:
+${SUPPLEMENT_DOSING}
+
 Provide:
 1. Assessment of their current stack (what is good, what might be missing)
-2. 2-3 specific supplement recommendations with dosage and timing
+2. 2-3 specific supplement recommendations with an age- and gender-appropriate dosage range and timing
 3. Any adjustments to their current stack
 
-Keep your response concise, practical, and evidence-based. Do not use em dashes. Use plain language.`;
+Keep your response concise, practical, and evidence-based. This is general guidance, not medical advice: tell them a suspected deficiency, pregnancy, or any medication needs their doctor. Do not use em dashes. Use plain language.`;
 
       const aiResponse = await aiCall({
         feature: 'nutrition_insights',

@@ -71,6 +71,31 @@ EVIDENCE UPDATES (use the same rules: correct term plus plain English, educate n
 - PLANT-BASED: you build muscle fine on equal protein, but use complete sources or blends (for example soy) and slightly larger portions, because single plant foods run low in one or two amino acids. Fully plant-based eaters still must supplement B12.
 - WEIGHT-LOSS MEDICATION (GLP-1 type): building an exercise habit WHILE on the medication is what stops the weight returning after stopping it. Support the person's training and eating habits; never advise on the medication itself, that is their doctor's job.`;
 
+// ---------------------------------------------------------------------------
+// Evidence-based supplement dosing reference (NIH ODS RDA/UL + ISSN position
+// stands). Age- and gender-aware where the evidence supports it. Shared by the
+// conversational coach AND the Supplements section's AI recommender so both
+// give the same precise, safe ranges. Educate, never prescribe.
+// ---------------------------------------------------------------------------
+export const SUPPLEMENT_DOSING = `SUPPLEMENT DOSING REFERENCE (use ONLY when someone asks about supplements; give ranges not fixed doses, tailor to the person's AGE and GENDER, and add "general guidance, not medical advice; a suspected deficiency, pregnancy or any medication is a doctor's job"):
+- PROTEIN: 1.6 to 2.2 g per kg bodyweight a day; higher end when dieting; adults over ~60 aim 1.2 to 1.6 g/kg minimum to fight age-related muscle loss.
+- CREATINE monohydrate: 3 to 5 g a day (bigger people 5 to 10 g). Very safe, strong for strength; no age or gender change.
+- VITAMIN D: 600 IU a day for adults, 800 IU for 70+; upper limit 4000 IU. Deficiency common in winter, indoors, darker skin, older age; test before high doses.
+- OMEGA-3 (EPA+DHA): 250 to 500 mg a day general health; 1 to 3 g for raised triglycerides or inflammation.
+- MAGNESIUM: about 400 to 420 mg men, 310 to 320 mg women; supplement upper limit 350 mg (that limit is for supplements only, not food).
+- IRON: women 19 to 50 need ~18 mg; men and post-menopausal women only 8 mg and should NOT routinely supplement it (no way to excrete excess, overload risk); upper limit 45 mg.
+- CALCIUM: 1000 mg adults; 1200 mg for women 51+ and everyone 71+; upper limit ~2000 to 2500 mg.
+- VITAMIN B12: 2.4 mcg a day; from ~50 use fortified foods or a supplement (absorption declines with age); fully plant-based must supplement.
+- ZINC: 11 mg men, 8 mg women; upper limit 40 mg (too much lowers copper).
+- VITAMIN C: 90 mg men, 75 mg women, +35 mg if you smoke; upper limit 2000 mg. Helps iron absorption from plants.
+- CAFFEINE (performance): 3 to 6 mg per kg, 45 to 60 min before training; more just adds jitters.
+- BETA-ALANINE: 3.2 to 6.4 g a day; harmless skin tingling.
+- COLLAGEN (with vitamin C): 10 to 15 g for joints and tendons; does NOT count toward muscle-building protein.
+- MULTIVITAMIN: a reasonable gap-filler, little benefit for the already well-fed; choose an iron-free one for men and post-menopausal women.
+- ASHWAGANDHA: 300 to 600 mg a day; evidence still preliminary; avoid in pregnancy, or thyroid or liver conditions.
+- ELECTROLYTES: only needed with heavy sweat or endurance work; a sedentary person does not need a daily dose (watch the sodium).
+AGE/GENDER RULES OF THUMB: iron drops to 8 mg after menopause (match men); calcium and vitamin D rise with age; start supplementing B12 from around 50; protein needs rise in older adults; men and post-menopausal women should avoid routine iron.`;
+
 // Conversational coach surfaces where a user might ask about food. The
 // generators (programme/workout/meal-plan JSON) and analytics narration are
 // deliberately excluded so structured output stays clean and cost stays flat.
@@ -88,7 +113,7 @@ const NUTRITION_FEATURES = new Set([
  */
 export function getCoachNutrition(feature: string): string {
   if (!NUTRITION_FEATURES.has(feature)) return "";
-  return `\n${NUTRITION_KNOWLEDGE}\n`;
+  return `\n${NUTRITION_KNOWLEDGE}\n${SUPPLEMENT_DOSING}\n`;
 }
 
 // ---------------------------------------------------------------------------

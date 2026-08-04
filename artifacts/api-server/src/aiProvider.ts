@@ -1077,8 +1077,14 @@ export async function getCoachingContext(feature: string): Promise<string> {
     // Mark's nutrition knowledge, provider-neutral, added only for the
     // conversational coach surfaces (returns '' for generators / structured
     // outputs). Distilled from claude/nutrition-course-synthesis.md.
-    const { getCoachNutrition } = await import('./coach/coachNutrition');
+    const { getCoachNutrition, getCoachTraining } = await import('./coach/coachNutrition');
     context += getCoachNutrition(feature);
+
+    // Mark's training evidence base, provider-neutral, added for the
+    // training-facing surfaces (conversational coach, workout/programme
+    // builders, readiness insights). Returns '' elsewhere. Distilled from
+    // claude/reps-evidence-synthesis.md.
+    context += getCoachTraining(feature);
 
     context += '\nFORMATTING RULE: Never use em dashes or the character in any response. Use commas, full stops, or shorter sentences instead.\n';
 

@@ -1159,6 +1159,62 @@ function calculateServerWorkoutDuration(workout: any): number {
   return Math.max(minutes, exerciseCountForMin * 2);
 }
 
+// Summarise what a user actually trains, from their recent completed workout
+// logs: most-used equipment, frequent exercises, preferred style and typical
+// length. Fed to the AI workout/programme generators so sessions lean on the
+// equipment and movement styles the user knows and uses (their "what I like to
+// do"). Best-effort — returns undefined on any failure or empty history.
+async function summariseUserWorkoutHistory(userId: string): Promise<any | undefined> {
+  try {
+    const all = await storage.getUserWorkoutLogs(userId, 40);
+    const logs = (all || []).filter((l: any) => l.status === 'completed').slice(0, 15);
+    if (!logs.length) return undefined;
+    const styleCount: Record<string, number> = {};
+    const exerciseNameCount: Record<string, number> = {};
+    const durations: number[] = [];
+    const ratings: number[] = [];
+    const exIds = new Set<number>();
+    for (const log of logs) {
+      if (log.workoutStyle) styleCount[log.workoutStyle] = (styleCount[log.workoutStyle] || 0) + 1;
+      if (typeof log.duration === 'number' && log.duration > 0) durations.push(log.duration);
+      if (typeof log.workoutRating === 'number' && log.workoutRating > 0) ratings.push(log.workoutRating);
+      try {
+        const exLogs = await storage.getWorkoutExerciseLogs(log.id);
+        for (const ex of (exLogs || [])) {
+          if (ex.kind === 'rest') continue;
+          if (ex.exerciseName) exerciseNameCount[ex.exerciseName] = (exerciseNameCount[ex.exerciseName] || 0) + 1;
+          if (Number.isFinite(ex.exerciseLibraryId)) exIds.add(ex.exerciseLibraryId);
+        }
+      } catch {}
+    }
+    const equipCount: Record<string, number> = {};
+    if (exIds.size) {
+      const rows = await db.select({ equipment: exerciseLibrary.equipment })
+        .from(exerciseLibrary)
+        .where(inArray(exerciseLibrary.id, Array.from(exIds)));
+      for (const r of rows) {
+        const arr = Array.isArray(r.equipment) ? r.equipment : (r.equipment ? [r.equipment] : []);
+        for (const item of arr) { if (item) equipCount[String(item)] = (equipCount[String(item)] || 0) + 1; }
+      }
+    }
+    const top = (obj: Record<string, number>, n: number) =>
+      Object.entries(obj).sort((a, b) => b[1] - a[1]).slice(0, n).map(([k]) => k);
+    const durAvg = durations.length ? Math.round((durations.reduce((a, b) => a + b, 0) / durations.length) / 60) : undefined;
+    const rateAvg = ratings.length ? Math.round((ratings.reduce((a, b) => a + b, 0) / ratings.length) * 10) / 10 : undefined;
+    return {
+      recentCount: logs.length,
+      topEquipment: top(equipCount, 6),
+      topExercises: top(exerciseNameCount, 8),
+      preferredStyle: top(styleCount, 1)[0],
+      typicalDurationMin: durAvg,
+      avgRating: rateAvg,
+    };
+  } catch (e: any) {
+    console.warn('[summariseUserWorkoutHistory] failed:', e?.message);
+    return undefined;
+  }
+}
+
 // --- Authorization helpers for workouts and programmes ---
 // A user can mutate a workout if: it's a library workout (userId null) AND they're admin,
 // OR it's their own personal workout, OR they're an admin.
@@ -9659,6 +9715,9 @@ Rules:
         targetUserId,
         contraindications,
         avoidExerciseIds,
+        // Same past-workout learning as single-session generation, for the
+        // person the programme is for (target user when an admin builds it).
+        workoutHistory: await summariseUserWorkoutHistory(targetUserId || userId),
       };
       const result = await generateProgrammeWithAI(inputs, userId);
       if (!result.ok) {
@@ -9821,6 +9880,10 @@ Rules:
         console.warn("[ai/workouts/generate] programme context lookup failed:", e?.message);
       }
 
+      // Learn from what the user actually trains (equipment + movement styles
+      // + exercises they favour) so the session fits their habits.
+      const workoutHistory = await summariseUserWorkoutHistory(userId);
+
       const inputs = {
         goal: req.body.goal ? String(req.body.goal) : undefined,
         equipment: req.body.equipment ? String(req.body.equipment) : undefined,
@@ -9833,6 +9896,7 @@ Rules:
         burnoutScore,
         bodyMap,
         programmeContext,
+        workoutHistory,
       };
       const result = await generateWorkoutWithAI(inputs, userId);
       if (!result.ok) {

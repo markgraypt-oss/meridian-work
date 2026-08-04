@@ -200,6 +200,17 @@ export interface WorkoutInputs {
     todayPlannedWorkout?: string | null;
     recentWorkoutNames?: string[];
   };
+  /** Summary of what the user actually trains — derived by the route from their
+   *  recent completed workout logs — so the AI leans on the equipment and
+   *  movement styles they know and use. */
+  workoutHistory?: {
+    recentCount: number;
+    topEquipment?: string[];
+    topExercises?: string[];
+    preferredStyle?: string;
+    typicalDurationMin?: number;
+    avgRating?: number;
+  };
 }
 
 function buildContextHints(opts: {
@@ -236,6 +247,17 @@ function buildContextHints(opts: {
     if (c.recentWorkoutNames?.length) parts.push(`recent sessions: ${c.recentWorkoutNames.slice(0, 5).join(", ")}`);
     if (parts.length) {
       lines.push(`User is currently following: ${parts.join("; ")}. Design today's session to COMPLEMENT this — avoid overlapping the same primary muscles trained today, and stay aligned with the programme's overall goal.`);
+    }
+  }
+  if (opts.workoutHistory && opts.workoutHistory.recentCount > 0) {
+    const h = opts.workoutHistory;
+    const parts: string[] = [];
+    if (h.topEquipment?.length) parts.push(`equipment they use most: ${h.topEquipment.join(", ")}`);
+    if (h.topExercises?.length) parts.push(`exercises they do often: ${h.topExercises.slice(0, 8).join(", ")}`);
+    if (h.preferredStyle) parts.push(`usual session style: ${h.preferredStyle}`);
+    if (h.typicalDurationMin) parts.push(`typical length about ${h.typicalDurationMin} min`);
+    if (parts.length) {
+      lines.push(`From the user's last ${h.recentCount} recorded workouts — ${parts.join("; ")}. Favour the equipment and movement styles they actually use and enjoy, and prefer exercises they already know, unless the request explicitly asks for something different.`);
     }
   }
   return lines.length ? lines.join("\n") : "";

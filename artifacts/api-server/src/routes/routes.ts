@@ -10283,7 +10283,28 @@ Rules:
 
             const blocksWithExercises = [];
             for (const block of blocks) {
-              const exercises = await db.select().from(programmeBlockExercises)
+              // Join exerciseLibrary so custom-programme block exercises carry
+              // their name/image/video (mirrors getProgrammeWorkoutBlocks). Without
+              // this the editor loads exerciseName='' and the workout preview shows
+              // "Unknown Exercise" / "No video" for user-created programmes.
+              const exercises = await db
+                .select({
+                  id: programmeBlockExercises.id,
+                  blockId: programmeBlockExercises.blockId,
+                  exerciseLibraryId: programmeBlockExercises.exerciseLibraryId,
+                  position: programmeBlockExercises.position,
+                  sets: programmeBlockExercises.sets,
+                  durationType: programmeBlockExercises.durationType,
+                  tempo: programmeBlockExercises.tempo,
+                  load: programmeBlockExercises.load,
+                  notes: programmeBlockExercises.notes,
+                  exerciseName: exerciseLibrary.name,
+                  imageUrl: exerciseLibrary.imageUrl,
+                  muxPlaybackId: exerciseLibrary.muxPlaybackId,
+                  equipment: exerciseLibrary.equipment,
+                })
+                .from(programmeBlockExercises)
+                .leftJoin(exerciseLibrary, eq(programmeBlockExercises.exerciseLibraryId, exerciseLibrary.id))
                 .where(eq(programmeBlockExercises.blockId, block.id))
                 .orderBy(asc(programmeBlockExercises.position));
               blocksWithExercises.push({ ...block, exercises });

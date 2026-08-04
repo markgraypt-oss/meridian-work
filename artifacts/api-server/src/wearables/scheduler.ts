@@ -5,7 +5,13 @@ import { syncProvider } from "./index";
 import type { WearableProvider } from "./types";
 
 const SYNC_INTERVAL_MS = 60 * 60 * 1000; // hourly tick
-const SYNC_STALE_MS = 6 * 60 * 60 * 1000; // re-sync if last sync older than 6h
+// Re-sync when the last sync is older than 50 minutes, so the hourly tick
+// refreshes EVERY connection EVERY hour. The old 6h window meant WHOOP's
+// overnight data could lag the phone-pushed Apple data by most of a morning,
+// and the priority merge can only prefer WHOOP rows that actually exist.
+// (The mobile-push piggyback in routes.ts covers the app-open case; this is
+// the backstop for users who don't open the app.)
+const SYNC_STALE_MS = 50 * 60 * 1000;
 
 let started = false;
 

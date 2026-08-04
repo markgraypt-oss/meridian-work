@@ -426,6 +426,33 @@ export function registerWearableRoutes(app: Express) {
     workouts: z.array(mobileWorkoutSchema).max(500).default([]),
   });
 
+  // Piggyback OAuth-provider pull on every mobile push. Apple Health arrives
+  // the moment the phone opens the app, but WHOOP/Oura are PULLED by the
+  // server — previously only when the last sync was >6h old. Every morning
+  // that meant Apple's overnight data landed instantly while WHOOP's sat on
+  // WHOOP's servers for hours, so the per-metric priority merge had only an
+  // Apple row to choose and the app showed Apple sleep/HRV/RHR until midday.
+  // Pulling WHOOP/Oura whenever the phone pushes keeps them at least as fresh
+  // as Apple, so the priority rule always has WHOOP data to prefer.
+  // Guarded to at most one pull per provider per 10 minutes.
+  const PIGGYBACK_MIN_GAP_MS = 10 * 60 * 1000;
+  async function piggybackOauthSync(userId: string): Promise<void> {
+    try {
+      const conns = await getConnections(userId);
+      for (const conn of conns) {
+        if (conn.provider !== "whoop" && conn.provider !== "oura") continue;
+        if (conn.status === "disconnected") continue;
+        const last = conn.lastSyncAt ? new Date(conn.lastSyncAt).getTime() : 0;
+        if (Date.now() - last < PIGGYBACK_MIN_GAP_MS) continue;
+        // Fire-and-forget: never delay or fail the mobile sync response.
+        syncProvider(userId, conn.provider as WearableProvider, { trigger: "mobile_piggyback", days: 3 })
+          .catch((e) => console.error(`[wearables] piggyback ${conn.provider} sync failed:`, e?.message || e));
+      }
+    } catch (e: any) {
+      console.error("[wearables] piggyback check failed:", e?.message || e);
+    }
+  }
+
   app.post("/api/wearables/apple-health/sync", isAuthenticated, async (req: any, res) => {
     try {
       const userId = req.user.claims.sub;
@@ -470,6 +497,10 @@ export function registerWearableRoutes(app: Express) {
       const latestSyncedDate = dates[dates.length - 1] ?? null;
 
       console.log(`[wearables] apple-health/sync user=${userId} days=${daysWritten} workouts=${workoutsWritten}`);
+
+      // Pull WHOOP/Oura now so they are as fresh as the Apple data that just
+      // arrived (fire-and-forget; see piggybackOauthSync above).
+      piggybackOauthSync(userId);
 
       res.json({ daysWritten, workoutsWritten, latestSyncedDate });
     } catch (err: any) {
@@ -557,6 +588,9 @@ export function registerWearableRoutes(app: Express) {
       const latestSyncedDate = dates[dates.length - 1] ?? null;
 
       console.log(`[wearables] health-connect/sync user=${userId} days=${daysWritten} workouts=${workoutsWritten}`);
+
+      // Same freshness rule as iOS: pull WHOOP/Oura now (fire-and-forget).
+      piggybackOauthSync(userId);
 
       res.json({ daysWritten, workoutsWritten, latestSyncedDate });
     } catch (err: any) {

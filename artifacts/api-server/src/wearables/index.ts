@@ -284,13 +284,25 @@ async function refreshIfNeeded(conn: WearableConnection, adapter: WearableAdapte
   }
 
   return withConnLock(conn.id, async () => {
-    // Re-read inside the lock: a sibling sync on this instance may have just
-    // refreshed while we were queued. Reuse its fresh token (and clear any stale
-    // needs_reauth flag) instead of burning our now-stale refresh token.
-    const [cur] = await db.select().from(wearableConnections).where(eq(wearableConnections.id, conn.id));
+    // CROSS-INSTANCE serialization. The deployment is autoscale: several
+    // copies of this server can run at once, and the in-process chain above
+    // only serializes within ONE copy. WHOOP/Oura refresh tokens are
+    // single-use WITH reuse detection: if two instances refresh the same
+    // token concurrently, the loser's "reuse" makes the provider revoke the
+    // ENTIRE token family — killing even the winner's fresh token and forcing
+    // a manual reconnect. A Postgres advisory xact-lock keyed on the
+    // connection id makes every instance take turns: the first refreshes,
+    // the rest wake, re-read, and reuse the fresh token.
+    return await db.transaction(async (tx) => {
+    await tx.execute(sql`SELECT pg_advisory_xact_lock(42117, ${conn.id})`);
+
+    // Re-read inside the lock: another worker (this instance or any other)
+    // may have refreshed while we waited. Reuse its fresh token (and clear
+    // any stale needs_reauth flag) instead of burning a consumed token.
+    const [cur] = await tx.select().from(wearableConnections).where(eq(wearableConnections.id, conn.id));
     if (cur && !tokenExpired(cur)) {
       if (cur.status === "needs_reauth") {
-        await db.update(wearableConnections).set({ status: "connected", updatedAt: new Date() }).where(eq(wearableConnections.id, cur.id));
+        await tx.update(wearableConnections).set({ status: "connected", updatedAt: new Date() }).where(eq(wearableConnections.id, cur.id));
       }
       return decryptToken(cur.accessTokenEnc);
     }
@@ -300,30 +312,23 @@ async function refreshIfNeeded(conn: WearableConnection, adapter: WearableAdapte
 
     try {
       const fresh = await adapter.refresh(refreshToken);
-      await upsertConnection(conn.userId, conn.provider as WearableProvider, {
-        accessToken: fresh.accessToken,
-        refreshToken: fresh.refreshToken ?? refreshToken,
+      await tx.update(wearableConnections).set({
+        accessTokenEnc: encryptToken(fresh.accessToken),
+        refreshTokenEnc: encryptToken(fresh.refreshToken ?? refreshToken),
         tokenExpiresAt: fresh.expiresAt ?? null,
         status: "connected",
-      });
+        updatedAt: new Date(),
+      }).where(eq(wearableConnections.id, conn.id));
       return fresh.accessToken;
     } catch (err: any) {
       const msg = String(err?.message || err);
-      // Cross-instance race guard: another worker (separate process/instance) may
-      // have refreshed while our HTTP call was in flight. If the stored token is
-      // valid again, recover with it rather than condemning the connection.
-      const [after] = await db.select().from(wearableConnections).where(eq(wearableConnections.id, conn.id));
-      if (after && !tokenExpired(after)) {
-        if (after.status === "needs_reauth") {
-          await db.update(wearableConnections).set({ status: "connected", updatedAt: new Date() }).where(eq(wearableConnections.id, after.id));
-        }
-        return decryptToken(after.accessTokenEnc);
-      }
+      // No post-failure re-read needed: we HOLD the advisory lock, so no other
+      // worker can have refreshed this connection while our call was in flight.
       // Only condemn on a genuine token rejection. Transient failures (network,
       // 5xx, timeouts) leave status untouched so the next tick retries.
       const fatal = /invalid_grant|invalid_token|unauthorized|\b400\b|\b401\b/i.test(msg);
       if (fatal) {
-        await db.update(wearableConnections)
+        await tx.update(wearableConnections)
           .set({ status: "needs_reauth", lastSyncStatus: "error", lastSyncError: msg })
           .where(eq(wearableConnections.id, conn.id));
         // Never let a disconnect be silent. Alert the user ONCE, on the
@@ -346,12 +351,13 @@ async function refreshIfNeeded(conn: WearableConnection, adapter: WearableAdapte
           }
         }
       } else {
-        await db.update(wearableConnections)
+        await tx.update(wearableConnections)
           .set({ lastSyncStatus: "error", lastSyncError: msg })
           .where(eq(wearableConnections.id, conn.id));
       }
       return null;
     }
+    });
   });
 }
 

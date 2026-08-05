@@ -1088,10 +1088,12 @@ function perSetWorkSeconds(exercise: any): number {
   const isTimer = exercise?.durationType === 'timer' || exercise?.durationType === 'time';
   if (isTimer) {
     const secs = parseDurationToSecondsServer(first.duration || exercise?.duration || exercise?.targetDuration);
-    return secs > 0 ? secs : 30;
+    // Cap a single interval at 10 min so a stray/garbage value can't blow up.
+    return Math.min(600, secs > 0 ? secs : 30);
   }
+  // Cap reps at 60 so a bad value (e.g. reps stored as a big number) is bounded.
   const reps = parseInt(String(first.reps ?? exercise?.reps ?? ''), 10) || 10;
-  return Math.max(8, reps * 3);
+  return Math.max(8, Math.min(60, reps) * 3);
 }
 
 // How many times an exercise/round is repeated, resolved the SAME way the app
@@ -1102,9 +1104,13 @@ function resolveRoundCount(workout: any, block: any): number {
   const wt = workout?.workoutType || 'regular';
   const firstEx = (block?.exercises || [])[0];
   const setsLen = Array.isArray(firstEx?.sets) && firstEx.sets.length > 0 ? firstEx.sets.length : 1;
-  if (wt === 'circuit') return workout?.intervalRounds || block?.rounds || setsLen;
-  if (wt === 'interval') return block?.rounds || setsLen;
-  return setsLen;
+  const raw = wt === 'circuit'
+    ? (workout?.intervalRounds || block?.rounds || setsLen)
+    : wt === 'interval'
+      ? (block?.rounds || setsLen)
+      : setsLen;
+  // Cap rounds at 20 — no real session has more, so a bad round count is bounded.
+  return Math.max(1, Math.min(20, raw));
 }
 
 // Setup / transition time counted on every straight set, on top of the reps.
@@ -1144,12 +1150,15 @@ function calculateServerWorkoutDuration(workout: any): number {
       const rounds = Math.max(1, resolveRoundCount(workout, block));
       let roundWork = 0;
       for (const ex of exs) roundWork += perSetWorkSeconds(ex);
-      // Each work interval (every exercise, every round) is followed by the
-      // short "off" period, e.g. Tabata's 10s off after each 20s on.
-      const restPerInterval = workoutType === 'circuit'
+      // "rest after round" is ONE rest after completing all exercises in the
+      // round (per the schema), so it applies between rounds — NOT once per
+      // exercise. Multiplying by the exercise count was the bug that inflated
+      // circuits. Capped at 5 min in case of a stray value.
+      const restBetweenRounds = Math.min(300, workoutType === 'circuit'
         ? parseRestServer(workout?.intervalRestAfterRound)
-        : parseRestServer(block?.restAfterRound);
-      totalSeconds += rounds * (roundWork + exs.length * restPerInterval)
+        : parseRestServer(block?.restAfterRound));
+      totalSeconds += rounds * roundWork
+        + Math.max(0, rounds - 1) * restBetweenRounds
         + parseRestServer(block?.rest);
     } else {
       // Straight sets (regular blocks and all warm-ups). One "round" is every
@@ -1160,7 +1169,7 @@ function calculateServerWorkoutDuration(workout: any): number {
       // ~10s of setup / re-rack "white space" is real work time on every set,
       // on top of the reps or the timer.
       for (const ex of exs) roundWork += perSetWorkSeconds(ex) + SET_TRANSITION_SECONDS;
-      const rest = parseRestServer(block?.rest);
+      const rest = Math.min(300, parseRestServer(block?.rest)); // cap a stray rest at 5 min
       // Rest counted once PER SET (not per gap): the recovery after each set
       // plus the transition between exercises. For 3 lifts x 5 sets at 3 min
       // that is 15 x 3 = 45 min of rest — the bulk of a strength session, which
@@ -1169,7 +1178,9 @@ function calculateServerWorkoutDuration(workout: any): number {
     }
   }
 
-  return Math.max(Math.ceil(totalSeconds / 60), 1);
+  // Final safety cap: nothing in this app is a 2-hour session, so a computed
+  // value above 120 min means the underlying data is off — bound it either way.
+  return Math.max(1, Math.min(120, Math.ceil(totalSeconds / 60)));
 }
 
 // Summarise what a user actually trains, from their recent completed workout

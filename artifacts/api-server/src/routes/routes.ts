@@ -2238,6 +2238,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         lastName: u.lastName,
         companyName: u.companyName,
         isAdmin: u.isAdmin,
+        role: u.role,
         createdAt: u.createdAt,
       }));
       res.json(safeUsers);

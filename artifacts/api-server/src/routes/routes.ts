@@ -1077,87 +1077,91 @@ function parseRestServer(rest?: string): number {
   return value;
 }
 
-function calcExerciseTime(exercise: any): number {
-  const sets = exercise.sets || [];
-  let total = 0;
-  for (const set of sets) {
-    if (exercise.durationType === 'timer' && set.duration) {
-      total += parseDurationToSecondsServer(set.duration);
-    } else {
-      const reps = parseInt(set.reps || '10') || 10;
-      total += reps * 3;
-    }
+// Seconds of actual work for ONE set of an exercise, using its first set as the
+// representative spec (sets are uniform in practice, and the UI shows the first
+// set's reps/duration too). Timer exercises use their target seconds; rep
+// exercises approximate ~3s per rep with a small floor so a 1-3 rep set is not
+// counted as ~zero.
+function perSetWorkSeconds(exercise: any): number {
+  const sets = Array.isArray(exercise?.sets) && exercise.sets.length > 0 ? exercise.sets : [{}];
+  const first = sets[0] || {};
+  const isTimer = exercise?.durationType === 'timer' || exercise?.durationType === 'time';
+  if (isTimer) {
+    const secs = parseDurationToSecondsServer(first.duration || exercise?.duration || exercise?.targetDuration);
+    return secs > 0 ? secs : 30;
   }
-  if (sets.length === 0) {
-    if (exercise.durationType === 'timer' && exercise.duration) {
-      total = parseDurationToSecondsServer(exercise.duration);
-    } else {
-      total = 60;
-    }
-  }
-  return total;
+  const reps = parseInt(String(first.reps ?? exercise?.reps ?? ''), 10) || 10;
+  return Math.max(8, reps * 3);
+}
+
+// How many times an exercise/round is repeated, resolved the SAME way the app
+// displays the set/round count: regular uses the sets-array length; interval
+// uses the block's round count; circuit uses the workout-level round count
+// first. Falls back to the sets-array length when a round count is absent.
+function resolveRoundCount(workout: any, block: any): number {
+  const wt = workout?.workoutType || 'regular';
+  const firstEx = (block?.exercises || [])[0];
+  const setsLen = Array.isArray(firstEx?.sets) && firstEx.sets.length > 0 ? firstEx.sets.length : 1;
+  if (wt === 'circuit') return workout?.intervalRounds || block?.rounds || setsLen;
+  if (wt === 'interval') return block?.rounds || setsLen;
+  return setsLen;
 }
 
 function calculateServerWorkoutDuration(workout: any): number {
-  const workoutType = workout.workoutType || 'regular';
-  const rawExercises = workout.exercises || [];
+  const workoutType = workout?.workoutType || 'regular';
+  // Video workouts are timed by their media, not by sets/reps.
+  if (workoutType === 'video') return workout?.duration || 0;
+
+  const rawExercises = workout?.exercises || [];
   const isBlockFormat = rawExercises.length > 0 && rawExercises[0]?.exercises;
-  const blocks = isBlockFormat ? rawExercises : undefined;
-  const flatExercises = isBlockFormat
-    ? rawExercises.flatMap((b: any) => (b.exercises || []))
-    : rawExercises;
-
-  if (workoutType === 'interval' && blocks && blocks.length > 0) {
-    let totalSeconds = 0;
-    const isWarmup = (s: string) => s === 'warmup' || s === 'warm_up';
-    const warmupBlocks = blocks.filter((b: any) => isWarmup(b.section));
-    const mainBlocks = blocks.filter((b: any) => !isWarmup(b.section));
-
-    for (const block of warmupBlocks) {
-      for (const ex of (block.exercises || [])) {
-        totalSeconds += calcExerciseTime(ex);
-      }
-      totalSeconds += parseRestServer(block.rest);
-    }
-
-    for (const block of mainBlocks) {
-      const rounds = block.rounds || 3;
-      let blockTime = 0;
-      for (const ex of (block.exercises || [])) {
-        blockTime += calcExerciseTime(ex);
-      }
-      totalSeconds += blockTime * rounds;
-      totalSeconds += parseRestServer(block.restAfterRound) * (rounds - 1);
-      totalSeconds += parseRestServer(block.rest);
-    }
-    return Math.ceil(totalSeconds / 60);
-  }
-
-  if (workoutType === 'circuit') {
-    const rounds = workout.intervalRounds || workout.circuitRounds || 3;
-    let exTime = 0;
-    for (const ex of flatExercises) {
-      exTime += calcExerciseTime(ex);
-    }
-    return Math.ceil((exTime * rounds) / 60);
-  }
+  const blocks: any[] = isBlockFormat
+    ? rawExercises
+    : [{ section: 'main', blockType: 'single', exercises: rawExercises }];
 
   let totalSeconds = 0;
-  if (blocks && blocks.length > 0) {
-    for (const block of blocks) {
-      for (const ex of (block.exercises || [])) {
-        totalSeconds += calcExerciseTime(ex);
-      }
-      totalSeconds += parseRestServer(block.rest);
+
+  for (const block of blocks) {
+    // Standalone rest blocks contribute only their own rest time.
+    if (block?.blockType === 'rest') {
+      totalSeconds += parseRestServer(block.rest) || 30;
+      continue;
     }
-  } else {
-    for (const ex of flatExercises) {
-      totalSeconds += calcExerciseTime(ex);
+    const exs = block?.exercises || [];
+    if (exs.length === 0) continue;
+
+    const section = block?.section || 'main';
+    const isWarmup = section === 'warmup' || section === 'warm_up';
+    // Circuit/interval MAIN work: every exercise is done once per round and the
+    // whole set of exercises repeats for `rounds`, with a short rest between
+    // rounds. Warm-ups are always straight sets, even inside an interval workout.
+    const circuitStyle = !isWarmup &&
+      (workoutType === 'interval' || workoutType === 'circuit' || block?.blockType === 'circuit');
+
+    if (circuitStyle) {
+      const rounds = Math.max(1, resolveRoundCount(workout, block));
+      let roundWork = 0;
+      for (const ex of exs) roundWork += perSetWorkSeconds(ex);
+      const restBetweenRounds = workoutType === 'circuit'
+        ? parseRestServer(workout?.intervalRestAfterRound)
+        : parseRestServer(block?.restAfterRound);
+      totalSeconds += rounds * roundWork
+        + Math.max(0, rounds - 1) * restBetweenRounds
+        + parseRestServer(block?.rest);
+    } else {
+      // Straight sets (regular blocks and all warm-ups). One "round" is every
+      // exercise in the block performed once; a single-exercise block just
+      // repeats that exercise for its set count. The rest (block.rest, e.g.
+      // "3 min") sits BETWEEN rounds — this is the piece the old estimate
+      // dropped entirely, which is why strength sessions read far too short.
+      const rounds = Math.max(1, resolveRoundCount({ workoutType: 'regular' }, block));
+      let roundWork = 0;
+      for (const ex of exs) roundWork += perSetWorkSeconds(ex);
+      const rest = parseRestServer(block?.rest);
+      totalSeconds += rounds * roundWork + Math.max(0, rounds - 1) * rest;
     }
   }
-  const minutes = Math.ceil(totalSeconds / 60);
-  const exerciseCountForMin = isBlockFormat ? rawExercises.length : flatExercises.length;
-  return Math.max(minutes, exerciseCountForMin * 2);
+
+  return Math.max(Math.ceil(totalSeconds / 60), 1);
 }
 
 // Summarise what a user actually trains, from their recent completed workout

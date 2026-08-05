@@ -327,24 +327,30 @@ function buildWorkoutPrompt(inputs: WorkoutInputs, catalogueText: string, retryH
     `Exercise catalogue (${catalogueText.split("\n").length} entries shown):`,
     catalogueText,
     "",
-    "Respond with ONLY valid JSON matching this shape (no prose, no markdown):",
+    "OUTPUT FORMAT — this overrides any format implied above. Return ONLY a raw JSON object: no markdown, no code fences, no prose before or after.",
+    "Use EXACTLY these top-level keys and no others: name, description, category, difficulty, duration, blocks.",
+    'Do NOT use keys such as "sessionName", "sessionDescription", "rir", "week", or "day". The description is a short plain string, not coaching commentary.',
+    'Every exercise goes inside blocks[].exercises[] and MUST use: "exerciseLibraryId" (a number from the catalogue) and "sets" (an ARRAY, one object per set), plus optional "load", "tempo", "notes".',
+    '"sets" MUST be an array like [{"reps":"8","rest":"90 sec"}] — one object per working set. NEVER a plain number. "reps" and "rest" live INSIDE each set object, never directly on the exercise.',
+    "Follow this exact structure (use real exerciseLibraryId values from the catalogue):",
     `{
-  "name": string, "description": string|null,
-  "category": "strength"|"cardio"|"hiit"|"mobility"|"recovery",
-  "difficulty": "beginner"|"intermediate"|"advanced",
-  "duration": number,
-  "blocks": [{
-    "section": "warmup"|"main",
-    "blockType": "single"|"superset"|"triset"|"circuit",
-    "rest": string|null,
-    "exercises": [{
-      "exerciseLibraryId": number,
-      "sets": [{"reps": string|number, "rest": string?}],
-      "load": string|null, "tempo": string|null, "notes": string|null
-    }]
-  }]
+  "name": "Full Body Strength",
+  "description": "Heavy compound focus with accessory work.",
+  "category": "strength",
+  "difficulty": "intermediate",
+  "duration": ${inputs.duration || 45},
+  "blocks": [
+    {
+      "section": "main",
+      "blockType": "single",
+      "rest": "120 sec",
+      "exercises": [
+        { "exerciseLibraryId": 101, "sets": [{"reps":"5","rest":"120 sec"},{"reps":"5","rest":"120 sec"},{"reps":"5","rest":"120 sec"}], "load": "heavy", "tempo": null, "notes": null }
+      ]
+    }
+  ]
 }`,
-    `Total duration must be near ${inputs.duration} minutes.`,
+    `Total duration must be near ${inputs.duration} minutes. Output the JSON object now, and nothing else.`,
   ].filter(Boolean).join("\n");
 }
 
@@ -539,6 +545,85 @@ export async function generateProgrammeWithAI(inputs: ProgrammeInputs, userId: s
   };
 }
 
+// Best-effort recovery when the model returns valid JSON in a slightly wrong
+// shape (its own key names, "sets" as a number, "rest" as a number, exercises
+// flattened). We coerce the common variants back to the schema shape so a
+// near-miss doesn't fail the whole generation. Returns null if nothing usable.
+function toRestString(r: any): string | undefined {
+  if (r == null) return undefined;
+  if (typeof r === "number") return `${r} sec`;
+  const s = String(r).trim();
+  return s || undefined;
+}
+
+function extractJsonLoose(text: string): any | null {
+  if (!text) return null;
+  let s = text.trim();
+  const fence = s.match(/```(?:json)?\s*([\s\S]*?)```/i);
+  if (fence) s = fence[1].trim();
+  else {
+    const m = s.match(/\{[\s\S]*\}/);
+    if (m) s = m[0];
+  }
+  try { return JSON.parse(s); } catch { return null; }
+}
+
+function coerceSets(ex: any): any[] {
+  if (Array.isArray(ex?.sets) && ex.sets.length > 0) {
+    return ex.sets.slice(0, 8).map((st: any) =>
+      st && typeof st === "object"
+        ? { reps: st.reps ?? st.rep, duration: st.duration, rest: toRestString(st.rest ?? st.restPeriod) }
+        : { reps: st }
+    );
+  }
+  const n = Number.parseInt(String(ex?.sets ?? ex?.setsCount ?? ""), 10);
+  const count = Number.isFinite(n) && n > 0 ? Math.min(8, n) : 1;
+  const one = { reps: ex?.reps, duration: ex?.duration, rest: toRestString(ex?.rest ?? ex?.restPeriod) };
+  return Array.from({ length: count }, () => ({ ...one }));
+}
+
+function salvageWorkoutJson(text: string, inputs: WorkoutInputs): any | null {
+  try {
+    const obj = extractJsonLoose(text);
+    if (!obj || typeof obj !== "object") return null;
+    const blocksRaw = Array.isArray(obj.blocks)
+      ? obj.blocks
+      : Array.isArray(obj.exercises)
+        ? [{ section: "main", blockType: "single", exercises: obj.exercises }]
+        : [];
+    const blocks = blocksRaw
+      .map((b: any) => ({
+        section: b?.section === "warmup" ? "warmup" : "main",
+        blockType: ["single", "superset", "triset", "circuit"].includes(b?.blockType) ? b.blockType : "single",
+        rest: b?.rest == null ? null : String(b.rest),
+        exercises: (Array.isArray(b?.exercises) ? b.exercises : [])
+          .map((ex: any) => ({
+            exerciseLibraryId: Number.parseInt(String(ex?.exerciseLibraryId ?? ex?.id ?? ex?.exerciseId ?? ""), 10),
+            sets: coerceSets(ex),
+            load: ex?.load != null ? String(ex.load) : null,
+            tempo: ex?.tempo != null ? String(ex.tempo) : null,
+            notes: ex?.notes != null ? String(ex.notes) : null,
+          }))
+          .filter((e: any) => Number.isFinite(e.exerciseLibraryId) && e.exerciseLibraryId > 0),
+      }))
+      .filter((b: any) => b.exercises.length > 0);
+    if (blocks.length === 0) return null;
+    const rawDur = Number.parseInt(String(obj.duration ?? inputs.duration ?? 45), 10);
+    return {
+      name: String(obj.name ?? obj.sessionName ?? obj.title ?? "Workout").slice(0, 80),
+      description: (obj.description ?? obj.sessionDescription) != null
+        ? String(obj.description ?? obj.sessionDescription).slice(0, 400)
+        : null,
+      category: ["strength", "cardio", "hiit", "mobility", "recovery"].includes(obj.category) ? obj.category : "strength",
+      difficulty: ["beginner", "intermediate", "advanced"].includes(obj.difficulty) ? obj.difficulty : (inputs.difficulty || "intermediate"),
+      duration: Number.isFinite(rawDur) ? Math.max(5, Math.min(180, rawDur)) : 45,
+      blocks,
+    };
+  } catch {
+    return null;
+  }
+}
+
 export async function generateWorkoutWithAI(inputs: WorkoutInputs, userId: string) {
   const fullCatalogue = await loadExerciseCatalogue();
   const equipFiltered = filterCatalogueByEquipment(fullCatalogue, inputs.equipment);
@@ -595,6 +680,18 @@ export async function generateWorkoutWithAI(inputs: WorkoutInputs, userId: strin
             validationOutcome: result.validationOutcome,
           };
         }
+      }
+    }
+  }
+
+  // If the model returned JSON in a near-miss shape, coerce and re-validate
+  // before giving up.
+  if (!result.data && result.text) {
+    const salvaged = salvageWorkoutJson(result.text, inputs);
+    if (salvaged) {
+      const reparse = generatedWorkoutSchema.safeParse(salvaged);
+      if (reparse.success) {
+        result = { ...result, data: reparse.data as GeneratedWorkout, validationOutcome: "repaired" };
       }
     }
   }

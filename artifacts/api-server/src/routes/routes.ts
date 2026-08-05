@@ -1107,6 +1107,9 @@ function resolveRoundCount(workout: any, block: any): number {
   return setsLen;
 }
 
+// Setup / transition time counted on every straight set, on top of the reps.
+const SET_TRANSITION_SECONDS = 10;
+
 function calculateServerWorkoutDuration(workout: any): number {
   const workoutType = workout?.workoutType || 'regular';
   // Video workouts are timed by their media, not by sets/reps.
@@ -1141,23 +1144,28 @@ function calculateServerWorkoutDuration(workout: any): number {
       const rounds = Math.max(1, resolveRoundCount(workout, block));
       let roundWork = 0;
       for (const ex of exs) roundWork += perSetWorkSeconds(ex);
-      const restBetweenRounds = workoutType === 'circuit'
+      // Each work interval (every exercise, every round) is followed by the
+      // short "off" period, e.g. Tabata's 10s off after each 20s on.
+      const restPerInterval = workoutType === 'circuit'
         ? parseRestServer(workout?.intervalRestAfterRound)
         : parseRestServer(block?.restAfterRound);
-      totalSeconds += rounds * roundWork
-        + Math.max(0, rounds - 1) * restBetweenRounds
+      totalSeconds += rounds * (roundWork + exs.length * restPerInterval)
         + parseRestServer(block?.rest);
     } else {
       // Straight sets (regular blocks and all warm-ups). One "round" is every
       // exercise in the block performed once; a single-exercise block just
-      // repeats that exercise for its set count. The rest (block.rest, e.g.
-      // "3 min") sits BETWEEN rounds — this is the piece the old estimate
-      // dropped entirely, which is why strength sessions read far too short.
+      // repeats that exercise for its set count.
       const rounds = Math.max(1, resolveRoundCount({ workoutType: 'regular' }, block));
       let roundWork = 0;
-      for (const ex of exs) roundWork += perSetWorkSeconds(ex);
+      // ~10s of setup / re-rack "white space" is real work time on every set,
+      // on top of the reps or the timer.
+      for (const ex of exs) roundWork += perSetWorkSeconds(ex) + SET_TRANSITION_SECONDS;
       const rest = parseRestServer(block?.rest);
-      totalSeconds += rounds * roundWork + Math.max(0, rounds - 1) * rest;
+      // Rest counted once PER SET (not per gap): the recovery after each set
+      // plus the transition between exercises. For 3 lifts x 5 sets at 3 min
+      // that is 15 x 3 = 45 min of rest — the bulk of a strength session, which
+      // the old estimate dropped almost entirely.
+      totalSeconds += rounds * roundWork + rounds * rest;
     }
   }
 

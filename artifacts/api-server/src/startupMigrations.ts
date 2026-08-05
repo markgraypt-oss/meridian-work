@@ -1576,21 +1576,40 @@ export async function restoreRecipeImagesFromUploadsOnce(): Promise<void> {
     ".png": "image/png", ".jpg": "image/jpeg", ".jpeg": "image/jpeg",
     ".webp": "image/webp", ".gif": "image/gif",
   };
+  const exists = async (p: string) => { try { await fs.access(p); return true; } catch { return false; } };
+
+  // The running server's cwd may be a build subdirectory, so locate the folder
+  // that actually holds the recipe uploads: walk up from cwd (plus a couple of
+  // known Repl roots) and check where the first file really is, then reuse that
+  // base for every recipe.
+  const sampleRel = String(rows.rows[0].image_url).replace(/^\//, "");
+  const roots: string[] = [];
+  {
+    let dir = process.cwd();
+    for (let i = 0; i < 8; i++) { roots.push(dir); const parent = path.resolve(dir, ".."); if (parent === dir) break; dir = parent; }
+    if (process.env.HOME) roots.push(path.join(process.env.HOME, "workspace"));
+    roots.push("/home/runner/workspace");
+  }
+  let baseDir: string | null = null;
+  let usePublic = false;
+  for (const root of roots) {
+    if (await exists(path.resolve(root, "public", sampleRel))) { baseDir = root; usePublic = true; break; }
+    if (await exists(path.resolve(root, sampleRel))) { baseDir = root; usePublic = false; break; }
+  }
+  console.log(`[startup-migration] recipe-images: cwd=${process.cwd()} home=${process.env.HOME ?? ""} baseDir=${baseDir ?? "none"} usePublic=${usePublic}`);
+  if (!baseDir) {
+    console.log("[startup-migration] recipe-images: could not locate the local uploads folder; nothing migrated");
+    return;
+  }
+
   let migrated = 0, missing = 0, errors = 0;
 
   for (const r of rows.rows) {
     const url = String(r.image_url);
     try {
       const rel = url.replace(/^\//, ""); // uploads/recipes/<file>
-      const candidates = [
-        path.resolve(process.cwd(), "public", rel),
-        path.resolve(process.cwd(), rel),
-      ];
-      let filePath: string | null = null;
-      for (const c of candidates) {
-        try { await fs.access(c); filePath = c; break; } catch {}
-      }
-      if (!filePath) { missing++; continue; }
+      const filePath = usePublic ? path.resolve(baseDir, "public", rel) : path.resolve(baseDir, rel);
+      if (!(await exists(filePath))) { missing++; continue; }
 
       const buffer = await fs.readFile(filePath);
       const contentType = ctByExt[path.extname(filePath).toLowerCase()] || "image/png";

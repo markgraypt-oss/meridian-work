@@ -3,3 +3,12 @@
 
 # No need to store the pnpm store twice.
 .local
+
+# Git history is not needed in the production image (~2.4 GB savings).
+.git
+
+# Dev-only backup files.
+.migration-backup
+
+# Build-time source assets — already bundled into dist by the build step.
+attached_assets

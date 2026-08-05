@@ -2,6 +2,8 @@ import { storage } from "./storage";
 import { pool } from "./db";
 import { ObjectStorageService, objectStorageClient } from "./replit_integrations/object_storage";
 import { randomUUID } from "crypto";
+import { promises as fs } from "fs";
+import path from "path";
 
 let hasRunProfileImages = false;
 let hasRunMeditationSeed = false;
@@ -1515,6 +1517,92 @@ export async function seedLabPathCoversOnce(): Promise<void> {
   } catch (e: any) {
     console.error("[startup-migration] lab path covers failed:", e?.message || e);
   }
+}
+
+// ── Recipe images: rescue legacy /uploads/recipes/* into Object Storage ──────
+// The original recipe photos live in the Repl's (gitignored) public/uploads/recipes
+// and uploads/recipes folders, so they were never part of the Autoscale build and
+// the deployed server can't serve them (relative /uploads/* paths fall through to
+// the SPA). This copies each still-local file into Object Storage (which the
+// deployment CAN serve) and repoints the recipe's image_url to /objects/...
+//
+// It only does anything where the local files are present (i.e. run once from the
+// Repl dev server) — the shared DB + Object Storage mean the deployed app then
+// serves the restored images. On the deployed server the files are absent, so it
+// harmlessly reports them missing and skips. Idempotent: rows already on /objects/
+// or http are left alone.
+let hasRunRecipeImageRestore = false;
+
+async function uploadBufferAsPublicRecipeImage(buffer: Buffer, contentType: string): Promise<string> {
+  const svc = new ObjectStorageService();
+  const privateDir = svc.getPrivateObjectDir();
+  const trimmedDir = privateDir.endsWith("/") ? privateDir.slice(0, -1) : privateDir;
+  const entityId = `recipe-images/${randomUUID()}`;
+  const fullPath = `${trimmedDir}/${entityId}`;
+  const parts = fullPath.replace(/^\//, "").split("/");
+  const bucketName = parts[0];
+  const objectName = parts.slice(1).join("/");
+  const file = objectStorageClient.bucket(bucketName).file(objectName);
+  await file.save(buffer, {
+    contentType,
+    metadata: {
+      contentType,
+      metadata: {
+        "custom:aclPolicy": JSON.stringify({ owner: "system", visibility: "public" }),
+      },
+    },
+    resumable: false,
+  });
+  return `/objects/${entityId}`;
+}
+
+export async function restoreRecipeImagesFromUploadsOnce(): Promise<void> {
+  if (hasRunRecipeImageRestore) return;
+  hasRunRecipeImageRestore = true;
+  if (!process.env.PRIVATE_OBJECT_DIR || !process.env.DEFAULT_OBJECT_STORAGE_BUCKET_ID) return;
+
+  let rows;
+  try {
+    rows = await pool.query(
+      `SELECT id, image_url FROM recipes WHERE image_url LIKE '/uploads/recipes/%'`,
+    );
+  } catch (e: any) {
+    console.error("[startup-migration] recipe-images restore query failed:", e?.message || e);
+    return;
+  }
+  if ((rows.rowCount ?? 0) === 0) return;
+
+  const ctByExt: Record<string, string> = {
+    ".png": "image/png", ".jpg": "image/jpeg", ".jpeg": "image/jpeg",
+    ".webp": "image/webp", ".gif": "image/gif",
+  };
+  let migrated = 0, missing = 0, errors = 0;
+
+  for (const r of rows.rows) {
+    const url = String(r.image_url);
+    try {
+      const rel = url.replace(/^\//, ""); // uploads/recipes/<file>
+      const candidates = [
+        path.resolve(process.cwd(), "public", rel),
+        path.resolve(process.cwd(), rel),
+      ];
+      let filePath: string | null = null;
+      for (const c of candidates) {
+        try { await fs.access(c); filePath = c; break; } catch {}
+      }
+      if (!filePath) { missing++; continue; }
+
+      const buffer = await fs.readFile(filePath);
+      const contentType = ctByExt[path.extname(filePath).toLowerCase()] || "image/png";
+      const objectPath = await uploadBufferAsPublicRecipeImage(buffer, contentType);
+      await pool.query(`UPDATE recipes SET image_url = $1 WHERE id = $2`, [objectPath, r.id]);
+      migrated++;
+    } catch (inner: any) {
+      errors++;
+      console.error(`[startup-migration] recipe-image restore failed for recipe ${r.id}:`, inner?.message || inner);
+    }
+  }
+  console.log(`[startup-migration] recipe-images restore done: migrated=${migrated} missingLocalFile=${missing} errors=${errors}`);
 }
 
 // ── The Lab: life-stage & onboarding sections ───────────────────────────────

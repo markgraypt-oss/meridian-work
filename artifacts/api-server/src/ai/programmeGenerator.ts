@@ -582,10 +582,13 @@ function coerceSets(ex: any): any[] {
   return Array.from({ length: count }, () => ({ ...one }));
 }
 
-function salvageWorkoutJson(text: string, inputs: WorkoutInputs): any | null {
+// Coerce a parsed model object into the schema shape. Idempotent on already-
+// correct objects. Returns the original object if it can't build any block, so
+// nothing is lost. Used both as a pre-validation transform (to save a repair
+// leg) and as a last-ditch salvage. Never throws.
+function normalizeWorkoutObject(obj: any, inputs: WorkoutInputs): any {
   try {
-    const obj = extractJsonLoose(text);
-    if (!obj || typeof obj !== "object") return null;
+    if (!obj || typeof obj !== "object") return obj;
     const blocksRaw = Array.isArray(obj.blocks)
       ? obj.blocks
       : Array.isArray(obj.exercises)
@@ -607,7 +610,7 @@ function salvageWorkoutJson(text: string, inputs: WorkoutInputs): any | null {
           .filter((e: any) => Number.isFinite(e.exerciseLibraryId) && e.exerciseLibraryId > 0),
       }))
       .filter((b: any) => b.exercises.length > 0);
-    if (blocks.length === 0) return null;
+    if (blocks.length === 0) return obj;
     const rawDur = Number.parseInt(String(obj.duration ?? inputs.duration ?? 45), 10);
     return {
       name: String(obj.name ?? obj.sessionName ?? obj.title ?? "Workout").slice(0, 80),
@@ -620,8 +623,44 @@ function salvageWorkoutJson(text: string, inputs: WorkoutInputs): any | null {
       blocks,
     };
   } catch {
-    return null;
+    return obj;
   }
+}
+
+function salvageWorkoutJson(text: string, inputs: WorkoutInputs): any | null {
+  const obj = extractJsonLoose(text);
+  if (!obj || typeof obj !== "object") return null;
+  const norm = normalizeWorkoutObject(obj, inputs);
+  return norm && Array.isArray(norm.blocks) && norm.blocks.length > 0 ? norm : null;
+}
+
+// Every set needs a rest so the session shows real recovery times, not "none".
+// Fill from the block's rest, else a sensible default keyed to the rep range.
+function normRestVal(r: any): string {
+  if (r == null) return "";
+  const s = String(r).trim();
+  if (!s || /^(none|n\/?a|0)$/i.test(s)) return "";
+  return s;
+}
+function defaultRestForReps(reps: any): string {
+  const n = Number.parseInt(String(reps ?? ""), 10);
+  if (!Number.isFinite(n)) return "90 sec"; // AMRAP / MAX / "per side"
+  if (n <= 6) return "150 sec";
+  if (n <= 12) return "90 sec";
+  return "60 sec";
+}
+function applyDefaultRest<T extends { blocks?: any[] }>(w: T): T {
+  for (const b of (w?.blocks || [])) {
+    let br = normRestVal(b?.rest);
+    if (!br) br = defaultRestForReps(b?.exercises?.[0]?.sets?.[0]?.reps);
+    b.rest = br;
+    for (const ex of (b?.exercises || [])) {
+      for (const st of (ex?.sets || [])) {
+        if (!normRestVal(st?.rest)) st.rest = br;
+      }
+    }
+  }
+  return w;
 }
 
 export async function generateWorkoutWithAI(inputs: WorkoutInputs, userId: string) {
@@ -650,6 +689,7 @@ export async function generateWorkoutWithAI(inputs: WorkoutInputs, userId: strin
     prompt: buildWorkoutPrompt(inputs, catalogueText, undefined, coachingContext),
     userId,
     schema: workoutSchema,
+    preValidate: (obj: any) => normalizeWorkoutObject(obj, inputs),
     maxTokens: 4000,
     temperature: 0.5,
     timeoutMs: 50_000,
@@ -665,6 +705,7 @@ export async function generateWorkoutWithAI(inputs: WorkoutInputs, userId: strin
         prompt: buildWorkoutPrompt(inputs, catalogueText, retryHint, coachingContext),
         userId,
         schema: workoutSchema,
+        preValidate: (obj: any) => normalizeWorkoutObject(obj, inputs),
         maxTokens: 4000,
         temperature: 0.3,
         timeoutMs: 50_000,
@@ -720,7 +761,7 @@ export async function generateWorkoutWithAI(inputs: WorkoutInputs, userId: strin
   }
   return {
     ok: true as const,
-    data: pruned,
+    data: applyDefaultRest(pruned),
     logId: result.logId,
     validationOutcome: result.validationOutcome,
     safetyFlags: result.safetyFlags,

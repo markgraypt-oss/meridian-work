@@ -20,6 +20,10 @@ export interface AiCallParams<T> {
   skipSafetyFilter?: boolean;
   // Allow eval harness to disable persistence.
   skipLogging?: boolean;
+  // Optional transform applied to the parsed JSON BEFORE schema validation, so a
+  // near-miss shape from the model can be coerced without spending a repair leg.
+  // Must be pure and never throw (wrapped defensively at the call site).
+  preValidate?: (obj: any) => any;
 }
 
 export interface AiCallResult<T> {
@@ -234,12 +238,17 @@ export async function aiCall<T = unknown>(params: AiCallParams<T>): Promise<AiCa
       completionText: rawText,
     });
 
+    const applyPre = (obj: any) => {
+      if (!params.preValidate) return obj;
+      try { return params.preValidate(obj); } catch { return obj; }
+    };
+
     if (params.schema) {
       const jsonStr = extractJson(rawText);
       if (jsonStr) {
         try {
           const obj = JSON.parse(jsonStr);
-          const result = params.schema.safeParse(obj);
+          const result = params.schema.safeParse(applyPre(obj));
           if (result.success) {
             parsed = result.data;
             validationOutcome = "valid";
@@ -272,7 +281,7 @@ export async function aiCall<T = unknown>(params: AiCallParams<T>): Promise<AiCa
           if (jsonStr2) {
             try {
               const obj = JSON.parse(jsonStr2);
-              const result = params.schema.safeParse(obj);
+              const result = params.schema.safeParse(applyPre(obj));
               if (result.success) {
                 parsed = result.data;
                 validationOutcome = "repaired";

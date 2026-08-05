@@ -18,7 +18,6 @@ import {
   Activity,
   Wind,
   Brain,
-
   Armchair,
   StretchHorizontal,
   Flower2,
@@ -29,6 +28,7 @@ import {
   LineChart,
   ClipboardCheck,
   Settings,
+  UserCheck,
 } from "lucide-react";
 
 import AdminPanel from "@/pages/admin";
@@ -54,6 +54,8 @@ import AdminBurnoutCalibration from "@/pages/admin/AdminBurnoutCalibration";
 import AdminEngagement from "@/pages/admin/AdminEngagement";
 import AdminWeeklyCheckinPreview from "@/pages/admin/AdminWeeklyCheckinPreview";
 import AdminSettings from "@/pages/admin-settings";
+import AdminClients from "@/pages/admin-clients";
+import ClientProfile from "@/pages/admin/ClientProfile";
 import NotFound from "@/pages/not-found";
 
 type NavItem = {
@@ -68,6 +70,7 @@ const NAV_ITEMS: NavItem[] = [
   { label: "Dashboard", href: "/admin", icon: LayoutDashboard },
   { label: "Companies", href: "/admin/companies", icon: Building2, group: "People" },
   { label: "Users", href: "/admin/users", icon: Users, group: "People" },
+  { label: "Clients", href: "/admin/clients", icon: UserCheck, group: "People" },
   { label: "Exercises", href: "/admin?tab=exercises", tab: "exercises", icon: Dumbbell, group: "Content" },
   { label: "Programmes", href: "/admin?tab=programs", tab: "programs", icon: Activity, group: "Content" },
   { label: "Workouts", href: "/admin?tab=workouts", tab: "workouts", icon: Flame, group: "Content" },
@@ -233,6 +236,8 @@ export default function AdminShell() {
           <Route path="/admin/settings" component={AdminSettings} />
           <Route path="/admin/outcome-editor/:id" component={AdminOutcomeEditor} />
           <Route path="/admin/users" component={AdminUsers} />
+          <Route path="/admin/clients/:userId" component={ClientProfile} />
+          <Route path="/admin/clients" component={AdminClients} />
           <Route path="/admin/companies" component={AdminCompanies} />
           <Route path="/admin/reports" component={AdminReports} />
           <Route path="/admin" component={AdminPanel} />

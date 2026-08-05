@@ -72,4 +72,17 @@ app.use((req: Request, res: Response, next: NextFunction) => {
   );
 });
 
+// Global error handler — catches anything that escapes route try/catch blocks
+// (including unhandled async throws in Express 5). Returns JSON so the client
+// always gets a parseable error body rather than Express's default plain-text
+// "Internal Server Error" response.
+app.use((err: any, _req: Request, res: Response, _next: NextFunction) => {
+  const status = err?.status ?? err?.statusCode ?? 500;
+  const message = err?.message ?? "Internal Server Error";
+  logger.error({ err, status }, "[global-error-handler]");
+  if (!res.headersSent) {
+    res.status(status).json({ message });
+  }
+});
+
 export default app;

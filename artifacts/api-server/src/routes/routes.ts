@@ -1570,18 +1570,20 @@ export async function registerRoutes(app: Express): Promise<Server> {
         row = inserted[0];
       }
       // Push + in-app notification with a deep link to the consent screen.
-      try {
-        const { notify } = await import('../notifications');
-        await notify({
-          userId: clientUserId,
-          category: 'system' as any,
-          title: "Coach access request",
-          body: "Your coach is requesting access to your progress data. Tap to review.",
-          data: { url: '/profile/privacy-security?coach-access=1', requestId: row.id },
-          force: true,
-        });
-      } catch (nerr) {
-        console.error("coach-access notify failed:", nerr);
+      if (row?.id) {
+        try {
+          const { notify } = await import('../notifications');
+          await notify({
+            userId: clientUserId,
+            category: 'admin',
+            title: "Coach access request",
+            body: "Your coach is requesting access to your progress data. Tap to review.",
+            data: { url: '/profile/privacy-security?coach-access=1', requestId: row.id },
+            force: true,
+          });
+        } catch (nerr) {
+          console.error("coach-access notify failed:", nerr);
+        }
       }
       res.status(201).json({ message: "Request sent", request: row });
     } catch (error) {

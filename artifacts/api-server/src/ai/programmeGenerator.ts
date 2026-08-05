@@ -357,10 +357,12 @@ function buildWorkoutPrompt(inputs: WorkoutInputs, catalogueText: string, retryH
     "You are an evidence-based S&C coach designing one training session for one user today.",
     "Pick exercises ONLY from the catalogue below by their numeric `exerciseLibraryId`. Never invent IDs.",
     "If the user names specific exercises or movements (e.g. deadlift, pull ups, squat, bench), you MUST include matching catalogue exercises — honouring the named movements takes priority over your default picks.",
+    "Match the requested difficulty exactly. For intermediate or advanced, pick standard or loaded variants, NOT assisted, banded-assist, or rehab/regression versions — e.g. a strict or weighted Pull Up, never a Band Assisted Pull Up; assisted and rehab variants are only for beginners.",
     "Avoid medical claims. Do not diagnose, prescribe, or describe injuries.",
     `Do NOT generate any warm-up blocks. Every block's "section" must be "main". The user will add their own warm-up.`,
     `Default to traditional sets. Use blockType "single" for standalone lifts, "superset" for two paired exercises, "triset" for three. ONLY use blockType "circuit" when the user explicitly asks for a circuit, HIIT, conditioning, or "as a circuit" style session. A plain request like "full body workout" must NOT be returned as circuits.`,
-    "Keep it focused and the JSON compact so it returns fast: 5 to 8 exercises TOTAL across all blocks (never more than 9). Set \"tempo\" and \"notes\" to null unless truly essential, keep \"description\" to one short sentence, and add no commentary anywhere.",
+    "Build a COMPLETE session that follows the COACHING METHOD below — its canonical structure (straight-set primary, then antagonist supersets, then accessory pairs, then a short core/finisher), its pairing rules, its rest hierarchy and its difficulty tiers. A typical full session is about 6 to 9 exercises; do not return a thin 4 to 5 exercise session for a full-body request.",
+    "Keep the JSON itself compact so it returns fast: set \"tempo\" and \"notes\" to null unless truly essential, keep \"description\" to one short sentence, and add no commentary anywhere (cueing lives on each exercise's own video, not in the JSON).",
     coachingContext ? coachingContext : "",
     hints,
     retryHint || "",
@@ -371,7 +373,7 @@ function buildWorkoutPrompt(inputs: WorkoutInputs, catalogueText: string, retryH
     `Exercise catalogue (${catalogueText.split("\n").length} entries shown):`,
     catalogueText,
     "",
-    "OUTPUT FORMAT — this overrides any format implied above. Return ONLY a raw JSON object: no markdown, no code fences, no prose before or after.",
+    "OUTPUT SHAPE — this governs the JSON structure ONLY; it does NOT change the exercise selection, difficulty, or session structure described above. Return ONLY a raw JSON object: no markdown, no code fences, no prose before or after.",
     "Use EXACTLY these top-level keys and no others: name, description, category, difficulty, duration, blocks.",
     'Do NOT use keys such as "sessionName", "sessionDescription", "rir", "week", or "day". The description is a short plain string, not coaching commentary.',
     'Every exercise goes inside blocks[].exercises[] and MUST use: "exerciseLibraryId" (a number from the catalogue) and "sets" (an ARRAY, one object per set), plus optional "load", "tempo", "notes".',
@@ -737,7 +739,7 @@ export async function generateWorkoutWithAI(inputs: WorkoutInputs, userId: strin
     preValidate: (obj: any) => normalizeWorkoutObject(obj, inputs),
     maxTokens: 3000,
     temperature: 0.5,
-    timeoutMs: 50_000,
+    timeoutMs: 55_000,
   });
 
   if (result.data) {
@@ -753,7 +755,7 @@ export async function generateWorkoutWithAI(inputs: WorkoutInputs, userId: strin
         preValidate: (obj: any) => normalizeWorkoutObject(obj, inputs),
         maxTokens: 3000,
         temperature: 0.3,
-        timeoutMs: 50_000,
+        timeoutMs: 55_000,
       });
       if (result.data) {
         const stillBadIds = result.data.blocks.flatMap(b => b.exercises.map(e => e.exerciseLibraryId));

@@ -565,9 +565,9 @@ export async function generateWorkoutWithAI(inputs: WorkoutInputs, userId: strin
     prompt: buildWorkoutPrompt(inputs, catalogueText, undefined, coachingContext),
     userId,
     schema: workoutSchema,
-    maxTokens: 2500,
+    maxTokens: 4000,
     temperature: 0.5,
-    timeoutMs: 45_000,
+    timeoutMs: 50_000,
   });
 
   if (result.data) {
@@ -580,9 +580,9 @@ export async function generateWorkoutWithAI(inputs: WorkoutInputs, userId: strin
         prompt: buildWorkoutPrompt(inputs, catalogueText, retryHint, coachingContext),
         userId,
         schema: workoutSchema,
-        maxTokens: 2500,
+        maxTokens: 4000,
         temperature: 0.3,
-        timeoutMs: 45_000,
+        timeoutMs: 50_000,
       });
       if (result.data) {
         const stillBadIds = result.data.blocks.flatMap(b => b.exercises.map(e => e.exerciseLibraryId));
@@ -600,9 +600,14 @@ export async function generateWorkoutWithAI(inputs: WorkoutInputs, userId: strin
   }
 
   if (!result.data) {
+    // Surface a short window of the model's actual output (start + end) so a
+    // parse failure can be diagnosed from the client instead of guessed at.
+    const raw = (result.text || "").replace(/\s+/g, " ").trim();
+    const snippet = raw.length > 320 ? `${raw.slice(0, 200)} … ${raw.slice(-120)}` : raw;
     return {
       ok: false as const,
-      error: result.error || "Workout generator failed to return valid JSON",
+      error: result.error
+        || `Workout generator failed to return valid JSON [${result.validationOutcome}] :: ${snippet || "(empty response)"}`,
       logId: result.logId,
       validationOutcome: result.validationOutcome,
     };

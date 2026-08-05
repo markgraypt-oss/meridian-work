@@ -84,6 +84,48 @@ export function filterCatalogueByContraindications(
   });
 }
 
+// Order the catalogue so exercises the user actually asked for (words in their
+// prompt / focus / goal) rank first, before it is sliced to the prompt limit.
+// Otherwise a requested move like "deadlift" or "pull up" can fall outside the
+// slice and the model never sees it.
+const RANK_STOPWORDS = new Set([
+  "functional", "strength", "workout", "moderate", "intensity", "include", "heavy",
+  "light", "full", "body", "access", "with", "that", "this", "gym", "session",
+  "training", "exercise", "minute", "minutes", "focus", "level", "want", "need",
+  "some", "more", "less", "into", "from", "your", "their", "today", "please",
+  "build", "give", "make", "based", "using", "around", "work",
+]);
+function rankStem(w: string): string {
+  return w.replace(/(ings|ing|ies|es|s)$/, "");
+}
+function rankCatalogueForPrompt(
+  catalogue: CatalogueEntry[],
+  hints: { notes?: string; focus?: string; goal?: string },
+): CatalogueEntry[] {
+  const text = `${hints.notes || ""} ${hints.focus || ""} ${hints.goal || ""}`.toLowerCase();
+  const stems = Array.from(new Set(
+    text.split(/[^a-z]+/)
+      .filter(w => w.length >= 4)
+      .map(rankStem)
+      .filter(w => w.length >= 3 && !RANK_STOPWORDS.has(w)),
+  ));
+  if (stems.length === 0) return catalogue;
+  const scoreOf = (e: CatalogueEntry) => {
+    const name = (e.name || "").toLowerCase();
+    const tags = `${(e.mainMuscle || []).join(" ")} ${(e.movement || []).join(" ")}`.toLowerCase();
+    let s = 0;
+    for (const w of stems) {
+      if (name.includes(w)) s += 3;      // requested movement in the exercise name
+      else if (tags.includes(w)) s += 1; // matches a muscle / movement tag
+    }
+    return s;
+  };
+  return catalogue
+    .map((e, i) => ({ e, s: scoreOf(e), i }))
+    .sort((a, b) => (b.s - a.s) || (a.i - b.i)) // stable within equal scores
+    .map(x => x.e);
+}
+
 function compactCatalogueForPrompt(catalogue: CatalogueEntry[], limit = 250): string {
   const slice = catalogue.slice(0, limit);
   return slice.map(e => {
@@ -314,6 +356,7 @@ function buildWorkoutPrompt(inputs: WorkoutInputs, catalogueText: string, retryH
   return [
     "You are an evidence-based S&C coach designing one training session for one user today.",
     "Pick exercises ONLY from the catalogue below by their numeric `exerciseLibraryId`. Never invent IDs.",
+    "If the user names specific exercises or movements (e.g. deadlift, pull ups, squat, bench), you MUST include matching catalogue exercises — honouring the named movements takes priority over your default picks.",
     "Avoid medical claims. Do not diagnose, prescribe, or describe injuries.",
     `Do NOT generate any warm-up blocks. Every block's "section" must be "main". The user will add their own warm-up.`,
     `Default to traditional sets. Use blockType "single" for standalone lifts, "superset" for two paired exercises, "triset" for three. ONLY use blockType "circuit" when the user explicitly asks for a circuit, HIIT, conditioning, or "as a circuit" style session. A plain request like "full body workout" must NOT be returned as circuits.`,
@@ -673,7 +716,8 @@ export async function generateWorkoutWithAI(inputs: WorkoutInputs, userId: strin
     inputs.avoidExerciseIds || [],
   );
   const validIds = new Set(filtered.map(c => c.id));
-  const catalogueText = compactCatalogueForPrompt(filtered);
+  const ranked = rankCatalogueForPrompt(filtered, { notes: inputs.notes, focus: inputs.focus, goal: inputs.goal });
+  const catalogueText = compactCatalogueForPrompt(ranked);
 
   const workoutSchema = generatedWorkoutSchema as unknown as z.ZodType<GeneratedWorkout>;
 

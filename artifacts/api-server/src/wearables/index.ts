@@ -1,6 +1,6 @@
 import { db } from "../db";
 import { wearableConnections, wearableMetricsDaily, wearableSyncLogs, wearableWorkouts, stepEntries, habits, habitCompletions, type WearableConnection, type WearableMetricsDaily, type WearableWorkout } from "@workspace/db";
-import type { NormalisedDailyMetrics, WearableAdapter, WearableProvider } from "./types";
+import type { NormalisedDailyMetrics, OAuthTokens, WearableAdapter, WearableProvider } from "./types";
 import { ouraAdapter } from "./oura";
 import { whoopAdapter } from "./whoop";
 import { googleFitAdapter } from "./googleFit";
@@ -294,7 +294,15 @@ async function refreshIfNeeded(conn: WearableConnection, adapter: WearableAdapte
     // connection id makes every instance take turns: the first refreshes,
     // the rest wake, re-read, and reuse the fresh token.
     let notifyDisconnect = false;
-    const token = await db.transaction(async (tx) => {
+    // If WHOOP rotates the token but the DATABASE fails at the save step (a
+    // dropped connection — see db.ts), the fresh tokens exist only in memory:
+    // losing them leaves the consumed token in the DB, the next refresh
+    // replays it, and the provider revokes the whole family. Capture the
+    // rotated tokens here and persist them AT ALL COSTS below.
+    let unsavedFresh: OAuthTokens | null = null;
+    let token: string | null = null;
+    try {
+    token = await db.transaction(async (tx) => {
     await tx.execute(sql`SELECT pg_advisory_xact_lock(42117, ${conn.id})`);
 
     // Re-read inside the lock: another worker (this instance or any other)
@@ -325,6 +333,9 @@ async function refreshIfNeeded(conn: WearableConnection, adapter: WearableAdapte
           setTimeout(() => reject(new Error("refresh timed out after 20s")), 20_000),
         ),
       ]);
+      // Rotation happened at the provider. From this moment the fresh tokens
+      // MUST reach the DB or the family dies — track them until saved.
+      unsavedFresh = { ...fresh, refreshToken: fresh.refreshToken ?? refreshToken };
       await tx.update(wearableConnections).set({
         accessTokenEnc: encryptToken(fresh.accessToken),
         refreshTokenEnc: encryptToken(fresh.refreshToken ?? refreshToken),
@@ -332,6 +343,7 @@ async function refreshIfNeeded(conn: WearableConnection, adapter: WearableAdapte
         status: "connected",
         updatedAt: new Date(),
       }).where(eq(wearableConnections.id, conn.id));
+      unsavedFresh = null; // saved inside the transaction
       return fresh.accessToken;
     } catch (err: any) {
       const msg = String(err?.message || err);
@@ -347,10 +359,14 @@ async function refreshIfNeeded(conn: WearableConnection, adapter: WearableAdapte
         // token family — the encrypted string always changes on rewrite
         // (random IVs). Never stamp needs_reauth over a fresh reconnect;
         // skip, and the next sync uses the new tokens.
+        // Second look after a short delay: a re-auth callback OR another
+        // worker's post-failure save-retry may have landed new tokens while
+        // our doomed call was in flight. Never condemn over a stale read.
+        await new Promise((r) => setTimeout(r, 3000));
         const [latest] = await tx.select().from(wearableConnections).where(eq(wearableConnections.id, conn.id));
-        if (latest && latest.refreshTokenEnc !== (cur ?? conn).refreshTokenEnc) {
-          console.log(`[wearables] refresh failed but tokens were replaced mid-flight (re-auth) — not condemning conn ${conn.id}`);
-          return null;
+        if (latest && (latest.refreshTokenEnc !== (cur ?? conn).refreshTokenEnc || !tokenExpired(latest))) {
+          console.log(`[wearables] refresh failed but row has newer/valid tokens — not condemning conn ${conn.id}`);
+          return decryptToken(latest.accessTokenEnc);
         }
         await tx.update(wearableConnections)
           .set({ status: "needs_reauth", lastSyncStatus: "error", lastSyncError: msg })
@@ -367,6 +383,38 @@ async function refreshIfNeeded(conn: WearableConnection, adapter: WearableAdapte
       return null;
     }
     });
+    } catch (txErr: any) {
+      // The transaction itself died (DB connection drop mid-refresh).
+      console.error(`[wearables] refresh transaction failed for conn ${conn.id}:`, txErr?.message || txErr);
+    }
+
+    // Persist-at-all-costs: if the provider rotated the token but the
+    // transaction failed before the save committed, write the fresh tokens
+    // with plain retries on new connections. Give up only after 5 attempts —
+    // and even then DO NOT condemn (transient), so the next tick can still
+    // recover.
+    if (unsavedFresh) {
+      for (let attempt = 1; attempt <= 5 && unsavedFresh; attempt++) {
+        try {
+          await db.update(wearableConnections).set({
+            accessTokenEnc: encryptToken(unsavedFresh.accessToken),
+            refreshTokenEnc: encryptToken(unsavedFresh.refreshToken ?? null),
+            tokenExpiresAt: unsavedFresh.expiresAt ?? null,
+            status: "connected",
+            updatedAt: new Date(),
+          }).where(eq(wearableConnections.id, conn.id));
+          token = unsavedFresh.accessToken;
+          console.log(`[wearables] persisted rotated token for conn ${conn.id} on retry ${attempt}`);
+          unsavedFresh = null;
+        } catch (e: any) {
+          console.error(`[wearables] token save retry ${attempt} failed for conn ${conn.id}:`, e?.message || e);
+          await new Promise((r) => setTimeout(r, 2000));
+        }
+      }
+      if (unsavedFresh) {
+        console.error(`[wearables] CRITICAL: rotated token for conn ${conn.id} could not be persisted after 5 retries`);
+      }
+    }
 
     if (notifyDisconnect) {
       try {

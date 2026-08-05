@@ -53,7 +53,18 @@ app.use((req: Request, res: Response, next: NextFunction) => {
   return largeBodyIpLimit(req, res, next);
 });
 
+// Webhook endpoints verify an HMAC signature over the EXACT raw bytes, so the
+// global JSON parser must not touch them — it was consuming the stream and
+// handing the route a parsed Object, which made Buffer.from() throw and every
+// WHOOP/Oura webhook crash before it could trigger a sync (broken since the
+// webhooks shipped). These paths use their own express.raw() at the route.
+const RAW_BODY_PATHS = [
+  "/api/wearables/whoop/webhook",
+  "/api/wearables/oura/webhook",
+];
+
 app.use((req: Request, res: Response, next: NextFunction) => {
+  if (RAW_BODY_PATHS.includes(req.path)) return next();
   const isLarge = LARGE_BODY_PATHS.some((p) => req.path.startsWith(p));
   const limit = isLarge ? "12mb" : "2mb";
   return express.json({ limit })(req, res, () =>

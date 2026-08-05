@@ -2079,9 +2079,17 @@ export async function registerRoutes(app: Express): Promise<Server> {
         }).catch(err => console.error('[recommendations.generated] notify failed:', err));
       }
 
+      // Offer a choice: the best-match path first, then other active paths (up
+      // to 3 total) so the user actually picks one rather than being shown a
+      // single option.
+      const learningPathChoices = [
+        recommendedPath,
+        ...activePaths.filter((p: any) => p && p.id !== recommendedPath?.id),
+      ].filter(Boolean).slice(0, 3);
+
       res.json({
         programmes: recommendedPrograms,
-        learningPaths: recommendedPath ? [recommendedPath] : [],
+        learningPaths: learningPathChoices,
         habits: recommendedHabits,
         aiPowered: aiUsed,
       });

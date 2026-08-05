@@ -12,6 +12,10 @@ import {
   Dumbbell,
   Apple,
   ShieldAlert,
+  Flame,
+  Ruler,
+  Camera,
+  Star,
 } from "lucide-react";
 import {
   ResponsiveContainer,
@@ -99,6 +103,10 @@ export default function ClientProfile() {
     queryKey: [`/api/admin/coach-access/clients/${userId}/readiness`],
     enabled: isGranted,
   });
+  const { data: caloricIntake } = useQuery<DataPoint[]>({
+    queryKey: [`/api/admin/coach-access/clients/${userId}/caloric-intake`],
+    enabled: isGranted,
+  });
 
   if (!isGranted) {
     return (
@@ -134,6 +142,7 @@ export default function ClientProfile() {
         <Badge className="bg-emerald-100 text-emerald-700 border-emerald-200">Access granted</Badge>
       </div>
 
+      {/* Charts row 1: bodyweight + steps */}
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
         <MiniChart
           title="Bodyweight (90 days)"
@@ -149,6 +158,10 @@ export default function ClientProfile() {
           unit=""
           color="#10b981"
         />
+      </div>
+
+      {/* Charts row 2: sleep + readiness */}
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
         <MiniChart
           title="Sleep (30 days)"
           icon={Moon}
@@ -165,6 +178,16 @@ export default function ClientProfile() {
         />
       </div>
 
+      {/* Caloric intake chart */}
+      <MiniChart
+        title="Caloric intake (30 days)"
+        icon={Flame}
+        data={caloricIntake ?? []}
+        unit=" kcal"
+        color="#ef4444"
+      />
+
+      {/* Workouts + Nutrition tables */}
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
         <Card>
           <CardHeader className="pb-2">
@@ -190,6 +213,32 @@ export default function ClientProfile() {
           </CardContent>
         </Card>
       </div>
+
+      {/* Body measurements table */}
+      <Card>
+        <CardHeader className="pb-2">
+          <CardTitle className="text-sm font-medium flex items-center gap-2 text-muted-foreground">
+            <Ruler className="h-4 w-4" />
+            Body measurements
+          </CardTitle>
+        </CardHeader>
+        <CardContent>
+          <MeasurementsTable userId={userId!} enabled={isGranted} />
+        </CardContent>
+      </Card>
+
+      {/* Progress photos */}
+      <Card>
+        <CardHeader className="pb-2">
+          <CardTitle className="text-sm font-medium flex items-center gap-2 text-muted-foreground">
+            <Camera className="h-4 w-4" />
+            Progress photos
+          </CardTitle>
+        </CardHeader>
+        <CardContent>
+          <PhotosGrid userId={userId!} enabled={isGranted} />
+        </CardContent>
+      </Card>
     </div>
   );
 }
@@ -208,14 +257,18 @@ function WorkoutTable({ userId, enabled }: { userId: string; enabled: boolean })
           <th className="text-left pb-1 font-medium">Date</th>
           <th className="text-left pb-1 font-medium">Name</th>
           <th className="text-right pb-1 font-medium">Mins</th>
+          <th className="text-right pb-1 font-medium">
+            <Star className="h-3 w-3 inline" />
+          </th>
         </tr>
       </thead>
       <tbody>
-        {data.slice(0, 8).map((w, i) => (
+        {data.slice(0, 10).map((w, i) => (
           <tr key={i} className="border-b border-border/50 last:border-0">
             <td className="py-1 text-muted-foreground">{String(w.date ?? "").slice(0, 10)}</td>
             <td className="py-1 truncate max-w-[120px]">{w.name ?? "Workout"}</td>
             <td className="py-1 text-right">{w.durationMinutes ?? "—"}</td>
+            <td className="py-1 text-right">{w.rating ?? "—"}</td>
           </tr>
         ))}
       </tbody>
@@ -249,5 +302,103 @@ function NutritionTable({ userId, enabled }: { userId: string; enabled: boolean 
         ))}
       </tbody>
     </table>
+  );
+}
+
+function MeasurementsTable({ userId, enabled }: { userId: string; enabled: boolean }) {
+  const { data } = useQuery<any[]>({
+    queryKey: [`/api/admin/coach-access/clients/${userId}/measurements`],
+    enabled,
+  });
+  if (!data || data.length === 0)
+    return <p className="text-xs text-muted-foreground text-center py-4">No measurements logged</p>;
+
+  // Show the columns that have any data
+  const cols: { key: string; label: string }[] = [
+    { key: "waist", label: "Waist" },
+    { key: "chest", label: "Chest" },
+    { key: "hips", label: "Hips" },
+    { key: "neck", label: "Neck" },
+    { key: "shoulders", label: "Shoulders" },
+    { key: "leftBicep", label: "L Bicep" },
+    { key: "rightBicep", label: "R Bicep" },
+    { key: "leftThigh", label: "L Thigh" },
+    { key: "rightThigh", label: "R Thigh" },
+    { key: "leftCalf", label: "L Calf" },
+    { key: "rightCalf", label: "R Calf" },
+  ].filter(c => data.some(r => r[c.key] != null));
+
+  return (
+    <div className="overflow-x-auto">
+      <table className="w-full text-xs">
+        <thead>
+          <tr className="text-muted-foreground border-b border-border">
+            <th className="text-left pb-1 font-medium whitespace-nowrap pr-3">Date</th>
+            {cols.map(c => (
+              <th key={c.key} className="text-right pb-1 font-medium whitespace-nowrap px-1">{c.label}</th>
+            ))}
+          </tr>
+        </thead>
+        <tbody>
+          {data.slice(0, 10).map((m, i) => (
+            <tr key={i} className="border-b border-border/50 last:border-0">
+              <td className="py-1 text-muted-foreground pr-3 whitespace-nowrap">
+                {String(m.date ?? "").slice(0, 10)}
+              </td>
+              {cols.map(c => (
+                <td key={c.key} className="py-1 text-right px-1">
+                  {m[c.key] != null ? `${m[c.key]}cm` : "—"}
+                </td>
+              ))}
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
+function PhotosGrid({ userId, enabled }: { userId: string; enabled: boolean }) {
+  const { data } = useQuery<any[]>({
+    queryKey: [`/api/admin/coach-access/clients/${userId}/photos`],
+    enabled,
+  });
+  if (!data || data.length === 0)
+    return <p className="text-xs text-muted-foreground text-center py-4">No progress photos uploaded</p>;
+
+  // Group by photoSetId to show sets together
+  const setMap = new Map<string, any[]>();
+  for (const p of data) {
+    const arr = setMap.get(p.photoSetId) ?? [];
+    arr.push(p);
+    setMap.set(p.photoSetId, arr);
+  }
+  const sets = Array.from(setMap.entries()).slice(0, 8);
+
+  return (
+    <div className="space-y-4">
+      {sets.map(([setId, photos]) => (
+        <div key={setId}>
+          <p className="text-xs text-muted-foreground mb-2">
+            {String(photos[0]?.date ?? "").slice(0, 10)}
+          </p>
+          <div className="flex gap-2 flex-wrap">
+            {photos.map((p: any) => (
+              <div key={p.id} className="relative group">
+                <img
+                  src={p.imageUrl}
+                  alt={p.category}
+                  className="h-32 w-24 object-cover rounded-md border border-border"
+                  onError={(e) => { (e.target as HTMLImageElement).style.display = "none"; }}
+                />
+                <span className="absolute bottom-1 left-1 text-[10px] bg-black/60 text-white rounded px-1">
+                  {p.category}
+                </span>
+              </div>
+            ))}
+          </div>
+        </div>
+      ))}
+    </div>
   );
 }

@@ -245,7 +245,7 @@ function parseIdParam(s: string | undefined): number | null {
   return Number.isFinite(n) && n > 0 ? n : null;
 }
 import { eq, and, like, inArray, desc, or, isNull, asc, gte, lte, lt, sql } from "drizzle-orm";
-import { users, userProgramEnrollments, programWeeks, programDays, programmeWorkouts, programmeWorkoutBlocks, pathContentItems, topicContentItems, learningPaths, programmeModificationRecords, exerciseSubstitutionMappings, programmeBlockExercises, enrollmentWorkouts, enrollmentWorkoutBlocks, enrollmentBlockExercises, programs, userExtraWorkoutSessions, scheduledWorkouts, workoutLogs, learnContentLibrary, exerciseLibrary, workoutExerciseLogs, workoutSetLogs, aiFeedback, workouts, workoutBlocks, blockExercises, stepEntries, sleepEntries, bodyweightEntries, bodyFatEntries, restingHREntries, caloricBurnEntries, exerciseMinutesEntries, bloodPressureEntries, leanBodyMassEntries, caloricIntakeEntries, hydrationLogs, habitCompletions, habits, wearableMetricsDaily, wearableConnections } from "@workspace/db";
+import { users, userProgramEnrollments, programWeeks, programDays, programmeWorkouts, programmeWorkoutBlocks, pathContentItems, topicContentItems, learningPaths, programmeModificationRecords, exerciseSubstitutionMappings, programmeBlockExercises, enrollmentWorkouts, enrollmentWorkoutBlocks, enrollmentBlockExercises, programs, userExtraWorkoutSessions, scheduledWorkouts, workoutLogs, learnContentLibrary, exerciseLibrary, workoutExerciseLogs, workoutSetLogs, aiFeedback, workouts, workoutBlocks, blockExercises, stepEntries, sleepEntries, bodyweightEntries, bodyFatEntries, restingHREntries, caloricBurnEntries, exerciseMinutesEntries, bloodPressureEntries, leanBodyMassEntries, caloricIntakeEntries, hydrationLogs, habitCompletions, habits, wearableMetricsDaily, wearableConnections, progressPictures, bodyMeasurements, dailyReadinessHistory } from "@workspace/db";
 import { calculateProgramEquipment, updateProgramEquipmentAuto } from "../equipmentDetection";
 import multer from "multer";
 import path from "path";
@@ -1614,6 +1614,156 @@ export async function registerRoutes(app: Express): Promise<Server> {
       console.error("Error listing coach-access clients:", error);
       res.status(500).json({ message: "Failed to list clients" });
     }
+  });
+
+  // ── Helper: verify granted coach access before serving client data ───────
+  async function requireGrantedAccess(clientUserId: string, res: any): Promise<boolean> {
+    const [row] = await db.select({ status: coachAccessRequests.status })
+      .from(coachAccessRequests)
+      .where(eq(coachAccessRequests.clientUserId, clientUserId))
+      .orderBy(desc(coachAccessRequests.requestedAt))
+      .limit(1);
+    if (!row || row.status !== 'granted') {
+      res.status(403).json({ message: "Coach access not granted" });
+      return false;
+    }
+    return true;
+  }
+
+  // ── Per-client data endpoints (admin-only, require granted access) ────────
+
+  app.get('/api/admin/coach-access/clients/:userId/bodyweight', isAuthenticated, requireAdmin, async (req: any, res) => {
+    try {
+      const { userId } = req.params;
+      if (!await requireGrantedAccess(userId, res)) return;
+      const cutoff = new Date(); cutoff.setDate(cutoff.getDate() - 90);
+      const rows = await db.select({ date: bodyweightEntries.date, value: bodyweightEntries.weight })
+        .from(bodyweightEntries)
+        .where(and(eq(bodyweightEntries.userId, userId), gte(bodyweightEntries.date, cutoff)))
+        .orderBy(asc(bodyweightEntries.date));
+      res.json(rows.map(r => ({ date: String(r.date).slice(0, 10), value: r.value })));
+    } catch (e) { console.error(e); res.status(500).json({ message: "Failed" }); }
+  });
+
+  app.get('/api/admin/coach-access/clients/:userId/steps', isAuthenticated, requireAdmin, async (req: any, res) => {
+    try {
+      const { userId } = req.params;
+      if (!await requireGrantedAccess(userId, res)) return;
+      const cutoff = new Date(); cutoff.setDate(cutoff.getDate() - 30);
+      const rows = await db.select({ date: stepEntries.date, value: stepEntries.steps })
+        .from(stepEntries)
+        .where(and(eq(stepEntries.userId, userId), gte(stepEntries.date, cutoff)))
+        .orderBy(asc(stepEntries.date));
+      res.json(rows.map(r => ({ date: String(r.date).slice(0, 10), value: r.value })));
+    } catch (e) { console.error(e); res.status(500).json({ message: "Failed" }); }
+  });
+
+  app.get('/api/admin/coach-access/clients/:userId/sleep', isAuthenticated, requireAdmin, async (req: any, res) => {
+    try {
+      const { userId } = req.params;
+      if (!await requireGrantedAccess(userId, res)) return;
+      const cutoff = new Date(); cutoff.setDate(cutoff.getDate() - 30);
+      const rows = await db.select({ date: sleepEntries.date, mins: sleepEntries.durationMinutes })
+        .from(sleepEntries)
+        .where(and(eq(sleepEntries.userId, userId), gte(sleepEntries.date, cutoff)))
+        .orderBy(asc(sleepEntries.date));
+      res.json(rows.map(r => ({ date: String(r.date).slice(0, 10), value: Math.round((r.mins / 60) * 10) / 10 })));
+    } catch (e) { console.error(e); res.status(500).json({ message: "Failed" }); }
+  });
+
+  app.get('/api/admin/coach-access/clients/:userId/readiness', isAuthenticated, requireAdmin, async (req: any, res) => {
+    try {
+      const { userId } = req.params;
+      if (!await requireGrantedAccess(userId, res)) return;
+      const cutoff = new Date(); cutoff.setDate(cutoff.getDate() - 30);
+      const cutoffStr = cutoff.toISOString().slice(0, 10);
+      const rows = await db.select({ date: dailyReadinessHistory.date, score: dailyReadinessHistory.score })
+        .from(dailyReadinessHistory)
+        .where(and(eq(dailyReadinessHistory.userId, userId), gte(dailyReadinessHistory.date, cutoffStr)))
+        .orderBy(asc(dailyReadinessHistory.date));
+      res.json(rows.filter(r => r.score != null).map(r => ({ date: r.date, value: r.score })));
+    } catch (e) { console.error(e); res.status(500).json({ message: "Failed" }); }
+  });
+
+  app.get('/api/admin/coach-access/clients/:userId/workouts', isAuthenticated, requireAdmin, async (req: any, res) => {
+    try {
+      const { userId } = req.params;
+      if (!await requireGrantedAccess(userId, res)) return;
+      const rows = await db.select({
+          id: workoutLogs.id,
+          date: workoutLogs.completedAt,
+          name: workoutLogs.workoutName,
+          durationMinutes: workoutLogs.duration,
+          rating: workoutLogs.workoutRating,
+        })
+        .from(workoutLogs)
+        .where(and(eq(workoutLogs.userId, userId), eq(workoutLogs.status, 'completed')))
+        .orderBy(desc(workoutLogs.completedAt))
+        .limit(20);
+      res.json(rows.map(r => ({
+        ...r,
+        date: r.date ? String(r.date).slice(0, 10) : null,
+        durationMinutes: r.durationMinutes ? Math.round(r.durationMinutes / 60) : null,
+      })));
+    } catch (e) { console.error(e); res.status(500).json({ message: "Failed" }); }
+  });
+
+  app.get('/api/admin/coach-access/clients/:userId/nutrition', isAuthenticated, requireAdmin, async (req: any, res) => {
+    try {
+      const { userId } = req.params;
+      if (!await requireGrantedAccess(userId, res)) return;
+      const cutoff = new Date(); cutoff.setDate(cutoff.getDate() - 30);
+      // Aggregate food_logs by date
+      const rows = await db.select({
+          date: sql<string>`DATE(${foodLogs.date})`.as('date'),
+          calories: sql<number>`SUM(${foodLogs.calories})`.as('calories'),
+          protein: sql<number>`ROUND(SUM(${foodLogs.protein})::numeric, 1)`.as('protein'),
+        })
+        .from(foodLogs)
+        .where(and(eq(foodLogs.userId, userId), gte(foodLogs.date, cutoff)))
+        .groupBy(sql`DATE(${foodLogs.date})`)
+        .orderBy(sql`DATE(${foodLogs.date})`);
+      res.json(rows);
+    } catch (e) { console.error(e); res.status(500).json({ message: "Failed" }); }
+  });
+
+  app.get('/api/admin/coach-access/clients/:userId/caloric-intake', isAuthenticated, requireAdmin, async (req: any, res) => {
+    try {
+      const { userId } = req.params;
+      if (!await requireGrantedAccess(userId, res)) return;
+      const cutoff = new Date(); cutoff.setDate(cutoff.getDate() - 30);
+      const rows = await db.select({ date: caloricIntakeEntries.date, value: caloricIntakeEntries.calories })
+        .from(caloricIntakeEntries)
+        .where(and(eq(caloricIntakeEntries.userId, userId), gte(caloricIntakeEntries.date, cutoff)))
+        .orderBy(asc(caloricIntakeEntries.date));
+      res.json(rows.map(r => ({ date: String(r.date).slice(0, 10), value: r.value })));
+    } catch (e) { console.error(e); res.status(500).json({ message: "Failed" }); }
+  });
+
+  app.get('/api/admin/coach-access/clients/:userId/photos', isAuthenticated, requireAdmin, async (req: any, res) => {
+    try {
+      const { userId } = req.params;
+      if (!await requireGrantedAccess(userId, res)) return;
+      const rows = await db.select()
+        .from(progressPictures)
+        .where(eq(progressPictures.userId, userId))
+        .orderBy(desc(progressPictures.date))
+        .limit(30);
+      res.json(rows);
+    } catch (e) { console.error(e); res.status(500).json({ message: "Failed" }); }
+  });
+
+  app.get('/api/admin/coach-access/clients/:userId/measurements', isAuthenticated, requireAdmin, async (req: any, res) => {
+    try {
+      const { userId } = req.params;
+      if (!await requireGrantedAccess(userId, res)) return;
+      const rows = await db.select()
+        .from(bodyMeasurements)
+        .where(eq(bodyMeasurements.userId, userId))
+        .orderBy(desc(bodyMeasurements.date))
+        .limit(20);
+      res.json(rows);
+    } catch (e) { console.error(e); res.status(500).json({ message: "Failed" }); }
   });
 
   app.post('/api/users/me/timezone', isAuthenticated, async (req: any, res) => {

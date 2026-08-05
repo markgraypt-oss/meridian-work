@@ -5872,7 +5872,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         workoutStyle: workoutType || 'regular',
         status: 'pending',
         startedAt: new Date(date),
-        duration: estimatedMinutes, // Store in minutes
+        duration: estimatedMinutes * 60, // stored in SECONDS (every reader divides by 60)
         intervalRounds: (workoutType === 'interval' || workoutType === 'circuit') ? (intervalRounds || 3) : null,
       });
 
@@ -6074,9 +6074,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
         }
         const heuristicMinutes = Math.max(5, Math.round(estimatedDuration / 60));
         const hintRaw = parseInt(String(durationHint ?? ''), 10);
-        updateData.duration = Number.isFinite(hintRaw) && hintRaw >= 5
+        updateData.duration = (Number.isFinite(hintRaw) && hintRaw >= 5
           ? Math.min(180, hintRaw)
-          : heuristicMinutes;
+          : heuristicMinutes) * 60; // stored in SECONDS (every reader divides by 60)
       }
 
       if (Object.keys(updateData).length > 0) {

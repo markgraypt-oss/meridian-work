@@ -5,27 +5,11 @@ import runtimeErrorOverlay from "@replit/vite-plugin-runtime-error-modal";
 import autoprefixer from "autoprefixer";
 import tailwindcss from "tailwindcss";
 
-const rawPort = process.env.PORT;
-
-if (!rawPort) {
-  throw new Error(
-    "PORT environment variable is required but was not provided.",
-  );
-}
-
-const port = Number(rawPort);
-
-if (Number.isNaN(port) || port <= 0) {
-  throw new Error(`Invalid PORT value: "${rawPort}"`);
-}
-
-const basePath = process.env.BASE_PATH;
-
-if (!basePath) {
-  throw new Error(
-    "BASE_PATH environment variable is required but was not provided.",
-  );
-}
+// PORT and BASE_PATH are required at dev/preview time but not during `vite build`
+// (Replit only injects [services.env] vars for the dev server, not the build command).
+// Fall back to the values from artifact.toml so production builds succeed.
+const port = Number(process.env.PORT ?? "18722");
+const basePath = process.env.BASE_PATH ?? "/";
 
 export default defineConfig({
   base: basePath,

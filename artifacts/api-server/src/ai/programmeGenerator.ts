@@ -317,6 +317,7 @@ function buildWorkoutPrompt(inputs: WorkoutInputs, catalogueText: string, retryH
     "Avoid medical claims. Do not diagnose, prescribe, or describe injuries.",
     `Do NOT generate any warm-up blocks. Every block's "section" must be "main". The user will add their own warm-up.`,
     `Default to traditional sets. Use blockType "single" for standalone lifts, "superset" for two paired exercises, "triset" for three. ONLY use blockType "circuit" when the user explicitly asks for a circuit, HIIT, conditioning, or "as a circuit" style session. A plain request like "full body workout" must NOT be returned as circuits.`,
+    "Keep it focused and the JSON compact so it returns fast: 5 to 8 exercises TOTAL across all blocks (never more than 9). Set \"tempo\" and \"notes\" to null unless truly essential, keep \"description\" to one short sentence, and add no commentary anywhere.",
     coachingContext ? coachingContext : "",
     hints,
     retryHint || "",
@@ -690,7 +691,7 @@ export async function generateWorkoutWithAI(inputs: WorkoutInputs, userId: strin
     userId,
     schema: workoutSchema,
     preValidate: (obj: any) => normalizeWorkoutObject(obj, inputs),
-    maxTokens: 4000,
+    maxTokens: 3000,
     temperature: 0.5,
     timeoutMs: 50_000,
   });
@@ -706,7 +707,7 @@ export async function generateWorkoutWithAI(inputs: WorkoutInputs, userId: strin
         userId,
         schema: workoutSchema,
         preValidate: (obj: any) => normalizeWorkoutObject(obj, inputs),
-        maxTokens: 4000,
+        maxTokens: 3000,
         temperature: 0.3,
         timeoutMs: 50_000,
       });
@@ -962,7 +963,7 @@ export async function regenerateProgrammeSection(args: RegenerateSectionArgs, us
     prompt: buildRegenerateDayPrompt(args, catalogueText, contextSummary),
     userId,
     schema: daySchema,
-    maxTokens: 4000,
+    maxTokens: 3000,
     temperature: 0.4,
     timeoutMs: 60_000,
   });
@@ -976,7 +977,7 @@ export async function regenerateProgrammeSection(args: RegenerateSectionArgs, us
         prompt: buildRegenerateDayPrompt(args, catalogueText, contextSummary, retryHint),
         userId,
         schema: daySchema,
-        maxTokens: 4000,
+        maxTokens: 3000,
         temperature: 0.2,
         timeoutMs: 60_000,
       });

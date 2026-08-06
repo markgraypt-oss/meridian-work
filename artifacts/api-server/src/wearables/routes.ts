@@ -116,12 +116,16 @@ export function registerWearableRoutes(app: Express) {
           return;
         }
 
+        // AUTOSCALE RULE: finish the syncs BEFORE the ack (see WHOOP handler).
         const conns = await getConnectionsByProvider("oura");
         for (const conn of conns) {
           if (conn.status !== "connected" && conn.status !== "needs_reauth") continue;
-          syncProvider(conn.userId, "oura", { trigger: "webhook", days: 2 })
-            .then(() => console.log(`[oura-webhook] synced ${conn.userId} (${dt || evt?.event_type})`))
-            .catch((e) => console.error("[oura-webhook] sync failed:", e?.message));
+          try {
+            await syncProvider(conn.userId, "oura", { trigger: "webhook", days: 2 });
+            console.log(`[oura-webhook] synced ${conn.userId} (${dt || evt?.event_type})`);
+          } catch (e: any) {
+            console.error("[oura-webhook] sync failed:", e?.message);
+          }
         }
       } catch (err: any) {
         console.error("[oura-webhook] handler error:", err?.message);
@@ -196,22 +200,28 @@ export function registerWearableRoutes(app: Express) {
           return res.status(401).json({ message: "Bad signature" });
         }
 
-        // Ack immediately; do the sync in the background so WHOOP doesn't retry
-        // on our processing time.
-        res.status(200).json({ ok: true });
-
+        // AUTOSCALE RULE: do ALL work BEFORE responding. This deployment is
+        // autoscale — CPU is only guaranteed while a request is in flight.
+        // Background work after the ack gets frozen mid-operation, and a
+        // freeze during a token refresh loses the rotated token and gets the
+        // whole family revoked (the overnight disconnects). WHOOP tolerates a
+        // few seconds and retries politely; the sync is idempotent + locked.
         const evt = JSON.parse(raw.toString("utf8"));
         const whoopUserId = evt?.user_id != null ? String(evt.user_id) : null;
-        if (!whoopUserId) return;
+        if (!whoopUserId) return res.status(200).json({ ok: true });
 
         const conn = await getConnectionByProviderUser("whoop", whoopUserId);
         if (!conn) {
           console.warn(`[whoop-webhook] no connection for whoop user_id ${whoopUserId}`);
-          return;
+          return res.status(200).json({ ok: true });
         }
-        syncProvider(conn.userId, "whoop", { trigger: "webhook", days: 2 })
-          .then(() => console.log(`[whoop-webhook] synced ${conn.userId} (${evt?.type})`))
-          .catch((e) => console.error("[whoop-webhook] sync failed:", e?.message));
+        try {
+          await syncProvider(conn.userId, "whoop", { trigger: "webhook", days: 2 });
+          console.log(`[whoop-webhook] synced ${conn.userId} (${evt?.type})`);
+        } catch (e: any) {
+          console.error("[whoop-webhook] sync failed:", e?.message);
+        }
+        res.status(200).json({ ok: true });
       } catch (err: any) {
         console.error("[whoop-webhook] handler error:", err?.message);
         if (!res.headersSent) res.status(200).json({ ok: true });
@@ -444,9 +454,13 @@ export function registerWearableRoutes(app: Express) {
         if (conn.status === "disconnected") continue;
         const last = conn.lastSyncAt ? new Date(conn.lastSyncAt).getTime() : 0;
         if (Date.now() - last < PIGGYBACK_MIN_GAP_MS) continue;
-        // Fire-and-forget: never delay or fail the mobile sync response.
-        syncProvider(userId, conn.provider as WearableProvider, { trigger: "mobile_piggyback", days: 3 })
-          .catch((e) => console.error(`[wearables] piggyback ${conn.provider} sync failed:`, e?.message || e));
+        // Awaited: on autoscale the process may freeze the moment the HTTP
+        // response goes out, so the refresh must complete inside the request.
+        try {
+          await syncProvider(userId, conn.provider as WearableProvider, { trigger: "mobile_piggyback", days: 3 });
+        } catch (e: any) {
+          console.error(`[wearables] piggyback ${conn.provider} sync failed:`, e?.message || e);
+        }
       }
     } catch (e: any) {
       console.error("[wearables] piggyback check failed:", e?.message || e);
@@ -499,8 +513,10 @@ export function registerWearableRoutes(app: Express) {
       console.log(`[wearables] apple-health/sync user=${userId} days=${daysWritten} workouts=${workoutsWritten}`);
 
       // Pull WHOOP/Oura now so they are as fresh as the Apple data that just
-      // arrived (fire-and-forget; see piggybackOauthSync above).
-      piggybackOauthSync(userId);
+      // arrived. AWAITED: on autoscale, background work after the response can
+      // be frozen mid-token-refresh, which kills the token family. Usually a
+      // no-op (10-min guard); costs a couple of seconds when it fires.
+      await piggybackOauthSync(userId);
 
       res.json({ daysWritten, workoutsWritten, latestSyncedDate });
     } catch (err: any) {
@@ -589,8 +605,8 @@ export function registerWearableRoutes(app: Express) {
 
       console.log(`[wearables] health-connect/sync user=${userId} days=${daysWritten} workouts=${workoutsWritten}`);
 
-      // Same freshness rule as iOS: pull WHOOP/Oura now (fire-and-forget).
-      piggybackOauthSync(userId);
+      // Same freshness rule as iOS: pull WHOOP/Oura now (awaited — see above).
+      await piggybackOauthSync(userId);
 
       res.json({ daysWritten, workoutsWritten, latestSyncedDate });
     } catch (err: any) {

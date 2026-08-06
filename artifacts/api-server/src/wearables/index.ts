@@ -351,6 +351,9 @@ async function refreshIfNeeded(conn: WearableConnection, adapter: WearableAdapte
       // worker can have refreshed this connection while our call was in flight.
       // Only condemn on a genuine token rejection. Transient failures (network,
       // 5xx, timeouts) leave status untouched so the next tick retries.
+      // Deployment logs were blind to refresh deaths (nothing logged them) —
+      // always print the REAL provider error here.
+      console.error(`[wearables] token refresh FAILED for conn ${conn.id} (${conn.provider}):`, msg);
       const fatal = /invalid_grant|invalid_token|unauthorized|\b400\b|\b401\b/i.test(msg);
       if (fatal) {
         // Reconnect-interleave guard: the OAuth callback writes new tokens
@@ -448,12 +451,15 @@ export async function syncProvider(userId: string, provider: WearableProvider, o
     userId, provider, status: "ok", trigger, startedAt: new Date(),
   }).returning();
 
-  const finalize = async (status: "ok" | "error", daysSynced: number, errorMessage?: string) => {
+  const finalize = async (status: "ok" | "error", daysSynced: number, errorMessage?: string, preserveConnError = false) => {
     await db.update(wearableSyncLogs).set({
       status, completedAt: new Date(), daysSynced, errorMessage: errorMessage || null,
     }).where(eq(wearableSyncLogs.id, logRow.id));
     await db.update(wearableConnections).set({
-      lastSyncAt: new Date(), lastSyncStatus: status, lastSyncError: errorMessage || null,
+      lastSyncAt: new Date(), lastSyncStatus: status,
+      // preserveConnError: refreshIfNeeded already stored the DETAILED provider
+      // error on the connection — don't clobber it with a generic message.
+      ...(preserveConnError ? {} : { lastSyncError: errorMessage || null }),
       // A successful sync proves the connection is healthy — clear any stale
       // needs_reauth flag so a transient blip self-heals in the UI.
       ...(status === "ok" ? { status: "connected" } : {}),
@@ -480,7 +486,7 @@ export async function syncProvider(userId: string, provider: WearableProvider, o
   try {
     const accessToken = await refreshIfNeeded(conn, adapter);
     if (!accessToken) {
-      await finalize("error", 0, "Token refresh failed");
+      await finalize("error", 0, "Token refresh failed", true);
       return { daysSynced: 0, status: "error", error: "Token refresh failed" };
     }
     const today = new Date();

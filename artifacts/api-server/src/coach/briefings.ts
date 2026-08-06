@@ -275,10 +275,33 @@ async function buildCycleContextText(userId: string): Promise<string> {
   }
 }
 
+// Read today's Daily Readiness score the SAME way the dashboard ring does:
+// recompute-then-read. The ring endpoint (/api/daily-readiness/today) always
+// calls computeAndStoreForUserDay before reading, so it reflects the latest
+// inputs. The briefing must use the identical path or it quotes a stale saved
+// score (e.g. briefing says 62 while the ring shows 68 after a check-in or a
+// late wearable sync). computeAndStoreForUserDay is a no-op when today's row
+// is locked and holds (returns null score) while WHOOP/Oura data is pending,
+// so this stays consistent with the ring in every state.
+async function readFreshReadiness(userId: string) {
+  const { computeAndStoreForUserDay, getTodayForUser, todayKey } = await import("../dailyReadiness");
+  try {
+    const [tzRow] = await db
+      .select({ timezone: users.timezone })
+      .from(users)
+      .where(eq(users.id, userId))
+      .limit(1);
+    await computeAndStoreForUserDay(userId, todayKey(tzRow?.timezone ?? null));
+  } catch (e) {
+    console.error("[coach-briefing] readiness recompute failed:", e);
+  }
+  return getTodayForUser(userId);
+}
+
 async function buildReadinessAndBaselineText(userId: string, dateKey: string): Promise<string> {
   try {
     const [dr, baselines] = await Promise.all([
-      import("../dailyReadiness").then((m) => m.getTodayForUser(userId)).catch(() => null),
+      readFreshReadiness(userId).catch(() => null),
       storage.getUserPhysiologicalBaselines(userId).catch(() => undefined),
     ]);
 
@@ -465,8 +488,7 @@ async function buildContextSnapshot(userId: string): Promise<BriefingContextSnap
   const snap: BriefingContextSnapshot = {};
   snap.wearable = await buildWearableSnapshot(userId);
   try {
-    const { getTodayForUser } = await import("../dailyReadiness");
-    const dr = await getTodayForUser(userId);
+    const dr = await readFreshReadiness(userId);
     snap.readinessScore = dr?.score ?? null;
   } catch (e) {
     console.error("[coach-briefing] readiness snapshot failed:", e);

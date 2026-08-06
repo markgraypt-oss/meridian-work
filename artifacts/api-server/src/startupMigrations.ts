@@ -395,6 +395,17 @@ const SELF_HEAL_DDL: string[] = [
     updated_at timestamp DEFAULT NOW()
   )`,
   `CREATE INDEX IF NOT EXISTS cycle_logs_user_start_idx ON cycle_logs (user_id, period_start DESC)`,
+
+  // Wearable connections: one row per (user, provider), enforced. The connect
+  // flow was select-then-insert, so concurrent calls could create duplicate
+  // rows — a zombie duplicate with dead tokens then fails refreshes forever
+  // while the real row works, poisoning the UI and webhook lookups. Dedupe
+  // (keep the newest row) then enforce uniqueness. Both statements are
+  // idempotent — the DELETE removes nothing when there are no duplicates.
+  `DELETE FROM wearable_connections a USING wearable_connections b
+     WHERE a.user_id = b.user_id AND a.provider = b.provider AND a.id < b.id`,
+  `CREATE UNIQUE INDEX IF NOT EXISTS wearable_connections_user_provider_uq
+     ON wearable_connections (user_id, provider)`,
 ];
 
 export async function runSchemaSelfHealOnce(): Promise<void> {

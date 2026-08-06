@@ -45,9 +45,6 @@ export async function upsertConnection(userId: string, provider: WearableProvide
   status?: string;
   meta?: any;
 }): Promise<WearableConnection> {
-  const [existing] = await db.select().from(wearableConnections)
-    .where(and(eq(wearableConnections.userId, userId), eq(wearableConnections.provider, provider)));
-
   const payload: any = {
     status: data.status ?? "connected",
     updatedAt: new Date(),
@@ -59,15 +56,17 @@ export async function upsertConnection(userId: string, provider: WearableProvide
   if (data.scopes !== undefined) payload.scopes = data.scopes;
   if (data.meta !== undefined) payload.meta = data.meta;
 
-  if (existing) {
-    const [u] = await db.update(wearableConnections).set(payload)
-      .where(eq(wearableConnections.id, existing.id)).returning();
-    return u;
-  }
-  const [created] = await db.insert(wearableConnections).values({
+  // Atomic upsert against the (user_id, provider) unique index (created by
+  // startupMigrations). The old select-then-insert raced under concurrency
+  // and could create duplicate connection rows. connectedAt is only set on
+  // first insert — a re-auth updates tokens but keeps the original date.
+  const [row] = await db.insert(wearableConnections).values({
     userId, provider, connectedAt: new Date(), ...payload,
+  }).onConflictDoUpdate({
+    target: [wearableConnections.userId, wearableConnections.provider],
+    set: payload,
   }).returning();
-  return created;
+  return row;
 }
 
 export async function getConnections(userId: string): Promise<WearableConnection[]> {

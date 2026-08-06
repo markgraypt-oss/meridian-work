@@ -226,26 +226,6 @@ export default function AdminCompanies() {
     enabled: !!user && showAssignUser,
   });
 
-  const { data: engagement } = useQuery<EngagementData>({
-    queryKey: ["/api/admin/companies", selectedCompanyId, "engagement"],
-    queryFn: async () => {
-      const res = await fetch(`/api/admin/companies/${selectedCompanyId}/engagement`, { credentials: "include" });
-      if (!res.ok) throw new Error("Failed to fetch engagement");
-      return res.json();
-    },
-    enabled: !!user && !!selectedCompanyId,
-  });
-
-  const { data: wellness } = useQuery<WellnessData>({
-    queryKey: ["/api/admin/companies", selectedCompanyId, "wellness"],
-    queryFn: async () => {
-      const res = await fetch(`/api/admin/companies/${selectedCompanyId}/wellness`, { credentials: "include" });
-      if (!res.ok) throw new Error("Failed to fetch wellness");
-      return res.json();
-    },
-    enabled: !!user && !!selectedCompanyId,
-  });
-
   const { data: companyDepartments = [] } = useQuery<DepartmentData[]>({
     queryKey: ["/api/admin/companies", selectedCompanyId, "departments"],
     queryFn: async () => {
@@ -679,96 +659,6 @@ export default function AdminCompanies() {
                 <p key={a.id} className="text-xs text-[#0cc9a9] dark:text-[#0cc9a9] ml-6">{a.message}</p>
               ))}
             </div>
-          )}
-
-          {engagement && (
-            <Card className="border-border">
-              <CardHeader className="pb-2">
-                <CardTitle className="text-sm font-semibold text-foreground flex items-center gap-2">
-                  <BarChart3 className="h-4 w-4 text-[#0cc9a9]" />
-                  Engagement
-                </CardTitle>
-              </CardHeader>
-              <CardContent className="pb-4">
-                <div className="grid grid-cols-3 gap-3">
-                  <div className="text-center p-3 rounded-lg bg-background border border-border">
-                    <p className="text-2xl font-bold text-[#0cc9a9]">{engagement.activeUserPercent}%</p>
-                    <p className="text-[10px] text-muted-foreground leading-tight mt-1">Active Users</p>
-                    <p className="text-[10px] text-muted-foreground">{engagement.activeUsers}/{engagement.totalUsers}</p>
-                  </div>
-                  <div className="text-center p-3 rounded-lg bg-background border border-border">
-                    <p className="text-2xl font-bold text-foreground">{engagement.avgCheckInsPerWeek}</p>
-                    <p className="text-[10px] text-muted-foreground leading-tight mt-1">Avg Check-ins</p>
-                    <p className="text-[10px] text-muted-foreground">per week</p>
-                  </div>
-                  <div className="text-center p-3 rounded-lg bg-background border border-border">
-                    <p className="text-2xl font-bold text-foreground">{engagement.programEnrollmentRate}%</p>
-                    <p className="text-[10px] text-muted-foreground leading-tight mt-1">Enrolled in</p>
-                    <p className="text-[10px] text-muted-foreground">programmes</p>
-                  </div>
-                </div>
-              </CardContent>
-            </Card>
-          )}
-
-          {wellness && (
-            <Card className="border-border">
-              <CardHeader className="pb-2">
-                <CardTitle className="text-sm font-semibold text-foreground flex items-center gap-2">
-                  <Heart className="h-4 w-4 text-rose-500" />
-                  Wellness Snapshot
-                </CardTitle>
-              </CardHeader>
-              <CardContent className="pb-4 space-y-3">
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                  <div className="p-3 rounded-lg bg-background border border-border">
-                    <div className="flex items-center gap-2 mb-1">
-                      <span className="text-xs text-muted-foreground">Burnout Score</span>
-                      {wellness.trendDirection && (
-                        <span className={`flex items-center text-xs ${
-                          wellness.trendDirection === "rising" ? "text-red-500" :
-                          wellness.trendDirection === "falling" ? "text-emerald-500" : "text-muted-foreground"
-                        }`}>
-                          {wellness.trendDirection === "rising" ? <TrendingUp className="h-3 w-3" /> :
-                           wellness.trendDirection === "falling" ? <TrendingDown className="h-3 w-3" /> :
-                           <Minus className="h-3 w-3" />}
-                        </span>
-                      )}
-                    </div>
-                    <p className="text-2xl font-bold text-foreground">{wellness.avgBurnoutScore ?? "N/A"}</p>
-                  </div>
-                  <div className="grid grid-cols-3 gap-1.5">
-                    <div className="p-2 rounded-lg bg-background border border-border text-center">
-                      <Activity className="h-3 w-3 text-[#0cc9a9] mx-auto mb-0.5" />
-                      <p className="text-sm font-bold text-foreground">{wellness.avgMood ?? "-"}</p>
-                      <p className="text-[9px] text-muted-foreground">Mood</p>
-                    </div>
-                    <div className="p-2 rounded-lg bg-background border border-border text-center">
-                      <Zap className="h-3 w-3 text-[#0cc9a9] mx-auto mb-0.5" />
-                      <p className="text-sm font-bold text-foreground">{wellness.avgEnergy ?? "-"}</p>
-                      <p className="text-[9px] text-muted-foreground">Energy</p>
-                    </div>
-                    <div className="p-2 rounded-lg bg-background border border-border text-center">
-                      <Brain className="h-3 w-3 text-purple-500 mx-auto mb-0.5" />
-                      <p className="text-sm font-bold text-foreground">{wellness.avgStress ?? "-"}</p>
-                      <p className="text-[9px] text-muted-foreground">Stress</p>
-                    </div>
-                  </div>
-                </div>
-                {wellness.topPainAreas.length > 0 && (
-                  <div>
-                    <p className="text-xs text-muted-foreground mb-2">Top Pain Areas (30 days)</p>
-                    <div className="flex flex-wrap gap-2">
-                      {wellness.topPainAreas.map((p) => (
-                        <Badge key={p.area} variant="outline" className="text-xs bg-red-50 text-red-700 border-red-200 dark:bg-red-500/10 dark:text-red-400 dark:border-red-500/30">
-                          {p.area} ({p.count}) - {p.avgSeverity}/10
-                        </Badge>
-                      ))}
-                    </div>
-                  </div>
-                )}
-              </CardContent>
-            </Card>
           )}
 
           <Card className="border-border">

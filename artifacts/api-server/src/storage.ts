@@ -2084,7 +2084,7 @@ export class DatabaseStorage implements IStorage {
     
     return await db.select().from(workouts)
       .where(and(...conditions))
-      .orderBy(workouts.id);
+      .orderBy(desc(workouts.createdAt));
   }
 
   async getWorkoutById(id: number): Promise<Workout | undefined> {

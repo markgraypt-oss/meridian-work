@@ -2972,7 +2972,21 @@ export class DatabaseStorage implements IStorage {
     
     // Separate active recovery plans from regular supplementary for dashboard tile
     const activeRecoveryPlans = activeSupplementary.filter(e => e.sourceType === 'recovery');
-    
+
+    // Enrich the active main programme with the next session to do and a
+    // per-week completion breakdown, so the mobile "Up Next" hero and progress
+    // map can be exact instead of estimated. Wrapped so any failure here never
+    // breaks the whole timeline response.
+    if (current) {
+      try {
+        const extras = await this.getActiveProgrammeExtras(current);
+        (current as any).nextWorkout = extras.nextWorkout;
+        (current as any).weekProgress = extras.weekProgress;
+      } catch (e) {
+        console.error('getUserProgramTimeline: extras failed for enrollment', (current as any).id, e);
+      }
+    }
+
     return {
       current,
       scheduled: mainEnrollments.filter(e => e.status === 'scheduled'),
@@ -2982,6 +2996,92 @@ export class DatabaseStorage implements IStorage {
       completedSupplementary: supplementaryEnrollments.filter(e => e.status === 'completed' || e.status === 'ended'),
       activeRecoveryPlans,
     };
+  }
+
+  // Compute the next session to do and a per-week completion breakdown for an
+  // active enrollment. Reads existing tables only (no schema change): the
+  // enrolment's session snapshot (enrollmentWorkouts) and completed logs
+  // (workoutLogs). Returns weekProgress as one {total, done} per programme week.
+  private async getActiveProgrammeExtras(current: any): Promise<{ nextWorkout: any; weekProgress: { total: number; done: number }[] }> {
+    const enrollmentId = current.id;
+    const totalWeeks = Math.max(1, Math.min(current.programWeeks || 1, 52));
+
+    const slots = await db
+      .select({
+        week: enrollmentWorkouts.weekNumber,
+        day: enrollmentWorkouts.dayNumber,
+        name: enrollmentWorkouts.name,
+        duration: enrollmentWorkouts.duration,
+      })
+      .from(enrollmentWorkouts)
+      .where(eq(enrollmentWorkouts.enrollmentId, enrollmentId));
+
+    const logs = await db
+      .select({ week: workoutLogs.week, day: workoutLogs.day })
+      .from(workoutLogs)
+      .where(and(eq(workoutLogs.enrollmentId, enrollmentId), eq(workoutLogs.status, 'completed')));
+
+    const key = (w: any, d: any) => `${w}:${d}`;
+    const doneSet = new Set(
+      logs.filter(l => l.week != null && l.day != null).map(l => key(l.week, l.day))
+    );
+
+    // Distinct training days per week (a day can hold more than one workout;
+    // count the day once) plus the first workout's name/duration for that slot.
+    const daysByWeek = new Map<number, Set<number>>();
+    const slotInfo = new Map<string, { name: string; duration: number }>();
+    for (const s of slots) {
+      if (s.week == null || s.day == null) continue;
+      if (!daysByWeek.has(s.week)) daysByWeek.set(s.week, new Set());
+      daysByWeek.get(s.week)!.add(s.day);
+      const k = key(s.week, s.day);
+      if (!slotInfo.has(k)) slotInfo.set(k, { name: s.name, duration: (s.duration as number) ?? 30 });
+    }
+    // Legacy enrollments only carry week-1 slots; use that as the per-week default.
+    const week1Days = daysByWeek.get(1)?.size ?? 0;
+
+    const weekProgress: { total: number; done: number }[] = [];
+    for (let w = 1; w <= totalWeeks; w++) {
+      const daysThisWeek = daysByWeek.get(w);
+      const total = daysThisWeek ? daysThisWeek.size : week1Days;
+      let done = 0;
+      for (let d = 1; d <= 7; d++) if (doneSet.has(key(w, d))) done++;
+      weekProgress.push({ total, done: Math.min(done, total) });
+    }
+
+    // Where the user is today, from elapsed days since start.
+    const start = new Date(current.startDate);
+    const now = new Date();
+    const d0 = new Date(start.getFullYear(), start.getMonth(), start.getDate());
+    const t0 = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+    const daysElapsed = Math.max(0, Math.floor((t0.getTime() - d0.getTime()) / 86400000));
+    const curPos = (Math.floor(daysElapsed / 7) + 1) * 10 + ((daysElapsed % 7) + 1);
+    const pos = (w: number, d: number) => w * 10 + d;
+
+    const ordered = Array.from(new Set(slots.filter(s => s.week != null && s.day != null).map(s => key(s.week, s.day))))
+      .map(k => { const [w, d] = k.split(':').map(Number); return { w, d }; })
+      .sort((a, b) => pos(a.w, a.d) - pos(b.w, b.d));
+
+    // Next = earliest scheduled slot at/after today that isn't done; else the
+    // earliest not-done slot (behind schedule); else null (all done).
+    const pick =
+      ordered.find(sl => pos(sl.w, sl.d) >= curPos && !doneSet.has(key(sl.w, sl.d))) ||
+      ordered.find(sl => !doneSet.has(key(sl.w, sl.d))) ||
+      null;
+
+    let nextWorkout: any = null;
+    if (pick) {
+      const info = slotInfo.get(key(pick.w, pick.d));
+      nextWorkout = {
+        enrollmentId,
+        week: pick.w,
+        day: pick.d,
+        name: info?.name || 'Next session',
+        minutes: info?.duration ?? 30,
+      };
+    }
+
+    return { nextWorkout, weekProgress };
   }
 
   async getEnrolledProgramDetails(userId: string, enrollmentId: number): Promise<any> {

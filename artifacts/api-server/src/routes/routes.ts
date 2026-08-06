@@ -689,9 +689,10 @@ function buildRecommendationPrompt(intake: any, programs: any[], paths: any[], h
 MATCHING RULES (strict priority order):
 1. ENVIRONMENT (hard filter): Only recommend programmes matching the user's training environment. "home" users get bodyweight or home_gym programmes. "gym" users get full_gym programmes. "both" users can get any.
 2. EXPERIENCE LEVEL (HARD FILTER — NON-NEGOTIABLE): A programme's "difficulty" field must equal the user's experience level EXACTLY. Programmes whose difficulty does not match MUST BE OMITTED ENTIRELY from your output — do not include them as a recommendation, not as a secondary suggestion, not as a stretch goal, not even with recommended:false. Pretend mismatched-level programmes are not in the list. NEVER show an "advanced" or "intermediate" programme to a "beginner" user — recommending one above their level is unsafe and will be discarded by the system. NEVER show a "beginner" programme to an "advanced" user. If no programmes match the user's exact experience level, return an empty programmes list rather than substituting a mismatched level.
-3. FREQUENCY (strong preference): Programme training days/week should be within ±1 of user's chosen frequency. Exact match is best.
+3. FREQUENCY (strong preference): Programme training days/week should be within ±1 of user's chosen frequency. Exact match is best. A gap of 2 or more days/week (e.g. a 5-day programme for someone who chose 3) is a POOR match and must be strongly deprioritised.
 4. DURATION (preference): Programme duration per session should fit within the user's available time.
 5. EQUIPMENT ACCESS: "Full gym access" means all equipment is available. Otherwise, check the "requires" list for each programme and only recommend it if the user has access to all required equipment. Do not recommend programmes requiring equipment the user does not have.
+5b. EQUIPMENT UTILISATION (strong preference): If the user's equipment access lists specific kit beyond bodyweight (e.g. dumbbells, barbell, bench, bands, kettlebell), PREFER programmes that actually USE that equipment (their "requires" list is non-empty and satisfied) over pure-bodyweight programmes. A user who owns equipment wants to use it. Only recommend a bodyweight-only programme to an equipped user when no equipment-using programme fits their level and frequency.
 6. SUCCESS DATA: Some programmes include success_data showing completion rates from similar users. Prefer programmes with higher completion rates when other factors are equal. This data improves over time as more users complete programmes.
 7. PRIMARY GOAL (strong preference, NOT a hard filter): The user's primary goal maps to preferred programme "goal" values (listed below). Among programmes that pass the hard filters (environment, level, equipment), strongly prefer those whose "goal" is in the preferred list. Only if none of the level/equipment-appropriate programmes match the goal should you recommend the best remaining fit — never break the environment/level/equipment rules to chase a goal match.
 
@@ -912,11 +913,19 @@ function getRuleBasedRecommendations(intake: any, programs: any[], paths: any[],
 
       if (userLevel && p.difficulty === userLevel) score += 10;
 
+      // Equipment utilisation (strong preference): a programme whose "requires"
+      // list is non-empty passed the equipment-access hard filter above, which
+      // means the user owns everything it needs. Reward it so a user with kit
+      // (dumbbells/bench/bands) is pulled toward programmes that USE that kit
+      // instead of a pure-bodyweight programme. Bodyweight-only users are
+      // unaffected: equipment-requiring programmes never clear their filter.
+      if (Array.isArray(p.requiredEquipment) && p.requiredEquipment.length > 0) score += 8;
+
       if (userFreq > 0 && p.trainingDaysPerWeek) {
         const diff = Math.abs(userFreq - p.trainingDaysPerWeek);
         if (diff === 0) score += 10;
         else if (diff === 1) score += 5;
-        else score -= 5;
+        else score -= 8;
       }
 
       if (userTime > 0 && p.duration) {
@@ -998,6 +1007,7 @@ function getRuleBasedRecommendations(intake: any, programs: any[], paths: any[],
           if (diff <= 1) softScore += 5;
           else if (diff <= 2) softScore += 2;
         }
+        if (Array.isArray(c.requiredEquipment) && c.requiredEquipment.length > 0) softScore += 6;
         if (goalTargets.length > 0 && c.goal && goalTargets.includes(c.goal)) softScore += 6;
         return { ...c, score: softScore, eliminated: false };
       });

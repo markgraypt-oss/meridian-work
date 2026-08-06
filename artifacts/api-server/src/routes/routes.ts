@@ -2340,9 +2340,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       const rawSteps = [
         { key: 'onboarding', label: 'Finish setup', route: '/onboarding', done: onboardingDone },
-        { key: 'programme', label: 'Pick your programme', route: '/training/main-programme', done: hasProgramme },
+        { key: 'programme', label: 'Pick your programme', route: '/(tabs)/movement', done: hasProgramme },
         { key: 'goal', label: 'Set a goal', route: '/goals/new', done: hasGoal },
-        { key: 'first_workout', label: 'First workout', route: '/training/main-programme', done: hasProgramme && hasWorkoutLog },
+        { key: 'first_workout', label: 'First workout', route: '/(tabs)/movement', done: hasProgramme && hasWorkoutLog },
         { key: 'meet_coach', label: 'Meet the coach', route: 'coach', done: metCoach },
       ];
 

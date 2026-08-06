@@ -705,8 +705,17 @@ Return only the JSON object now.`;
   // yet. Quiet hours, daily cap, and per-channel preferences are honored
   // by notify(). Only fire when the briefing is for *today* - skip any
   // historical backfill so users aren't pinged about old days.
+  //
+  // Do NOT re-notify on a drift regeneration. When the briefing is rebuilt
+  // later in the day because HRV / steps / readiness / the check-in changed,
+  // the stored briefing still updates (so the in-app copy stays accurate),
+  // but the user has already been pinged this morning - a second lock-screen
+  // push is the "multiple briefing notifications in one day" bug. We only
+  // push on the first real briefing of the day: a brand-new row, or one that
+  // replaces a source='fallback' placeholder (which never pushed).
+  const wasDriftRegen = !!(forceRegenerate && existing && (existing as any).source !== "fallback");
   const todayKey = todayKeyForUser(userTz, new Date());
-  if (briefing.briefingDate === todayKey) {
+  if (!wasDriftRegen && briefing.briefingDate === todayKey) {
     const isEvening = type === "evening";
     // Lock-screen title is the briefing label. Section titles belong INSIDE
     // the briefing, not on the lock screen. Body is a short teaser drawn

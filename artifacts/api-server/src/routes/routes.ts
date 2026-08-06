@@ -19962,15 +19962,22 @@ Keep your response concise, practical, and evidence-based. This is general guida
       // Extra fields are ignored by app versions that don't know them.
       let waitingForWearable = false;
       let waitingProvider: string | null = null;
+      let wearableDegraded = false;
       try {
-        const { getConnectedOauthProvider, oauthPhysioArrived, PROVIDER_LABELS } = await import('../wearables');
-        const holdProvider = await getConnectedOauthProvider(userId);
-        if (holdProvider && !(await oauthPhysioArrived(userId, holdProvider, today))) {
-          waitingForWearable = true;
-          waitingProvider = PROVIDER_LABELS[holdProvider] || holdProvider;
+        const { getOauthPhysioHold, PROVIDER_LABELS } = await import('../wearables');
+        const gate = await getOauthPhysioHold(userId, today);
+        if (gate.provider) {
+          const label = PROVIDER_LABELS[gate.provider] || gate.provider;
+          if (gate.hold) {
+            waitingForWearable = true;
+            waitingProvider = label;
+          } else if (gate.degraded) {
+            wearableDegraded = true;
+            waitingProvider = label;
+          }
         }
       } catch {}
-      res.json({ enabled: true, waitingForWearable, waitingProvider, ...data });
+      res.json({ enabled: true, waitingForWearable, waitingProvider, wearableDegraded, ...data });
     } catch (error: any) {
       console.error("Error fetching daily readiness today:", error?.message);
       res.status(500).json({ message: "Failed to load readiness" });
@@ -20792,13 +20799,13 @@ Respond as the coach. Be personalised, reference their actual data and specific 
         // disappears on its own: once the wearable syncs, the gate opens and
         // the real briefing is generated and served instead.
         try {
-          const { getConnectedOauthProvider, oauthPhysioArrived, PROVIDER_LABELS } = await import('../wearables');
-          const holdProvider = await getConnectedOauthProvider(userId);
-          if (holdProvider) {
-            const dr = await import('../dailyReadiness');
-            const dateKey = dr.todayKey(_userTz);
-            if (!(await oauthPhysioArrived(userId, holdProvider, dateKey))) {
-              const label = PROVIDER_LABELS[holdProvider] || holdProvider;
+          const { getOauthPhysioHold, PROVIDER_LABELS } = await import('../wearables');
+          const dr = await import('../dailyReadiness');
+          const dateKey = dr.todayKey(_userTz);
+          const gate = await getOauthPhysioHold(userId, dateKey);
+          if (gate.hold && gate.provider) {
+            {
+              const label = PROVIDER_LABELS[gate.provider] || gate.provider;
               return res.json({
                 id: -1,
                 userId,

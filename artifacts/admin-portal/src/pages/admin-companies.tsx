@@ -262,6 +262,7 @@ export default function AdminCompanies() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/admin/companies"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/admin/company-names"] });
       setShowCompanyForm(false);
       resetCompanyForm();
       toast({ title: "Company created successfully" });
@@ -277,6 +278,7 @@ export default function AdminCompanies() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/admin/companies"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/admin/company-names"] });
       setShowCompanyForm(false);
       setEditingCompany(null);
       resetCompanyForm();
@@ -293,6 +295,7 @@ export default function AdminCompanies() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/admin/companies"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/admin/company-names"] });
       setDeleteCompanyId(null);
       if (selectedCompanyId) {
         setSelectedCompanyId(null);

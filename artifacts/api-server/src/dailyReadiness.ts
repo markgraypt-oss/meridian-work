@@ -2,8 +2,28 @@
  * Daily Readiness (Beta, User-Only)
  *
  * Personal 0-100 readiness score computed nightly per user from up to five
- * inputs (sleep, energy, trainingLoad, hrv, rhr). Weighted v2 algorithm —
- * HRV 30%, RHR 20%, Sleep 20%, Training Load 20%, Energy 10%.
+ * inputs (sleep, energy, trainingLoad, hrv, rhr).
+ *
+ * v3 algorithm — PERSONAL-BASELINE RELATIVE (7 Aug 2026):
+ * HRV 30%, RHR 20%, Sleep 25%, Training Load 15%, Energy 10%
+ * (physiology ~75% / behaviour ~25%).
+ *
+ * HRV, RHR and (when on the strain path) Training Load are scored as
+ * deviations from the USER'S OWN rolling baselines (baselineEngine.ts:
+ * median + stddev; HRV 60d, RHR 28d), NOT against fixed population ranges.
+ * A day at your personal norm scores ~6.5/10; ±2 standard deviations spans
+ * roughly 3→10, so good and bad days actually move the score across the
+ * full 0-100 range. v2's fixed scales (HRV 20-100ms, RHR 40-100bpm)
+ * compressed most users into a ~58-74 band forever — absolute HRV is
+ * largely genetic, so a user with a 55ms norm could mathematically never
+ * reach 80. Fixed scales remain ONLY as the fallback until a user's
+ * baseline is calibrated (≥14 samples).
+ *
+ * Deliberately NOT an input: the provider's own recovery/readiness score
+ * (wearableMetricsDaily.readinessScore, e.g. WHOOP recovery). Meridian
+ * scores from the raw physiology with its own system — product decision,
+ * 7 Aug 2026.
+ *
  * Weights redistribute proportionally when inputs are null.
  * Requires at least MIN_INPUTS_FOR_SCORE inputs before a score is recorded.
  *
@@ -29,7 +49,7 @@ import { awardPoints } from "./engagementEngine";
 import { notify } from "./notifications";
 
 export const MIN_INPUTS_FOR_SCORE = 2;
-export const ALGORITHM_VERSION = "v2";
+export const ALGORITHM_VERSION = "v3";
 export const HISTORY_DAYS_REQUIRED_FOR_BASELINE = 14;
 export const ROLLING_AVERAGE_DAYS = 30;
 export const WEEKLY_REWARD_DAYS_REQUIRED = 5;
@@ -101,7 +121,8 @@ function clamp(n: number, lo: number, hi: number): number {
 }
 
 /**
- * Weighted v2: HRV 30%, RHR 20%, Sleep 20%, Training Load 20%, Energy 10%.
+ * Weighted v3: HRV 30%, RHR 20%, Sleep 25%, Training Load 15%, Energy 10%.
+ * Physiology-led ~75/25 split (HRV+RHR+Sleep vs Load+Energy).
  * When inputs are null their weight is redistributed proportionally to
  * available inputs. Returns null when fewer than MIN_INPUTS_FOR_SCORE
  * signals are available.
@@ -109,10 +130,35 @@ function clamp(n: number, lo: number, hi: number): number {
 const WEIGHTS: Record<keyof ReadinessInputs, number> = {
   hrv: 0.30,
   rhr: 0.20,
-  sleep: 0.20,
-  trainingLoad: 0.20,
+  sleep: 0.25,
+  trainingLoad: 0.15,
   energy: 0.10,
 };
+
+/**
+ * v3 core: map a deviation from the user's personal baseline onto 0-10.
+ *
+ *   z = (value - baseline) / stddev      (sign flipped when lower-is-better)
+ *   subscore = 6.5 + 1.75 * z, clamped to 0-10
+ *
+ * Anchors: a day exactly at your norm = 6.5 ("normal, decent"); +2 SD = 10;
+ * -2 SD = 3; ≈ -3.7 SD bottoms out at 0. The stddev is floored so a user
+ * with an unusually tight history can't get whipsawed by tiny fluctuations.
+ */
+export const BASELINE_NEUTRAL_SUBSCORE = 6.5;
+export const BASELINE_Z_SLOPE = 1.75;
+
+export function baselineRelativeSubscore(
+  value: number,
+  baseline: number,
+  stdDev: number,
+  opts?: { lowerIsBetter?: boolean; minStdDev?: number },
+): number {
+  const sd = Math.max(stdDev, opts?.minStdDev ?? 1e-6);
+  let z = (value - baseline) / sd;
+  if (opts?.lowerIsBetter) z = -z;
+  return clamp(BASELINE_NEUTRAL_SUBSCORE + BASELINE_Z_SLOPE * z, 0, 10);
+}
 
 export function computeDailyReadinessV1(inputs: ReadinessInputs): ReadinessResult {
   const available = (Object.keys(inputs) as Array<keyof ReadinessInputs>).filter(
@@ -307,6 +353,16 @@ export async function gatherInputsForDay(
     rhr: null,
   };
 
+  // --- Personal physiological baselines (baselineEngine.ts) ---
+  // Loaded once here; used by the HRV, RHR and training-load subscores.
+  // Each metric only goes baseline-relative when ITS OWN sample count is
+  // ≥14 and stddev > 0; otherwise that metric falls back to fixed scales.
+  const [baselineRow] = await db
+    .select()
+    .from(userPhysiologicalBaselines)
+    .where(eq(userPhysiologicalBaselines.userId, userId))
+    .limit(1);
+
   // -----------------------------------------------------------------------
   // Sleep — wearable sleepScore (0-100 → /10) preferred; else sleep log;
   //         else check-in sleepScore (1-5 → *2)
@@ -363,22 +419,51 @@ export async function gatherInputsForDay(
   }
 
   // -----------------------------------------------------------------------
-  // HRV — wearable hrvMs normalised: 20ms=0, 100ms=10 (linear).
-  // Individual variation is wide but this range covers 95 %+ of adults.
+  // HRV — v3: scored vs the USER'S OWN baseline (60d median ± stddev).
+  // Today at your norm ≈ 6.5; well above your norm → 9-10; suppressed → 0-4.
+  // Absolute HRV level is largely genetic — a fixed population scale
+  // permanently caps low-HRV users, so it survives only as the
+  // pre-calibration fallback (20ms=0, 100ms=10).
   // -----------------------------------------------------------------------
   let hrv: number | null = null;
   if (wear?.hrvMs != null) {
-    hrv = clamp((wear.hrvMs - 20) / 80, 0, 1) * 10;
+    const hrvCalibrated =
+      baselineRow &&
+      baselineRow.hrvBaselineMs != null &&
+      (baselineRow.hrvSampleCount ?? 0) >= 14 &&
+      (baselineRow.hrvStdDevMs ?? 0) > 0;
+    if (hrvCalibrated) {
+      // Floor the SD at 4% of baseline (min 2ms) so ultra-consistent users
+      // aren't whipsawed by measurement noise.
+      hrv = baselineRelativeSubscore(wear.hrvMs, baselineRow.hrvBaselineMs!, baselineRow.hrvStdDevMs!, {
+        minStdDev: Math.max(2, baselineRow.hrvBaselineMs! * 0.04),
+      });
+    } else {
+      hrv = clamp((wear.hrvMs - 20) / 80, 0, 1) * 10;
+    }
     sources.hrv = "wearable";
     raws.hrv = wear.hrvMs;
   }
 
   // -----------------------------------------------------------------------
-  // RHR — wearable restingHrBpm, inverted: 40 bpm=10, 100 bpm=0.
+  // RHR — v3: scored vs the USER'S OWN baseline (28d median ± stddev),
+  // lower-is-better. Fallback pre-calibration: 40bpm=10, 100bpm=0.
   // -----------------------------------------------------------------------
   let rhr: number | null = null;
   if (wear?.restingHrBpm != null) {
-    rhr = clamp((100 - wear.restingHrBpm) / 60, 0, 1) * 10;
+    const rhrCalibrated =
+      baselineRow &&
+      baselineRow.rhrBaselineBpm != null &&
+      (baselineRow.rhrSampleCount ?? 0) >= 14 &&
+      (baselineRow.rhrStdDevBpm ?? 0) > 0;
+    if (rhrCalibrated) {
+      rhr = baselineRelativeSubscore(wear.restingHrBpm, baselineRow.rhrBaselineBpm!, baselineRow.rhrStdDevBpm!, {
+        lowerIsBetter: true,
+        minStdDev: 1.5,
+      });
+    } else {
+      rhr = clamp((100 - wear.restingHrBpm) / 60, 0, 1) * 10;
+    }
     sources.rhr = "wearable";
     raws.rhr = wear.restingHrBpm;
   }
@@ -451,10 +536,40 @@ export async function gatherInputsForDay(
     ? stripNonOauthPhysio(mergeMetricsPerDay(yWearRows)[0])
     : mergeMetricsPerDay(yWearRows)[0];
 
-  // Step 1: WHOOP strain (stored 0-210 representing 0-21 real strain → 0-10 stress)
+  // Step 1: WHOOP strain — v3: scored vs the USER'S OWN 30-day strain norm.
+  // A normal training day lands ~5 (neutral after inversion); a much bigger
+  // day than usual → high stress → real readiness drag; a rest day → low
+  // stress → readiness boost. Falls back to the absolute 0-21 scale until
+  // ≥14 strain samples exist. (strainScore stored 0-210 = 0-21 real strain.)
   let yesterdayStress: number | null = null;
   if (yw?.strainScore != null) {
-    yesterdayStress = clamp(yw.strainScore / 210, 0, 1) * 10;
+    const strainCutoff = toDateKey(new Date(dayStart.getTime() - 30 * 24 * 60 * 60 * 1000));
+    const strainRows = await db
+      .select({ strainScore: wearableMetricsDaily.strainScore })
+      .from(wearableMetricsDaily)
+      .where(
+        and(
+          eq(wearableMetricsDaily.userId, userId),
+          gte(wearableMetricsDaily.date, strainCutoff),
+          lt(wearableMetricsDaily.date, dateKey),
+          sql`${wearableMetricsDaily.strainScore} IS NOT NULL`,
+        ),
+      );
+    const strains = strainRows.map((r) => r.strainScore as number);
+    if (strains.length >= 14) {
+      const sorted = [...strains].sort((a, b) => a - b);
+      const mid = Math.floor(sorted.length / 2);
+      const med = sorted.length % 2 === 0 ? (sorted[mid - 1] + sorted[mid]) / 2 : sorted[mid];
+      const sd = Math.sqrt(
+        strains.map((v) => (v - med) ** 2).reduce((s, v) => s + v, 0) / (strains.length - 1),
+      );
+      // Neutral 5 (not 6.5) — this is a stress axis, later inverted.
+      // SD floored at 1.0 real strain (=10 stored units).
+      const z = (yw.strainScore - med) / Math.max(sd, 10);
+      yesterdayStress = clamp(5 + BASELINE_Z_SLOPE * z, 0, 10);
+    } else {
+      yesterdayStress = clamp(yw.strainScore / 210, 0, 1) * 10;
+    }
     sources.trainingLoad = "wearable";
     raws.trainingLoad = yw.strainScore / 10; // 0-21 real strain
   }
@@ -464,13 +579,7 @@ export async function gatherInputsForDay(
   // falls back to fixed thresholds per-metric where not yet calibrated.
   // Formula: subScore = clamp(5 + ((value - median) / stddev) * 2, 0, 10)
   if (yesterdayStress == null && yw) {
-    // Load user's activity baselines (null if no row yet)
-    const [baselineRow] = await db
-      .select()
-      .from(userPhysiologicalBaselines)
-      .where(eq(userPhysiologicalBaselines.userId, userId))
-      .limit(1);
-
+    // Activity baselines come from the same baselineRow loaded above.
     const factors: number[] = [];
 
     if (yw.steps != null) {
@@ -605,7 +714,11 @@ export async function computeAndStoreForUserDay(
         ),
       )
       .limit(1);
-    if (existing?.locked) {
+    // Algorithm-version guard: a locked row from an OLDER algorithm version
+    // does not short-circuit — it gets recomputed (and re-locked) under the
+    // current algorithm. This is what rolls v2 scores forward to v3 on the
+    // first /today request after deploy.
+    if (existing?.locked && existing.algorithmVersion === ALGORITHM_VERSION) {
       return {
         inputs: {
           sleep: existing.sleepInput ?? null,

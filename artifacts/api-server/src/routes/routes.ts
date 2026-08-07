@@ -2417,9 +2417,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
    * for the target user. Existing rows get their raw columns populated;
    * the compute path is idempotent and will skip locked rows.
    *
-   * Body: { userId?: string, days?: number }
-   *   - userId: defaults to caller's own id
-   *   - days:   defaults to 30, capped at 365
+   * Body: { userId?: string, days?: number, allUsers?: boolean }
+   *   - userId:   defaults to caller's own id
+   *   - days:     defaults to 30, capped at 365
+   *   - allUsers: ADMIN ONLY — backfill every user (used for algorithm
+   *               version rollouts, e.g. v2 → v3 recompute)
    *
    * Requires the caller to be an admin OR to be backfilling their own
    * data. No cross-user backfill for non-admins.
@@ -2429,7 +2431,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const callerId = req.user.claims.sub;
       const me = await storage.getUser(callerId);
       const targetUserId = (req.body?.userId as string) || callerId;
-      if (targetUserId !== callerId && !me?.isAdmin) {
+      const allUsers = req.body?.allUsers === true;
+      if (allUsers && !me?.isAdmin) {
+        return res.status(403).json({ message: "Admin only for all-user backfill" });
+      }
+      if (!allUsers && targetUserId !== callerId && !me?.isAdmin) {
         return res.status(403).json({ message: "Admin only for cross-user backfill" });
       }
       const requested = parseInt(String(req.body?.days ?? 30), 10);
@@ -2437,6 +2443,33 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const dr = await import("../dailyReadiness");
       if (!dr.isFeatureEnabled()) {
         return res.status(400).json({ message: "Readiness feature disabled" });
+      }
+      if (allUsers) {
+        // Algorithm-rollout path: recompute [days] of history for EVERY
+        // user. Sequential on purpose — keeps DB load flat; this is a
+        // one-off admin action, not a hot path.
+        const userRows = await db.select({ id: users.id, timezone: users.timezone }).from(users);
+        let usersOk = 0;
+        let usersFailed = 0;
+        let daysComputed = 0;
+        for (const u of userRows) {
+          try {
+            const uToday = new Date(dr.todayKey(u.timezone ?? null) + "T12:00:00Z");
+            for (let i = 0; i < days; i++) {
+              const d = new Date(uToday);
+              d.setUTCDate(uToday.getUTCDate() - i);
+              const dateKey = d.toISOString().slice(0, 10);
+              try {
+                await dr.computeAndStoreForUserDay(u.id, dateKey);
+                daysComputed++;
+              } catch {}
+            }
+            usersOk++;
+          } catch {
+            usersFailed++;
+          }
+        }
+        return res.json({ ok: true, allUsers: true, days, usersOk, usersFailed, daysComputed });
       }
       // Use the target user's timezone so date keys align with their local
       // days, not server local.

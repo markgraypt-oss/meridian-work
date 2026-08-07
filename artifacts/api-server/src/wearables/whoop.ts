@@ -107,14 +107,29 @@ export const whoopAdapter: WearableAdapter = {
       return records;
     };
 
-    const [sleepRecords, recRecords, workoutRecords] = await Promise.all([
+    const [sleepRecords, recRecords, workoutRecords, cycleRecords] = await Promise.all([
       fetchAll("/activity/sleep"),
       fetchAll("/recovery"),
       fetchAll("/activity/workout"),
+      fetchAll("/cycle"),
     ]);
     const sleepJson = { records: sleepRecords };
     const recJson = { records: recRecords };
     const workoutJson = { records: workoutRecords };
+
+    // DAY strain lives on the physiological cycle, NOT on workouts.
+    // (Bug fixed 7 Aug 2026: strainScore used to come from individual
+    // /activity/workout records — one workout's strain, last-write-wins —
+    // so a real 18.7 day showed as 12.0.) Each recovery record carries the
+    // cycle_id of the cycle it opens; that cycle's score.strain IS the day
+    // strain for the recovery's day. Map cycle id → strain here, consume
+    // in the recovery loop below.
+    const strainByCycle = new Map<any, number>();
+    for (const c of cycleRecords || []) {
+      if (c?.id != null && c.score?.strain != null) {
+        strainByCycle.set(c.id, c.score.strain);
+      }
+    }
 
     const byDate = new Map<string, NormalisedDailyMetrics>();
     const dayOf = (iso: string) => (iso || "").slice(0, 10);
@@ -151,6 +166,12 @@ export const whoopAdapter: WearableAdapter = {
       d.readinessScore = r.score?.recovery_score != null ? Math.max(0, Math.round(r.score.recovery_score)) : null;
       d.hrvMs = r.score?.hrv_rmssd_milli != null ? Math.max(0, Math.round(r.score.hrv_rmssd_milli)) : null;
       d.restingHrBpm = r.score?.resting_heart_rate != null ? Math.max(0, Math.round(r.score.resting_heart_rate)) : null;
+      // WHOOP day strain: the cycle this recovery opens accumulates the
+      // day's strain (0-21, stored 0-210).
+      const cycleStrain = r.cycle_id != null ? strainByCycle.get(r.cycle_id) : undefined;
+      if (cycleStrain != null) {
+        d.strainScore = Math.round(cycleStrain * 10);
+      }
       (d.raw as any).recovery = r;
     }
     for (const w of workoutJson.records || []) {
@@ -158,8 +179,10 @@ export const whoopAdapter: WearableAdapter = {
       if (!day) continue;
       const d = ensure(day);
       d.workoutCount = (d.workoutCount || 0) + 1;
+      // Workout strain is per-ACTIVITY, not the day total — it only stands
+      // in when no cycle strain landed for the day (never overwrites it).
       const strain = w.score?.strain;
-      if (strain != null) {
+      if (strain != null && d.strainScore == null) {
         d.strainScore = Math.round(strain * 10);
       }
       d.caloriesBurned = (d.caloriesBurned || 0) + (w.score?.kilojoule ? Math.round(w.score.kilojoule / 4.184) : 0);

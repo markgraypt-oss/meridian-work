@@ -370,12 +370,15 @@ export function registerWearableRoutes(app: Express) {
     }
   });
 
-  // Manual sync
+  // Manual sync. Optional body { days } (1-90, default 7) for deep
+  // re-imports — e.g. re-pulling history after a mapping fix.
   app.post("/api/wearables/sync/:provider", isAuthenticated, async (req: any, res) => {
     try {
       const userId = req.user.claims.sub;
       const provider = req.params.provider as WearableProvider;
-      const result = await syncProvider(userId, provider, { trigger: "manual" });
+      const reqDays = parseInt(String(req.body?.days ?? ""), 10);
+      const days = Number.isFinite(reqDays) ? Math.min(Math.max(reqDays, 1), 90) : undefined;
+      const result = await syncProvider(userId, provider, { trigger: "manual", ...(days ? { days } : {}) });
       res.json(result);
     } catch (err: any) {
       console.error("[wearables] manual sync error", err);

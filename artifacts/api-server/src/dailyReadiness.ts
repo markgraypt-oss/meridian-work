@@ -49,7 +49,7 @@ import { awardPoints } from "./engagementEngine";
 import { notify } from "./notifications";
 
 export const MIN_INPUTS_FOR_SCORE = 2;
-export const ALGORITHM_VERSION = "v3";
+export const ALGORITHM_VERSION = "v3.1";
 export const HISTORY_DAYS_REQUIRED_FOR_BASELINE = 14;
 export const ROLLING_AVERAGE_DAYS = 30;
 export const WEEKLY_REWARD_DAYS_REQUIRED = 5;
@@ -564,9 +564,12 @@ export async function gatherInputsForDay(
         strains.map((v) => (v - med) ** 2).reduce((s, v) => s + v, 0) / (strains.length - 1),
       );
       // Neutral 5 (not 6.5) — this is a stress axis, later inverted.
-      // SD floored at 1.0 real strain (=10 stored units).
+      // SD floored at 1.0 real strain (=10 stored units). Gentler slope
+      // than the physio axes (1.25 vs 1.75): strain distributions are
+      // spiky for consistent trainers, and physiology already carries
+      // the real recovery signal.
       const z = (yw.strainScore - med) / Math.max(sd, 10);
-      yesterdayStress = clamp(5 + BASELINE_Z_SLOPE * z, 0, 10);
+      yesterdayStress = clamp(5 + 1.25 * z, 0, 10);
     } else {
       yesterdayStress = clamp(yw.strainScore / 210, 0, 1) * 10;
     }
@@ -665,6 +668,28 @@ export async function gatherInputsForDay(
       sources.trainingLoad = "step-log";
       raws.trainingLoad = yStepRows[0].steps; // step count
     }
+  }
+
+  // -----------------------------------------------------------------------
+  // ABSORBED-LOAD RULE (v3): a heavy day only punishes today's readiness
+  // when the body says it wasn't absorbed. If BOTH HRV and RHR are at or
+  // above the user's personal norm this morning (subscore ≥ 6.5), the
+  // overnight physiology has already answered the training question —
+  // waive the strain penalty (stress collapses to neutral 5). Without
+  // this, a big-but-absorbed session double-punishes: once via the strain
+  // drag and again via any physio dip that never happened. Rest-day
+  // BOOSTS (stress < 5) are never dampened — recovering well on a rest
+  // day should read as a genuinely great day.
+  // -----------------------------------------------------------------------
+  if (
+    yesterdayStress != null &&
+    yesterdayStress > 5 &&
+    hrv != null &&
+    rhr != null &&
+    hrv >= 6.5 &&
+    rhr >= 6.5
+  ) {
+    yesterdayStress = 5;
   }
 
   // Store raw strain (high = heavy day). Inversion happens in computeDailyReadinessV1.

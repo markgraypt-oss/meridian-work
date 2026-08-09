@@ -245,7 +245,7 @@ function parseIdParam(s: string | undefined): number | null {
   return Number.isFinite(n) && n > 0 ? n : null;
 }
 import { eq, and, like, inArray, desc, or, isNull, asc, gte, lte, lt, sql } from "drizzle-orm";
-import { users, userProgramEnrollments, programWeeks, programDays, programmeWorkouts, programmeWorkoutBlocks, pathContentItems, topicContentItems, learningPaths, programmeModificationRecords, exerciseSubstitutionMappings, programmeBlockExercises, enrollmentWorkouts, enrollmentWorkoutBlocks, enrollmentBlockExercises, programs, userExtraWorkoutSessions, scheduledWorkouts, workoutLogs, learnContentLibrary, exerciseLibrary, workoutExerciseLogs, workoutSetLogs, aiFeedback, workouts, workoutBlocks, blockExercises, stepEntries, sleepEntries, bodyweightEntries, bodyFatEntries, restingHREntries, caloricBurnEntries, exerciseMinutesEntries, bloodPressureEntries, leanBodyMassEntries, caloricIntakeEntries, hydrationLogs, habitCompletions, habits, wearableMetricsDaily, wearableConnections, progressPictures, bodyMeasurements, dailyReadinessHistory } from "@workspace/db";
+import { users, userProgramEnrollments, programWeeks, programDays, programmeWorkouts, programmeWorkoutBlocks, pathContentItems, topicContentItems, learningPaths, programmeModificationRecords, exerciseSubstitutionMappings, programmeBlockExercises, enrollmentWorkouts, enrollmentWorkoutBlocks, enrollmentBlockExercises, programs, userExtraWorkoutSessions, scheduledWorkouts, workoutLogs, learnContentLibrary, exerciseLibrary, workoutExerciseLogs, workoutSetLogs, aiFeedback, workouts, workoutBlocks, blockExercises, stepEntries, sleepEntries, bodyweightEntries, bodyFatEntries, restingHREntries, caloricBurnEntries, exerciseMinutesEntries, bloodPressureEntries, leanBodyMassEntries, caloricIntakeEntries, hydrationLogs, habitCompletions, habits, wearableMetricsDaily, wearableConnections, progressPictures, bodyMeasurements, dailyReadinessHistory, checkIns, foodLogs } from "@workspace/db";
 import { calculateProgramEquipment, updateProgramEquipmentAuto } from "../equipmentDetection";
 import multer from "multer";
 import path from "path";
@@ -1648,7 +1648,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
     try {
       const { userId } = req.params;
       if (!await requireGrantedAccess(userId, res)) return;
-      const cutoff = new Date(); cutoff.setDate(cutoff.getDate() - 90);
+      const days = Math.min(Math.max(parseInt(String(req.query.days ?? '')) || 90, 7), 365);
+      const cutoff = new Date(); cutoff.setDate(cutoff.getDate() - days);
       const rows = await db.select({ date: bodyweightEntries.date, value: bodyweightEntries.weight })
         .from(bodyweightEntries)
         .where(and(eq(bodyweightEntries.userId, userId), gte(bodyweightEntries.date, cutoff)))
@@ -1661,7 +1662,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
     try {
       const { userId } = req.params;
       if (!await requireGrantedAccess(userId, res)) return;
-      const cutoff = new Date(); cutoff.setDate(cutoff.getDate() - 30);
+      const days = Math.min(Math.max(parseInt(String(req.query.days ?? '')) || 30, 7), 365);
+      const cutoff = new Date(); cutoff.setDate(cutoff.getDate() - days);
       const rows = await db.select({ date: stepEntries.date, value: stepEntries.steps })
         .from(stepEntries)
         .where(and(eq(stepEntries.userId, userId), gte(stepEntries.date, cutoff)))
@@ -1674,7 +1676,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
     try {
       const { userId } = req.params;
       if (!await requireGrantedAccess(userId, res)) return;
-      const cutoff = new Date(); cutoff.setDate(cutoff.getDate() - 30);
+      const days = Math.min(Math.max(parseInt(String(req.query.days ?? '')) || 30, 7), 365);
+      const cutoff = new Date(); cutoff.setDate(cutoff.getDate() - days);
       const rows = await db.select({ date: sleepEntries.date, mins: sleepEntries.durationMinutes })
         .from(sleepEntries)
         .where(and(eq(sleepEntries.userId, userId), gte(sleepEntries.date, cutoff)))
@@ -1687,7 +1690,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
     try {
       const { userId } = req.params;
       if (!await requireGrantedAccess(userId, res)) return;
-      const cutoff = new Date(); cutoff.setDate(cutoff.getDate() - 30);
+      const days = Math.min(Math.max(parseInt(String(req.query.days ?? '')) || 30, 7), 365);
+      const cutoff = new Date(); cutoff.setDate(cutoff.getDate() - days);
       const cutoffStr = cutoff.toISOString().slice(0, 10);
       const rows = await db.select({ date: dailyReadinessHistory.date, score: dailyReadinessHistory.score })
         .from(dailyReadinessHistory)
@@ -1701,6 +1705,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     try {
       const { userId } = req.params;
       if (!await requireGrantedAccess(userId, res)) return;
+      const limit = Math.min(Math.max(parseInt(String(req.query.limit ?? '')) || 20, 5), 200);
       const rows = await db.select({
           id: workoutLogs.id,
           date: workoutLogs.completedAt,
@@ -1711,7 +1716,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         .from(workoutLogs)
         .where(and(eq(workoutLogs.userId, userId), eq(workoutLogs.status, 'completed')))
         .orderBy(desc(workoutLogs.completedAt))
-        .limit(20);
+        .limit(limit);
       res.json(rows.map(r => ({
         ...r,
         date: r.date ? String(r.date).slice(0, 10) : null,
@@ -1724,12 +1729,15 @@ export async function registerRoutes(app: Express): Promise<Server> {
     try {
       const { userId } = req.params;
       if (!await requireGrantedAccess(userId, res)) return;
-      const cutoff = new Date(); cutoff.setDate(cutoff.getDate() - 30);
+      const days = Math.min(Math.max(parseInt(String(req.query.days ?? '')) || 30, 7), 365);
+      const cutoff = new Date(); cutoff.setDate(cutoff.getDate() - days);
       // Aggregate food_logs by date
       const rows = await db.select({
           date: sql<string>`DATE(${foodLogs.date})`.as('date'),
           calories: sql<number>`SUM(${foodLogs.calories})`.as('calories'),
           protein: sql<number>`ROUND(SUM(${foodLogs.protein})::numeric, 1)`.as('protein'),
+          carbs: sql<number>`ROUND(SUM(${foodLogs.carbs})::numeric, 1)`.as('carbs'),
+          fat: sql<number>`ROUND(SUM(${foodLogs.fat})::numeric, 1)`.as('fat'),
         })
         .from(foodLogs)
         .where(and(eq(foodLogs.userId, userId), gte(foodLogs.date, cutoff)))
@@ -1743,7 +1751,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
     try {
       const { userId } = req.params;
       if (!await requireGrantedAccess(userId, res)) return;
-      const cutoff = new Date(); cutoff.setDate(cutoff.getDate() - 30);
+      const days = Math.min(Math.max(parseInt(String(req.query.days ?? '')) || 30, 7), 365);
+      const cutoff = new Date(); cutoff.setDate(cutoff.getDate() - days);
       const rows = await db.select({ date: caloricIntakeEntries.date, value: caloricIntakeEntries.calories })
         .from(caloricIntakeEntries)
         .where(and(eq(caloricIntakeEntries.userId, userId), gte(caloricIntakeEntries.date, cutoff)))
@@ -1775,6 +1784,31 @@ export async function registerRoutes(app: Express): Promise<Server> {
         .orderBy(desc(bodyMeasurements.date))
         .limit(20);
       res.json(rows);
+    } catch (e) { console.error(e); res.status(500).json({ message: "Failed" }); }
+  });
+
+  app.get('/api/admin/coach-access/clients/:userId/check-ins', isAuthenticated, requireAdmin, async (req: any, res) => {
+    try {
+      const { userId } = req.params;
+      if (!await requireGrantedAccess(userId, res)) return;
+      const days = Math.min(Math.max(parseInt(String(req.query.days ?? '')) || 60, 7), 365);
+      const cutoff = new Date(); cutoff.setDate(cutoff.getDate() - days);
+      const rows = await db.select({
+          id: checkIns.id,
+          date: checkIns.checkInDate,
+          moodScore: checkIns.moodScore,
+          energyScore: checkIns.energyScore,
+        })
+        .from(checkIns)
+        .where(and(eq(checkIns.userId, userId), gte(checkIns.checkInDate, cutoff)))
+        .orderBy(desc(checkIns.checkInDate))
+        .limit(120);
+      res.json(rows.map(r => ({
+        id: r.id,
+        date: String(r.date).slice(0, 10),
+        moodScore: r.moodScore,
+        energyScore: r.energyScore,
+      })));
     } catch (e) { console.error(e); res.status(500).json({ message: "Failed" }); }
   });
 

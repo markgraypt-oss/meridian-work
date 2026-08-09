@@ -1,129 +1,280 @@
+import { useMemo } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { useParams, useLocation } from "wouter";
+import {
+  startOfWeek, endOfWeek, eachDayOfInterval, format, differenceInDays,
+  parseISO, isToday,
+} from "date-fns";
+import { AlertTriangle, ArrowLeft, CheckCircle2, ShieldAlert } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import {
-  ArrowLeft,
-  Scale,
-  Footprints,
-  Moon,
-  Zap,
-  Dumbbell,
-  Apple,
-  ShieldAlert,
-  Flame,
-  Ruler,
-  Camera,
-  Star,
-} from "lucide-react";
-import {
-  ResponsiveContainer,
-  LineChart,
-  Line,
-  XAxis,
-  YAxis,
-  Tooltip,
-  CartesianGrid,
-} from "recharts";
+import { Card, CardContent } from "@/components/ui/card";
+import { Skeleton } from "@/components/ui/skeleton";
 
-interface DataPoint { date: string; value: number }
+import { ComplianceStrip } from "./client-profile/ComplianceStrip";
+import { MetricsSection } from "./client-profile/MetricsSection";
+import { ActivityFeed } from "./client-profile/ActivityFeed";
+import { TrainingPanel } from "./client-profile/TrainingPanel";
+import { BodyPanel } from "./client-profile/BodyPanel";
+import type { DataPoint, WorkoutLog, CheckInRecord, NutritionDay, Photo } from "./client-profile/types";
 
-function MiniChart({
-  title,
-  icon: Icon,
-  data,
-  unit,
-  color,
-}: {
-  title: string;
-  icon: React.ComponentType<{ className?: string }>;
-  data: DataPoint[];
-  unit: string;
-  color: string;
-}) {
+// ─── Circular adherence ring ──────────────────────────────────────────────────
+
+function AdherenceRing({ pct }: { pct: number }) {
+  const R = 16, circ = 2 * Math.PI * R;
+  const dash = circ * Math.min(Math.max(pct, 0), 1);
+  const colour = pct >= 0.8 ? '#34d399' : pct >= 0.5 ? '#fbbf24' : '#f87171';
   return (
-    <Card>
-      <CardHeader className="pb-2">
-        <CardTitle className="text-sm font-medium flex items-center gap-2 text-muted-foreground">
-          <Icon className="h-4 w-4" />
-          {title}
-        </CardTitle>
-      </CardHeader>
-      <CardContent>
-        {data.length === 0 ? (
-          <p className="text-xs text-muted-foreground py-6 text-center">No data available</p>
-        ) : (
-          <ResponsiveContainer width="100%" height={120}>
-            <LineChart data={data}>
-              <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" />
-              <XAxis dataKey="date" tick={{ fontSize: 10 }} tickFormatter={(v) => v.slice(5)} />
-              <YAxis tick={{ fontSize: 10 }} width={35} unit={unit} />
-              <Tooltip
-                formatter={(v: number) => [`${v}${unit}`, title]}
-                labelStyle={{ fontSize: 11 }}
-                contentStyle={{ fontSize: 11 }}
-              />
-              <Line type="monotone" dataKey="value" stroke={color} dot={false} strokeWidth={2} />
-            </LineChart>
-          </ResponsiveContainer>
-        )}
-      </CardContent>
-    </Card>
+    <div className="relative flex items-center justify-center h-11 w-11 shrink-0">
+      <svg className="absolute inset-0" style={{ transform: 'rotate(-90deg)' }} width="44" height="44">
+        <circle cx="22" cy="22" r={R} fill="none" stroke="hsl(var(--border))" strokeWidth="3.5" />
+        <circle cx="22" cy="22" r={R} fill="none" stroke={colour} strokeWidth="3.5"
+          strokeDasharray={`${dash} ${circ}`} strokeLinecap="round" />
+      </svg>
+      <span className="text-[10px] font-semibold relative z-10">{Math.round(pct * 100)}%</span>
+    </div>
   );
 }
+
+// ─── Header ───────────────────────────────────────────────────────────────────
+
+interface HeaderProps {
+  name: string;
+  email: string;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  timeline: any;
+  workouts: WorkoutLog[];
+  checkIns: CheckInRecord[];
+  bodyweight: DataPoint[];
+  sleep: DataPoint[];
+  readiness: DataPoint[];
+  isLoading: boolean;
+  onBack: () => void;
+}
+
+function ClientHeader({ name, email, timeline, workouts, checkIns, bodyweight, sleep, readiness, isLoading, onBack }: HeaderProps) {
+  const initials = name
+    ? name.split(' ').map(p => p[0]).join('').toUpperCase().slice(0, 2)
+    : '??';
+
+  // Programme info from timeline
+  const current = timeline?.current;
+  const progName  = current?.programme?.name ?? current?.programmeTitle ?? null;
+  const progWeek  = current?.currentWeek ?? null;
+  const progTotal = current?.programme?.totalWeeks ?? null;
+  const progLabel = progName
+    ? `${progName}${progWeek && progTotal ? ` · Week ${progWeek} of ${progTotal}` : ''}`
+    : 'No active programme';
+
+  // Adherence ring: active days / days elapsed this week (Mon–today)
+  const today = new Date();
+  const weekStart = startOfWeek(today, { weekStartsOn: 1 });
+  const daysSoFar = eachDayOfInterval({ start: weekStart, end: today });
+
+  const workoutDatesThisWeek = new Set(
+    workouts.map(w => w.date).filter((d): d is string => !!d && d >= format(weekStart, 'yyyy-MM-dd')),
+  );
+  const checkInDatesThisWeek = new Set(
+    checkIns.filter(c => c.date >= format(weekStart, 'yyyy-MM-dd')).map(c => c.date),
+  );
+  const activeDays = daysSoFar.filter(d => {
+    const ds = format(d, 'yyyy-MM-dd');
+    return workoutDatesThisWeek.has(ds) || checkInDatesThisWeek.has(ds);
+  }).length;
+  const adherencePct = daysSoFar.length > 0 ? activeDays / daysSoFar.length : 0;
+
+  // Last active: most recent date across all data
+  const allDates: string[] = [
+    ...workouts.map(w => w.date).filter(Boolean) as string[],
+    ...checkIns.map(c => c.date),
+    ...bodyweight.map(b => b.date),
+    ...sleep.map(s => s.date),
+    ...readiness.map(r => r.date),
+  ];
+  const latestDate = allDates.length ? allDates.sort().at(-1)! : null;
+  const lastActiveLabel = latestDate
+    ? (isToday(parseISO(latestDate))
+        ? 'Active today'
+        : `Active ${differenceInDays(today, parseISO(latestDate))} days ago`)
+    : null;
+
+  // Attention flags
+  const flags: { label: string; level: 'amber' | 'red' }[] = [];
+
+  // Check-in flag: most recent check-in > 5 days ago
+  if (checkIns.length > 0) {
+    const daysSince = differenceInDays(today, parseISO(checkIns[0].date));
+    if (daysSince > 5) {
+      flags.push({ label: `No check-in for ${daysSince} days`, level: daysSince > 10 ? 'red' : 'amber' });
+    }
+  }
+
+  // Wearable flag: most recent sleep/readiness > 4 days ago (and older data exists)
+  const sortedSleep = [...sleep].sort((a, b) => b.date.localeCompare(a.date));
+  const sortedReadiness = [...readiness].sort((a, b) => b.date.localeCompare(a.date));
+  const latestWearable = sortedSleep[0]?.date ?? sortedReadiness[0]?.date ?? null;
+  if (latestWearable && (sleep.length > 1 || readiness.length > 1)) {
+    const daysSince = differenceInDays(today, parseISO(latestWearable));
+    if (daysSince > 4) {
+      flags.push({ label: `No wearable data for ${daysSince} days`, level: 'amber' });
+    }
+  }
+
+  const displayFlags = flags.slice(0, 3);
+
+  return (
+    <div className="sticky top-0 z-20 bg-background/95 backdrop-blur border-b border-border/60 px-6 py-3">
+      <div className="max-w-5xl mx-auto flex items-center gap-3 flex-wrap">
+
+        {/* Avatar */}
+        <div className="h-9 w-9 rounded-full bg-muted flex items-center justify-center text-xs font-semibold shrink-0">
+          {isLoading ? <Skeleton className="h-9 w-9 rounded-full" /> : initials}
+        </div>
+
+        {/* Name + programme */}
+        <div className="min-w-0">
+          {isLoading ? (
+            <><Skeleton className="h-4 w-32 mb-1" /><Skeleton className="h-3 w-48" /></>
+          ) : (
+            <>
+              <div className="font-semibold text-sm leading-tight truncate">{name || '—'}</div>
+              <div className="text-xs text-muted-foreground truncate">{progLabel}</div>
+            </>
+          )}
+        </div>
+
+        {/* Adherence ring */}
+        <div className="flex items-center gap-2 ml-1">
+          <AdherenceRing pct={adherencePct} />
+          <div className="text-[10px] text-muted-foreground leading-tight">
+            <div>This week</div>
+            <div>adherence</div>
+          </div>
+        </div>
+
+        {/* Attention flags */}
+        <div className="flex gap-1.5 flex-wrap">
+          {displayFlags.length === 0 ? (
+            <Badge variant="outline"
+              className="text-emerald-400 border-emerald-400/30 bg-emerald-400/10 text-[10px] py-0 gap-1">
+              <CheckCircle2 className="h-2.5 w-2.5" /> On track
+            </Badge>
+          ) : displayFlags.map((f, i) => (
+            <Badge key={i} variant="outline"
+              className={`text-[10px] py-0 gap-1 ${f.level === 'red'
+                ? 'text-red-400 border-red-400/30 bg-red-400/10'
+                : 'text-amber-400 border-amber-400/30 bg-amber-400/10'}`}>
+              <AlertTriangle className="h-2.5 w-2.5" /> {f.label}
+            </Badge>
+          ))}
+        </div>
+
+        {/* Right side */}
+        <div className="ml-auto flex items-center gap-3 shrink-0">
+          {lastActiveLabel && (
+            <span className="text-xs text-muted-foreground hidden sm:block">{lastActiveLabel}</span>
+          )}
+          <Badge className="bg-emerald-950 text-emerald-400 border-emerald-800 text-[10px]">
+            Access granted
+          </Badge>
+          <Button variant="ghost" size="sm" onClick={onBack} className="h-7 px-2 text-xs gap-1">
+            <ArrowLeft className="h-3 w-3" />
+            Clients
+          </Button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ─── Main ─────────────────────────────────────────────────────────────────────
 
 export default function ClientProfile() {
   const { userId } = useParams<{ userId: string }>();
   const [, navigate] = useLocation();
 
-  const { data: accessStatus } = useQuery<{ status: string }>({
-    queryKey: [`/api/admin/coach-access/clients`],
-    select: (d: any) => {
-      const found = (d?.clients ?? []).find((c: any) => c.clientUserId === userId);
-      return { status: found?.status ?? "none" };
-    },
+  // Access status
+  const { data: clientsData } = useQuery<{ clients: { clientUserId: string; name: string; email: string; status: string }[] }>({
+    queryKey: ['/api/admin/coach-access/clients'],
   });
 
-  const isGranted = accessStatus?.status === "granted";
+  const clientInfo = useMemo(
+    () => clientsData?.clients.find(c => c.clientUserId === userId) ?? null,
+    [clientsData, userId],
+  );
 
-  const { data: bodyweight } = useQuery<DataPoint[]>({
-    queryKey: [`/api/admin/coach-access/clients/${userId}/bodyweight`],
-    enabled: isGranted,
-  });
-  const { data: steps } = useQuery<DataPoint[]>({
-    queryKey: [`/api/admin/coach-access/clients/${userId}/steps`],
-    enabled: isGranted,
-  });
-  const { data: sleep } = useQuery<DataPoint[]>({
-    queryKey: [`/api/admin/coach-access/clients/${userId}/sleep`],
-    enabled: isGranted,
-  });
-  const { data: readiness } = useQuery<DataPoint[]>({
-    queryKey: [`/api/admin/coach-access/clients/${userId}/readiness`],
-    enabled: isGranted,
-  });
-  const { data: caloricIntake } = useQuery<DataPoint[]>({
-    queryKey: [`/api/admin/coach-access/clients/${userId}/caloric-intake`],
+  const isGranted = clientInfo?.status === 'granted';
+
+  // All data fetched in parallel — enabled only when access is granted
+  const { data: bodyweight = [], isLoading: bwLoading } = useQuery<DataPoint[]>({
+    queryKey: [`/api/admin/coach-access/clients/${userId}/bodyweight?days=90`],
     enabled: isGranted,
   });
 
-  if (!isGranted) {
+  const { data: steps = [], isLoading: stepsLoading } = useQuery<DataPoint[]>({
+    queryKey: [`/api/admin/coach-access/clients/${userId}/steps?days=30`],
+    enabled: isGranted,
+  });
+
+  const { data: sleep = [], isLoading: sleepLoading } = useQuery<DataPoint[]>({
+    queryKey: [`/api/admin/coach-access/clients/${userId}/sleep?days=30`],
+    enabled: isGranted,
+  });
+
+  const { data: readiness = [], isLoading: readinessLoading } = useQuery<DataPoint[]>({
+    queryKey: [`/api/admin/coach-access/clients/${userId}/readiness?days=30`],
+    enabled: isGranted,
+  });
+
+  const { data: calories = [], isLoading: calLoading } = useQuery<DataPoint[]>({
+    queryKey: [`/api/admin/coach-access/clients/${userId}/caloric-intake?days=30`],
+    enabled: isGranted,
+  });
+
+  const { data: workouts = [], isLoading: woLoading } = useQuery<WorkoutLog[]>({
+    queryKey: [`/api/admin/coach-access/clients/${userId}/workouts?limit=100`],
+    enabled: isGranted,
+  });
+
+  const { data: checkIns = [] } = useQuery<CheckInRecord[]>({
+    queryKey: [`/api/admin/coach-access/clients/${userId}/check-ins?days=60`],
+    enabled: isGranted,
+  });
+
+  const { data: nutrition = [] } = useQuery<NutritionDay[]>({
+    queryKey: [`/api/admin/coach-access/clients/${userId}/nutrition?days=30`],
+    enabled: isGranted,
+  });
+
+  const { data: photos = [] } = useQuery<Photo[]>({
+    queryKey: [`/api/admin/coach-access/clients/${userId}/photos`],
+    enabled: isGranted,
+  });
+
+  const { data: timeline } = useQuery({
+    queryKey: [`/api/admin/users/${userId}/timeline`],
+    enabled: isGranted,
+  });
+
+  const isAnyLoading = bwLoading || stepsLoading || sleepLoading || readinessLoading || calLoading || woLoading;
+
+  // ── Access denied ──────────────────────────────────────────────────────────
+  if (clientsData && !isGranted) {
     return (
       <div className="p-6 max-w-2xl mx-auto">
-        <Button variant="ghost" size="sm" onClick={() => navigate("/admin/clients")} className="mb-4">
-          <ArrowLeft className="h-4 w-4 mr-1.5" />
+        <Button variant="ghost" size="sm" onClick={() => navigate('/admin/clients')} className="mb-4 gap-1">
+          <ArrowLeft className="h-4 w-4" />
           Back to Clients
         </Button>
         <Card>
-          <CardContent className="p-8 text-center space-y-3">
+          <CardContent className="p-10 text-center space-y-3">
             <ShieldAlert className="h-10 w-10 text-muted-foreground/40 mx-auto" />
             <p className="font-medium">Access not granted</p>
             <p className="text-sm text-muted-foreground">
-              This client has not yet consented to share their data. Send an access request from the
-              Clients page.
+              This client has not yet consented to share their data.
+              Send an access request from the Clients page.
             </p>
-            <Button variant="outline" size="sm" onClick={() => navigate("/admin/clients")}>
+            <Button variant="outline" size="sm" onClick={() => navigate('/admin/clients')}>
               Go to Clients
             </Button>
           </CardContent>
@@ -132,273 +283,73 @@ export default function ClientProfile() {
     );
   }
 
+  // ── Loading shell ──────────────────────────────────────────────────────────
+  if (!clientsData) {
+    return (
+      <div className="p-6 space-y-4 max-w-5xl mx-auto">
+        <Skeleton className="h-14 w-full" />
+        <Skeleton className="h-32 w-full" />
+        <div className="grid grid-cols-3 gap-4">
+          {[...Array(6)].map((_, i) => <Skeleton key={i} className="h-28 w-full" />)}
+        </div>
+      </div>
+    );
+  }
+
+  // ── Full page ──────────────────────────────────────────────────────────────
   return (
-    <div className="p-6 max-w-4xl mx-auto space-y-6">
-      <div className="flex items-center justify-between">
-        <Button variant="ghost" size="sm" onClick={() => navigate("/admin/clients")}>
-          <ArrowLeft className="h-4 w-4 mr-1.5" />
-          Back to Clients
-        </Button>
-        <Badge className="bg-emerald-100 text-emerald-700 border-emerald-200">Access granted</Badge>
-      </div>
-
-      {/* Charts row 1: bodyweight + steps */}
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-        <MiniChart
-          title="Bodyweight (90 days)"
-          icon={Scale}
-          data={bodyweight ?? []}
-          unit="kg"
-          color="hsl(var(--primary))"
-        />
-        <MiniChart
-          title="Daily steps (30 days)"
-          icon={Footprints}
-          data={steps ?? []}
-          unit=""
-          color="#10b981"
-        />
-      </div>
-
-      {/* Charts row 2: sleep + readiness */}
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-        <MiniChart
-          title="Sleep (30 days)"
-          icon={Moon}
-          data={sleep ?? []}
-          unit="h"
-          color="#6366f1"
-        />
-        <MiniChart
-          title="Readiness (30 days)"
-          icon={Zap}
-          data={readiness ?? []}
-          unit=""
-          color="#f59e0b"
-        />
-      </div>
-
-      {/* Caloric intake chart */}
-      <MiniChart
-        title="Caloric intake (30 days)"
-        icon={Flame}
-        data={caloricIntake ?? []}
-        unit=" kcal"
-        color="#ef4444"
+    <div className="min-h-screen">
+      {/* Sticky header */}
+      <ClientHeader
+        name={clientInfo?.name ?? ''}
+        email={clientInfo?.email ?? ''}
+        timeline={timeline}
+        workouts={workouts}
+        checkIns={checkIns}
+        bodyweight={bodyweight}
+        sleep={sleep}
+        readiness={readiness}
+        isLoading={!clientsData}
+        onBack={() => navigate('/admin/clients')}
       />
 
-      {/* Workouts + Nutrition tables */}
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-        <Card>
-          <CardHeader className="pb-2">
-            <CardTitle className="text-sm font-medium flex items-center gap-2 text-muted-foreground">
-              <Dumbbell className="h-4 w-4" />
-              Recent workouts
-            </CardTitle>
-          </CardHeader>
-          <CardContent>
-            <WorkoutTable userId={userId!} enabled={isGranted} />
-          </CardContent>
-        </Card>
+      {/* Content */}
+      <div className="max-w-5xl mx-auto px-6 py-6 space-y-6">
 
-        <Card>
-          <CardHeader className="pb-2">
-            <CardTitle className="text-sm font-medium flex items-center gap-2 text-muted-foreground">
-              <Apple className="h-4 w-4" />
-              Recent nutrition
-            </CardTitle>
-          </CardHeader>
-          <CardContent>
-            <NutritionTable userId={userId!} enabled={isGranted} />
-          </CardContent>
-        </Card>
-      </div>
+        {/* 2. Compliance strip */}
+        <ComplianceStrip
+          workouts={workouts}
+          checkIns={checkIns}
+          nutrition={nutrition}
+          steps={steps}
+        />
 
-      {/* Body measurements table */}
-      <Card>
-        <CardHeader className="pb-2">
-          <CardTitle className="text-sm font-medium flex items-center gap-2 text-muted-foreground">
-            <Ruler className="h-4 w-4" />
-            Body measurements
-          </CardTitle>
-        </CardHeader>
-        <CardContent>
-          <MeasurementsTable userId={userId!} enabled={isGranted} />
-        </CardContent>
-      </Card>
+        {/* 3 + 4. Metrics grid + drilldown */}
+        <MetricsSection
+          userId={userId!}
+          bodyweight={bodyweight}
+          steps={steps}
+          sleep={sleep}
+          readiness={readiness}
+          calories={calories}
+          workouts={workouts}
+          isLoading={isAnyLoading}
+        />
 
-      {/* Progress photos */}
-      <Card>
-        <CardHeader className="pb-2">
-          <CardTitle className="text-sm font-medium flex items-center gap-2 text-muted-foreground">
-            <Camera className="h-4 w-4" />
-            Progress photos
-          </CardTitle>
-        </CardHeader>
-        <CardContent>
-          <PhotosGrid userId={userId!} enabled={isGranted} />
-        </CardContent>
-      </Card>
-    </div>
-  );
-}
-
-function WorkoutTable({ userId, enabled }: { userId: string; enabled: boolean }) {
-  const { data } = useQuery<any[]>({
-    queryKey: [`/api/admin/coach-access/clients/${userId}/workouts`],
-    enabled,
-  });
-  if (!data || data.length === 0)
-    return <p className="text-xs text-muted-foreground text-center py-4">No workouts logged</p>;
-  return (
-    <table className="w-full text-xs">
-      <thead>
-        <tr className="text-muted-foreground border-b border-border">
-          <th className="text-left pb-1 font-medium">Date</th>
-          <th className="text-left pb-1 font-medium">Name</th>
-          <th className="text-right pb-1 font-medium">Mins</th>
-          <th className="text-right pb-1 font-medium">
-            <Star className="h-3 w-3 inline" />
-          </th>
-        </tr>
-      </thead>
-      <tbody>
-        {data.slice(0, 10).map((w, i) => (
-          <tr key={i} className="border-b border-border/50 last:border-0">
-            <td className="py-1 text-muted-foreground">{String(w.date ?? "").slice(0, 10)}</td>
-            <td className="py-1 truncate max-w-[120px]">{w.name ?? "Workout"}</td>
-            <td className="py-1 text-right">{w.durationMinutes ?? "—"}</td>
-            <td className="py-1 text-right">{w.rating ?? "—"}</td>
-          </tr>
-        ))}
-      </tbody>
-    </table>
-  );
-}
-
-function NutritionTable({ userId, enabled }: { userId: string; enabled: boolean }) {
-  const { data } = useQuery<any[]>({
-    queryKey: [`/api/admin/coach-access/clients/${userId}/nutrition`],
-    enabled,
-  });
-  if (!data || data.length === 0)
-    return <p className="text-xs text-muted-foreground text-center py-4">No nutrition logged</p>;
-  return (
-    <table className="w-full text-xs">
-      <thead>
-        <tr className="text-muted-foreground border-b border-border">
-          <th className="text-left pb-1 font-medium">Date</th>
-          <th className="text-right pb-1 font-medium">Calories</th>
-          <th className="text-right pb-1 font-medium">Protein</th>
-        </tr>
-      </thead>
-      <tbody>
-        {data.slice(0, 8).map((n, i) => (
-          <tr key={i} className="border-b border-border/50 last:border-0">
-            <td className="py-1 text-muted-foreground">{String(n.date ?? "").slice(0, 10)}</td>
-            <td className="py-1 text-right">{n.calories ?? "—"}</td>
-            <td className="py-1 text-right">{n.protein ? `${n.protein}g` : "—"}</td>
-          </tr>
-        ))}
-      </tbody>
-    </table>
-  );
-}
-
-function MeasurementsTable({ userId, enabled }: { userId: string; enabled: boolean }) {
-  const { data } = useQuery<any[]>({
-    queryKey: [`/api/admin/coach-access/clients/${userId}/measurements`],
-    enabled,
-  });
-  if (!data || data.length === 0)
-    return <p className="text-xs text-muted-foreground text-center py-4">No measurements logged</p>;
-
-  // Show the columns that have any data
-  const cols: { key: string; label: string }[] = [
-    { key: "waist", label: "Waist" },
-    { key: "chest", label: "Chest" },
-    { key: "hips", label: "Hips" },
-    { key: "neck", label: "Neck" },
-    { key: "shoulders", label: "Shoulders" },
-    { key: "leftBicep", label: "L Bicep" },
-    { key: "rightBicep", label: "R Bicep" },
-    { key: "leftThigh", label: "L Thigh" },
-    { key: "rightThigh", label: "R Thigh" },
-    { key: "leftCalf", label: "L Calf" },
-    { key: "rightCalf", label: "R Calf" },
-  ].filter(c => data.some(r => r[c.key] != null));
-
-  return (
-    <div className="overflow-x-auto">
-      <table className="w-full text-xs">
-        <thead>
-          <tr className="text-muted-foreground border-b border-border">
-            <th className="text-left pb-1 font-medium whitespace-nowrap pr-3">Date</th>
-            {cols.map(c => (
-              <th key={c.key} className="text-right pb-1 font-medium whitespace-nowrap px-1">{c.label}</th>
-            ))}
-          </tr>
-        </thead>
-        <tbody>
-          {data.slice(0, 10).map((m, i) => (
-            <tr key={i} className="border-b border-border/50 last:border-0">
-              <td className="py-1 text-muted-foreground pr-3 whitespace-nowrap">
-                {String(m.date ?? "").slice(0, 10)}
-              </td>
-              {cols.map(c => (
-                <td key={c.key} className="py-1 text-right px-1">
-                  {m[c.key] != null ? `${m[c.key]}cm` : "—"}
-                </td>
-              ))}
-            </tr>
-          ))}
-        </tbody>
-      </table>
-    </div>
-  );
-}
-
-function PhotosGrid({ userId, enabled }: { userId: string; enabled: boolean }) {
-  const { data } = useQuery<any[]>({
-    queryKey: [`/api/admin/coach-access/clients/${userId}/photos`],
-    enabled,
-  });
-  if (!data || data.length === 0)
-    return <p className="text-xs text-muted-foreground text-center py-4">No progress photos uploaded</p>;
-
-  // Group by photoSetId to show sets together
-  const setMap = new Map<string, any[]>();
-  for (const p of data) {
-    const arr = setMap.get(p.photoSetId) ?? [];
-    arr.push(p);
-    setMap.set(p.photoSetId, arr);
-  }
-  const sets = Array.from(setMap.entries()).slice(0, 8);
-
-  return (
-    <div className="space-y-4">
-      {sets.map(([setId, photos]) => (
-        <div key={setId}>
-          <p className="text-xs text-muted-foreground mb-2">
-            {String(photos[0]?.date ?? "").slice(0, 10)}
-          </p>
-          <div className="flex gap-2 flex-wrap">
-            {photos.map((p: any) => (
-              <div key={p.id} className="relative group">
-                <img
-                  src={p.imageUrl}
-                  alt={p.category}
-                  className="h-32 w-24 object-cover rounded-md border border-border"
-                  onError={(e) => { (e.target as HTMLImageElement).style.display = "none"; }}
-                />
-                <span className="absolute bottom-1 left-1 text-[10px] bg-black/60 text-white rounded px-1">
-                  {p.category}
-                </span>
-              </div>
-            ))}
-          </div>
+        {/* 5. Activity feed + Training */}
+        <div className="grid grid-cols-1 lg:grid-cols-[1fr_340px] gap-6">
+          <ActivityFeed
+            bodyweight={bodyweight}
+            workouts={workouts}
+            checkIns={checkIns}
+            photos={photos}
+          />
+          <TrainingPanel workouts={workouts} timeline={timeline} />
         </div>
-      ))}
+
+        {/* 6. Body panel */}
+        <BodyPanel userId={userId!} />
+      </div>
     </div>
   );
 }

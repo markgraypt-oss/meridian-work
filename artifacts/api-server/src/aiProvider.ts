@@ -560,6 +560,19 @@ export async function getUserDataContext(userId: string, feature: string): Promi
         if (anxiousDays > 0) context += `\nAnxiety reported: ${anxiousDays} of ${recent.length} days`;
         if (overwhelmedDays > 0) context += `\nFeeling overwhelmed: ${overwhelmedDays} of ${recent.length} days`;
         if (fatigueDays > 0) context += `\nFatigue: ${fatigueDays} of ${recent.length} days`;
+        // Alcohol is PERSONAL-ONLY data (same wall as Daily Readiness, see
+        // reportingEngine.ts containment note). It is surfaced here so the
+        // coach can give the user private, correlational feedback about their
+        // own patterns; this context only ever feeds per-user AI surfaces.
+        // Company/cohort reporting lives in reportingEngine.ts on a separate
+        // path and must never source alcohol from this block. The coach's
+        // standing rule for HOW to use this lives in coachPersona.ts
+        // (ALCOHOL DATA IS PERSONAL-ONLY).
+        const alcoholDays = recent.filter(c => c.alcohol).length;
+        if (alcoholDays > 0) {
+          const alcoholUnits = recent.reduce((s, c) => s + (c.alcoholCount || 0), 0);
+          context += `\nAlcohol logged: ${alcoholDays} of ${recent.length} days${alcoholUnits > 0 ? ` (${alcoholUnits} drinks total)` : ''}`;
+        }
         const notesEntries = recent.filter(c => c.notes && c.notes.trim().length > 0).slice(0, 5);
         if (notesEntries.length > 0) {
           context += '\n\nRecent check-in notes/reflections from the user:';

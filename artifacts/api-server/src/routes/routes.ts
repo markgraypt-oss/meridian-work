@@ -245,7 +245,7 @@ function parseIdParam(s: string | undefined): number | null {
   return Number.isFinite(n) && n > 0 ? n : null;
 }
 import { eq, and, like, inArray, desc, or, isNull, asc, gte, lte, lt, sql } from "drizzle-orm";
-import { users, userProgramEnrollments, programWeeks, programDays, programmeWorkouts, programmeWorkoutBlocks, pathContentItems, topicContentItems, learningPaths, programmeModificationRecords, exerciseSubstitutionMappings, programmeBlockExercises, enrollmentWorkouts, enrollmentWorkoutBlocks, enrollmentBlockExercises, programs, userExtraWorkoutSessions, scheduledWorkouts, workoutLogs, learnContentLibrary, exerciseLibrary, workoutExerciseLogs, workoutSetLogs, aiFeedback, workouts, workoutBlocks, blockExercises, stepEntries, sleepEntries, bodyweightEntries, bodyFatEntries, restingHREntries, caloricBurnEntries, exerciseMinutesEntries, bloodPressureEntries, leanBodyMassEntries, caloricIntakeEntries, hydrationLogs, habitCompletions, habits, wearableMetricsDaily, wearableConnections, progressPictures, bodyMeasurements, dailyReadinessHistory, checkIns, foodLogs } from "@workspace/db";
+import { users, userProgramEnrollments, programWeeks, programDays, programmeWorkouts, programmeWorkoutBlocks, pathContentItems, topicContentItems, learningPaths, programmeModificationRecords, exerciseSubstitutionMappings, programmeBlockExercises, enrollmentWorkouts, enrollmentWorkoutBlocks, enrollmentBlockExercises, programs, userExtraWorkoutSessions, scheduledWorkouts, workoutLogs, learnContentLibrary, exerciseLibrary, workoutExerciseLogs, workoutSetLogs, aiFeedback, workouts, workoutBlocks, blockExercises, stepEntries, sleepEntries, bodyweightEntries, bodyFatEntries, restingHREntries, caloricBurnEntries, exerciseMinutesEntries, bloodPressureEntries, leanBodyMassEntries, caloricIntakeEntries, hydrationLogs, habitCompletions, habits, wearableMetricsDaily, wearableConnections, progressPictures, bodyMeasurements, dailyReadinessHistory, checkIns, foodLogs, userPhysiologicalBaselines } from "@workspace/db";
 import { calculateProgramEquipment, updateProgramEquipmentAuto } from "../equipmentDetection";
 import multer from "multer";
 import path from "path";
@@ -1644,6 +1644,15 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   // ── Per-client data endpoints (admin-only, require granted access) ────────
 
+  // Serialize a timestamp to a local YYYY-MM-DD day key (same convention as
+  // dailyReadiness.toDateKey). NEVER use String(date).slice(0, 10) for this —
+  // Date's toString gives "Mon Aug 10 2026 …", which breaks every parseISO /
+  // day-key comparison in the admin portal (NaN header, empty compliance dots).
+  const coachDayKey = (d: Date | string): string => {
+    const dt = d instanceof Date ? d : new Date(d);
+    return `${dt.getFullYear()}-${String(dt.getMonth() + 1).padStart(2, '0')}-${String(dt.getDate()).padStart(2, '0')}`;
+  };
+
   app.get('/api/admin/coach-access/clients/:userId/bodyweight', isAuthenticated, requireAdmin, async (req: any, res) => {
     try {
       const { userId } = req.params;
@@ -1654,7 +1663,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         .from(bodyweightEntries)
         .where(and(eq(bodyweightEntries.userId, userId), gte(bodyweightEntries.date, cutoff)))
         .orderBy(asc(bodyweightEntries.date));
-      res.json(rows.map(r => ({ date: String(r.date).slice(0, 10), value: r.value })));
+      res.json(rows.map(r => ({ date: coachDayKey(r.date), value: r.value })));
     } catch (e) { console.error(e); res.status(500).json({ message: "Failed" }); }
   });
 
@@ -1668,7 +1677,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         .from(stepEntries)
         .where(and(eq(stepEntries.userId, userId), gte(stepEntries.date, cutoff)))
         .orderBy(asc(stepEntries.date));
-      res.json(rows.map(r => ({ date: String(r.date).slice(0, 10), value: r.value })));
+      res.json(rows.map(r => ({ date: coachDayKey(r.date), value: r.value })));
     } catch (e) { console.error(e); res.status(500).json({ message: "Failed" }); }
   });
 
@@ -1682,7 +1691,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         .from(sleepEntries)
         .where(and(eq(sleepEntries.userId, userId), gte(sleepEntries.date, cutoff)))
         .orderBy(asc(sleepEntries.date));
-      res.json(rows.map(r => ({ date: String(r.date).slice(0, 10), value: Math.round((r.mins / 60) * 10) / 10 })));
+      res.json(rows.map(r => ({ date: coachDayKey(r.date), value: Math.round((r.mins / 60) * 10) / 10 })));
     } catch (e) { console.error(e); res.status(500).json({ message: "Failed" }); }
   });
 
@@ -1719,7 +1728,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         .limit(limit);
       res.json(rows.map(r => ({
         ...r,
-        date: r.date ? String(r.date).slice(0, 10) : null,
+        date: r.date ? coachDayKey(r.date) : null,
         durationMinutes: r.durationMinutes ? Math.round(r.durationMinutes / 60) : null,
       })));
     } catch (e) { console.error(e); res.status(500).json({ message: "Failed" }); }
@@ -1733,11 +1742,16 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const cutoff = new Date(); cutoff.setDate(cutoff.getDate() - days);
       // Aggregate food_logs by date
       const rows = await db.select({
-          date: sql<string>`DATE(${foodLogs.date})`.as('date'),
-          calories: sql<number>`SUM(${foodLogs.calories})`.as('calories'),
-          protein: sql<number>`ROUND(SUM(${foodLogs.protein})::numeric, 1)`.as('protein'),
-          carbs: sql<number>`ROUND(SUM(${foodLogs.carbs})::numeric, 1)`.as('carbs'),
-          fat: sql<number>`ROUND(SUM(${foodLogs.fat})::numeric, 1)`.as('fat'),
+          // ::text so pg returns a plain 'YYYY-MM-DD' string (a bare DATE comes
+          // back as a JS Date and JSON-serializes with a timestamp suffix).
+          date: sql<string>`DATE(${foodLogs.date})::text`.as('date'),
+          // ::int / ::float8 casts matter: SUM(integer) is bigint and ROUND(::numeric)
+          // is numeric — both come back from pg as STRINGS, which turned the
+          // portal's macro averages into NaN. float8/int parse as real numbers.
+          calories: sql<number>`SUM(${foodLogs.calories})::int`.as('calories'),
+          protein: sql<number>`ROUND(SUM(${foodLogs.protein})::numeric, 1)::float8`.as('protein'),
+          carbs: sql<number>`ROUND(SUM(${foodLogs.carbs})::numeric, 1)::float8`.as('carbs'),
+          fat: sql<number>`ROUND(SUM(${foodLogs.fat})::numeric, 1)::float8`.as('fat'),
         })
         .from(foodLogs)
         .where(and(eq(foodLogs.userId, userId), gte(foodLogs.date, cutoff)))
@@ -1757,7 +1771,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         .from(caloricIntakeEntries)
         .where(and(eq(caloricIntakeEntries.userId, userId), gte(caloricIntakeEntries.date, cutoff)))
         .orderBy(asc(caloricIntakeEntries.date));
-      res.json(rows.map(r => ({ date: String(r.date).slice(0, 10), value: r.value })));
+      res.json(rows.map(r => ({ date: coachDayKey(r.date), value: r.value })));
     } catch (e) { console.error(e); res.status(500).json({ message: "Failed" }); }
   });
 
@@ -1805,7 +1819,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         .limit(120);
       res.json(rows.map(r => ({
         id: r.id,
-        date: String(r.date).slice(0, 10),
+        date: coachDayKey(r.date),
         moodScore: r.moodScore,
         energyScore: r.energyScore,
       })));
@@ -19951,7 +19965,28 @@ Keep your response concise, practical, and evidence-based. This is general guida
           }
         }
       } catch {}
-      res.json({ enabled: true, waitingForWearable, waitingProvider, wearableDegraded, ...data });
+      // Calibration state for the "Calibrating · N days left" label: while the
+      // personal baselines (HRV/RHR/sleep, ≥14 samples each) aren't calibrated,
+      // scores use fixed-scale fallbacks — the app shows the score with a
+      // calibrating label rather than hiding it. Null row = never computed yet.
+      let calibration: { isCalibrated: boolean; daysUntilCalibrated: number | null } | null = null;
+      try {
+        const [baselineRow] = await db
+          .select({
+            isCalibrated: userPhysiologicalBaselines.isCalibrated,
+            daysUntilCalibrated: userPhysiologicalBaselines.daysUntilCalibrated,
+          })
+          .from(userPhysiologicalBaselines)
+          .where(eq(userPhysiologicalBaselines.userId, userId))
+          .limit(1);
+        if (baselineRow) {
+          calibration = {
+            isCalibrated: !!baselineRow.isCalibrated,
+            daysUntilCalibrated: baselineRow.daysUntilCalibrated ?? null,
+          };
+        }
+      } catch {}
+      res.json({ enabled: true, waitingForWearable, waitingProvider, wearableDegraded, calibration, ...data });
     } catch (error: any) {
       console.error("Error fetching daily readiness today:", error?.message);
       res.status(500).json({ message: "Failed to load readiness" });

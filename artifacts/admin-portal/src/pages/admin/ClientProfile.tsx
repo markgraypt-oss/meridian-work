@@ -48,11 +48,23 @@ interface HeaderProps {
   bodyweight: DataPoint[];
   sleep: DataPoint[];
   readiness: DataPoint[];
+  steps: DataPoint[];
   isLoading: boolean;
+  dataLoading: boolean;
   onBack: () => void;
 }
 
-function ClientHeader({ name, email, timeline, workouts, checkIns, bodyweight, sleep, readiness, isLoading, onBack }: HeaderProps) {
+// differenceInDays that can't leak NaN into the UI: returns null for any
+// unparseable date instead of NaN ("Active NaN days ago").
+function safeDaysSince(today: Date, dateStr: string | null | undefined): number | null {
+  if (!dateStr) return null;
+  const parsed = parseISO(dateStr);
+  if (Number.isNaN(parsed.getTime())) return null;
+  const n = differenceInDays(today, parsed);
+  return Number.isNaN(n) ? null : n;
+}
+
+function ClientHeader({ name, email, timeline, workouts, checkIns, bodyweight, sleep, readiness, steps, isLoading, dataLoading, onBack }: HeaderProps) {
   const initials = name
     ? name.split(' ').map(p => p[0]).join('').toUpperCase().slice(0, 2)
     : '??';
@@ -92,10 +104,11 @@ function ClientHeader({ name, email, timeline, workouts, checkIns, bodyweight, s
     ...readiness.map(r => r.date),
   ];
   const latestDate = allDates.length ? allDates.sort().at(-1)! : null;
-  const lastActiveLabel = latestDate
+  const daysSinceActive = safeDaysSince(today, latestDate);
+  const lastActiveLabel = latestDate && daysSinceActive !== null
     ? (isToday(parseISO(latestDate))
         ? 'Active today'
-        : `Active ${differenceInDays(today, parseISO(latestDate))} days ago`)
+        : `Active ${daysSinceActive} days ago`)
     : null;
 
   // Attention flags
@@ -103,8 +116,8 @@ function ClientHeader({ name, email, timeline, workouts, checkIns, bodyweight, s
 
   // Check-in flag: most recent check-in > 5 days ago
   if (checkIns.length > 0) {
-    const daysSince = differenceInDays(today, parseISO(checkIns[0].date));
-    if (daysSince > 5) {
+    const daysSince = safeDaysSince(today, checkIns[0].date);
+    if (daysSince !== null && daysSince > 5) {
       flags.push({ label: `No check-in for ${daysSince} days`, level: daysSince > 10 ? 'red' : 'amber' });
     }
   }
@@ -114,13 +127,19 @@ function ClientHeader({ name, email, timeline, workouts, checkIns, bodyweight, s
   const sortedReadiness = [...readiness].sort((a, b) => b.date.localeCompare(a.date));
   const latestWearable = sortedSleep[0]?.date ?? sortedReadiness[0]?.date ?? null;
   if (latestWearable && (sleep.length > 1 || readiness.length > 1)) {
-    const daysSince = differenceInDays(today, parseISO(latestWearable));
-    if (daysSince > 4) {
+    const daysSince = safeDaysSince(today, latestWearable);
+    if (daysSince !== null && daysSince > 4) {
       flags.push({ label: `No wearable data for ${daysSince} days`, level: 'amber' });
     }
   }
 
   const displayFlags = flags.slice(0, 3);
+
+  // "On track" is a real claim about real activity — it must never show for a
+  // client with no data at all, and never flash while the queries are loading.
+  const hasAnyData =
+    workouts.length > 0 || checkIns.length > 0 || bodyweight.length > 0 ||
+    sleep.length > 0 || readiness.length > 0 || steps.length > 0;
 
   return (
     <div className="sticky top-0 z-20 bg-background/95 backdrop-blur border-b border-border/60 px-6 py-3">
@@ -155,10 +174,17 @@ function ClientHeader({ name, email, timeline, workouts, checkIns, bodyweight, s
         {/* Attention flags */}
         <div className="flex gap-1.5 flex-wrap">
           {displayFlags.length === 0 ? (
-            <Badge variant="outline"
-              className="text-emerald-400 border-emerald-400/30 bg-emerald-400/10 text-[10px] py-0 gap-1">
-              <CheckCircle2 className="h-2.5 w-2.5" /> On track
-            </Badge>
+            dataLoading ? null : hasAnyData ? (
+              <Badge variant="outline"
+                className="text-emerald-400 border-emerald-400/30 bg-emerald-400/10 text-[10px] py-0 gap-1">
+                <CheckCircle2 className="h-2.5 w-2.5" /> On track
+              </Badge>
+            ) : (
+              <Badge variant="outline"
+                className="text-muted-foreground border-border bg-muted/30 text-[10px] py-0 gap-1">
+                No data yet
+              </Badge>
+            )
           ) : displayFlags.map((f, i) => (
             <Badge key={i} variant="outline"
               className={`text-[10px] py-0 gap-1 ${f.level === 'red'
@@ -309,7 +335,9 @@ export default function ClientProfile() {
         bodyweight={bodyweight}
         sleep={sleep}
         readiness={readiness}
+        steps={steps}
         isLoading={!clientsData}
+        dataLoading={isAnyLoading}
         onBack={() => navigate('/admin/clients')}
       />
 

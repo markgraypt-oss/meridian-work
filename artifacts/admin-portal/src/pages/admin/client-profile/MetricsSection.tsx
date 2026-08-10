@@ -37,6 +37,10 @@ function Sparkline({ data, colour }: { data: DataPoint[]; colour: string }) {
 
 interface CardStats { headline: string; unit: string; delta: number | null; positiveGood: boolean }
 
+// Defensive numeric coercion: SQL aggregates (SUM/ROUND) can reach the client
+// as strings depending on the pg type, and string arithmetic renders as NaN.
+const num = (v: unknown): number => (typeof v === 'number' ? v : Number(v));
+
 function computeStats(key: MetricKey, data: DataPoint[], workouts: WorkoutLog[]): CardStats {
   if (key === 'workouts') {
     const now     = new Date();
@@ -55,27 +59,27 @@ function computeStats(key: MetricKey, data: DataPoint[], workouts: WorkoutLog[])
   let unit: string;
 
   if (key === 'bodyweight') {
-    headline = sorted[sorted.length - 1].value.toFixed(1);
+    headline = num(sorted[sorted.length - 1].value).toFixed(1);
     unit = 'kg';
   } else if (key === 'readiness') {
-    headline = Math.round(sorted[sorted.length - 1].value).toString();
+    headline = Math.round(num(sorted[sorted.length - 1].value)).toString();
     unit = '/ 100';
   } else if (key === 'sleep') {
-    const last7 = sorted.slice(-7).map(d => d.value);
+    const last7 = sorted.slice(-7).map(d => num(d.value));
     headline = (last7.reduce((a, b) => a + b, 0) / last7.length).toFixed(1);
     unit = 'h avg';
   } else if (key === 'steps') {
-    const last7 = sorted.slice(-7).map(d => d.value);
+    const last7 = sorted.slice(-7).map(d => num(d.value));
     headline = Math.round(last7.reduce((a, b) => a + b, 0) / last7.length).toLocaleString();
     unit = 'avg / day';
   } else {
-    const last7 = sorted.slice(-7).map(d => d.value);
+    const last7 = sorted.slice(-7).map(d => num(d.value));
     headline = Math.round(last7.reduce((a, b) => a + b, 0) / last7.length).toLocaleString();
     unit = 'kcal avg';
   }
 
-  const last7  = sorted.slice(-7).map(d => d.value);
-  const prev7  = sorted.slice(-14, -7).map(d => d.value);
+  const last7  = sorted.slice(-7).map(d => num(d.value));
+  const prev7  = sorted.slice(-14, -7).map(d => num(d.value));
   let delta: number | null = null;
   if (last7.length >= 3 && prev7.length >= 3) {
     const avgLast = last7.reduce((a, b) => a + b, 0) / last7.length;
@@ -150,7 +154,7 @@ function MetricCard({ metricKey, data, workouts, isLoading, onClick }: MetricCar
                   {stats!.delta !== null && DeltaIcon && (
                     <span className={`flex items-center gap-0.5 text-xs ml-auto ${deltaColour}`}>
                       <DeltaIcon className="h-3 w-3" />
-                      {Math.abs(stats!.delta).toFixed(key === 'steps' ? 0 : 1)}
+                      {Math.abs(stats!.delta).toFixed(metricKey === 'steps' ? 0 : 1)}
                     </span>
                   )}
                 </div>
@@ -167,9 +171,6 @@ function MetricCard({ metricKey, data, workouts, isLoading, onClick }: MetricCar
     </Card>
   );
 }
-
-// Suppress unused-var lint for `key` inside MetricCard (it's in closure scope via `metricKey`)
-const key = 'workouts' as MetricKey; void key;
 
 // ─── Drilldown Panel ──────────────────────────────────────────────────────────
 
@@ -203,7 +204,7 @@ function DrilldownPanel({ userId, metric, onClose }: DrilldownProps) {
   const series = metric !== 'workouts' ? (seriesRaw as DataPoint[] | undefined ?? []) : [];
 
   // Stats row
-  const values = series.map(d => d.value);
+  const values = series.map(d => num(d.value)).filter(v => !Number.isNaN(v));
   const rangeAvg  = values.length ? (values.reduce((a, b) => a + b, 0) / values.length) : null;
   const rangeHigh = values.length ? Math.max(...values) : null;
   const rangeLow  = values.length ? Math.min(...values) : null;
@@ -333,10 +334,12 @@ function CaloriesDrilldown({
 }: { series: DataPoint[]; nutrition: NutritionDay[]; colour: string; xFormatter: (d: string) => string }) {
   if (!series.length && !nutrition.length) return <p className="text-sm text-muted-foreground text-center py-12">No calorie data yet.</p>;
 
-  const displayData = series.length >= nutrition.length ? series : nutrition.map(n => ({ date: n.date, value: n.calories }));
-  const avgProt = nutrition.length ? Math.round(nutrition.reduce((a, b) => a + (b.protein ?? 0), 0) / nutrition.length) : null;
-  const avgCarb = nutrition.length ? Math.round(nutrition.reduce((a, b) => a + (b.carbs ?? 0), 0) / nutrition.length) : null;
-  const avgFat  = nutrition.length ? Math.round(nutrition.reduce((a, b) => a + (b.fat ?? 0), 0) / nutrition.length) : null;
+  const displayData = series.length >= nutrition.length
+    ? series.map(s => ({ date: s.date, value: num(s.value) }))
+    : nutrition.map(n => ({ date: n.date, value: num(n.calories) }));
+  const avgProt = nutrition.length ? Math.round(nutrition.reduce((a, b) => a + num(b.protein ?? 0), 0) / nutrition.length) : null;
+  const avgCarb = nutrition.length ? Math.round(nutrition.reduce((a, b) => a + num(b.carbs ?? 0), 0) / nutrition.length) : null;
+  const avgFat  = nutrition.length ? Math.round(nutrition.reduce((a, b) => a + num(b.fat ?? 0), 0) / nutrition.length) : null;
   const avgCals = displayData.length ? Math.round(displayData.reduce((a, b) => a + b.value, 0) / displayData.length) : null;
 
   return (

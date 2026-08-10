@@ -81,8 +81,10 @@ export function ActivityFeed({
         {events.length === 0 ? (
           <p className="text-sm text-muted-foreground text-center py-8">No activity yet.</p>
         ) : (
-          <ol className="space-y-3">
-            {events.slice(0, 30).map((ev, i) => (
+          // Fixed-height scroll region: the card stays compact no matter how
+          // active the client is, instead of growing with every event.
+          <ol className="space-y-3 max-h-[420px] overflow-y-auto pr-2">
+            {events.slice(0, 60).map((ev, i) => (
               <li key={i} className="flex items-start gap-3">
                 <EventIcon ev={ev} />
                 <div className="min-w-0 flex-1">

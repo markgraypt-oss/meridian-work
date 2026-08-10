@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { format, parseISO, startOfMonth, subMonths } from "date-fns";
+import { format, parseISO, startOfMonth, subMonths, subDays } from "date-fns";
+import { ChevronLeft, ChevronRight } from "lucide-react";
 import {
   ResponsiveContainer, AreaChart, Area, BarChart, Bar,
   XAxis, YAxis, Tooltip, ReferenceLine, CartesianGrid,
@@ -182,16 +183,21 @@ interface DrilldownProps {
 
 function DrilldownPanel({ userId, metric, onClose }: DrilldownProps) {
   const [days, setDays] = useState<DrilldownDays>(30);
+  // How many windows back from "today" the chart is showing. 0 = the latest
+  // window. Changing the range resets to the latest window.
+  const [offset, setOffset] = useState(0);
 
   const endpoint = metric === 'calories' ? 'caloric-intake' : metric === 'workouts' ? 'workouts' : metric;
-  const qParam   = metric === 'workouts' ? 'limit=200' : `days=${days}`;
+  // Fetch the full year once and slice the visible window client-side — this
+  // is what makes the prev/next arrows instant instead of a refetch per step.
+  const qParam   = metric === 'workouts' ? 'limit=200' : 'days=365';
 
   const { data: seriesRaw, isLoading } = useQuery<DataPoint[] | WorkoutLog[]>({
     queryKey: [`/api/admin/coach-access/clients/${userId}/${endpoint}?${qParam}`],
   });
 
   const { data: nutritionRaw } = useQuery<NutritionDay[]>({
-    queryKey: [`/api/admin/coach-access/clients/${userId}/nutrition?days=${days}`],
+    queryKey: [`/api/admin/coach-access/clients/${userId}/nutrition?days=365`],
     enabled: metric === 'calories',
   });
 
@@ -201,9 +207,24 @@ function DrilldownPanel({ userId, metric, onClose }: DrilldownProps) {
 
   // Workout-specific processing
   const workoutList = metric === 'workouts' ? (seriesRaw as WorkoutLog[] | undefined ?? []) : [];
-  const series = metric !== 'workouts' ? (seriesRaw as DataPoint[] | undefined ?? []) : [];
+  const fullSeries = metric !== 'workouts' ? (seriesRaw as DataPoint[] | undefined ?? []) : [];
 
-  // Stats row
+  // ── Visible window ─────────────────────────────────────────────────────────
+  const today = new Date();
+  const windowEnd   = subDays(today, offset * days);
+  const windowStart = subDays(windowEnd, days - 1);
+  const startKey = format(windowStart, 'yyyy-MM-dd');
+  const endKey   = format(windowEnd, 'yyyy-MM-dd');
+  const series = fullSeries.filter(d => d.date >= startKey && d.date <= endKey);
+
+  const hasOlder = fullSeries.some(d => d.date < startKey);
+  const canGoBack    = hasOlder;                 // more data before this window
+  const canGoForward = offset > 0;               // not already at the latest
+  const sameYear = windowStart.getFullYear() === windowEnd.getFullYear();
+  const windowLabel = `${format(windowStart, sameYear ? 'd MMM' : 'd MMM yy')} – ${format(windowEnd, 'd MMM')}`;
+
+  // Stats row (windowed). Change needs 2+ points — render '—' otherwise, never
+  // call toFixed on null (that exact null crashed the whole page to black).
   const values = series.map(d => num(d.value)).filter(v => !Number.isNaN(v));
   const rangeAvg  = values.length ? (values.reduce((a, b) => a + b, 0) / values.length) : null;
   const rangeHigh = values.length ? Math.max(...values) : null;
@@ -223,13 +244,27 @@ function DrilldownPanel({ userId, metric, onClose }: DrilldownProps) {
             {label}
           </CardTitle>
           <div className="flex items-center gap-2">
+            {/* Window navigation — step back/forward through time */}
+            {metric !== 'workouts' && (
+              <div className="flex items-center gap-1">
+                <Button variant="ghost" size="icon" className="h-7 w-7" disabled={!canGoBack}
+                  onClick={() => setOffset(o => o + 1)}>
+                  <ChevronLeft className="h-3.5 w-3.5" />
+                </Button>
+                <span className="text-xs text-muted-foreground tabular-nums min-w-[110px] text-center">{windowLabel}</span>
+                <Button variant="ghost" size="icon" className="h-7 w-7" disabled={!canGoForward}
+                  onClick={() => setOffset(o => Math.max(0, o - 1))}>
+                  <ChevronRight className="h-3.5 w-3.5" />
+                </Button>
+              </div>
+            )}
             {/* Range selector */}
             <div className="flex rounded-md border border-border overflow-hidden">
               {DRILLDOWN_OPTIONS.map(opt => (
                 <button key={opt.days}
                   className={`px-2.5 py-1 text-xs transition-colors
                     ${days === opt.days ? 'bg-muted text-foreground font-medium' : 'text-muted-foreground hover:text-foreground'}`}
-                  onClick={() => setDays(opt.days as DrilldownDays)}>
+                  onClick={() => { setDays(opt.days as DrilldownDays); setOffset(0); }}>
                   {opt.label}
                 </button>
               ))}
@@ -247,9 +282,13 @@ function DrilldownPanel({ userId, metric, onClose }: DrilldownProps) {
         ) : metric === 'workouts' ? (
           <WorkoutDrilldown workouts={workoutList} />
         ) : metric === 'calories' ? (
-          <CaloriesDrilldown series={series} nutrition={nutritionRaw ?? []} colour={colour} xFormatter={xFormatter} />
-        ) : series.length === 0 ? (
+          <CaloriesDrilldown series={series}
+            nutrition={(nutritionRaw ?? []).filter(n => n.date >= startKey && n.date <= endKey)}
+            colour={colour} xFormatter={xFormatter} />
+        ) : fullSeries.length === 0 ? (
           <p className="text-sm text-muted-foreground text-center py-12">{emptyText(metric)}</p>
+        ) : series.length === 0 ? (
+          <p className="text-sm text-muted-foreground text-center py-12">No data in this period — use the arrows to move through time.</p>
         ) : (
           <>
             <ResponsiveContainer width="100%" height={200}>
@@ -278,14 +317,16 @@ function DrilldownPanel({ userId, metric, onClose }: DrilldownProps) {
               </AreaChart>
             </ResponsiveContainer>
 
-            {/* Stats row */}
+            {/* Stats row — every cell null-safe; '—' when the window can't support the stat */}
             {rangeAvg !== null && (
               <div className="grid grid-cols-4 gap-4 mt-4 pt-4 border-t border-border/40">
                 {[
                   { label: 'Average', value: rangeAvg.toFixed(1) },
-                  { label: 'High',    value: rangeHigh!.toFixed(1) },
-                  { label: 'Low',     value: rangeLow!.toFixed(1) },
-                  { label: 'Change',  value: (rangeChange! >= 0 ? '+' : '') + rangeChange!.toFixed(1), colour: rangeChange! > 0 ? '#34d399' : rangeChange! < 0 ? '#f87171' : undefined },
+                  { label: 'High',    value: rangeHigh !== null ? rangeHigh.toFixed(1) : '—' },
+                  { label: 'Low',     value: rangeLow !== null ? rangeLow.toFixed(1) : '—' },
+                  rangeChange !== null
+                    ? { label: 'Change', value: (rangeChange >= 0 ? '+' : '') + rangeChange.toFixed(1), colour: rangeChange > 0 ? '#34d399' : rangeChange < 0 ? '#f87171' : undefined }
+                    : { label: 'Change', value: '—', colour: undefined },
                 ].map(s => (
                   <div key={s.label} className="text-center">
                     <div className="text-lg font-semibold tabular-nums" style={s.colour ? { color: s.colour } : {}}>{s.value}</div>

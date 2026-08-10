@@ -1,7 +1,10 @@
 import { format, parseISO } from "date-fns";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Dumbbell } from "lucide-react";
-import type { WorkoutLog } from "./types";
+import { CalendarClock, Dumbbell } from "lucide-react";
+
+// This panel is the PROGRAMME view: enrolment, progress, what's next.
+// Individual workout history deliberately lives elsewhere (Activity feed +
+// the Workouts metric drilldown) so the two never duplicate each other.
 
 interface CurrentEnrollment {
   id: number;
@@ -12,10 +15,11 @@ interface CurrentEnrollment {
   endDate?: string | null;
   completedWorkouts?: number;
   totalWorkouts?: number;
+  nextWorkout?: { week: number; day: number; name: string; minutes: number } | null;
+  weekProgress?: { total: number; done: number }[];
 }
 
 interface Props {
-  workouts: WorkoutLog[];
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   timeline: any;
 }
@@ -25,7 +29,7 @@ function fmtDate(d: string | null | undefined): string {
   try { return format(parseISO(d), 'd MMM yyyy'); } catch { return d.slice(0, 10); }
 }
 
-export function TrainingPanel({ workouts, timeline }: Props) {
+export function TrainingPanel({ timeline }: Props) {
   const current = timeline?.current as CurrentEnrollment | null | undefined;
   const name = current?.programme?.name ?? current?.programmeTitle ?? null;
   const week = current?.currentWeek ?? null;
@@ -33,10 +37,8 @@ export function TrainingPanel({ workouts, timeline }: Props) {
   const completedWos = current?.completedWorkouts ?? null;
   const totalWos = current?.totalWorkouts ?? null;
   const progress = completedWos !== null && totalWos ? completedWos / totalWos : null;
-
-  const recent = workouts
-    .filter(w => w.date)
-    .slice(0, 5);
+  const next = current?.nextWorkout ?? null;
+  const thisWeek = week !== null ? current?.weekProgress?.[week - 1] ?? null : null;
 
   return (
     <Card className="h-full">
@@ -46,57 +48,70 @@ export function TrainingPanel({ workouts, timeline }: Props) {
           Training
         </CardTitle>
       </CardHeader>
-      <CardContent className="pt-0 space-y-5">
-        {/* Current programme */}
+      <CardContent className="pt-0 space-y-4">
         {name ? (
-          <div className="rounded-lg border border-border bg-muted/20 p-3 space-y-2">
-            <div className="font-medium text-sm">{name}</div>
-            {week !== null && total !== null && (
-              <div className="text-xs text-muted-foreground">Week {week} of {total}</div>
-            )}
-            {progress !== null && (
-              <div className="space-y-1">
-                <div className="flex justify-between text-xs text-muted-foreground">
-                  <span>{completedWos} of {totalWos} workouts completed</span>
-                  <span>{Math.round(progress * 100)}%</span>
+          <>
+            {/* Current programme */}
+            <div className="rounded-lg border border-border bg-muted/20 p-3 space-y-2">
+              <div className="font-medium text-sm">{name}</div>
+              {week !== null && total !== null && (
+                <div className="text-xs text-muted-foreground">Week {week} of {total}</div>
+              )}
+              {progress !== null && (
+                <div className="space-y-1">
+                  <div className="flex justify-between text-xs text-muted-foreground">
+                    <span>{completedWos} of {totalWos} workouts completed</span>
+                    <span>{Math.round(progress * 100)}%</span>
+                  </div>
+                  <div className="h-1.5 rounded-full bg-muted overflow-hidden">
+                    <div className="h-full rounded-full bg-orange-400 transition-all"
+                      style={{ width: `${Math.round(progress * 100)}%` }} />
+                  </div>
                 </div>
-                <div className="h-1.5 rounded-full bg-muted overflow-hidden">
-                  <div className="h-full rounded-full bg-orange-400 transition-all"
-                    style={{ width: `${Math.round(progress * 100)}%` }} />
+              )}
+              <div className="flex gap-4 text-xs text-muted-foreground">
+                {current?.startDate && <span>Started {fmtDate(current.startDate)}</span>}
+                {current?.endDate && <span>Ends {fmtDate(current.endDate)}</span>}
+              </div>
+            </div>
+
+            {/* This week's sessions */}
+            {thisWeek && thisWeek.total > 0 && (
+              <div>
+                <p className="text-xs font-medium text-muted-foreground mb-2 uppercase tracking-wide">This week</p>
+                <div className="flex items-center gap-1.5">
+                  {Array.from({ length: thisWeek.total }, (_, i) => (
+                    <div key={i}
+                      className={`h-2 flex-1 rounded-full ${i < thisWeek.done ? 'bg-orange-400' : 'bg-muted'}`} />
+                  ))}
+                  <span className="text-xs text-muted-foreground ml-2 whitespace-nowrap">
+                    {thisWeek.done}/{thisWeek.total} done
+                  </span>
                 </div>
               </div>
             )}
-            <div className="flex gap-4 text-xs text-muted-foreground">
-              {current?.startDate && <span>Started {fmtDate(current.startDate)}</span>}
-              {current?.endDate && <span>Ends {fmtDate(current.endDate)}</span>}
-            </div>
-          </div>
+
+            {/* Up next */}
+            {next && (
+              <div>
+                <p className="text-xs font-medium text-muted-foreground mb-2 uppercase tracking-wide">Up next</p>
+                <div className="rounded-lg border border-border/60 p-3 flex items-start gap-3">
+                  <div className="h-8 w-8 rounded-full bg-orange-500/15 flex items-center justify-center shrink-0">
+                    <CalendarClock className="h-4 w-4 text-orange-400" />
+                  </div>
+                  <div className="min-w-0">
+                    <div className="text-sm font-medium truncate">{next.name}</div>
+                    <div className="text-xs text-muted-foreground">
+                      Week {next.week} · Day {next.day} · ~{next.minutes} min
+                    </div>
+                  </div>
+                </div>
+              </div>
+            )}
+          </>
         ) : (
           <p className="text-sm text-muted-foreground">No active programme.</p>
         )}
-
-        {/* Recent workouts */}
-        <div>
-          <p className="text-xs font-medium text-muted-foreground mb-2 uppercase tracking-wide">Recent workouts</p>
-          {recent.length === 0 ? (
-            <p className="text-sm text-muted-foreground">No workouts logged yet.</p>
-          ) : (
-            <ol className="space-y-2">
-              {recent.map(w => (
-                <li key={w.id} className="flex items-center justify-between gap-2 text-sm">
-                  <div className="min-w-0">
-                    <span className="truncate block">{w.name ?? 'Workout'}</span>
-                    <span className="text-xs text-muted-foreground">{fmtDate(w.date)}</span>
-                  </div>
-                  <div className="shrink-0 text-xs text-muted-foreground text-right">
-                    {w.rating ? <span className="font-medium text-foreground">RPE {w.rating}</span> : null}
-                    {w.durationMinutes ? <span className="block">{w.durationMinutes} min</span> : null}
-                  </div>
-                </li>
-              ))}
-            </ol>
-          )}
-        </div>
       </CardContent>
     </Card>
   );

@@ -111,15 +111,24 @@ function ClientHeader({ name, email, timeline, workouts, checkIns, bodyweight, s
         : `Active ${daysSinceActive} days ago`)
     : null;
 
+  // "On track" is a real claim about real activity — it must never show for a
+  // client with no data at all, and never flash while the queries are loading.
+  const hasAnyData =
+    workouts.length > 0 || checkIns.length > 0 || bodyweight.length > 0 ||
+    sleep.length > 0 || readiness.length > 0 || steps.length > 0;
+
   // Attention flags
   const flags: { label: string; level: 'amber' | 'red' }[] = [];
 
-  // Check-in flag: most recent check-in > 5 days ago
+  // Check-in flag: most recent check-in > 5 days ago — or never checked in at
+  // all despite having other data (a client the old logic showed as On track).
   if (checkIns.length > 0) {
     const daysSince = safeDaysSince(today, checkIns[0].date);
     if (daysSince !== null && daysSince > 5) {
       flags.push({ label: `No check-in for ${daysSince} days`, level: daysSince > 10 ? 'red' : 'amber' });
     }
+  } else if (!dataLoading && hasAnyData) {
+    flags.push({ label: 'Never checked in', level: 'amber' });
   }
 
   // Wearable flag: most recent sleep/readiness > 4 days ago (and older data exists)
@@ -134,12 +143,6 @@ function ClientHeader({ name, email, timeline, workouts, checkIns, bodyweight, s
   }
 
   const displayFlags = flags.slice(0, 3);
-
-  // "On track" is a real claim about real activity — it must never show for a
-  // client with no data at all, and never flash while the queries are loading.
-  const hasAnyData =
-    workouts.length > 0 || checkIns.length > 0 || bodyweight.length > 0 ||
-    sleep.length > 0 || readiness.length > 0 || steps.length > 0;
 
   return (
     <div className="sticky top-0 z-20 bg-background/95 backdrop-blur border-b border-border/60 px-6 py-3">
@@ -372,7 +375,7 @@ export default function ClientProfile() {
             checkIns={checkIns}
             photos={photos}
           />
-          <TrainingPanel workouts={workouts} timeline={timeline} />
+          <TrainingPanel timeline={timeline} />
         </div>
 
         {/* 6. Body panel */}

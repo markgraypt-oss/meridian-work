@@ -96,5 +96,9 @@ if (Number.isNaN(port) || port <= 0) {
     import("./pushNotificationScheduler").then(({ startPushNotificationScheduler }) => {
       startPushNotificationScheduler();
     }).catch((e: any) => logger.error({ e }, "[startup] push notification scheduler failed"));
+
+    import("./accountabilityEngine").then(({ startAccountabilityEngine }) => {
+      startAccountabilityEngine();
+    }).catch((e: any) => logger.error({ e }, "[startup] accountability engine failed"));
   });
 })();

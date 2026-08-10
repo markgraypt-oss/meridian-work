@@ -6,6 +6,7 @@ import { db, pool } from "../db";
 import { setupAuth, isAuthenticated, generateResetToken, hashToken, sendUserInviteEmail } from "../replitAuth";
 import rateLimit, { ipKeyGenerator } from "express-rate-limit";
 import { registerNotificationRoutes } from "../notificationsRoutes";
+import { registerCommunityRoutes } from "../community";
 import { notify } from "../notifications";
 import {
   recordEngagementActivity,
@@ -1343,6 +1344,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // feature endpoints (badge award, daily check-in, welcome) below.
   // ==========================================================================
   registerNotificationRoutes(app);
+
+  // ==========================================================================
+  // Community: announcements feed, challenges, moderation, blocks/reports.
+  // Self-contained module (owns its DDL) — see community.ts and
+  // claude/community-phase1-build-spec-10aug.md.
+  // ==========================================================================
+  registerCommunityRoutes(app);
 
   // Presigned upload URL endpoint used by the shared uploadImageFile client
   // helper. Used by both admin flows (e.g. New Position) and authenticated

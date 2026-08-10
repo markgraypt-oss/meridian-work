@@ -100,5 +100,9 @@ if (Number.isNaN(port) || port <= 0) {
     import("./accountabilityEngine").then(({ startAccountabilityEngine }) => {
       startAccountabilityEngine();
     }).catch((e: any) => logger.error({ e }, "[startup] accountability engine failed"));
+
+    import("./community").then(({ startCommunityScheduler }) => {
+      startCommunityScheduler();
+    }).catch((e: any) => logger.error({ e }, "[startup] community scheduler failed"));
   });
 })();

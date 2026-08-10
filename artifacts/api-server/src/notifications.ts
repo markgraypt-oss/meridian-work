@@ -313,6 +313,7 @@ const CATEGORY_LABEL: Record<NotificationCategory, string> = {
   nutrition: "Nutrition",
   coach: "Your AI Coach",
   admin: "Account",
+  community: "Community",
 };
 
 async function sendCategoryEmail(

@@ -159,6 +159,10 @@ export const notificationPreferences = pgTable("notification_preferences", {
   pushNutrition: boolean("push_nutrition").default(false),
   pushCoach: boolean("push_coach").default(true),
   pushAdmin: boolean("push_admin").default(false),
+  // Community (added 10 Aug 2026 — DDL self-heals in community.ts)
+  inAppCommunity: boolean("in_app_community").default(true),
+  emailCommunity: boolean("email_community").default(false),
+  pushCommunity: boolean("push_community").default(true),
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow(),
 });
@@ -3297,6 +3301,7 @@ export const NOTIFICATION_CATEGORIES = [
   "nutrition",  // hydration, supplements, meal plan, weekly recap
   "coach",      // AI coach proactive nudges, briefings, weekly check-in
   "admin",      // account/system: welcome, security, badges
+  "community",  // community announcements, challenge lifecycle (added 10 Aug 2026)
 ] as const;
 
 export type NotificationCategory = typeof NOTIFICATION_CATEGORIES[number];

@@ -80,6 +80,53 @@ export function buildWindowKey(report: CompanyReport, customStart?: string, cust
   return report.window || "30d";
 }
 
+// Server-computed period-on-period facts. The AI model must never do its own
+// arithmetic on current vs previous values (it has produced garbled output
+// like "risen from 42 to 42"). All deltas are computed here, and direction
+// language already accounts for lower-is-better metrics.
+function buildVerifiedChanges(report: CompanyReport): string {
+  const lines: string[] = [];
+  const m = report.metrics;
+  const p = report.previousMetrics;
+  const fmt = (n: number) => (Math.round(n * 100) / 100).toString();
+
+  const push = (label: string, cur: number | null | undefined, prev: number | null | undefined, lowerIsBetter: boolean) => {
+    if (cur == null) return;
+    if (prev == null) {
+      lines.push(`${label}: current ${fmt(cur)}. No previous-period value exists. Do NOT make any period comparison for ${label}.`);
+      return;
+    }
+    const delta = Math.round((cur - prev) * 100) / 100;
+    if (delta === 0) {
+      lines.push(`${label}: unchanged at ${fmt(cur)} (previous period was also ${fmt(prev)}).`);
+      return;
+    }
+    const dir = delta > 0 ? "rose" : "fell";
+    const better = lowerIsBetter ? delta < 0 : delta > 0;
+    lines.push(`${label}: ${dir} from ${fmt(prev)} to ${fmt(cur)} (${better ? "an improvement" : "a worsening"}).`);
+  };
+
+  push("Mood (1-5)", m?.avgMood, p?.avgMood, false);
+  push("Energy (1-5)", m?.avgEnergy, p?.avgEnergy, false);
+  push("Stress (1-5)", m?.avgStress, p?.avgStress, true);
+  push("Sleep (1-5)", m?.avgSleep, p?.avgSleep, false);
+  push("Clarity (1-5)", m?.avgClarity, p?.avgClarity, false);
+  push("Fatigue reported (% of check-ins)", m?.fatiguePercent, p?.fatiguePercent, true);
+  push("Overwhelmed reported (% of check-ins)", m?.overwhelmedPercent, p?.overwhelmedPercent, true);
+  push("Anxious reported (% of check-ins)", m?.anxiousPercent, p?.anxiousPercent, true);
+  push("Exercised yesterday (% of check-ins)", m?.exercisedYesterdayPercent, p?.exercisedYesterdayPercent, false);
+
+  const b = report.burnoutStats;
+  if (b && b.avgScore != null) {
+    push("Burnout average (0-100)", b.avgScore, b.previousAvgScore, true);
+  }
+
+  if (!lines.length) {
+    return "No verified period comparisons are available. Do NOT compare any metric to a previous period.";
+  }
+  return lines.join("\n");
+}
+
 const SYSTEM_GUARDRAILS = `You are an executive workplace wellbeing analyst.
 
 Hard rules:
@@ -88,6 +135,7 @@ Hard rules:
 - If the data is sparse, say so plainly in caveats.
 - Use cautious, evidence-aware language ("indicates", "may suggest"). Avoid alarmism.
 - No demographic inferences. No legal advice. No HR/disciplinary recommendations.
+- Period-on-period comparisons: use ONLY the VERIFIED PERIOD CHANGES lines provided below. NEVER compute differences yourself from the snapshot. NEVER describe a change between two equal numbers. Direction words (rose, fell, improved, worsened, rising, declining) must match the verified line exactly. If a metric has no verified change line, do not compare it to any previous period.
 - Output MUST be raw JSON matching the requested schema. No prose, no markdown.
 - Engagement metrics (points/XP totals, streak averages, activity counts, levels) MAY be discussed as cohort-level participation and habit-formation signals.
 - DO NOT reference, infer, or recommend any "Daily Readiness" score, biometric readiness rating, HRV-derived readiness, or similar individual-level readiness construct. That feature is intentionally personal-only and is excluded from all admin reports, CSV exports, and AI narrative outputs.`;
@@ -105,6 +153,9 @@ Schema (return EXACTLY this shape):
   "recommendations": string[] (0-5 short, generic, non-medical actions a wellbeing lead could take),
   "caveats": string[] (0-3 data-quality notes, e.g. low participation, short window)
 }
+
+VERIFIED PERIOD CHANGES (computed by the server; the ONLY permitted source for any period-on-period statement):
+${buildVerifiedChanges(report)}
 
 Report snapshot (anonymous aggregates):
 ${JSON.stringify(snapshot, null, 2)}

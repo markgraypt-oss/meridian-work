@@ -4,11 +4,22 @@ import { fileURLToPath } from "node:url";
 import { build as esbuild } from "esbuild";
 import esbuildPluginPino from "esbuild-plugin-pino";
 import { rm } from "node:fs/promises";
+import { execSync } from "node:child_process";
 
 // Plugins (e.g. 'esbuild-plugin-pino') may use `require` to resolve dependencies
 globalThis.require = createRequire(import.meta.url);
 
 const artifactDir = path.dirname(fileURLToPath(import.meta.url));
+
+// Stamp the deployed commit + build time into the bundle so /api/_meta/version
+// answers "which code is actually live?" instantly after every deploy.
+function gitCommit() {
+  try {
+    return execSync("git rev-parse --short=10 HEAD", { cwd: artifactDir, encoding: "utf8" }).trim();
+  } catch {
+    return "unknown";
+  }
+}
 
 async function buildAll() {
   const distDir = path.resolve(artifactDir, "dist");
@@ -101,6 +112,10 @@ async function buildAll() {
       "puppeteer-core",
       "electron",
     ],
+    define: {
+      __BUILD_COMMIT__: JSON.stringify(gitCommit()),
+      __BUILD_TIME__: JSON.stringify(new Date().toISOString()),
+    },
     sourcemap: "linked",
     plugins: [
       // pino relies on workers to handle logging, instead of externalizing it we use a plugin to handle it

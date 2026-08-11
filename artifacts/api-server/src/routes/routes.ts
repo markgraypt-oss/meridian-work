@@ -20027,10 +20027,11 @@ Keep your response concise, practical, and evidence-based. This is general guida
       }
 
       const { getEffectiveReportSettings } = await import("../reportingEngine");
-      const { computeMentalWellbeing } = await import("../wwiEngine");
+      const { computeMentalWellbeing, computePhysicalStrain } = await import("../wwiEngine");
       const settings = await getEffectiveReportSettings(decodeURIComponent(companyName));
       const mentalWellbeing = computeMentalWellbeing(report, settings);
-      res.json({ companyName: report.companyName, window: report.window, domains: { mentalWellbeing } });
+      const physicalStrain = computePhysicalStrain(report, settings);
+      res.json({ companyName: report.companyName, window: report.window, domains: { mentalWellbeing, physicalStrain } });
     } catch (error) {
       console.error("Error computing WWI:", error);
       res.status(500).json({ message: "Failed to compute Workforce Wellbeing Index" });

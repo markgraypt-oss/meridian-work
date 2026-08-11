@@ -127,6 +127,8 @@ export interface MonthOverMonthData {
 
 export interface BodyMapStats {
   usersReportingPainPercent: number;
+  usersWithAssessments: number;
+  usersWithPain: number;
   totalAssessments: number;
   avgSeverity: number | null;
   topBodyAreas: { bodyPart: string; count: number; avgSeverity: number; trend?: TrendDirection }[];
@@ -372,6 +374,8 @@ async function computeBodyMapStats(
   if (!summary || Number(summary.total_assessments) === 0) {
     return {
       usersReportingPainPercent: 0,
+      usersWithAssessments: 0,
+      usersWithPain: 0,
       totalAssessments: 0,
       avgSeverity: null,
       topBodyAreas: [],
@@ -459,6 +463,8 @@ async function computeBodyMapStats(
 
   return {
     usersReportingPainPercent: currentPainPct,
+    usersWithAssessments: Number(summary.users_with_assessments),
+    usersWithPain: Number(summary.users_with_pain),
     totalAssessments: Number(summary.total_assessments),
     avgSeverity: currentAvgSev,
     topBodyAreas: topAreas.map((a: any) => {

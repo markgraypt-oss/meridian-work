@@ -174,3 +174,88 @@ export function computeMentalWellbeing(
   base.burnout = burnout;
   return base;
 }
+
+
+export interface PhysicalStrainDomain {
+  domain: "physical_strain";
+  state: WwiState;
+  score: number | null;            // 0-100, higher is healthier
+  status: WwiStatus | null;
+  confidence: WwiConfidence | null;
+  headlineWeight: "modest";        // spec: modest weight into the composite, strong section
+  framing: string;                 // always "among contributors", never "the workforce"
+  contributors: number;            // distinct people who logged body-map data in window
+  requiredContributors: number;
+  painPrevalencePercent: number | null;   // % of CONTRIBUTORS with severity >= threshold
+  avgSeverity: number | null;             // 0-10 among significant reports
+  worseningPrevalence: boolean | null;    // numeric comparison, company-denominator trend
+  worseningSeverity: boolean | null;
+  components: { metric: string; value: number; contribution: number }[];
+  // Areas arrive already double-floored by the reporting engine:
+  // severity >= threshold AND >= 5 distinct reporters per area.
+  areas: { bodyPart: string; distinctReporters: number; avgSeverity: number }[];
+  emptyReason: string | null;
+}
+
+export function computePhysicalStrain(
+  report: CompanyReport,
+  settings: EffectiveReportSettings
+): PhysicalStrainDomain {
+  const bm = report.bodyMapStats;
+  const contributors = bm?.usersWithAssessments ?? 0;
+  const required = settings.minActiveUsers;
+
+  const base: PhysicalStrainDomain = {
+    domain: "physical_strain",
+    state: "empty",
+    score: null,
+    status: null,
+    confidence: null,
+    headlineWeight: "modest",
+    framing: "Among staff logging musculoskeletal data, not the whole workforce.",
+    contributors,
+    requiredContributors: required,
+    painPrevalencePercent: null,
+    avgSeverity: null,
+    worseningPrevalence: null,
+    worseningSeverity: null,
+    components: [],
+    areas: [],
+    emptyReason: null,
+  };
+
+  // EMPTY STATE: domain floor is distinct body-map contributors, not check-ins.
+  if (!report.eligible || !bm || contributors < required) {
+    base.emptyReason = `Not enough body-map data to report yet. ${contributors} of ${report.totalUsersInCompany} people logged musculoskeletal data in this window; at least ${required} needed.`;
+    return base;
+  }
+
+  // Prevalence AMONG CONTRIBUTORS (framing discipline), from distinct-person counts.
+  const prevalence = round1(clamp((bm.usersWithPain / contributors) * 100, 0, 100));
+  const parts: PhysicalStrainDomain["components"] = [
+    { metric: "pain_free_share", value: prevalence, contribution: round1(100 - prevalence) },
+  ];
+  if (bm.avgSeverity != null) {
+    parts.push({ metric: "severity", value: bm.avgSeverity, contribution: round1(clamp(100 - bm.avgSeverity * 10, 0, 100)) });
+  }
+  const score = round1(parts.reduce((s, c) => s + c.contribution, 0) / parts.length);
+
+  base.state = (bm.topBodyAreas?.length ?? 0) > 0 ? "full" : "thin";
+  base.score = score;
+  base.status = score >= 70 ? "steady" : score >= 50 ? "mixed" : "strained";
+  base.confidence = coverageConfidence(contributors, report.totalUsersInCompany);
+  base.painPrevalencePercent = prevalence;
+  base.avgSeverity = bm.avgSeverity;
+  // Numeric comparisons only, never direction labels.
+  base.worseningPrevalence = bm.previousUsersReportingPainPercent != null
+    ? bm.usersReportingPainPercent > bm.previousUsersReportingPainPercent : null;
+  base.worseningSeverity = (bm.avgSeverity != null && bm.previousAvgSeverity != null)
+    ? bm.avgSeverity > bm.previousAvgSeverity : null;
+  base.components = parts;
+  base.areas = (bm.topBodyAreas ?? []).map(a => ({
+    bodyPart: a.bodyPart,
+    distinctReporters: a.count,
+    avgSeverity: a.avgSeverity,
+  }));
+  return base;
+}

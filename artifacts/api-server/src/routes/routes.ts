@@ -19912,6 +19912,53 @@ Keep your response concise, practical, and evidence-based. This is general guida
     }
   });
 
+  // WWI: Workforce Wellbeing Index. Health domains only, built from the
+  // floored reporting engine output. Never reads engagement or Daily Readiness.
+  app.get('/api/admin/reports/company/:companyName/wwi', isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = req.user.claims.sub;
+      const currentUser = await storage.getUser(userId);
+      if (!currentUser?.isAdmin) {
+        return res.status(403).json({ message: "Admin access required" });
+      }
+      const { companyName } = req.params;
+      const windowDays = parseInt(req.query.window as string) || 30;
+      const month = req.query.month as string | undefined;
+      const startDate = req.query.startDate as string | undefined;
+      const endDate = req.query.endDate as string | undefined;
+
+      let report;
+      if (startDate && endDate) {
+        const start = new Date(startDate);
+        const end = new Date(endDate);
+        if (isNaN(start.getTime()) || isNaN(end.getTime())) {
+          return res.status(400).json({ message: "Invalid date format. Use YYYY-MM-DD" });
+        }
+        const diffDays = Math.ceil((end.getTime() - start.getTime()) / (1000 * 60 * 60 * 24));
+        if (diffDays < 7) {
+          return res.status(400).json({ message: "Date range must be at least 7 days" });
+        }
+        start.setHours(0, 0, 0, 0);
+        end.setHours(23, 59, 59, 999);
+        report = await getCompanyReport(decodeURIComponent(companyName), diffDays, month, start, end);
+      } else {
+        if (windowDays < 7) {
+          return res.status(400).json({ message: "Window must be at least 7 days" });
+        }
+        report = await getCompanyReport(decodeURIComponent(companyName), windowDays, month);
+      }
+
+      const { getEffectiveReportSettings } = await import("../reportingEngine");
+      const { computeMentalWellbeing } = await import("../wwiEngine");
+      const settings = await getEffectiveReportSettings(decodeURIComponent(companyName));
+      const mentalWellbeing = computeMentalWellbeing(report, settings);
+      res.json({ companyName: report.companyName, window: report.window, domains: { mentalWellbeing } });
+    } catch (error) {
+      console.error("Error computing WWI:", error);
+      res.status(500).json({ message: "Failed to compute Workforce Wellbeing Index" });
+    }
+  });
+
   // ============================================
   // ENGAGEMENT FOUNDATION (Points/XP, Streaks, Levels)
   // ============================================

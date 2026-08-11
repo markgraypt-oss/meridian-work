@@ -7281,60 +7281,52 @@ export class DatabaseStorage implements IStorage {
       .innerJoin(programWeeks, eq(programDays.weekId, programWeeks.id))
       .where(eq(programWeeks.programId, programId))
       .orderBy(asc(programWeeks.weekNumber), asc(programDays.position));
-    
+
+    // Bulk-load every block and exercise for all workouts in 2 queries.
+    // The previous version issued one query per workout, then one per block,
+    // then a library lookup for the first main exercise -- hundreds of
+    // sequential DB round-trips on a multi-week programme, which is what made
+    // the programme preview screen spin for seconds on first load.
+    const blocksByWorkout = await this.getProgrammeWorkoutBlocksBatch(
+      results.map(({ workout }) => workout.id)
+    );
+
     const templateExerciseCounts = new Map<string, number>();
     const templateTotalExerciseCounts = new Map<string, number>();
     const templateFirstMainImage = new Map<string, string>();
-    
+
     for (const { workout } of results) {
-      const allBlocks = await db
-        .select({ id: programmeWorkoutBlocks.id, section: programmeWorkoutBlocks.section, position: programmeWorkoutBlocks.position })
-        .from(programmeWorkoutBlocks)
-        .where(eq(programmeWorkoutBlocks.workoutId, workout.id))
-        .orderBy(asc(programmeWorkoutBlocks.position));
-      
+      const allBlocks = blocksByWorkout.get(workout.id) || [];
       let mainCount = 0;
       let totalCount = 0;
       for (const block of allBlocks) {
-        const exercises = await db
-          .select({
-            id: programmeBlockExercises.id,
-            position: programmeBlockExercises.position,
-            exerciseLibraryId: programmeBlockExercises.exerciseLibraryId,
-          })
-          .from(programmeBlockExercises)
-          .where(eq(programmeBlockExercises.blockId, block.id))
-          .orderBy(asc(programmeBlockExercises.position));
+        const exercises = block.exercises || [];
         totalCount += exercises.length;
         if (block.section === 'main') {
           mainCount += exercises.length;
           if (!templateFirstMainImage.has(workout.name) && exercises.length > 0) {
             const firstEx = exercises[0];
-            if (firstEx.exerciseLibraryId) {
-              const libEntry = await this.getExerciseById(firstEx.exerciseLibraryId);
-              if (libEntry) {
-                const img = libEntry.imageUrl || (libEntry.muxPlaybackId ? `https://image.mux.com/${libEntry.muxPlaybackId}/thumbnail.jpg?width=128` : null);
-                if (img) {
-                  templateFirstMainImage.set(workout.name, img);
-                }
-              }
+            const img = firstEx.imageUrl
+              || (firstEx.muxPlaybackId ? `https://image.mux.com/${firstEx.muxPlaybackId}/thumbnail.png?width=200` : null);
+            if (img) {
+              templateFirstMainImage.set(workout.name, img);
             }
           }
         }
       }
-      
+
       const currentMainMax = templateExerciseCounts.get(workout.name) || 0;
       templateExerciseCounts.set(workout.name, Math.max(currentMainMax, mainCount));
       const currentTotalMax = templateTotalExerciseCounts.get(workout.name) || 0;
       templateTotalExerciseCounts.set(workout.name, Math.max(currentTotalMax, totalCount));
     }
-    
+
     const workoutsWithDetails = results.map(({ workout, weekNumber, dayPosition }) => {
       const exerciseCount = templateExerciseCounts.get(workout.name) || 0;
       const totalExercises = templateTotalExerciseCounts.get(workout.name) || 0;
       const estimatedDuration = Math.round(totalExercises * 1.75);
       const firstMainExerciseImage = templateFirstMainImage.get(workout.name) || null;
-      
+
       return {
         ...workout,
         weekNumber,
@@ -7344,7 +7336,7 @@ export class DatabaseStorage implements IStorage {
         imageUrl: firstMainExerciseImage || workout.imageUrl,
       };
     });
-    
+
     return workoutsWithDetails;
   }
 

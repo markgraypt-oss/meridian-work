@@ -154,6 +154,24 @@ const COMMUNITY_DDL: string[] = [
      ADD COLUMN IF NOT EXISTS in_app_community boolean DEFAULT true,
      ADD COLUMN IF NOT EXISTS email_community boolean DEFAULT false,
      ADD COLUMN IF NOT EXISTS push_community boolean DEFAULT true`,
+  // ── Phase 2: live sessions (Ecamm → RTMP → Mux → HLS in-app) ──
+  `CREATE TABLE IF NOT EXISTS community_live_sessions (
+    id serial PRIMARY KEY,
+    title text NOT NULL,
+    description text,
+    scheduled_at timestamp NOT NULL,
+    duration_minutes integer,
+    status text NOT NULL DEFAULT 'scheduled',
+    mux_stream_id text,
+    mux_stream_key text,
+    mux_playback_id text,
+    recording_playback_id text,
+    started_at timestamp,
+    ended_at timestamp,
+    created_at timestamp DEFAULT now()
+  )`,
+  `ALTER TABLE community_posts ADD COLUMN IF NOT EXISTS live_session_id integer`,
+  `CREATE INDEX IF NOT EXISTS idx_community_posts_live ON community_posts (live_session_id, id DESC)`,
 ];
 
 let ensurePromise: Promise<void> | null = null;
@@ -541,9 +559,164 @@ async function runLifecycleNotifications(): Promise<void> {
   }
 }
 
+// ---------------------------------------------------------------------------
+// Live sessions (Phase 2): founder streams from Ecamm Live → custom RTMP
+// destination (rtmps://global-live.mux.com:443/app + stream key) → Mux live
+// stream → HLS playback in the app via expo-video. Mux auto-records; the
+// recording playback id is attached when the stream ends.
+// ---------------------------------------------------------------------------
+
+export const MUX_RTMP_URL = "rtmps://global-live.mux.com:443/app";
+const MUX_API_BASE = "https://api.mux.com";
+
+function muxAuthHeaderCommunity(): string {
+  const tokenId = process.env.MUX_TOKEN_ID || "";
+  const tokenSecret = process.env.MUX_TOKEN_SECRET || "";
+  return "Basic " + Buffer.from(`${tokenId}:${tokenSecret}`).toString("base64");
+}
+
+async function muxFetch(path: string, init?: any): Promise<any> {
+  const res = await fetch(`${MUX_API_BASE}${path}`, {
+    ...(init || {}),
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: muxAuthHeaderCommunity(),
+      ...((init && init.headers) || {}),
+    },
+  });
+  if (!res.ok) {
+    const text = await res.text().catch(() => "");
+    throw new Error(`Mux ${init?.method || "GET"} ${path} → ${res.status}: ${text.slice(0, 300)}`);
+  }
+  return res.json();
+}
+
+async function createMuxLiveStream(): Promise<{ streamId: string; streamKey: string; playbackId: string }> {
+  const data = await muxFetch("/video/v1/live-streams", {
+    method: "POST",
+    body: JSON.stringify({
+      playback_policy: ["public"],
+      new_asset_settings: { playback_policy: ["public"] },
+      latency_mode: "standard",
+      reconnect_window: 60,
+    }),
+  });
+  const ls = data.data;
+  return {
+    streamId: ls.id,
+    streamKey: ls.stream_key,
+    playbackId: ls.playback_ids?.[0]?.id ?? null,
+  };
+}
+
+const LIVE_SESSION_COLS = `id, title, description, scheduled_at AS "scheduledAt",
+  duration_minutes AS "durationMinutes", status, mux_stream_id AS "muxStreamId",
+  mux_playback_id AS "muxPlaybackId", recording_playback_id AS "recordingPlaybackId",
+  started_at AS "startedAt", ended_at AS "endedAt", created_at AS "createdAt"`;
+
+/**
+ * Syncs one session's status against Mux. scheduled→live when the encoder
+ * connects; live→ended when it disconnects, attaching the recording asset's
+ * playback id once Mux has it ready. Safe to call often; cheap no-op for
+ * cancelled/old sessions.
+ */
+async function syncLiveSession(s: any): Promise<any> {
+  if (!s.muxStreamId || s.status === "cancelled") return s;
+  if (s.status === "ended" && s.recordingPlaybackId) return s;
+  try {
+    const data = await muxFetch(`/video/v1/live-streams/${s.muxStreamId}`);
+    const ls = data.data;
+    if (ls.status === "active" && s.status !== "live") {
+      await pool.query(`UPDATE community_live_sessions SET status = 'live', started_at = COALESCE(started_at, now()) WHERE id = $1`, [s.id]);
+      s = { ...s, status: "live", startedAt: s.startedAt ?? new Date().toISOString() };
+      // "We're live" push (deduped) — fire in background.
+      notifyAllMembers(`🔴 Live now: ${s.title}`, "Tap to join the live session.", `live:${s.id}:start`, `/community/live/${s.id}`).catch(() => {});
+    } else if (ls.status !== "active" && s.status === "live") {
+      await pool.query(`UPDATE community_live_sessions SET status = 'ended', ended_at = COALESCE(ended_at, now()) WHERE id = $1`, [s.id]);
+      s = { ...s, status: "ended", endedAt: s.endedAt ?? new Date().toISOString() };
+    }
+    if (s.status === "ended" && !s.recordingPlaybackId) {
+      const assetId = ls.recent_asset_ids?.[ls.recent_asset_ids.length - 1];
+      if (assetId) {
+        try {
+          const asset = await muxFetch(`/video/v1/assets/${assetId}`);
+          const pb = asset.data?.playback_ids?.[0]?.id;
+          if (pb && asset.data?.status === "ready") {
+            await pool.query(`UPDATE community_live_sessions SET recording_playback_id = $2 WHERE id = $1`, [s.id, pb]);
+            s = { ...s, recordingPlaybackId: pb };
+          }
+        } catch {
+          // asset may not be ready yet — next sync picks it up
+        }
+      }
+    }
+  } catch (e) {
+    console.error(`[community] mux sync failed session=${s.id}:`, e);
+  }
+  return s;
+}
+
+/** Sessions worth syncing: live now, or scheduled within a ±12h window, or ended without a recording yet. */
+async function syncActiveWindowSessions(): Promise<void> {
+  const { rows } = await pool.query(
+    `SELECT ${LIVE_SESSION_COLS}, mux_stream_key AS "muxStreamKey" FROM community_live_sessions
+     WHERE status = 'live'
+        OR (status = 'scheduled' AND scheduled_at BETWEEN now() - interval '12 hours' AND now() + interval '12 hours')
+        OR (status = 'ended' AND recording_playback_id IS NULL AND ended_at > now() - interval '24 hours')`,
+  );
+  for (const s of rows) {
+    await syncLiveSession(s);
+  }
+}
+
+async function notifyAllMembers(title: string, body: string, eventKey: string, url: string): Promise<void> {
+  const { rows: members } = await pool.query(`SELECT user_id AS "userId" FROM community_profiles WHERE is_banned = false`);
+  for (const m of members) {
+    try {
+      if (await alreadyNotified(m.userId, eventKey)) continue;
+      await notify({
+        userId: m.userId,
+        category: "community",
+        title,
+        body,
+        data: { communityEvent: eventKey, url },
+        disableEmail: true,
+      });
+    } catch {
+      // per-user failure never blocks the loop
+    }
+  }
+}
+
+/** "Live in ~15 minutes" reminders for sessions starting soon. */
+async function runLiveSessionReminders(): Promise<void> {
+  const { rows } = await pool.query(
+    `SELECT ${LIVE_SESSION_COLS} FROM community_live_sessions
+     WHERE status = 'scheduled' AND scheduled_at BETWEEN now() AND now() + interval '16 minutes'`,
+  );
+  for (const s of rows) {
+    await notifyAllMembers(
+      `Starting soon: ${s.title}`,
+      "The live session starts in about 15 minutes.",
+      `live:${s.id}:soon`,
+      `/community/live/${s.id}`,
+    ).catch(() => {});
+  }
+}
+
+function liveSessionPublicView(s: any) {
+  const { muxStreamKey, muxStreamId, ...rest } = s;
+  return {
+    ...rest,
+    playbackUrl: s.status === "live" && s.muxPlaybackId ? `https://stream.mux.com/${s.muxPlaybackId}.m3u8` : null,
+    replayUrl: s.recordingPlaybackId ? `https://stream.mux.com/${s.recordingPlaybackId}.m3u8` : null,
+  };
+}
+
 // ── Scheduler ──
 
-const TICK_MS = 60 * 60 * 1000; // hourly
+const TICK_MS = 60 * 60 * 1000; // hourly: challenge scoring + lifecycle
+const LIVE_TICK_MS = 5 * 60 * 1000; // 5 min: live-session status sync + reminders
 let schedulerStarted = false;
 
 export function startCommunityScheduler(): void {
@@ -561,8 +734,20 @@ export function startCommunityScheduler(): void {
     };
     tick();
     setInterval(tick, TICK_MS);
+
+    const liveTick = async () => {
+      try {
+        await ensureCommunitySchema();
+        await syncActiveWindowSessions();
+        await runLiveSessionReminders();
+      } catch (e) {
+        console.error("[community] live tick failed:", e);
+      }
+    };
+    liveTick();
+    setInterval(liveTick, LIVE_TICK_MS);
   }, 120_000);
-  console.log("[community] scheduler started (hourly scoring + lifecycle notifications)");
+  console.log("[community] scheduler started (hourly scoring + lifecycle; 5-min live-session sync)");
 }
 
 // ---------------------------------------------------------------------------
@@ -1356,6 +1541,168 @@ export function registerCommunityRoutes(app: Express): void {
       [id, action === "dismiss" ? "dismissed" : "actioned", note ?? null],
     );
     res.json({ ok: true });
+  }));
+
+  // ── Live sessions (Phase 2) ───────────────────────────────────────────────
+
+  app.get("/api/community/live-sessions", isAuthenticated, ready(async (req, res) => {
+    const userId = req.user.claims.sub;
+    const profile = await requireProfile(userId, res);
+    if (!profile) return;
+    const { rows } = await pool.query(
+      `SELECT ${LIVE_SESSION_COLS} FROM community_live_sessions
+       WHERE status != 'cancelled' AND scheduled_at > now() - interval '30 days'
+       ORDER BY scheduled_at DESC LIMIT 50`,
+    );
+    const live: any[] = [];
+    const upcoming: any[] = [];
+    const past: any[] = [];
+    for (const s of rows) {
+      const v = liveSessionPublicView(s);
+      if (s.status === "live") live.push(v);
+      else if (s.status === "scheduled" && new Date(s.scheduledAt) > new Date(Date.now() - 3600_000)) upcoming.push(v);
+      else past.push(v);
+    }
+    upcoming.sort((a, b) => new Date(a.scheduledAt).getTime() - new Date(b.scheduledAt).getTime());
+    res.json({ live, upcoming, past });
+  }));
+
+  app.get("/api/community/live-sessions/:id", isAuthenticated, ready(async (req, res) => {
+    const userId = req.user.claims.sub;
+    const profile = await requireProfile(userId, res);
+    if (!profile) return;
+    const id = parseInt(req.params.id, 10);
+    if (Number.isNaN(id)) return res.status(400).json({ message: "Invalid id" });
+    const { rows } = await pool.query(
+      `SELECT ${LIVE_SESSION_COLS}, mux_stream_key AS "muxStreamKey" FROM community_live_sessions WHERE id = $1 AND status != 'cancelled'`,
+      [id],
+    );
+    if (!rows[0]) return res.status(404).json({ message: "Session not found" });
+    // Sync against Mux on-view so "went live" is picked up within seconds of a
+    // viewer opening the screen, not only on the 5-min scheduler tick.
+    const synced = await syncLiveSession(rows[0]);
+    res.json(liveSessionPublicView(synced));
+  }));
+
+  app.get("/api/community/live-sessions/:id/posts", isAuthenticated, ready(async (req, res) => {
+    const userId = req.user.claims.sub;
+    const profile = await requireProfile(userId, res);
+    if (!profile) return;
+    const id = parseInt(req.params.id, 10);
+    if (Number.isNaN(id)) return res.status(400).json({ message: "Invalid id" });
+    const blocked = await blockedIdsFor(userId);
+    const sinceId = parseInt(String(req.query.sinceId ?? "0"), 10) || 0;
+    const { rows } = await pool.query(
+      `SELECT ${POST_SELECT} FROM community_posts p ${POST_JOINS}
+       WHERE p.scope = 'live' AND p.live_session_id = $1 AND p.is_hidden = false
+         AND p.user_id != ALL($2::varchar[]) AND p.id > $3
+       ORDER BY p.id DESC LIMIT 100`,
+      [id, blocked, sinceId],
+    );
+    res.json({ posts: rows.reverse() });
+  }));
+
+  app.post("/api/community/live-sessions/:id/posts", isAuthenticated, ready(async (req, res) => {
+    const userId = req.user.claims.sub;
+    const profile = await requireProfile(userId, res);
+    if (!profile) return;
+    const id = parseInt(req.params.id, 10);
+    if (Number.isNaN(id)) return res.status(400).json({ message: "Invalid id" });
+    const parsed = z.object({ body: z.string().trim().min(1).max(1000) }).safeParse(req.body);
+    if (!parsed.success) return res.status(400).json({ message: "Invalid message" });
+    const { rows: sRows } = await pool.query(`SELECT id, status FROM community_live_sessions WHERE id = $1 AND status != 'cancelled'`, [id]);
+    if (!sRows[0]) return res.status(404).json({ message: "Session not found" });
+
+    const screen = await screenText(parsed.data.body);
+    if (screen.rejected) return res.status(400).json({ message: "That message isn't allowed here." });
+    const hidden = !!screen.autoHide;
+    const { rows } = await pool.query(
+      `INSERT INTO community_posts (user_id, scope, live_session_id, body, is_hidden, hidden_reason)
+       VALUES ($1, 'live', $2, $3, $4, $5) RETURNING id`,
+      [userId, id, parsed.data.body, hidden, hidden ? "auto_moderation" : null],
+    );
+    if (hidden) {
+      await pool.query(
+        `INSERT INTO community_reports (reporter_user_id, target_type, target_id, reason, status) VALUES ('system','post',$1,$2,'open')`,
+        [String(rows[0].id), `Auto-flagged (live chat): ${(screen.autoHide || []).join(", ")}`],
+      );
+      return res.status(202).json({ id: rows[0].id, held: true });
+    }
+    res.json({ id: rows[0].id, held: false });
+  }));
+
+  app.post("/api/admin/community/live-sessions", isAuthenticated, adminOnly(async (req, res) => {
+    const parsed = z.object({
+      title: z.string().trim().min(3).max(120),
+      description: z.string().max(2000).optional(),
+      scheduledAt: z.string().min(10),
+      durationMinutes: z.number().int().min(5).max(240).optional(),
+    }).safeParse(req.body);
+    if (!parsed.success) return res.status(400).json({ message: "Invalid session", errors: parsed.error.flatten() });
+    const when = new Date(parsed.data.scheduledAt);
+    if (Number.isNaN(when.getTime())) return res.status(400).json({ message: "Invalid scheduledAt" });
+
+    let stream: { streamId: string; streamKey: string; playbackId: string };
+    try {
+      stream = await createMuxLiveStream();
+    } catch (e: any) {
+      console.error("[community] mux live stream create failed:", e);
+      return res.status(502).json({ message: `Could not create the Mux live stream: ${e?.message || e}` });
+    }
+    const { rows } = await pool.query(
+      `INSERT INTO community_live_sessions (title, description, scheduled_at, duration_minutes, mux_stream_id, mux_stream_key, mux_playback_id)
+       VALUES ($1,$2,$3,$4,$5,$6,$7) RETURNING ${LIVE_SESSION_COLS}, mux_stream_key AS "muxStreamKey"`,
+      [parsed.data.title, parsed.data.description ?? null, when.toISOString(), parsed.data.durationMinutes ?? null, stream.streamId, stream.streamKey, stream.playbackId],
+    );
+    res.json({ ...rows[0], rtmpUrl: MUX_RTMP_URL });
+  }));
+
+  app.get("/api/admin/community/live-sessions", isAuthenticated, adminOnly(async (_req, res) => {
+    const { rows } = await pool.query(
+      `SELECT ${LIVE_SESSION_COLS}, mux_stream_key AS "muxStreamKey" FROM community_live_sessions ORDER BY scheduled_at DESC LIMIT 100`,
+    );
+    res.json(rows.map((s: any) => ({ ...s, rtmpUrl: MUX_RTMP_URL })));
+  }));
+
+  app.patch("/api/admin/community/live-sessions/:id", isAuthenticated, adminOnly(async (req, res) => {
+    const id = parseInt(req.params.id, 10);
+    if (Number.isNaN(id)) return res.status(400).json({ message: "Invalid id" });
+    const parsed = z.object({
+      action: z.enum(["sync", "cancel", "end"]).optional(),
+      title: z.string().trim().min(3).max(120).optional(),
+      description: z.string().max(2000).optional(),
+      scheduledAt: z.string().optional(),
+      durationMinutes: z.number().int().min(5).max(240).optional(),
+    }).safeParse(req.body);
+    if (!parsed.success) return res.status(400).json({ message: "Invalid update" });
+    const d = parsed.data;
+
+    if (d.title || d.description !== undefined || d.scheduledAt || d.durationMinutes) {
+      const sets: string[] = [];
+      const vals: any[] = [];
+      if (d.title) { vals.push(d.title); sets.push(`title = $${vals.length}`); }
+      if (d.description !== undefined) { vals.push(d.description); sets.push(`description = $${vals.length}`); }
+      if (d.scheduledAt) {
+        const when = new Date(d.scheduledAt);
+        if (Number.isNaN(when.getTime())) return res.status(400).json({ message: "Invalid scheduledAt" });
+        vals.push(when.toISOString()); sets.push(`scheduled_at = $${vals.length}`);
+      }
+      if (d.durationMinutes) { vals.push(d.durationMinutes); sets.push(`duration_minutes = $${vals.length}`); }
+      vals.push(id);
+      await pool.query(`UPDATE community_live_sessions SET ${sets.join(", ")} WHERE id = $${vals.length}`, vals);
+    }
+    if (d.action === "cancel") {
+      await pool.query(`UPDATE community_live_sessions SET status = 'cancelled' WHERE id = $1`, [id]);
+    } else if (d.action === "end") {
+      await pool.query(`UPDATE community_live_sessions SET status = 'ended', ended_at = COALESCE(ended_at, now()) WHERE id = $1`, [id]);
+    }
+    const { rows } = await pool.query(
+      `SELECT ${LIVE_SESSION_COLS}, mux_stream_key AS "muxStreamKey" FROM community_live_sessions WHERE id = $1`,
+      [id],
+    );
+    if (!rows[0]) return res.status(404).json({ message: "Session not found" });
+    const synced = d.action === "sync" ? await syncLiveSession(rows[0]) : rows[0];
+    res.json({ ...synced, rtmpUrl: MUX_RTMP_URL });
   }));
 
   app.get("/api/admin/community/banned-words", isAuthenticated, adminOnly(async (_req, res) => {

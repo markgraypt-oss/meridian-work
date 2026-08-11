@@ -16,7 +16,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from "@/components/ui/select";
-import { Megaphone, Trophy, Flag, ShieldBan, Pin, EyeOff, Eye, Trash2, Send } from "lucide-react";
+import { Megaphone, Trophy, Flag, ShieldBan, Pin, EyeOff, Eye, Trash2, Send, Radio, Copy, RefreshCw } from "lucide-react";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 
@@ -473,6 +473,157 @@ function BannedWordsTab() {
   );
 }
 
+// ── Live sessions ────────────────────────────────────────────────────────────
+
+function CopyField({ label, value, secret }: { label: string; value: string; secret?: boolean }) {
+  const { toast } = useToast();
+  const [revealed, setRevealed] = useState(false);
+  return (
+    <div className="flex items-center gap-2 text-xs">
+      <span className="text-muted-foreground w-24 shrink-0">{label}</span>
+      <code className="bg-muted rounded px-2 py-1 truncate flex-1">
+        {secret && !revealed ? "••••••••••••••••" : value}
+      </code>
+      {secret && (
+        <Button size="sm" variant="ghost" onClick={() => setRevealed(!revealed)}>
+          {revealed ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
+        </Button>
+      )}
+      <Button size="sm" variant="ghost" title="Copy"
+        onClick={() => { navigator.clipboard.writeText(value); toast({ title: `${label} copied` }); }}>
+        <Copy className="w-3.5 h-3.5" />
+      </Button>
+    </div>
+  );
+}
+
+function LiveTab() {
+  const { toast } = useToast();
+  const [title, setTitle] = useState("");
+  const [description, setDescription] = useState("");
+  const [when, setWhen] = useState("");
+  const [duration, setDuration] = useState("45");
+  const path = "/api/admin/community/live-sessions";
+  const q = useQuery<any[]>({ queryKey: [path] });
+
+  const create = useMutation({
+    mutationFn: async () => {
+      const res = await apiRequest("POST", path, {
+        title: title.trim(),
+        description: description.trim() || undefined,
+        scheduledAt: new Date(when).toISOString(),
+        durationMinutes: parseInt(duration, 10) || undefined,
+      });
+      return res.json();
+    },
+    onSuccess: () => {
+      setTitle(""); setDescription(""); setWhen("");
+      invalidate(path);
+      toast({ title: "Session scheduled", description: "Stream key is ready — set it up in Ecamm before going live." });
+    },
+    onError: (e: any) => toast({ title: "Could not schedule", description: String(e?.message || e), variant: "destructive" }),
+  });
+
+  const patch = useMutation({
+    mutationFn: async (args: { id: number; body: any }) => {
+      await apiRequest("PATCH", `${path}/${args.id}`, args.body);
+    },
+    onSuccess: () => invalidate(path),
+    onError: (e: any) => toast({ title: "Failed", description: String(e?.message || e), variant: "destructive" }),
+  });
+
+  const rows = q.data ?? [];
+
+  return (
+    <div className="space-y-6">
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2 text-base"><Radio className="w-4 h-4" /> Schedule a live session</CardTitle>
+          <CardDescription>
+            Creates a Mux live stream. In Ecamm Live, add a Custom RTMP destination with the server URL and stream key shown on the session below — start streaming a couple of minutes before the scheduled time. Members get a push 15 minutes before, and again the moment your stream connects. The session records automatically for replay.
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="grid gap-4 sm:grid-cols-2">
+          <div className="sm:col-span-2 space-y-1.5">
+            <Label>Title</Label>
+            <Input value={title} onChange={(e) => setTitle(e.target.value)} placeholder="Full-body mobility — live class" />
+          </div>
+          <div className="sm:col-span-2 space-y-1.5">
+            <Label>Description (optional)</Label>
+            <Textarea value={description} onChange={(e) => setDescription(e.target.value)} rows={2}
+              placeholder="What to bring, who it's for" />
+          </div>
+          <div className="space-y-1.5">
+            <Label>Date & time</Label>
+            <Input type="datetime-local" value={when} onChange={(e) => setWhen(e.target.value)} />
+          </div>
+          <div className="space-y-1.5">
+            <Label>Planned length (minutes)</Label>
+            <Input value={duration} onChange={(e) => setDuration(e.target.value)} />
+          </div>
+          <div className="sm:col-span-2 flex justify-end">
+            <Button disabled={!title.trim() || !when || create.isPending} onClick={() => create.mutate()}>
+              {create.isPending ? "Creating…" : "Schedule session"}
+            </Button>
+          </div>
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader><CardTitle className="text-base">Sessions</CardTitle></CardHeader>
+        <CardContent className="space-y-4">
+          {q.isLoading ? (
+            <Skeleton className="h-20 w-full" />
+          ) : rows.length === 0 ? (
+            <p className="text-sm text-muted-foreground">No sessions yet.</p>
+          ) : (
+            rows.map((s: any) => (
+              <div key={s.id} className="border rounded-lg p-3 space-y-2">
+                <div className="flex items-center gap-2">
+                  <span className="font-medium text-sm">{s.title}</span>
+                  <Badge variant={s.status === "live" ? "destructive" : s.status === "scheduled" ? "default" : "secondary"}>
+                    {s.status === "live" ? "● LIVE" : s.status}
+                  </Badge>
+                  <span className="text-xs text-muted-foreground ml-auto">{new Date(s.scheduledAt).toLocaleString()}</span>
+                </div>
+                {(s.status === "scheduled" || s.status === "live") && (
+                  <div className="space-y-1.5">
+                    <CopyField label="RTMP server" value={s.rtmpUrl} />
+                    <CopyField label="Stream key" value={s.muxStreamKey} secret />
+                  </div>
+                )}
+                {s.recordingPlaybackId && (
+                  <a className="text-xs text-primary underline" target="_blank" rel="noreferrer"
+                    href={`https://stream.mux.com/${s.recordingPlaybackId}.m3u8`}>
+                    Replay ready (HLS)
+                  </a>
+                )}
+                <div className="flex gap-2 pt-1">
+                  <Button size="sm" variant="outline" onClick={() => patch.mutate({ id: s.id, body: { action: "sync" } })}>
+                    <RefreshCw className="w-3.5 h-3.5 mr-1" /> Refresh status
+                  </Button>
+                  {s.status === "live" && (
+                    <Button size="sm" variant="outline" onClick={() => patch.mutate({ id: s.id, body: { action: "end" } })}>
+                      Mark ended
+                    </Button>
+                  )}
+                  {s.status === "scheduled" && (
+                    <Button size="sm" variant="destructive" onClick={() => {
+                      if (window.confirm("Cancel this session?")) patch.mutate({ id: s.id, body: { action: "cancel" } });
+                    }}>
+                      Cancel
+                    </Button>
+                  )}
+                </div>
+              </div>
+            ))
+          )}
+        </CardContent>
+      </Card>
+    </div>
+  );
+}
+
 // ── Page ─────────────────────────────────────────────────────────────────────
 
 export default function AdminCommunity() {
@@ -487,6 +638,7 @@ export default function AdminCommunity() {
         <Tabs defaultValue="announcements">
           <TabsList className="mb-4">
             <TabsTrigger value="announcements">Announcements</TabsTrigger>
+            <TabsTrigger value="live">Live</TabsTrigger>
             <TabsTrigger value="challenges">Challenges</TabsTrigger>
             <TabsTrigger value="reports" className="gap-1.5">
               Reports {openCount > 0 && <Badge variant="destructive">{openCount}</Badge>}
@@ -494,6 +646,7 @@ export default function AdminCommunity() {
             <TabsTrigger value="words">Banned words</TabsTrigger>
           </TabsList>
           <TabsContent value="announcements"><AnnouncementsTab /></TabsContent>
+          <TabsContent value="live"><LiveTab /></TabsContent>
           <TabsContent value="challenges"><ChallengesTab /></TabsContent>
           <TabsContent value="reports"><ReportsTab /></TabsContent>
           <TabsContent value="words"><BannedWordsTab /></TabsContent>

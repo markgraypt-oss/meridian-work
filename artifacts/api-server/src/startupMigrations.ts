@@ -1139,10 +1139,22 @@ export async function seedBreathworkTechniquesV2Once(): Promise<void> {
   try {
     let added = 0;
     for (const t of techniques) {
-      const existing = await pool.query('SELECT 1 FROM breath_techniques WHERE slug = $1', [t.slug]);
-      if ((existing.rowCount || 0) > 0) continue;
-      await storage.createBreathTechnique(t as any);
-      added++;
+      // Raw SQL naming ONLY the columns we set. The drizzle insert
+      // (storage.createBreathTechnique) writes every column in the schema
+      // definition, which 500s on production where the live table predates
+      // some of them (schema drift). ON CONFLICT keeps this idempotent.
+      const r = await pool.query(
+        `INSERT INTO breath_techniques
+           (slug, name, description, category, difficulty,
+            inhale_seconds, hold_after_inhale_seconds, exhale_seconds, hold_after_exhale_seconds,
+            default_rounds, default_duration_minutes, benefits, instructions)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)
+         ON CONFLICT (slug) DO NOTHING`,
+        [t.slug, t.name, t.description, t.category, t.difficulty,
+         t.inhaleSeconds, t.holdAfterInhaleSeconds, t.exhaleSeconds, t.holdAfterExhaleSeconds,
+         t.defaultRounds, t.defaultDurationMinutes, t.benefits, t.instructions]
+      );
+      added += r.rowCount || 0;
     }
     console.log(`[startup-migration] breathwork-techniques-v2: added ${added} technique(s)`);
   } catch (e: any) {

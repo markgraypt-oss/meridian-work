@@ -115,10 +115,35 @@ function buildVerifiedChanges(report: CompanyReport): string {
   push("Overwhelmed reported (% of check-ins)", m?.overwhelmedPercent, p?.overwhelmedPercent, true);
   push("Anxious reported (% of check-ins)", m?.anxiousPercent, p?.anxiousPercent, true);
   push("Exercised yesterday (% of check-ins)", m?.exercisedYesterdayPercent, p?.exercisedYesterdayPercent, false);
+  push("Headache reported (% of check-ins)", m?.headachePercent, p?.headachePercent, true);
+  push("Sick reported (% of check-ins)", m?.sickPercent, p?.sickPercent, true);
+  push("Pain or injury reported (% of check-ins)", m?.painOrInjuryPercent, p?.painOrInjuryPercent, true);
+  push("Fatigue trigger met (% of check-ins)", m?.fatigueTriggerPercent, p?.fatigueTriggerPercent, true);
+  push("Alcohol consumed (% of check-ins)", m?.alcoholPercent, p?.alcoholPercent, true);
+  push("Caffeine after 2pm (% of check-ins)", m?.caffeineAfter2pmPercent, p?.caffeineAfter2pmPercent, true);
+  push("Practiced mindfulness (% of check-ins)", m?.practicedMindfulnessPercent, p?.practicedMindfulnessPercent, false);
+  push("Emotionally stable (% of check-ins)", m?.emotionallyStablePercent, p?.emotionallyStablePercent, false);
 
   const b = report.burnoutStats;
   if (b && b.avgScore != null) {
     push("Burnout average (0-100)", b.avgScore, b.previousAvgScore, true);
+  }
+
+  const part = report.participation;
+  if (part) {
+    if (part.changeVsPrevious == null) {
+      lines.push(`Participation rate: current ${fmt(part.participationRate)}% (${part.activeUsersInWindow} of ${part.totalUsersInCompany}). No previous-period value exists. Do NOT make any period comparison for participation.`);
+    } else {
+      const pc = Math.round(part.changeVsPrevious * 100) / 100;
+      const dir = pc === 0 ? "unchanged" : pc > 0 ? `up ${fmt(Math.abs(pc))} percentage points (an improvement)` : `down ${fmt(Math.abs(pc))} percentage points (a worsening)`;
+      lines.push(`Participation rate: ${fmt(part.participationRate)}% of workforce (${part.activeUsersInWindow} of ${part.totalUsersInCompany}), ${dir} vs previous period.`);
+    }
+  }
+
+  const bm = report.bodyMapStats;
+  if (bm) {
+    push("Staff reporting significant pain (%)", bm.usersReportingPainPercent, bm.previousUsersReportingPainPercent, true);
+    push("Average pain severity (0-10)", bm.avgSeverity, bm.previousAvgSeverity, true);
   }
 
   if (!lines.length) {

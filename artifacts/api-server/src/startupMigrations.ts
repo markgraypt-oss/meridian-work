@@ -1137,6 +1137,17 @@ export async function seedBreathworkTechniquesV2Once(): Promise<void> {
     },
   ];
   try {
+    // The production table's id sequence lags behind MAX(id) (rows were at
+    // some point written with explicit ids), so any plain INSERT is handed an
+    // id that already exists and dies with: duplicate key value violates
+    // unique constraint "breath_techniques_pkey". Resync the sequence first.
+    // This also un-breaks the admin create-technique flow, which allocates
+    // ids from the same sequence.
+    await pool.query(
+      `SELECT setval(pg_get_serial_sequence('breath_techniques','id'),
+                     GREATEST(COALESCE((SELECT MAX(id) FROM breath_techniques), 0), 1))`
+    );
+
     let added = 0;
     for (const t of techniques) {
       // Raw SQL naming ONLY the columns we set. The drizzle insert

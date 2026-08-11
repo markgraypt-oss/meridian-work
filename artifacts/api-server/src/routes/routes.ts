@@ -3965,6 +3965,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     inAppNutrition: z.boolean().optional(), emailNutrition: z.boolean().optional(), pushNutrition: z.boolean().optional(),
     inAppCoach: z.boolean().optional(), emailCoach: z.boolean().optional(), pushCoach: z.boolean().optional(),
     inAppAdmin: z.boolean().optional(), emailAdmin: z.boolean().optional(), pushAdmin: z.boolean().optional(),
+    inAppCommunity: z.boolean().optional(), emailCommunity: z.boolean().optional(), pushCommunity: z.boolean().optional(),
   }).strict();
 
   // ============================================================
@@ -4055,6 +4056,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         | 'inAppNutrition' | 'emailNutrition' | 'pushNutrition'
         | 'inAppCoach' | 'emailCoach' | 'pushCoach'
         | 'inAppAdmin' | 'emailAdmin' | 'pushAdmin'
+        | 'inAppCommunity' | 'emailCommunity' | 'pushCommunity'
       > = data;
       const passthroughKeys: (keyof typeof multiChannelData)[] = [
         'dailyCap',
@@ -4063,6 +4065,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         'inAppNutrition', 'emailNutrition', 'pushNutrition',
         'inAppCoach', 'emailCoach', 'pushCoach',
         'inAppAdmin', 'emailAdmin', 'pushAdmin',
+        'inAppCommunity', 'emailCommunity', 'pushCommunity',
       ];
       for (const k of passthroughKeys) {
         const v = multiChannelData[k];

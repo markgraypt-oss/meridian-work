@@ -24,6 +24,7 @@ import {
   Wrench,
   MapPin,
   MessageSquareText,
+  MessagesSquare,
   Flame,
   LineChart,
   ClipboardCheck,
@@ -55,6 +56,7 @@ import AdminEngagement from "@/pages/admin/AdminEngagement";
 import AdminWeeklyCheckinPreview from "@/pages/admin/AdminWeeklyCheckinPreview";
 import AdminSettings from "@/pages/admin-settings";
 import AdminClients from "@/pages/admin-clients";
+import AdminCommunity from "@/pages/admin/AdminCommunity";
 import ClientProfile from "@/pages/admin/ClientProfile";
 import NotFound from "@/pages/not-found";
 
@@ -84,6 +86,7 @@ const NAV_ITEMS: NavItem[] = [
   { label: "Mindfulness", href: "/admin?tab=mindfulness", tab: "mindfulness", icon: Brain, group: "Wellbeing" },
   { label: "Meditations", href: "/admin?tab=meditations", tab: "meditations", icon: Sparkles, group: "Wellbeing" },
   { label: "Desk Health", href: "/admin?tab=desk-health", tab: "desk-health", icon: Armchair, group: "Wellbeing" },
+  { label: "Community", href: "/admin/community", icon: MessagesSquare, group: "Community" },
   { label: "Reporting", href: "/admin/reports", icon: BarChart3, group: "Analytics" },
   { label: "Engagement", href: "/admin/engagement", icon: LineChart, group: "Analytics" },
   { label: "AI Activity", href: "/admin/ai-activity", icon: ClipboardCheck, group: "Analytics" },
@@ -239,6 +242,7 @@ export default function AdminShell() {
           <Route path="/admin/clients/:userId" component={ClientProfile} />
           <Route path="/admin/clients" component={AdminClients} />
           <Route path="/admin/companies" component={AdminCompanies} />
+          <Route path="/admin/community" component={AdminCommunity} />
           <Route path="/admin/reports" component={AdminReports} />
           <Route path="/admin" component={AdminPanel} />
           <Route component={NotFound} />

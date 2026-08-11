@@ -155,48 +155,107 @@ const EMPTY_CHALLENGE = {
 function ChallengesTab() {
   const { toast } = useToast();
   const [form, setForm] = useState<any>(EMPTY_CHALLENGE);
+  const [editingId, setEditingId] = useState<number | null>(null);
   const listQ = useQuery<any[]>({ queryKey: ["/api/admin/community/challenges"] });
 
   const set = (k: string, v: any) => setForm((f: any) => ({ ...f, [k]: v }));
 
+  const buildPayload = () => {
+    const payload: any = {
+      title: form.title.trim(),
+      description: form.description.trim() || undefined,
+      type: form.type,
+      goalMode: form.goalMode,
+      startDate: form.startDate,
+      endDate: form.endDate,
+      graceDays: parseInt(form.graceDays, 10) || 0,
+      allowPersonalTarget: !!form.allowPersonalTarget,
+      isPublished: !!form.isPublished,
+      prizeText: form.prizeText.trim() || undefined,
+      rulesUrl: form.rulesUrl.trim() || undefined,
+    };
+    if (form.type === "metric") payload.metric = form.metric;
+    if (form.type === "programme") payload.programId = parseInt(form.programId, 10) || undefined;
+    if (form.dailyTarget) payload.dailyTarget = parseInt(form.dailyTarget, 10);
+    if (form.allowPersonalTarget && form.personalTargetOptions.trim()) {
+      payload.personalTargetOptions = form.personalTargetOptions
+        .split(",").map((s: string) => parseInt(s.trim(), 10)).filter((n: number) => n > 0);
+    }
+    return payload;
+  };
+
+  const startEdit = (c: any) => {
+    setEditingId(c.id);
+    setForm({
+      title: c.title ?? "",
+      description: c.description ?? "",
+      type: c.type ?? "metric",
+      metric: c.metric ?? "steps",
+      programId: c.programId ? String(c.programId) : "",
+      goalMode: c.goalMode ?? "daily_target",
+      dailyTarget: c.dailyTarget ? String(c.dailyTarget) : "",
+      allowPersonalTarget: !!c.allowPersonalTarget,
+      personalTargetOptions: Array.isArray(c.personalTargetOptions) ? c.personalTargetOptions.join(", ") : "",
+      startDate: c.startDate ?? "",
+      endDate: c.endDate ?? "",
+      graceDays: String(c.graceDays ?? 2),
+      prizeText: c.prizeText ?? "",
+      rulesUrl: c.rulesUrl ?? "",
+      isPublished: !!c.isPublished,
+    });
+    window.scrollTo({ top: 0, behavior: "smooth" });
+  };
+
+  const cancelEdit = () => {
+    setEditingId(null);
+    setForm(EMPTY_CHALLENGE);
+  };
+
   const create = useMutation({
     mutationFn: async () => {
-      const payload: any = {
-        title: form.title.trim(),
-        description: form.description.trim() || undefined,
-        type: form.type,
-        goalMode: form.goalMode,
-        startDate: form.startDate,
-        endDate: form.endDate,
-        graceDays: parseInt(form.graceDays, 10) || 0,
-        allowPersonalTarget: !!form.allowPersonalTarget,
-        isPublished: !!form.isPublished,
-        prizeText: form.prizeText.trim() || undefined,
-        rulesUrl: form.rulesUrl.trim() || undefined,
-      };
-      if (form.type === "metric") payload.metric = form.metric;
-      if (form.type === "programme") payload.programId = parseInt(form.programId, 10) || undefined;
-      if (form.dailyTarget) payload.dailyTarget = parseInt(form.dailyTarget, 10);
-      if (form.allowPersonalTarget && form.personalTargetOptions.trim()) {
-        payload.personalTargetOptions = form.personalTargetOptions
-          .split(",").map((s: string) => parseInt(s.trim(), 10)).filter((n: number) => n > 0);
-      }
-      const res = await apiRequest("POST", "/api/admin/community/challenges", payload);
+      const payload = buildPayload();
+      const res = editingId
+        ? await apiRequest("PATCH", `/api/admin/community/challenges/${editingId}`, payload)
+        : await apiRequest("POST", "/api/admin/community/challenges", payload);
       return res.json();
     },
     onSuccess: () => {
-      setForm(EMPTY_CHALLENGE);
+      const wasEdit = editingId !== null;
+      cancelEdit();
       invalidate("/api/admin/community/challenges");
-      toast({ title: "Challenge created" });
+      toast({ title: wasEdit ? "Challenge updated" : "Challenge created" });
     },
-    onError: (e: any) => toast({ title: "Could not create", description: String(e?.message || e), variant: "destructive" }),
+    onError: (e: any) => toast({ title: "Could not save", description: String(e?.message || e), variant: "destructive" }),
   });
 
   const patch = useMutation({
     mutationFn: async (args: { id: number; patch: any }) => {
       await apiRequest("PATCH", `/api/admin/community/challenges/${args.id}`, args.patch);
+      return args;
     },
-    onSuccess: () => invalidate("/api/admin/community/challenges"),
+    onSuccess: (args) => {
+      invalidate("/api/admin/community/challenges");
+      if (args.patch.isPublished !== undefined) {
+        toast({
+          title: args.patch.isPublished ? "Published" : "Unpublished",
+          description: args.patch.isPublished
+            ? "Members can now see and join this challenge."
+            : "Hidden from members — it's a draft again.",
+        });
+      }
+    },
+    onError: (e: any) => toast({ title: "Failed", description: String(e?.message || e), variant: "destructive" }),
+  });
+
+  const del = useMutation({
+    mutationFn: async (id: number) => {
+      await apiRequest("DELETE", `/api/admin/community/challenges/${id}`);
+    },
+    onSuccess: () => {
+      invalidate("/api/admin/community/challenges");
+      toast({ title: "Challenge deleted", description: "Its posts, scores and participants were removed too." });
+    },
+    onError: (e: any) => toast({ title: "Could not delete", description: String(e?.message || e), variant: "destructive" }),
   });
 
   const rows = listQ.data ?? [];
@@ -205,7 +264,12 @@ function ChallengesTab() {
     <div className="space-y-6">
       <Card>
         <CardHeader>
-          <CardTitle className="flex items-center gap-2 text-base"><Trophy className="w-4 h-4" /> New challenge</CardTitle>
+          <CardTitle className="flex items-center gap-2 text-base">
+            <Trophy className="w-4 h-4" /> {editingId ? `Editing challenge #${editingId}` : "New challenge"}
+            {editingId && (
+              <Button size="sm" variant="ghost" className="ml-auto" onClick={cancelEdit}>Cancel edit</Button>
+            )}
+          </CardTitle>
           <CardDescription>
             Metric challenges score automatically from wearable/phone data or completed workouts. Publish when ready — members only see published challenges.
           </CardDescription>
@@ -295,11 +359,12 @@ function ChallengesTab() {
           </div>
           <div className="sm:col-span-2 flex items-center justify-between pt-2">
             <label className="flex items-center gap-2 text-sm">
-              <Switch checked={form.isPublished} onCheckedChange={(v) => set("isPublished", v)} /> Publish immediately
+              <Switch checked={form.isPublished} onCheckedChange={(v) => set("isPublished", v)} />
+              {editingId ? "Published" : "Publish immediately"}
             </label>
             <Button disabled={!form.title.trim() || !form.startDate || !form.endDate || create.isPending}
               onClick={() => create.mutate()}>
-              {create.isPending ? "Creating…" : "Create challenge"}
+              {create.isPending ? "Saving…" : editingId ? "Save changes" : "Create challenge"}
             </Button>
           </div>
         </CardContent>
@@ -318,16 +383,27 @@ function ChallengesTab() {
                 <div className="flex-1 min-w-0">
                   <div className="flex items-center gap-2">
                     <span className="font-medium text-sm">{c.title}</span>
-                    <Badge variant={c.status === "active" ? "default" : "secondary"}>{c.status}</Badge>
-                    {!c.isPublished && <Badge variant="outline">draft</Badge>}
+                    {c.isPublished ? (
+                      <Badge variant={c.status === "active" ? "default" : "secondary"}>{c.status}</Badge>
+                    ) : (
+                      <Badge variant="outline">draft — hidden from members</Badge>
+                    )}
                   </div>
                   <p className="text-xs text-muted-foreground mt-0.5">
                     {c.startDate} → {c.endDate} · {c.participantCount} joined · {c.type === "programme" ? `programme ${c.programId}` : c.metric} · {c.goalMode}
                   </p>
                 </div>
-                <Button size="sm" variant="outline"
+                <Button size="sm" variant="ghost" onClick={() => startEdit(c)}>Edit</Button>
+                <Button size="sm" variant="outline" disabled={patch.isPending}
                   onClick={() => patch.mutate({ id: c.id, patch: { isPublished: !c.isPublished } })}>
                   {c.isPublished ? "Unpublish" : "Publish"}
+                </Button>
+                <Button size="sm" variant="destructive" disabled={del.isPending} onClick={() => {
+                  if (window.confirm(`Delete "${c.title}"? This also removes its posts, scores and participants. This cannot be undone.`)) {
+                    del.mutate(c.id);
+                  }
+                }}>
+                  <Trash2 className="w-3.5 h-3.5" />
                 </Button>
               </div>
             ))
@@ -526,10 +602,38 @@ function LiveTab() {
 
   const patch = useMutation({
     mutationFn: async (args: { id: number; body: any }) => {
-      await apiRequest("PATCH", `${path}/${args.id}`, args.body);
+      const res = await apiRequest("PATCH", `${path}/${args.id}`, args.body);
+      return { args, data: await res.json() };
     },
-    onSuccess: () => invalidate(path),
+    onSuccess: ({ args, data }) => {
+      invalidate(path);
+      if (args.body.action === "sync") {
+        const statusLine =
+          data.status === "live" ? "LIVE — your stream is connected."
+          : data.status === "scheduled" ? "Scheduled — Mux is waiting for your stream to connect."
+          : data.status === "ended" ? (data.recordingPlaybackId ? "Ended — replay is ready." : "Ended — replay still processing.")
+          : `Status: ${data.status}`;
+        toast({ title: "Status checked", description: statusLine });
+      } else if (args.body.action === "cancel") {
+        toast({ title: "Session cancelled" });
+      } else if (args.body.action === "end") {
+        toast({ title: "Session marked ended" });
+      } else {
+        toast({ title: "Session updated" });
+      }
+    },
     onError: (e: any) => toast({ title: "Failed", description: String(e?.message || e), variant: "destructive" }),
+  });
+
+  const del = useMutation({
+    mutationFn: async (id: number) => {
+      await apiRequest("DELETE", `${path}/${id}`);
+    },
+    onSuccess: () => {
+      invalidate(path);
+      toast({ title: "Session deleted" });
+    },
+    onError: (e: any) => toast({ title: "Could not delete", description: String(e?.message || e), variant: "destructive" }),
   });
 
   const rows = q.data ?? [];
@@ -599,19 +703,29 @@ function LiveTab() {
                   </a>
                 )}
                 <div className="flex gap-2 pt-1">
-                  <Button size="sm" variant="outline" onClick={() => patch.mutate({ id: s.id, body: { action: "sync" } })}>
-                    <RefreshCw className="w-3.5 h-3.5 mr-1" /> Refresh status
-                  </Button>
+                  {(s.status === "scheduled" || s.status === "live" || (s.status === "ended" && !s.recordingPlaybackId)) && (
+                    <Button size="sm" variant="outline" disabled={patch.isPending}
+                      onClick={() => patch.mutate({ id: s.id, body: { action: "sync" } })}>
+                      <RefreshCw className="w-3.5 h-3.5 mr-1" /> {patch.isPending ? "Checking…" : "Refresh status"}
+                    </Button>
+                  )}
                   {s.status === "live" && (
                     <Button size="sm" variant="outline" onClick={() => patch.mutate({ id: s.id, body: { action: "end" } })}>
                       Mark ended
                     </Button>
                   )}
                   {s.status === "scheduled" && (
-                    <Button size="sm" variant="destructive" onClick={() => {
-                      if (window.confirm("Cancel this session?")) patch.mutate({ id: s.id, body: { action: "cancel" } });
+                    <Button size="sm" variant="outline" onClick={() => {
+                      if (window.confirm("Cancel this session? Members will no longer see it.")) patch.mutate({ id: s.id, body: { action: "cancel" } });
                     }}>
                       Cancel
+                    </Button>
+                  )}
+                  {(s.status === "cancelled" || s.status === "ended") && (
+                    <Button size="sm" variant="destructive" disabled={del.isPending} onClick={() => {
+                      if (window.confirm(`Delete "${s.title}" and its chat? This cannot be undone.`)) del.mutate(s.id);
+                    }}>
+                      <Trash2 className="w-3.5 h-3.5 mr-1" /> Delete
                     </Button>
                   )}
                 </div>

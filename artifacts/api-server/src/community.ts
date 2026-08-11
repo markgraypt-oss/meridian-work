@@ -588,7 +588,9 @@ async function muxFetch(path: string, init?: any): Promise<any> {
     const text = await res.text().catch(() => "");
     throw new Error(`Mux ${init?.method || "GET"} ${path} → ${res.status}: ${text.slice(0, 300)}`);
   }
-  return res.json();
+  if (res.status === 204) return null;
+  const text = await res.text();
+  return text ? JSON.parse(text) : null;
 }
 
 async function createMuxLiveStream(): Promise<{ streamId: string; streamKey: string; playbackId: string }> {
@@ -1450,6 +1452,33 @@ export function registerCommunityRoutes(app: Express): void {
     res.json({ ok: true });
   }));
 
+  app.delete("/api/admin/community/challenges/:id", isAuthenticated, adminOnly(async (req, res) => {
+    const id = parseInt(req.params.id, 10);
+    if (Number.isNaN(id)) return res.status(400).json({ message: "Invalid id" });
+    const { rows } = await pool.query(`SELECT id FROM community_challenges WHERE id = $1`, [id]);
+    if (!rows[0]) return res.status(404).json({ message: "Challenge not found" });
+    // Cascade: reactions + comments on the challenge's posts, the posts, scores, participants, then the challenge.
+    await pool.query(
+      `DELETE FROM community_reactions WHERE target_type = 'comment' AND target_id IN
+        (SELECT c.id FROM community_comments c JOIN community_posts p ON p.id = c.post_id WHERE p.challenge_id = $1)`,
+      [id],
+    );
+    await pool.query(
+      `DELETE FROM community_comments WHERE post_id IN (SELECT id FROM community_posts WHERE challenge_id = $1)`,
+      [id],
+    );
+    await pool.query(
+      `DELETE FROM community_reactions WHERE target_type = 'post' AND target_id IN (SELECT id FROM community_posts WHERE challenge_id = $1)`,
+      [id],
+    );
+    await pool.query(`DELETE FROM community_posts WHERE challenge_id = $1`, [id]);
+    await pool.query(`DELETE FROM community_challenge_scores WHERE challenge_id = $1`, [id]);
+    await pool.query(`DELETE FROM community_challenge_participants WHERE challenge_id = $1`, [id]);
+    await pool.query(`DELETE FROM community_challenges WHERE id = $1`, [id]);
+    await modLog("admin", "deleted", "challenge", String(id), { by: req.user.claims.sub });
+    res.json({ ok: true });
+  }));
+
   app.get("/api/admin/community/challenges", isAuthenticated, adminOnly(async (_req, res) => {
     const { rows } = await pool.query(
       `SELECT ${CHALLENGE_COLS},
@@ -1703,6 +1732,33 @@ export function registerCommunityRoutes(app: Express): void {
     if (!rows[0]) return res.status(404).json({ message: "Session not found" });
     const synced = d.action === "sync" ? await syncLiveSession(rows[0]) : rows[0];
     res.json({ ...synced, rtmpUrl: MUX_RTMP_URL });
+  }));
+
+  app.delete("/api/admin/community/live-sessions/:id", isAuthenticated, adminOnly(async (req, res) => {
+    const id = parseInt(req.params.id, 10);
+    if (Number.isNaN(id)) return res.status(400).json({ message: "Invalid id" });
+    const { rows } = await pool.query(`SELECT id, mux_stream_id AS "muxStreamId" FROM community_live_sessions WHERE id = $1`, [id]);
+    if (!rows[0]) return res.status(404).json({ message: "Session not found" });
+    // Best-effort: remove the Mux live stream too (recordings/assets are separate objects and survive).
+    if (rows[0].muxStreamId) {
+      try {
+        await muxFetch(`/video/v1/live-streams/${rows[0].muxStreamId}`, { method: "DELETE" });
+      } catch (e) {
+        console.error(`[community] mux stream delete failed session=${id}:`, e);
+      }
+    }
+    await pool.query(
+      `DELETE FROM community_comments WHERE post_id IN (SELECT id FROM community_posts WHERE live_session_id = $1)`,
+      [id],
+    );
+    await pool.query(
+      `DELETE FROM community_reactions WHERE target_type = 'post' AND target_id IN (SELECT id FROM community_posts WHERE live_session_id = $1)`,
+      [id],
+    );
+    await pool.query(`DELETE FROM community_posts WHERE live_session_id = $1`, [id]);
+    await pool.query(`DELETE FROM community_live_sessions WHERE id = $1`, [id]);
+    await modLog("admin", "deleted", "live_session", String(id), { by: req.user.claims.sub });
+    res.json({ ok: true });
   }));
 
   app.get("/api/admin/community/banned-words", isAuthenticated, adminOnly(async (_req, res) => {

@@ -492,6 +492,7 @@ export interface IStorage {
   }): Promise<Workout[]>;
   getWorkoutById(id: number): Promise<Workout | undefined>;
   getWorkoutFirstExerciseImage(workoutId: number): Promise<string | null>;
+  getWorkoutFirstExerciseImagesBatch(workoutIds: number[]): Promise<Map<number, string | null>>;
   getWorkoutsByIds(ids: number[]): Promise<Workout[]>;
   createWorkout(workout: InsertWorkout): Promise<Workout>;
   updateWorkout(id: number, workout: Partial<InsertWorkout>): Promise<Workout>;
@@ -2114,6 +2115,60 @@ export class DatabaseStorage implements IStorage {
       }
     }
     return null;
+  }
+
+  // Batched version of getWorkoutFirstExerciseImage: resolves cover images for
+  // many workouts in 2 bulk queries instead of (blocks + first-exercise +
+  // library) per workout. Same semantics: walk each workout's blocks in
+  // position order, look at the block's first exercise, take the first one
+  // that resolves to a library image.
+  async getWorkoutFirstExerciseImagesBatch(workoutIds: number[]): Promise<Map<number, string | null>> {
+    const result = new Map<number, string | null>();
+    for (const id of workoutIds) result.set(id, null);
+    if (workoutIds.length === 0) return result;
+
+    const blocks = await db
+      .select({ id: workoutBlocks.id, workoutId: workoutBlocks.workoutId, position: workoutBlocks.position })
+      .from(workoutBlocks)
+      .where(inArray(workoutBlocks.workoutId, workoutIds))
+      .orderBy(asc(workoutBlocks.position));
+    if (blocks.length === 0) return result;
+
+    const exRows = await db
+      .select({
+        blockId: blockExercises.blockId,
+        position: blockExercises.position,
+        exerciseLibraryId: blockExercises.exerciseLibraryId,
+        imageUrl: exerciseLibrary.imageUrl,
+        muxPlaybackId: exerciseLibrary.muxPlaybackId,
+      })
+      .from(blockExercises)
+      .leftJoin(exerciseLibrary, eq(blockExercises.exerciseLibraryId, exerciseLibrary.id))
+      .where(inArray(blockExercises.blockId, blocks.map(b => b.id)))
+      .orderBy(asc(blockExercises.position));
+
+    const firstExByBlock = new Map<number, typeof exRows[number]>();
+    for (const ex of exRows) {
+      if (!firstExByBlock.has(ex.blockId)) firstExByBlock.set(ex.blockId, ex);
+    }
+
+    const blocksByWorkout = new Map<number, typeof blocks>();
+    for (const b of blocks) {
+      const list = blocksByWorkout.get(b.workoutId);
+      if (list) list.push(b);
+      else blocksByWorkout.set(b.workoutId, [b]);
+    }
+
+    for (const [workoutId, list] of blocksByWorkout) {
+      for (const b of list) {
+        const ex = firstExByBlock.get(b.id);
+        if (ex && ex.exerciseLibraryId) {
+          const img = ex.imageUrl || (ex.muxPlaybackId ? `https://image.mux.com/${ex.muxPlaybackId}/thumbnail.jpg?width=128` : null);
+          if (img) { result.set(workoutId, img); break; }
+        }
+      }
+    }
+    return result;
   }
 
   async getWorkoutsByIds(ids: number[]): Promise<Workout[]> {

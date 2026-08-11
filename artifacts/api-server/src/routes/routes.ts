@@ -4442,19 +4442,22 @@ export async function registerRoutes(app: Express): Promise<Server> {
         routineType: routineType as string,
       });
 
-      const enriched = await Promise.all(workouts.map(async (w: any) => {
+      // Cover images for workouts without one, resolved in 2 bulk queries
+      // (was one blocks + exercise + library round-trip per workout, which
+      // made the workouts list slow to first-load).
+      const imageMap = await storage.getWorkoutFirstExerciseImagesBatch(
+        workouts.filter((w: any) => !w.imageUrl).map((w: any) => w.id)
+      );
+      const enriched = workouts.map((w: any) => {
         const est = calculateServerWorkoutDuration(w);
         // Most library workouts carry a placeholder duration of 30. When we can
         // reliably estimate the real time from the exercise/set/rest data
         // (est >= 5), surface that instead; otherwise keep the stored value so
         // workouts with empty block JSONB don't collapse to a bogus 0.
         const resolvedDuration = est >= 5 ? est : w.duration;
-        let imageUrl = w.imageUrl || null;
-        if (!imageUrl) {
-          imageUrl = await storage.getWorkoutFirstExerciseImage(w.id);
-        }
+        const imageUrl = w.imageUrl || imageMap.get(w.id) || null;
         return { ...w, duration: resolvedDuration, imageUrl, estimatedDuration: est };
-      }));
+      });
 
       res.json(enriched);
     } catch (error) {

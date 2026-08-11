@@ -27,7 +27,7 @@ if (Number.isNaN(port) || port <= 0) {
   server.listen({ port, host: "0.0.0.0", reusePort: true }, () => {
     logger.info({ port }, "Server listening");
 
-    import("./startupMigrations").then(({ runSchemaSelfHealOnce, runProfileImageMigrationOnce, seedMeditationsOnce, seedAiPromptsOnce, repairBodyweightGoalUnitsOnce, normalizeRecipeMacrosOnce, seedBadgesV2Once, retireDroppedDeskBadgesOnce, fixHabitTemplateDescriptionsOnce, seedReadinessBadgesOnce, dedupeCheckInsOnce, backfillContentTagsOnce, revokeEmptyBurnoutBadgesOnce, revokeEmptyAiBadgesOnce, revokeInvalidPerfectRecordOnce, seedLabTopicCoversOnce, seedLabPathCoversOnce, seedLabLifeStageOnce, stripEmDashesFromDescriptionsOnce, restoreRecipeImagesFromUploadsOnce }) => {
+    import("./startupMigrations").then(({ runSchemaSelfHealOnce, runProfileImageMigrationOnce, seedMeditationsOnce, seedAiPromptsOnce, repairBodyweightGoalUnitsOnce, normalizeRecipeMacrosOnce, seedBadgesV2Once, retireDroppedDeskBadgesOnce, fixHabitTemplateDescriptionsOnce, seedReadinessBadgesOnce, dedupeCheckInsOnce, backfillContentTagsOnce, revokeEmptyBurnoutBadgesOnce, revokeEmptyAiBadgesOnce, revokeInvalidPerfectRecordOnce, seedLabTopicCoversOnce, seedLabPathCoversOnce, seedLabLifeStageOnce, stripEmDashesFromDescriptionsOnce, restoreRecipeImagesFromUploadsOnce, reconcileBreathworkDurationsOnce }) => {
       runSchemaSelfHealOnce()
         .catch((e: any) => logger.error({ e }, "[startup-migration] schema self-heal failed"))
         .then(() => {
@@ -50,6 +50,7 @@ if (Number.isNaN(port) || port <= 0) {
           seedLabLifeStageOnce().catch((e: any) => logger.error({ e }, "[startup-migration] lab life-stage failed"));
           stripEmDashesFromDescriptionsOnce().catch((e: any) => logger.error({ e }, "[startup-migration] strip em dashes from descriptions failed"));
           restoreRecipeImagesFromUploadsOnce().catch((e: any) => logger.error({ e }, "[startup-migration] recipe-images restore failed"));
+          reconcileBreathworkDurationsOnce().catch((e: any) => logger.error({ e }, "[startup-migration] breathwork-durations failed"));
         });
     }).catch((e: any) => logger.error({ e }, "[startup-migration] startup migrations import failed"));
 

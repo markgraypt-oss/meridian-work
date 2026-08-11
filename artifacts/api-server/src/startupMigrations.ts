@@ -1002,6 +1002,55 @@ export async function fixHabitTemplateDescriptionsOnce(): Promise<void> {
  * unique index. Safe to run repeatedly — the index creation is IF NOT EXISTS
  * and the delete CTE is a no-op when no duplicates exist.
  */
+/**
+ * Reconcile breathwork technique defaults so the advertised duration in the
+ * hero card (default_duration_minutes) matches what default_rounds actually
+ * produces (cycle seconds x rounds). Every seeded technique disagreed with
+ * itself (e.g. Energizing Breath: "3 min" header, 20 rounds = ~40s). Where the
+ * practice has a canonical prescription the rounds are kept and the label
+ * corrected (4-7-8 = 4 cycles, Wim Hof = 30 breaths, one bhastrika round = 20
+ * breaths); otherwise rounds are raised to honour the advertised time. NSDR and
+ * Coherent are capped by the app's 50-round picker. Guarded per-slug on the
+ * seeded breath pattern so admin-edited patterns are left untouched. Safe to
+ * run repeatedly (IS DISTINCT FROM no-ops).
+ */
+export async function reconcileBreathworkDurationsOnce(): Promise<void> {
+  // [slug, inhale, holdIn, exhale, holdEx, newRounds, newMinutes]
+  const fixes: [string, number, number, number, number, number, number][] = [
+    ['box-breathing',      4, 4, 4, 4, 19, 5],
+    ['4-7-8-breathing',    4, 7, 8, 0,  4, 1],
+    ['wim-hof',            2, 0, 2, 0, 30, 2],
+    ['physiological-sigh', 2, 1, 6, 0, 13, 2],
+    ['energizing-breath',  1, 0, 1, 0, 20, 1],
+    ['coherent-breathing', 6, 0, 6, 0, 25, 5],
+    ['alternate-nostril',  4, 0, 4, 0, 38, 5],
+    ['deep-belly-breathing', 5, 0, 5, 0, 30, 5],
+    ['power-breathing',    3, 2, 3, 0, 10, 1],
+    ['recovery-breathing', 4, 0, 8, 0, 30, 6],
+    ['focus-breathing',    4, 2, 4, 2, 20, 4],
+    ['sleep-preparation',  4, 0, 7, 1, 40, 8],
+    ['nsdr',               4, 0, 6, 2, 50, 10],
+  ];
+  try {
+    let touched = 0;
+    for (const [slug, inh, hIn, exh, hEx, rounds, minutes] of fixes) {
+      const r = await pool.query(
+        `UPDATE breath_techniques
+         SET default_rounds = $2, default_duration_minutes = $3
+         WHERE slug = $1
+           AND inhale_seconds = $4 AND hold_after_inhale_seconds = $5
+           AND exhale_seconds = $6 AND hold_after_exhale_seconds = $7
+           AND (default_rounds IS DISTINCT FROM $2 OR default_duration_minutes IS DISTINCT FROM $3)`,
+        [slug, rounds, minutes, inh, hIn, exh, hEx]
+      );
+      touched += r.rowCount || 0;
+    }
+    console.log(`[startup-migration] breathwork-durations: reconciled ${touched} technique(s)`);
+  } catch (e: any) {
+    console.error("[startup-migration] breathwork-durations failed:", e?.message || e);
+  }
+}
+
 export async function dedupeCheckInsOnce(): Promise<void> {
   if (hasRunDedupeCheckIns) return;
   hasRunDedupeCheckIns = true;

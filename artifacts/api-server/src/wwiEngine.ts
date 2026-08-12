@@ -4,7 +4,7 @@
 // Never reads engagement/points data, product usage, or Daily Readiness.
 // Personal-only scores are inputs a person sees, never cohort ingredients.
 
-import type { CompanyReport, EffectiveReportSettings } from "./reportingEngine";
+import type { CompanyReport, EffectiveReportSettings, TrendDirection } from "./reportingEngine";
 
 export type WwiState = "empty" | "thin" | "full";
 export type WwiStatus = "steady" | "mixed" | "strained";
@@ -15,12 +15,26 @@ export interface WwiComponent {
   rawAverage: number;      // on its native 1-5 scale
   lowerIsBetter: boolean;
   contribution: number;    // 0-100, higher is healthier
+  previousContribution: number | null;  // same metric, previous window (0-100), null if no prior
+  trend: TrendDirection | null;          // improving/stable/declining vs previous window
+}
+
+// Direction of change between two 0-100 health contributions (higher = healthier).
+// Uses a small dead-band so tiny wobble reads as "stable".
+function trendFrom(current: number, previous: number | null): TrendDirection | null {
+  if (previous == null) return null;
+  const d = current - previous;
+  if (d >= 2) return "improving";
+  if (d <= -2) return "declining";
+  return "stable";
 }
 
 export interface MentalWellbeingDomain {
   domain: "mental_wellbeing";
   state: WwiState;
   score: number | null;            // 0-100, higher is healthier, felt layer ONLY
+  previousScore: number | null;    // felt score for the previous window, null if no prior
+  scoreTrend: TrendDirection | null; // headline direction vs previous window
   status: WwiStatus | null;        // after the burnout override guard
   guardApplied: boolean;           // true when burnout tail capped the status
   confidence: WwiConfidence | null;
@@ -81,6 +95,8 @@ export function computeMentalWellbeing(
     domain: "mental_wellbeing",
     state: "empty",
     score: null,
+    previousScore: null,
+    scoreTrend: null,
     status: null,
     guardApplied: false,
     confidence: null,
@@ -102,11 +118,18 @@ export function computeMentalWellbeing(
   // FELT LAYER: the clean pulse. Feeds the headline. Burnout is NOT in here,
   // because burnout is partly computed from the same stress/fatigue signals and
   // averaging the two would count the same distress twice.
+  const pm = report.previousMetrics;
+  const comp = (metric: string, avg: number, prevAvg: number | null | undefined, lowerIsBetter: boolean): WwiComponent => {
+    const cur = contribution(avg, lowerIsBetter);
+    const prev = prevAvg != null ? contribution(prevAvg, lowerIsBetter) : null;
+    return { metric, rawAverage: avg, lowerIsBetter, contribution: cur, previousContribution: prev, trend: trendFrom(cur, prev) };
+  };
+
   const parts: WwiComponent[] = [];
-  if (m.avgMood != null) parts.push({ metric: "mood", rawAverage: m.avgMood, lowerIsBetter: false, contribution: contribution(m.avgMood, false) });
-  if (m.avgEnergy != null) parts.push({ metric: "energy", rawAverage: m.avgEnergy, lowerIsBetter: false, contribution: contribution(m.avgEnergy, false) });
-  if (m.avgStress != null) parts.push({ metric: "stress", rawAverage: m.avgStress, lowerIsBetter: true, contribution: contribution(m.avgStress, true) });
-  if (m.avgClarity != null) parts.push({ metric: "clarity", rawAverage: m.avgClarity, lowerIsBetter: false, contribution: contribution(m.avgClarity, false) });
+  if (m.avgMood != null) parts.push(comp("mood", m.avgMood, pm?.avgMood, false));
+  if (m.avgEnergy != null) parts.push(comp("energy", m.avgEnergy, pm?.avgEnergy, false));
+  if (m.avgStress != null) parts.push(comp("stress", m.avgStress, pm?.avgStress, true));
+  if (m.avgClarity != null) parts.push(comp("clarity", m.avgClarity, pm?.avgClarity, false));
 
   if (!parts.length) {
     base.emptyReason = "Check-ins in this window contain no core wellbeing scores.";
@@ -114,6 +137,12 @@ export function computeMentalWellbeing(
   }
 
   const score = round1(parts.reduce((s, p) => s + p.contribution, 0) / parts.length);
+  // Previous felt score: average of the previous-window contributions, using only
+  // the metrics that actually have a prior value (like-for-like comparison).
+  const prevParts = parts.filter(p => p.previousContribution != null);
+  const previousScore = prevParts.length
+    ? round1(prevParts.reduce((s, p) => s + (p.previousContribution as number), 0) / prevParts.length)
+    : null;
   let status: WwiStatus = score >= 70 ? "steady" : score >= 50 ? "mixed" : "strained";
 
   // BURNOUT LAYER: flagship diagnostic, own floor, own confidence.
@@ -162,6 +191,8 @@ export function computeMentalWellbeing(
 
   base.state = burnout && burnout.reportable ? "full" : "thin";
   base.score = score;
+  base.previousScore = previousScore;
+  base.scoreTrend = trendFrom(score, previousScore);
   base.status = status;
   base.guardApplied = guardApplied;
   base.confidence = coverageConfidence(activeContributors, report.totalUsersInCompany);

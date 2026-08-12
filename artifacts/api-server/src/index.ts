@@ -67,6 +67,12 @@ if (Number.isNaN(port) || port <= 0) {
       runAiGeneratorMigrationOnce().catch((e: any) => logger.error({ e }, "[startup-migration] ai-generator failed"));
     }).catch((e: any) => logger.error({ e }, "[startup] ai-generator import failed"));
 
+    // WWI demo cohort: seeds an isolated "WWI Demo" company so the Wellbeing
+    // Index page can be shown fully populated. Idempotent (skips if present).
+    import("./wwiDemoSeed").then(({ seedWwiDemoOnce }) => {
+      seedWwiDemoOnce().catch((e: any) => logger.error({ e }, "[startup-migration] wwi-demo failed"));
+    }).catch((e: any) => logger.error({ e }, "[startup-migration] wwi-demo import failed"));
+
     import("./microResetSeed").then(({ runMicroResetImport }) => {
       runMicroResetImport({ skipCaptions: true }).then((r: any) => {
         if (r.inserted > 0) {

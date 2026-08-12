@@ -30,12 +30,14 @@ import {
   ClipboardCheck,
   Settings,
   UserCheck,
+  HeartPulse,
 } from "lucide-react";
 
 import AdminPanel from "@/pages/admin";
 import AdminUsers from "@/pages/admin-users";
 import AdminCompanies from "@/pages/admin-companies";
 import AdminReports from "@/pages/admin-reports";
+import AdminWwi from "@/pages/admin-wwi";
 import AdminEditPath from "@/pages/admin-edit-path";
 import AdminOutcomeEditor from "@/pages/admin-outcome-editor";
 import SelectExercise from "@/pages/admin/SelectExercise";
@@ -88,6 +90,7 @@ const NAV_ITEMS: NavItem[] = [
   { label: "Desk Health", href: "/admin?tab=desk-health", tab: "desk-health", icon: Armchair, group: "Wellbeing" },
   { label: "Community", href: "/admin/community", icon: MessagesSquare, group: "Community" },
   { label: "Reporting", href: "/admin/reports", icon: BarChart3, group: "Analytics" },
+  { label: "Wellbeing Index", href: "/admin/wwi", icon: HeartPulse, group: "Analytics" },
   { label: "Engagement", href: "/admin/engagement", icon: LineChart, group: "Analytics" },
   { label: "AI Activity", href: "/admin/ai-activity", icon: ClipboardCheck, group: "Analytics" },
   { label: "AI Coaching", href: "/admin/ai-coaching", icon: MessageSquareText, group: "Config" },
@@ -244,6 +247,7 @@ export default function AdminShell() {
           <Route path="/admin/companies" component={AdminCompanies} />
           <Route path="/admin/community" component={AdminCommunity} />
           <Route path="/admin/reports" component={AdminReports} />
+          <Route path="/admin/wwi" component={AdminWwi} />
           <Route path="/admin" component={AdminPanel} />
           <Route component={NotFound} />
         </Switch>

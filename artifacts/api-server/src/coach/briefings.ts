@@ -106,6 +106,52 @@ export function todayKeyForUser(tz?: string | null, date: Date = new Date()): st
 // multiple simultaneous requests on first load.
 const inflight = new Map<string, Promise<any>>();
 
+// Flatten a briefing's rich content into the plain-text body used as the
+// first assistant message of its saved conversation. Mirrors the assembly in
+// the POST /api/coach/briefing/:id/read route so history text is identical
+// whether the conversation is created at generation time or on read.
+export function buildBriefingConversationText(content: any): string {
+  const c = (content || {}) as any;
+  const parts: string[] = [];
+  if (c.opener) parts.push(String(c.opener).trim());
+  if (Array.isArray(c.deepDive)) for (const d of c.deepDive) {
+    if (d?.title || d?.body) parts.push(`${d.title ? d.title + "\n" : ""}${d.body || ""}`.trim());
+  }
+  if (Array.isArray(c.recommendations)) for (const r of c.recommendations) {
+    if (r?.title || r?.body) parts.push(`${r.title ? r.title + "\n" : ""}${r.body || ""}`.trim());
+  }
+  if (c.closingQuestion) parts.push(String(c.closingQuestion).trim());
+  return parts.filter(Boolean).join("\n\n");
+}
+
+export function buildBriefingConversationTitle(row: any): string {
+  const dateLabel = new Date(((row?.briefingDate as string) || "") + "T12:00:00")
+    .toLocaleDateString("en-GB", { weekday: "short", day: "numeric", month: "short" });
+  const typeLabel = row?.type === "evening" ? "Evening briefing" : "Morning briefing";
+  return `${typeLabel}, ${dateLabel}`.slice(0, 60);
+}
+
+// Ensure a briefing has a saved conversation so it appears in coach history
+// the moment it is generated - independent of whether/when the client opens
+// the drawer and fires the read endpoint. Idempotent: returns the existing
+// conversationId if one is already linked, and never creates a second row.
+export async function ensureBriefingConversation(
+  userId: string,
+  row: any,
+): Promise<number | null> {
+  if (!row) return null;
+  if (row.conversationId) return row.conversationId;
+  const content = buildBriefingConversationText(row.content);
+  if (!content) return null;
+  const title = buildBriefingConversationTitle(row);
+  const conversation = await storage.createCoachConversation(userId, title, [
+    { role: "assistant", content },
+  ]);
+  await storage.linkCoachBriefingConversation(row.id, userId, conversation.id);
+  row.conversationId = conversation.id;
+  return conversation.id;
+}
+
 export async function getOrGenerateBriefing(
   userId: string,
   type: BriefingType,
@@ -748,6 +794,15 @@ Return only the JSON object now.`;
     briefing = await storage.createCoachBriefing({
       userId, briefingDate: dateKey, type, content, contextSnapshot, source,
     });
+  }
+
+  // Save the briefing into coach history immediately, so it shows up whether
+  // or not the client ever opens the drawer to fire the read endpoint. Fails
+  // soft: a history-write hiccup must never block the briefing itself.
+  try {
+    await ensureBriefingConversation(userId, briefing);
+  } catch (e: any) {
+    console.error(`[coach-briefing] history conversation create failed for ${userId} (${type}):`, e?.message || e);
   }
 
   // Fire a push / in-app notification for fresh morning briefings so the

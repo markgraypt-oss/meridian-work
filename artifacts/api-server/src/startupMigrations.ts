@@ -2065,3 +2065,75 @@ export async function seedLabLifeStageOnce(): Promise<void> {
     console.error("[startup-migration] lab life-stage seed failed:", e?.message || e);
   }
 }
+
+// One-time backfill: coach briefings generated after the client-side
+// "mark read" signal stopped firing (from 8 Aug 2026) exist on the server but
+// were never turned into saved conversations, so they never appeared in coach
+// history. Going forward, getOrGenerateBriefing() creates the conversation at
+// generation time; this repairs the gap for briefings already stored. Each
+// backfilled conversation is timestamped to the briefing's own generation time
+// so it slots into history in chronological order. Idempotent: only touches
+// briefings that still have no linked conversation.
+let hasRunBriefingConvBackfill = false;
+export async function backfillBriefingConversationsOnce(): Promise<void> {
+  if (hasRunBriefingConvBackfill) return;
+  hasRunBriefingConvBackfill = true;
+  try {
+    const rows = await pool.query(
+      `SELECT id, user_id, briefing_date, type, content, created_at
+         FROM coach_briefings
+        WHERE conversation_id IS NULL
+          AND source <> 'fallback'
+          AND briefing_date >= '2026-08-08'
+        ORDER BY id ASC`
+    );
+    if (!rows.rowCount) {
+      console.log("[startup-migration] briefing-conversation-backfill: nothing to backfill");
+      return;
+    }
+    let created = 0;
+    for (const row of rows.rows) {
+      const content = (row.content || {}) as any;
+      const parts: string[] = [];
+      if (content.opener) parts.push(String(content.opener).trim());
+      if (Array.isArray(content.deepDive)) for (const d of content.deepDive) {
+        if (d && (d.title || d.body)) parts.push(`${d.title ? d.title + "\n" : ""}${d.body || ""}`.trim());
+      }
+      if (Array.isArray(content.recommendations)) for (const r of content.recommendations) {
+        if (r && (r.title || r.body)) parts.push(`${r.title ? r.title + "\n" : ""}${r.body || ""}`.trim());
+      }
+      if (content.closingQuestion) parts.push(String(content.closingQuestion).trim());
+      const body = parts.filter(Boolean).join("\n\n");
+      if (!body) continue;
+
+      const dateLabel = new Date(((row.briefing_date as string) || "") + "T12:00:00")
+        .toLocaleDateString("en-GB", { weekday: "short", day: "numeric", month: "short" });
+      const typeLabel = row.type === "evening" ? "Evening briefing" : "Morning briefing";
+      const title = `${typeLabel}, ${dateLabel}`.slice(0, 60);
+      const messages = JSON.stringify([{ role: "assistant", content: body }]);
+      const stamp = row.created_at ? new Date(row.created_at) : new Date();
+
+      const ins = await pool.query(
+        `INSERT INTO coach_conversations (user_id, title, messages, created_at, updated_at)
+         VALUES ($1, $2, $3::jsonb, $4, $4) RETURNING id`,
+        [row.user_id, title, messages, stamp]
+      );
+      const convId = ins.rows[0]?.id;
+      if (!convId) continue;
+      const upd = await pool.query(
+        `UPDATE coach_briefings SET conversation_id = $1 WHERE id = $2 AND conversation_id IS NULL`,
+        [convId, row.id]
+      );
+      // If another booting instance linked it first, drop the row we just made
+      // so we don't leave an orphan duplicate in history.
+      if (!upd.rowCount) {
+        await pool.query(`DELETE FROM coach_conversations WHERE id = $1`, [convId]);
+        continue;
+      }
+      created++;
+    }
+    console.log(`[startup-migration] briefing-conversation-backfill: created ${created} conversations`);
+  } catch (e: any) {
+    console.error("[startup-migration] briefing-conversation-backfill failed:", e?.message || e);
+  }
+}

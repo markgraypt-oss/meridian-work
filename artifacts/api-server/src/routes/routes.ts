@@ -23269,11 +23269,14 @@ RULES:
       upgradeWeeklyCheckinIfStale,
     } = await import("../weeklyCheckin");
 
-    // V2 endpoint — used by the new weekly check-in UI (clean API, mobile-consumable later)
-    // Serve the stored weekly check-in row for a week immediately, and refresh
-    // it behind the response. Regeneration calls Claude and can take seconds —
-    // never block a page load on it. Only when no row exists at all do we build
-    // one before responding, because there is nothing to serve.
+    // PRODUCT RULE (13 Aug 2026): a weekly check-in reviews a COMPLETED week —
+    // generated once (Monday scheduler, or first view after the week ends),
+    // then IMMUTABLE. Rows are never generated for the week in progress: the
+    // UI only ever shows completed weeks, and the old 15-minute freshness
+    // refresh was burning an AI call on nearly every view (176 calls/week in
+    // the AI activity log). "Current" below therefore means the LAST COMPLETED
+    // week. The background call after serving is a no-op except two one-shot
+    // cases (schema-version bump, finalizing a legacy mid-week snapshot).
     const serveWeeklyRowFast = async (res: any, userId: string, weekStart: Date) => {
       const existing = await storage.getWeeklyCheckin(userId, weekStart);
       if (existing) {
@@ -23290,7 +23293,7 @@ RULES:
     app.get("/api/weekly-checkins/v2/current", isAuthenticated, async (req: any, res) => {
       try {
         const userId = req.user.claims.sub;
-        await serveWeeklyRowFast(res, userId, getIsoWeekStart());
+        await serveWeeklyRowFast(res, userId, getPreviousIsoWeekStart(getIsoWeekStart()));
       } catch (error: any) {
         console.error("Error fetching v2 weekly check-in:", error?.message);
         res.status(500).json({ message: "Failed to load weekly check-in" });
@@ -23300,7 +23303,7 @@ RULES:
     app.get("/api/weekly-checkins/current", isAuthenticated, async (req: any, res) => {
       try {
         const userId = req.user.claims.sub;
-        await serveWeeklyRowFast(res, userId, getIsoWeekStart());
+        await serveWeeklyRowFast(res, userId, getPreviousIsoWeekStart(getIsoWeekStart()));
       } catch (error: any) {
         console.error("Error fetching current weekly check-in:", error?.message);
         res.status(500).json({ message: "Failed to load weekly check-in" });
@@ -23326,12 +23329,14 @@ RULES:
 
         const list = await storage.getUserWeeklyCheckins(userId, limit);
 
-        // If the user has no row for the current week at all, we have nothing to
-        // show, so we must build it before responding. Otherwise serve what we
-        // have and refresh behind the response: regeneration calls Claude and
-        // takes several seconds, which is far too long to block a page load on.
+        // The newest reviewable week is the LAST COMPLETED one — never the week
+        // in progress (generate-once/immutable product rule, 13 Aug 2026). If
+        // the user has no row at all, build last week's review before
+        // responding; otherwise serve what's stored and let the background pass
+        // below fill/finalize quietly.
+        const lastCompletedWeekStart = getPreviousIsoWeekStart(getIsoWeekStart());
         if (list.length === 0) {
-          await getOrCreateCurrentWeeklyCheckinV2(userId);
+          await getOrCreateCurrentWeeklyCheckinV2(userId, lastCompletedWeekStart);
           const seeded = await storage.getUserWeeklyCheckins(userId, limit);
           res.json(seeded);
           return;
@@ -23340,10 +23345,14 @@ RULES:
         res.json(list);
 
         // Fire and forget. Must never throw: an unhandled rejection takes the
-        // process down. Errors are logged and swallowed.
+        // process down. Errors are logged and swallowed. This is now cheap:
+        // ensure last week's row exists (covers a user opening the app Monday
+        // before the scheduler ran), and the per-row upgrade only acts on
+        // schema bumps / legacy mid-week snapshots — one-shot each, then
+        // permanently no-op.
         void (async () => {
           try {
-            await getOrCreateCurrentWeeklyCheckinV2(userId);
+            await getOrCreateCurrentWeeklyCheckinV2(userId, lastCompletedWeekStart);
             for (const row of list) {
               await upgradeWeeklyCheckinIfStale(row);
             }

@@ -884,33 +884,33 @@ export function isWeeklyCheckinPayloadStale(payload: any): boolean {
 }
 
 /**
- * If the stored row's payload is stale, regenerate in place and return the updated row.
- * Otherwise returns the row unchanged. Only regenerates rows for the CURRENT ISO week —
- * past weeks are historical snapshots and should not be touched.
+ * A weekly check-in is a REVIEW OF A COMPLETED WEEK: generated once, then
+ * immutable (product rule, Mark, 13 Aug 2026). The only regenerations allowed:
+ *  • schema-version bump (_v migration) — deliberate, one-shot per row, so old
+ *    rows keep rendering in the current UI;
+ *  • the row was generated BEFORE its week actually ended (legacy rows built
+ *    mid-week by the old scheduler/TTL logic) — finalize it once so the stored
+ *    snapshot covers the full week, after which it never changes again.
+ * The old "current week older than 15 min" refresh is GONE — it burned an AI
+ * call on nearly every view (176 calls/wk in the AI activity log) rebuilding
+ * near-identical narratives for an in-progress week the UI never even shows.
  */
 export async function upgradeWeeklyCheckinIfStale(row: WeeklyCheckin): Promise<WeeklyCheckin> {
   const rowWeekStart = new Date(row.weekStart);
   const weekEndMs = rowWeekStart.getTime() + 7 * 24 * 60 * 60 * 1000;
   const generatedAtMs = row.generatedAt ? new Date(row.generatedAt).getTime() : 0;
   const isCurrentWeek = Date.now() < weekEndMs;
-  const STALE_AFTER_MS = 15 * 60 * 1000;
   const wasGeneratedBeforeWeekEnded = generatedAtMs < weekEndMs;
 
-  // Regenerate when:
-  //  • Payload schema version is out of date, OR
-  //  • Snapshot was taken BEFORE the week actually ended (past weeks created by
-  //    a Monday-morning scheduler that ran on the week-just-started), OR
-  //  • Current week and snapshot is older than 15 min (newly logged data).
   const schemaStale = isWeeklyCheckinPayloadStale(row.payload);
   const pastWeekIncomplete = !isCurrentWeek && wasGeneratedBeforeWeekEnded;
-  const currentWeekAged = isCurrentWeek && Date.now() - generatedAtMs > STALE_AFTER_MS;
 
-  if (!schemaStale && !pastWeekIncomplete && !currentWeekAged) return row;
+  if (!schemaStale && !pastWeekIncomplete) return row;
 
   console.log(
     `[weekly-checkin-v2] regenerating row ${row.id} user ${row.userId} ` +
       `weekStart=${rowWeekStart.toISOString().slice(0, 10)} ` +
-      `(schemaStale=${schemaStale}, pastWeekIncomplete=${pastWeekIncomplete}, currentWeekAged=${currentWeekAged})`,
+      `(schemaStale=${schemaStale}, pastWeekIncomplete=${pastWeekIncomplete})`,
   );
   const newPayload = await generateWeeklyCheckinPayloadV2(row.userId, rowWeekStart);
   return await storage.updateWeeklyCheckinPayload(row.id, newPayload);
@@ -920,7 +920,9 @@ export async function getOrCreateCurrentWeeklyCheckinV2(
   userId: string,
   weekStartOverride?: Date,
 ): Promise<WeeklyCheckin> {
-  const weekStart = weekStartOverride ?? getIsoWeekStart();
+  // Default to the LAST COMPLETED week: a weekly check-in reviews a finished
+  // week (generate-once/immutable rule) — never the week in progress.
+  const weekStart = weekStartOverride ?? getPreviousIsoWeekStart(getIsoWeekStart());
   const existing = await storage.getWeeklyCheckin(userId, weekStart);
 
   if (existing) {
@@ -961,22 +963,20 @@ export async function getOrCreateCurrentWeeklyCheckinV2(
       const updated = await storage.updateWeeklyCheckinPayload(existing.id, newPayload);
       return updated;
     }
-    // Regenerate when the snapshot was taken BEFORE the week actually ended
-    // (e.g. Monday-morning scheduler runs on the week that just started and
-    // captures zero data). Also covers the current week — its weekEnd is in
-    // the future so every fetch older than 15 min refreshes.
+    // GENERATE ONCE, THEN IMMUTABLE (product rule, 13 Aug 2026): a weekly
+    // check-in reviews a COMPLETED week. The single remaining refresh here is
+    // the one-shot finalize for rows generated BEFORE their week ended (legacy
+    // mid-week snapshots) — once regenerated after week end, the row never
+    // changes again. The old 15-minute current-week TTL is deliberately gone.
     const weekEndMs = weekStart.getTime() + 7 * 24 * 60 * 60 * 1000;
     const generatedAtMs = existing.generatedAt ? new Date(existing.generatedAt).getTime() : 0;
-    const isCurrentWeek = Date.now() < weekEndMs;
-    const STALE_AFTER_MS = 15 * 60 * 1000;
+    const weekHasEnded = Date.now() >= weekEndMs;
     const wasGeneratedBeforeWeekEnded = generatedAtMs < weekEndMs;
-    const isAgedCurrentWeek = isCurrentWeek && Date.now() - generatedAtMs > STALE_AFTER_MS;
-    if (wasGeneratedBeforeWeekEnded && (!isCurrentWeek || isAgedCurrentWeek)) {
+    if (weekHasEnded && wasGeneratedBeforeWeekEnded) {
       console.log(
-        `[weekly-checkin-v2] refreshing row ${existing.id} for user ${userId} ` +
+        `[weekly-checkin-v2] finalizing row ${existing.id} for user ${userId} ` +
           `weekStart=${weekStart.toISOString().slice(0, 10)} ` +
-          `(current=${isCurrentWeek}, age=${Math.round((Date.now() - generatedAtMs) / 1000)}s, ` +
-          `genBeforeWeekEnd=${wasGeneratedBeforeWeekEnded})`,
+          `(generated mid-week, week now ended — one-shot completion)`,
       );
       const newPayload = await generateWeeklyCheckinPayloadV2(userId, weekStart);
       const updated = await storage.updateWeeklyCheckinPayload(existing.id, newPayload);

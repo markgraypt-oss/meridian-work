@@ -74,6 +74,11 @@ if (Number.isNaN(port) || port <= 0) {
       seedWwiDemoOnce().catch((e: any) => logger.error({ e }, "[startup-migration] wwi-demo failed"));
     }).catch((e: any) => logger.error({ e }, "[startup-migration] wwi-demo import failed"));
 
+    // Workforce Rewards (Phase 1a): create the reward tables on boot if missing.
+    import("./rewardsEngine").then(({ ensureRewardsSchemaOnce }) => {
+      ensureRewardsSchemaOnce().catch((e: any) => logger.error({ e }, "[startup] rewards schema ensure failed"));
+    }).catch((e: any) => logger.error({ e }, "[startup] rewards engine import failed"));
+
     import("./microResetSeed").then(({ runMicroResetImport }) => {
       runMicroResetImport({ skipCaptions: true }).then((r: any) => {
         if (r.inserted > 0) {

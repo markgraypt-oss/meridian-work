@@ -20039,6 +20039,59 @@ Keep your response concise, practical, and evidence-based. This is general guida
   });
 
   // ============================================
+  // WORKFORCE REWARDS (Phase 1a — data loop; aggregate counts only)
+  // ============================================
+  // Aggregate participation for a company/month. Returns COUNTS ONLY, never
+  // individuals — this is what an employer is allowed to see.
+  app.get('/api/admin/rewards/company/:companyName/participation', isAuthenticated, async (req: any, res) => {
+    try {
+      const currentUser = await storage.getUser(req.user.claims.sub);
+      if (!currentUser?.isAdmin) return res.status(403).json({ message: "Admin access required" });
+      const companyName = decodeURIComponent(req.params.companyName);
+      const now = new Date();
+      const month = (req.query.month as string) || now.toISOString().slice(0, 7);
+      const { getRewardParticipation } = await import("../rewardsEngine");
+      res.json(await getRewardParticipation(companyName, month, now));
+    } catch (error) {
+      console.error("Error fetching reward participation:", error);
+      res.status(500).json({ message: "Failed to fetch reward participation" });
+    }
+  });
+
+  // Recompute the period from device step data (anti-cheat caps applied), then
+  // return the fresh aggregate. Admin-triggered; also intended for a scheduled job.
+  app.post('/api/admin/rewards/company/:companyName/evaluate', isAuthenticated, async (req: any, res) => {
+    try {
+      const currentUser = await storage.getUser(req.user.claims.sub);
+      if (!currentUser?.isAdmin) return res.status(403).json({ message: "Admin access required" });
+      const companyName = decodeURIComponent(req.params.companyName);
+      const now = new Date();
+      const month = (req.query.month as string) || now.toISOString().slice(0, 7);
+      const { evaluateRewardPeriod, getRewardParticipation } = await import("../rewardsEngine");
+      const result = await evaluateRewardPeriod(companyName, month, now);
+      const participation = await getRewardParticipation(companyName, month, now);
+      res.json({ evaluated: result.evaluated, hit: result.hit, period: result.period, participation });
+    } catch (error) {
+      console.error("Error evaluating rewards:", error);
+      res.status(500).json({ message: "Failed to evaluate rewards" });
+    }
+  });
+
+  // The company's reward programme config (created with defaults on first read).
+  app.get('/api/admin/rewards/company/:companyName/program', isAuthenticated, async (req: any, res) => {
+    try {
+      const currentUser = await storage.getUser(req.user.claims.sub);
+      if (!currentUser?.isAdmin) return res.status(403).json({ message: "Admin access required" });
+      const companyName = decodeURIComponent(req.params.companyName);
+      const { getOrCreateProgram } = await import("../rewardsEngine");
+      res.json(await getOrCreateProgram(companyName));
+    } catch (error) {
+      console.error("Error fetching reward program:", error);
+      res.status(500).json({ message: "Failed to fetch reward program" });
+    }
+  });
+
+  // ============================================
   // ENGAGEMENT FOUNDATION (Points/XP, Streaks, Levels)
   // ============================================
 

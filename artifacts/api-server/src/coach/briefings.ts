@@ -135,14 +135,24 @@ export async function getOrGenerateBriefing(
     // prompt note so the coach reminds the user to reconnect the wearable.
   }
 
-  // Drift contract: a stored briefing is only served if the wearable
-  // snapshot it was generated from still matches the current wearable
-  // snapshot exactly. If anything has changed (e.g. Apple Health backfilled
-  // additional steps for "yesterday" after the briefing was first
-  // generated) we regenerate so the numbers quoted in the briefing always
-  // match the underlying wearable source. Do NOT relax this comparison -
-  // the whole point of this check is to prevent user-visible drift like
-  // "13,289 steps yesterday" while the wearable now reads 13,307.
+  // Drift contract: a stored briefing is only served if every input it is
+  // ALLOWED TO QUOTE still matches the current data. If a quotable number has
+  // changed (e.g. Apple Health backfilled yesterday's steps) we regenerate so
+  // the copy never disagrees with the wearable source ("13,289 steps" while
+  // the ring shows 13,307).
+  //
+  // SCOPED TO QUOTABLE FIELDS (13 Aug 2026): the MORNING briefing is
+  // explicitly forbidden from referencing today's steps / active minutes /
+  // calories (see intentMorning), but today's row was still part of the drift
+  // comparison — and today's activity numbers climb continuously, so nearly
+  // every briefing view after a sync regenerated the morning briefing for
+  // numbers its copy cannot mention. With 3 real users this multiplied
+  // coach_briefing from the expected ~42 calls/week to 142 (AI activity log).
+  // HealthKit background delivery (same-day change) makes today's row change
+  // hourly, so the waste would only have grown. Morning now ignores TODAY'S
+  // activity fields; overnight fields (sleep, HRV, RHR, readiness) and all
+  // prior days stay strict. Evening quotes today's activity, so it stays
+  // fully strict. Do NOT loosen the remaining comparisons.
   if (existing && (existing as any).source !== "fallback") {
     const stored = existing.contextSnapshot as BriefingContextSnapshot | null;
     const fresh = await buildContextSnapshot(userId);
@@ -151,8 +161,9 @@ export async function getOrGenerateBriefing(
     // check-in are quoted in the copy but come from separate sources, so they
     // must be part of the drift trigger too; otherwise the text silently lags
     // (e.g. coach says readiness 48 while the ring shows 59 after a check-in).
+    const ignoreActivityOnDate = type === "morning" ? dateKey : null;
     if (
-      wearableSnapshotsEqual(stored?.wearable, fresh?.wearable) &&
+      wearableSnapshotsEqual(stored?.wearable, fresh?.wearable, ignoreActivityOnDate) &&
       (stored?.readinessScore ?? null) === (fresh?.readinessScore ?? null) &&
       checkInSnapshotsEqual(stored?.lastCheckIn, fresh?.lastCheckIn)
     ) {
@@ -451,20 +462,37 @@ async function buildWearableSnapshot(userId: string): Promise<WearableDaySnapsho
   }
 }
 
+/**
+ * Compare two wearable snapshots on their QUOTABLE fields.
+ *
+ * ignoreActivityOnDate: for the MORNING briefing, pass today's dateKey —
+ * today's steps / activeMinutes / caloriesBurned climb continuously all day
+ * and the morning copy is forbidden from quoting them, so they are excluded
+ * from today's row comparison (overnight fields — sleep, HRV, RHR, sleep
+ * score, provider readiness — remain strict, as do ALL fields of every prior
+ * day, whose numbers the copy may quote and which only change on genuine
+ * backfills). Pass null for the evening briefing: it quotes today's activity,
+ * so every field stays strict.
+ */
 function wearableSnapshotsEqual(
   a: WearableDaySnapshot[] | undefined | null,
   b: WearableDaySnapshot[] | undefined | null,
+  ignoreActivityOnDate: string | null = null,
 ): boolean {
   const aa = a || [];
   const bb = b || [];
   if (aa.length !== bb.length) return false;
-  const key = (d: WearableDaySnapshot) =>
-    [
+  const key = (d: WearableDaySnapshot) => {
+    const ignoreActivity = ignoreActivityOnDate !== null && d.date === ignoreActivityOnDate;
+    return [
       d.date, d.provider,
-      d.steps, d.sleepMinutes, d.sleepDeepMinutes, d.sleepRemMinutes, d.sleepScore,
-      d.activeMinutes, d.caloriesBurned,
+      ignoreActivity ? "-" : d.steps,
+      d.sleepMinutes, d.sleepDeepMinutes, d.sleepRemMinutes, d.sleepScore,
+      ignoreActivity ? "-" : d.activeMinutes,
+      ignoreActivity ? "-" : d.caloriesBurned,
       d.restingHrBpm, d.hrvMs, d.readinessScore,
     ].join("|");
+  };
   const sa = aa.map(key).sort();
   const sb = bb.map(key).sort();
   for (let i = 0; i < sa.length; i++) if (sa[i] !== sb[i]) return false;

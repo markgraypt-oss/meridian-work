@@ -2109,7 +2109,7 @@ export class DatabaseStorage implements IStorage {
       if (exercises.length > 0 && exercises[0].exerciseLibraryId) {
         const libEntry = await this.getExerciseById(exercises[0].exerciseLibraryId);
         if (libEntry) {
-          const img = libEntry.imageUrl || (libEntry.muxPlaybackId ? `https://image.mux.com/${libEntry.muxPlaybackId}/thumbnail.jpg?width=128` : null);
+          const img = libEntry.imageUrl || (libEntry.muxPlaybackId ? `https://image.mux.com/${libEntry.muxPlaybackId}/thumbnail.jpg?width=640&height=640&fit_mode=smartcrop` : null);
           if (img) return img;
         }
       }
@@ -2163,7 +2163,7 @@ export class DatabaseStorage implements IStorage {
       for (const b of list) {
         const ex = firstExByBlock.get(b.id);
         if (ex && ex.exerciseLibraryId) {
-          const img = ex.imageUrl || (ex.muxPlaybackId ? `https://image.mux.com/${ex.muxPlaybackId}/thumbnail.jpg?width=128` : null);
+          const img = ex.imageUrl || (ex.muxPlaybackId ? `https://image.mux.com/${ex.muxPlaybackId}/thumbnail.jpg?width=640&height=640&fit_mode=smartcrop` : null);
           if (img) { result.set(workoutId, img); break; }
         }
       }
@@ -3271,7 +3271,7 @@ export class DatabaseStorage implements IStorage {
       let derivedImageUrl = ew.imageUrl;
       if (!derivedImageUrl && mainExercises.length > 0) {
         const firstMain = mainExercises[0];
-        derivedImageUrl = firstMain.imageUrl || (firstMain.muxPlaybackId ? `https://image.mux.com/${firstMain.muxPlaybackId}/thumbnail.jpg?width=128` : null);
+        derivedImageUrl = firstMain.imageUrl || (firstMain.muxPlaybackId ? `https://image.mux.com/${firstMain.muxPlaybackId}/thumbnail.jpg?width=640&height=640&fit_mode=smartcrop` : null);
       }
       const workoutObj: any = {
         week: ew.weekNumber,

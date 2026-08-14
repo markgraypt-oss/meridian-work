@@ -11299,7 +11299,51 @@ Rules:
           }
         }
       }
-      
+
+      // Custom-built (Mode D) workouts live as workout_logs rows whose date is
+      // startedAt. Surface them for their day so a created workout can be
+      // scheduled for a future date and still appear on the home screen.
+      // (Completed ones keep showing with a tick, like scheduled workouts.)
+      const customDayStr = queryDate.toISOString().split('T')[0];
+      const customDayStart = new Date(`${customDayStr}T00:00:00.000Z`);
+      const customDayEnd = new Date(customDayStart);
+      customDayEnd.setUTCDate(customDayEnd.getUTCDate() + 1);
+      const customLogs = await db
+        .select({
+          id: workoutLogs.id,
+          workoutName: workoutLogs.workoutName,
+          workoutStyle: workoutLogs.workoutStyle,
+          status: workoutLogs.status,
+          startedAt: workoutLogs.startedAt,
+          completedAt: workoutLogs.completedAt,
+          duration: workoutLogs.duration,
+        })
+        .from(workoutLogs)
+        .where(
+          and(
+            eq(workoutLogs.userId, userId),
+            eq(workoutLogs.workoutType, 'custom'),
+            inArray(workoutLogs.status, ['pending', 'in_progress', 'completed']),
+            gte(workoutLogs.startedAt, customDayStart),
+            lt(workoutLogs.startedAt, customDayEnd)
+          )
+        );
+      for (const cl of customLogs) {
+        workouts.push({
+          id: `custom-${cl.id}`,
+          logId: cl.id,
+          workoutName: cl.workoutName,
+          workoutType: cl.workoutStyle || 'regular',
+          category: 'custom',
+          isCustom: true,
+          status: cl.status,
+          isCompleted: cl.status === 'completed',
+          completedAt: cl.completedAt,
+          scheduledDate: cl.startedAt,
+          durationSeconds: cl.duration || null,
+        });
+      }
+
       res.json(workouts);
     } catch (error) {
       console.error("Error fetching today's workouts:", error);

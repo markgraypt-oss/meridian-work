@@ -4442,12 +4442,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
         routineType: routineType as string,
       });
 
-      // Cover images for workouts without one, resolved in 2 bulk queries
-      // (was one blocks + exercise + library round-trip per workout, which
-      // made the workouts list slow to first-load).
-      const imageMap = await storage.getWorkoutFirstExerciseImagesBatch(
-        workouts.filter((w: any) => !w.imageUrl).map((w: any) => w.id)
-      );
+      // NOTE (14 Aug 2026): we deliberately do NOT derive a cover from the
+      // first exercise here any more. A workout with no explicit cover returns
+      // imageUrl null so every client falls back to its bundled
+      // default-workout-cover asset (the house-style card) instead of a
+      // stretched low-res exercise video frame. See claude/default-workout-cover-31jul.md.
       const enriched = workouts.map((w: any) => {
         const est = calculateServerWorkoutDuration(w);
         // Most library workouts carry a placeholder duration of 30. When we can
@@ -4455,8 +4454,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         // (est >= 5), surface that instead; otherwise keep the stored value so
         // workouts with empty block JSONB don't collapse to a bogus 0.
         const resolvedDuration = est >= 5 ? est : w.duration;
-        const imageUrl = w.imageUrl || imageMap.get(w.id) || null;
-        return { ...w, duration: resolvedDuration, imageUrl, estimatedDuration: est };
+        return { ...w, duration: resolvedDuration, imageUrl: w.imageUrl || null, estimatedDuration: est };
       });
 
       res.json(enriched);

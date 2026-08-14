@@ -1978,6 +1978,7 @@ export const workoutSetLogs = pgTable("workout_set_logs", {
   actualDuration: text("actual_duration"), // User's actual duration (e.g., "30sec", "45sec")
   actualDurationMinutes: integer("actual_duration_minutes"),
   actualDurationSeconds: integer("actual_duration_seconds"),
+  speed: real("speed"), // Cardio sets: machine speed (e.g. treadmill km/h)
   isCompleted: boolean("is_completed").default(false),
   createdAt: timestamp("created_at").defaultNow(),
   // Enhanced logging fields

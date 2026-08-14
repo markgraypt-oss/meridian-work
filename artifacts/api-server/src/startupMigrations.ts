@@ -38,6 +38,9 @@ const SELF_HEAL_DDL: string[] = [
   `CREATE UNIQUE INDEX IF NOT EXISTS idx_report_settings_global_singleton ON report_settings (company_name) WHERE company_name IS NULL`,
   `ALTER TABLE report_settings ADD COLUMN IF NOT EXISTS min_active_users integer NOT NULL DEFAULT 10`,
 
+  // Speed logging for cardio sets (treadmill etc.) — 14 Aug 2026.
+  `ALTER TABLE workout_set_logs ADD COLUMN IF NOT EXISTS speed real`,
+
   // Coach access consent (client grants/revokes a coach's read access).
   `CREATE TABLE IF NOT EXISTS coach_access_requests (
      id serial PRIMARY KEY,

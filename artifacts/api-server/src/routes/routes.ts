@@ -5502,12 +5502,140 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Active Workout Log Routes
   // ============================================
 
+  // ---------------------------------------------------------------------------
+  // Stale in-progress workouts
+  //
+  // A workout log only leaves 'in_progress' when the app posts /complete or
+  // /cancel. If iOS kills the app while a session is open (backgrounded, memory
+  // pressure, phone reboot) nothing ever posts, so the log runs forever: Mark
+  // reopened the app to a session that had been "elapsed" for 14 hours, and the
+  // stuck log also blocks starting any new workout (POST /api/workout-logs 400s
+  // with "You already have an active workout in progress").
+  //
+  // So the server ends them itself, the way Strong/Hevy do: past the cutoff the
+  // session is closed and whatever was logged is KEPT (completed) rather than
+  // thrown away; a session with nothing logged is cancelled, since an empty log
+  // in history is just noise.
+  //
+  // "Last activity" is max(startedAt, newest set-log createdAt) — set rows are
+  // created when a set is added, and workout_set_logs has no updatedAt column, so
+  // this is the best activity signal available without a migration. In practice a
+  // real session is well inside the cutoff and a killed one is far outside it.
+  const STALE_WORKOUT_HOURS = 4;
+
+  /**
+   * Close any in_progress workout log for this user that has been idle past the
+   * cutoff. Returns a note about what was closed so the caller can tell the app,
+   * or null when nothing was stale. Never throws — a failed sweep must not take
+   * down the request it is piggybacking on.
+   */
+  async function sweepStaleWorkoutLogs(userId: string): Promise<
+    { id: number; workoutName: string; outcome: 'completed' | 'cancelled'; startedAt: string; idleHours: number } | null
+  > {
+    try {
+      const stale = await db
+        .select()
+        .from(workoutLogs)
+        .where(and(eq(workoutLogs.userId, userId), eq(workoutLogs.status, 'in_progress')))
+        .orderBy(desc(workoutLogs.startedAt));
+      if (stale.length === 0) return null;
+
+      let notice: { id: number; workoutName: string; outcome: 'completed' | 'cancelled'; startedAt: string; idleHours: number } | null = null;
+
+      for (const log of stale) {
+        const startedAt = log.startedAt ? new Date(log.startedAt) : new Date();
+
+        // Newest set row belonging to this log, via its exercise logs.
+        const exerciseIds = (
+          await db
+            .select({ id: workoutExerciseLogs.id })
+            .from(workoutExerciseLogs)
+            .where(eq(workoutExerciseLogs.workoutLogId, log.id))
+        ).map(r => r.id);
+
+        let lastActivity = startedAt;
+        let hasLoggedWork = false;
+        if (exerciseIds.length > 0) {
+          const sets = await db
+            .select()
+            .from(workoutSetLogs)
+            .where(inArray(workoutSetLogs.exerciseLogId, exerciseIds));
+          for (const s of sets) {
+            if (s.createdAt) {
+              const t = new Date(s.createdAt);
+              if (t.getTime() > lastActivity.getTime()) lastActivity = t;
+            }
+            // Anything the athlete actually put in counts as work worth keeping.
+            if (
+              s.isCompleted ||
+              s.actualReps != null ||
+              s.actualWeight != null ||
+              s.actualDuration != null ||
+              (s.actualDurationMinutes || 0) > 0 ||
+              (s.actualDurationSeconds || 0) > 0
+            ) {
+              hasLoggedWork = true;
+            }
+          }
+        }
+
+        const idleMs = Date.now() - lastActivity.getTime();
+        if (idleMs < STALE_WORKOUT_HOURS * 60 * 60 * 1000) continue;
+
+        const idleHours = Math.round((idleMs / (60 * 60 * 1000)) * 10) / 10;
+
+        if (hasLoggedWork) {
+          // Keep the session. Duration is measured to the last thing that was
+          // logged, not to now, so an abandoned log does not land in history
+          // claiming a 14-hour workout. No rating: the athlete never gave one.
+          const durationSeconds = Math.max(
+            60,
+            Math.floor((lastActivity.getTime() - startedAt.getTime()) / 1000),
+          );
+          // Go through the full completion path so volume, PRs, exercise
+          // snapshots, streaks, enrollment counters and scheduled workouts are all
+          // accounted for exactly as a normal finish. It requires a rating, so we
+          // pass one and immediately null it back out below — the athlete never
+          // rated this session and a fabricated 5/10 would pollute effort trends.
+          await storage.completeWorkoutLogWithRating(log.id, 5, durationSeconds);
+          const marker = `Auto-saved: this session was left open and was closed automatically after ${STALE_WORKOUT_HOURS}h.`;
+          try {
+            await storage.updateWorkoutLog(log.id, {
+              workoutRating: null,
+              notes: log.notes && log.notes.trim() ? `${log.notes.trim()}\n\n${marker}` : marker,
+              completedAt: lastActivity,
+            } as any);
+          } catch {}
+          console.log(`[STALE WORKOUT] Auto-completed log id=${log.id} for user ${userId} after ${idleHours}h idle`);
+          if (!notice) {
+            notice = { id: log.id, workoutName: log.workoutName, outcome: 'completed', startedAt: startedAt.toISOString(), idleHours };
+          }
+        } else {
+          await storage.cancelWorkoutLog(log.id);
+          console.log(`[STALE WORKOUT] Auto-cancelled empty log id=${log.id} for user ${userId} after ${idleHours}h idle`);
+          if (!notice) {
+            notice = { id: log.id, workoutName: log.workoutName, outcome: 'cancelled', startedAt: startedAt.toISOString(), idleHours };
+          }
+        }
+      }
+
+      return notice;
+    } catch (error: any) {
+      console.error('[STALE WORKOUT] Sweep failed:', error?.message);
+      return null;
+    }
+  }
+
   // Start a new workout session
   app.post('/api/workout-logs', isAuthenticated, async (req, res) => {
     try {
       const userId = req.user.claims.sub;
       const { workoutId, workoutType, workoutName, programmeId, workoutStyle, intervalRounds, intervalRestAfterRound, enrollmentId, week, day } = req.body;
       
+      // Close anything abandoned first, so a log left open by an app kill can no
+      // longer lock the athlete out of starting a new session.
+      await sweepStaleWorkoutLogs(userId);
+
       // Check if there's already an active workout
       const activeLog = await storage.getActiveWorkoutLog(userId);
       if (activeLog) {
@@ -5544,6 +5672,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.get('/api/workout-logs/active', isAuthenticated, async (req, res) => {
     try {
       const userId = req.user.claims.sub;
+      await sweepStaleWorkoutLogs(userId);
       const activeLog = await storage.getActiveWorkoutLog(userId);
       
       if (!activeLog) {
@@ -5566,6 +5695,40 @@ export async function registerRoutes(app: Express): Promise<Server> {
     } catch (error) {
       console.error("Error fetching active workout:", error);
       res.status(500).json({ message: "Failed to fetch active workout" });
+    }
+  });
+
+  // Lightweight "is a session open?" read for the app's resume guard. Called on
+  // every cold launch and every foreground, so it deliberately does NOT load
+  // exercises/sets — the app already fetches those when it opens the session.
+  // Runs the stale sweep first, and reports back what (if anything) it closed so
+  // the app can tell the athlete instead of silently losing their session.
+  // MUST be registered before /api/workout-logs/:id or the param route eats it.
+  app.get('/api/workout-logs/active-session', isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = req.user.claims.sub;
+      const autoEnded = await sweepStaleWorkoutLogs(userId);
+      const activeLog = await storage.getActiveWorkoutLog(userId);
+
+      if (!activeLog) {
+        return res.json({ active: null, autoEnded, staleAfterHours: STALE_WORKOUT_HOURS });
+      }
+
+      const startedAt = activeLog.startedAt ? new Date(activeLog.startedAt) : new Date();
+      res.json({
+        active: {
+          id: activeLog.id,
+          workoutName: activeLog.workoutName,
+          workoutId: activeLog.workoutId ?? null,
+          startedAt: startedAt.toISOString(),
+          elapsedSeconds: Math.max(0, Math.floor((Date.now() - startedAt.getTime()) / 1000)),
+        },
+        autoEnded,
+        staleAfterHours: STALE_WORKOUT_HOURS,
+      });
+    } catch (error: any) {
+      console.error('Error fetching active session:', error?.message);
+      res.status(500).json({ message: 'Failed to fetch active session' });
     }
   });
 
@@ -6715,10 +6878,32 @@ Return format: {"category": "strength|cardio|hiit|mobility|recovery", "difficult
     }
   });
 
+  /**
+   * Does this exercise log belong to the calling user? Both routes below pass the
+   * request body straight into an UPDATE / run a DELETE keyed only on an
+   * auto-increment id, so without this any signed-in user could rewrite or delete
+   * another user's training history by guessing ids. The substitute-exercise flow
+   * now writes exerciseName/exerciseLibraryId through the PATCH, which made this
+   * worth closing rather than leaving as-is.
+   */
+  async function ownsExerciseLog(exerciseLogId: number, userId: string): Promise<boolean> {
+    const [row] = await db
+      .select({ workoutLogId: workoutExerciseLogs.workoutLogId })
+      .from(workoutExerciseLogs)
+      .where(eq(workoutExerciseLogs.id, exerciseLogId))
+      .limit(1);
+    if (!row) return false;
+    const parent = await storage.getWorkoutLogById(row.workoutLogId);
+    return !!parent && parent.userId === userId;
+  }
+
   // Update exercise log
-  app.patch('/api/exercise-logs/:id', isAuthenticated, async (req, res) => {
+  app.patch('/api/exercise-logs/:id', isAuthenticated, async (req: any, res) => {
     try {
       const id = parseInt(req.params.id);
+      if (!(await ownsExerciseLog(id, req.user.claims.sub))) {
+        return res.status(403).json({ message: "Not authorized" });
+      }
       const updated = await storage.updateWorkoutExerciseLog(id, req.body);
       res.json(updated);
     } catch (error) {
@@ -6728,9 +6913,12 @@ Return format: {"category": "strength|cardio|hiit|mobility|recovery", "difficult
   });
 
   // Delete exercise log
-  app.delete('/api/exercise-logs/:id', isAuthenticated, async (req, res) => {
+  app.delete('/api/exercise-logs/:id', isAuthenticated, async (req: any, res) => {
     try {
       const id = parseInt(req.params.id);
+      if (!(await ownsExerciseLog(id, req.user.claims.sub))) {
+        return res.status(403).json({ message: "Not authorized" });
+      }
       await storage.deleteWorkoutExerciseLog(id);
       res.json({ success: true });
     } catch (error) {

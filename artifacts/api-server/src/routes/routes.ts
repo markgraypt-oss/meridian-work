@@ -5698,6 +5698,188 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // ---------------------------------------------------------------------------
+  // Offline training: push a whole session up in one call.
+  //
+  // A workout is now built and logged ON THE PHONE so it works with no signal —
+  // the device mints every id it needs and never waits for the server. This is
+  // where that session lands. It takes the complete document (log + exercises +
+  // sets) and upserts it, keyed on the device's own clientSessionId.
+  //
+  // IDEMPOTENT BY DESIGN. A phone on a flaky connection will retry this, and a
+  // duplicated workout in someone's history is unacceptable, so:
+  //   - the same clientSessionId always resolves to the same row
+  //   - the device owns the session, so its exercises/sets REPLACE whatever is
+  //     stored (last write wins, no merge, nothing to conflict)
+  //   - completion runs at most once, guarded on the row's current status, so a
+  //     re-sync of a finished session cannot double-count volume, PRs, streaks,
+  //     badges or a programme's workouts-completed counter
+  // ---------------------------------------------------------------------------
+  app.post('/api/workout-logs/sync', isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = req.user.claims.sub;
+      const doc = req.body || {};
+      const clientSessionId: string = String(doc.clientSessionId || '').trim();
+      if (!clientSessionId) {
+        return res.status(400).json({ message: "clientSessionId is required" });
+      }
+
+      const status: string = doc.status === 'completed' ? 'completed'
+        : doc.status === 'cancelled' ? 'cancelled'
+        : 'in_progress';
+
+      // Find an existing row for this session, or make one.
+      const [existing] = await db
+        .select()
+        .from(workoutLogs)
+        .where(eq(workoutLogs.clientSessionId, clientSessionId))
+        .limit(1);
+
+      if (existing && existing.userId !== userId) {
+        return res.status(403).json({ message: "Not authorized" });
+      }
+
+      const startedAt = doc.startedAt ? new Date(doc.startedAt) : new Date();
+      const meta = {
+        workoutId: doc.workoutId ?? null,
+        workoutType: doc.workoutType || 'individual',
+        workoutName: doc.workoutName || 'Workout',
+        programmeId: doc.programmeId ?? null,
+        enrollmentId: doc.enrollmentId ?? null,
+        week: doc.week ?? null,
+        day: doc.day ?? null,
+        workoutStyle: doc.workoutStyle ?? null,
+        intervalRounds: doc.intervalRounds ?? null,
+        intervalRestAfterRound: doc.intervalRestAfterRound ?? null,
+        notes: typeof doc.notes === 'string' && doc.notes.trim() ? doc.notes.trim() : null,
+        startedAt,
+      };
+
+      let log = existing;
+      if (!log) {
+        log = await storage.createWorkoutLog({
+          userId,
+          ...meta,
+          status: 'in_progress',
+          clientSessionId,
+        } as any);
+      } else if (log.status !== 'completed') {
+        // Never rewrite meta on a finished session — completion has already
+        // derived duration, volume and PRs from it.
+        await storage.updateWorkoutLog(log.id, meta as any);
+      }
+
+      const logId = log.id;
+      const wasCompleted = log.status === 'completed';
+
+      // Replace the exercise/set tree, unless the session is already finished
+      // (in which case the numbers are locked and re-syncing must be a no-op).
+      if (!wasCompleted && Array.isArray(doc.exercises)) {
+        const oldExercises = await storage.getWorkoutExerciseLogs(logId);
+        for (const ex of oldExercises) {
+          await storage.deleteWorkoutExerciseLog(ex.id);
+        }
+
+        let position = 0;
+        for (const ex of doc.exercises) {
+          const created = await storage.createWorkoutExerciseLog({
+            workoutLogId: logId,
+            exerciseLibraryId: ex.exerciseLibraryId ?? null,
+            exerciseName: ex.exerciseName || 'Exercise',
+            blockType: ex.blockType || 'single',
+            blockGroupId: ex.blockGroupId ?? null,
+            section: ex.section || 'main',
+            position: typeof ex.position === 'number' ? ex.position : position,
+            restPeriod: ex.restPeriod ?? null,
+            durationType: ex.durationType || 'text',
+            exerciseType: ex.exerciseType || 'strength',
+            kind: ex.kind || 'exercise',
+            restDuration: ex.restDuration ?? null,
+            targetDuration: ex.targetDuration ?? null,
+            targetReps: ex.targetReps ?? null,
+          } as any);
+          position++;
+
+          const sets = Array.isArray(ex.sets) ? ex.sets : [];
+          for (let i = 0; i < sets.length; i++) {
+            const s = sets[i];
+            await storage.createWorkoutSetLog({
+              exerciseLogId: created.id,
+              setNumber: typeof s.setNumber === 'number' ? s.setNumber : i + 1,
+              targetReps: s.targetReps ?? null,
+              targetDuration: s.targetDuration ?? null,
+              actualReps: s.actualReps ?? null,
+              actualWeight: s.actualWeight ?? null,
+              actualDuration: s.actualDuration ?? null,
+              actualDurationMinutes: s.actualDurationMinutes ?? null,
+              actualDurationSeconds: s.actualDurationSeconds ?? null,
+              speed: s.speed ?? null,
+              isCompleted: !!s.isCompleted,
+              side: s.side || 'bilateral',
+              setDifficultyRating: s.setDifficultyRating ?? null,
+              painFlag: !!s.painFlag,
+              failureFlag: !!s.failureFlag,
+            } as any);
+          }
+        }
+      }
+
+      // Terminal states, each applied at most once.
+      let summary: any = null;
+      let prs: any[] = [];
+
+      if (status === 'cancelled' && !wasCompleted) {
+        await storage.cancelWorkoutLog(logId);
+        return res.json({ id: logId, status: 'cancelled', clientSessionId });
+      }
+
+      if (status === 'completed') {
+        if (wasCompleted) {
+          // Already finished on an earlier sync. Hand back what we have so the
+          // app can show the same summary rather than crediting it twice.
+          const fresh = await storage.getWorkoutLogById(logId);
+          return res.json({
+            id: logId, status: 'completed', clientSessionId,
+            alreadyCompleted: true,
+            summary: { durationSeconds: fresh?.duration ?? null, volumeKg: fresh?.autoCalculatedVolume ?? null },
+            prs: [],
+          });
+        }
+
+        const rating = typeof doc.workoutRating === 'number' ? doc.workoutRating : null;
+        // Duration comes from the DEVICE: it knows when the session actually
+        // ended, which may be hours before it managed to reach us.
+        const completedAt = doc.completedAt ? new Date(doc.completedAt) : new Date();
+        const durationSeconds = Math.max(
+          60,
+          Math.floor((completedAt.getTime() - startedAt.getTime()) / 1000),
+        );
+
+        const completed = await storage.completeWorkoutLogWithRating(
+          logId, rating ?? 5, durationSeconds,
+        );
+        if (rating == null) {
+          try { await storage.updateWorkoutLog(logId, { workoutRating: null } as any); } catch {}
+        }
+        try { await storage.updateWorkoutLog(logId, { completedAt } as any); } catch {}
+
+        summary = (completed as any)?.summary ?? null;
+        prs = (completed as any)?.prs ?? [];
+
+        storage.updateUserStreak(userId).catch(err =>
+          console.error('[SYNC] streak update failed:', err?.message));
+        recordEngagementActivity(userId, "workout", { workoutLogId: logId }).catch(err =>
+          console.error('[SYNC] engagement failed:', err?.message));
+        try { await storage.checkUserBadgeEligibility(userId); } catch {}
+      }
+
+      res.json({ id: logId, status, clientSessionId, summary, prs });
+    } catch (error: any) {
+      console.error('[WORKOUT SYNC ERROR]', error?.message || error);
+      res.status(500).json({ message: 'Failed to sync workout', error: error?.message });
+    }
+  });
+
   // Lightweight "is a session open?" read for the app's resume guard. Called on
   // every cold launch and every foreground, so it deliberately does NOT load
   // exercises/sets — the app already fetches those when it opens the session.

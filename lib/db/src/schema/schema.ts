@@ -1943,6 +1943,11 @@ export const workoutLogs = pgTable("workout_logs", {
   // AI post-workout review (one-shot, persisted so it doesn't regenerate on revisit)
   aiReviewText: text("ai_review_text"),
   aiReviewedAt: timestamp("ai_reviewed_at"),
+  // Offline training: the device mints a session id before it has any server
+  // row, and /api/workout-logs/sync upserts on it. Unique (partial index, see
+  // startupMigrations) so a retried or duplicated push can never log the same
+  // workout twice.
+  clientSessionId: text("client_session_id"),
 });
 
 // Workout Exercise Logs - tracks each exercise performed in a workout session

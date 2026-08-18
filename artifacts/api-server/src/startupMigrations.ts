@@ -409,6 +409,16 @@ const SELF_HEAL_DDL: string[] = [
      WHERE a.user_id = b.user_id AND a.provider = b.provider AND a.id < b.id`,
   `CREATE UNIQUE INDEX IF NOT EXISTS wearable_connections_user_provider_uq
      ON wearable_connections (user_id, provider)`,
+
+  // Offline training. A workout session is now built and logged on the PHONE
+  // (so it works with no signal) and pushed to the server afterwards. The
+  // device mints the session's identity, and this column is what makes that
+  // push idempotent: re-syncing the same session updates the same row instead
+  // of creating a second copy of the workout. Partial unique index because
+  // every log written before this feature has NULL here.
+  `ALTER TABLE workout_logs ADD COLUMN IF NOT EXISTS client_session_id text`,
+  `CREATE UNIQUE INDEX IF NOT EXISTS workout_logs_client_session_uq
+     ON workout_logs (client_session_id) WHERE client_session_id IS NOT NULL`,
 ];
 
 export async function runSchemaSelfHealOnce(): Promise<void> {

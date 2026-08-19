@@ -11481,6 +11481,20 @@ Rules:
       
       // Get scheduled standalone workouts
       const scheduledForDate = await storage.getScheduledWorkoutsForDate(userId, queryDate);
+      // Covers for scheduled standalone workouts, in ONE batched query (19 Aug 2026).
+      // Programme days have carried a cover since 31 Jul; a library workout scheduled
+      // onto a day carried none, so the home card rendered flat. Same cover, both paths.
+      const scheduledCoverIds = Array.from(new Set(
+        scheduledForDate
+          .map((s: any) => s.workoutId)
+          .filter((id: any) => typeof id === 'number' && id > 0)
+      )) as number[];
+      const scheduledCovers = new Map<number, string | null>();
+      if (scheduledCoverIds.length > 0) {
+        for (const w of await storage.getWorkoutsByIds(scheduledCoverIds)) {
+          scheduledCovers.set(w.id, w.imageUrl ?? null);
+        }
+      }
       for (const scheduled of scheduledForDate) {
         // For scheduled workouts with workoutId=0, try to find matching programme workout
         let enrollmentInfo: { enrollmentId?: number; week?: number; day?: number } = {};
@@ -11551,9 +11565,13 @@ Rules:
           scheduledLogId = completedLog?.id || null;
         }
         
+        const scheduledCover = scheduled.workoutId ? (scheduledCovers.get(scheduled.workoutId) ?? null) : null;
         workouts.push({
           id: `scheduled-${scheduled.id}`,
           workoutId: scheduled.workoutId,
+          imageUrl: scheduledCover,
+          // Alias: builds already installed read programImageUrl only, so send both.
+          programImageUrl: scheduledCover,
           workoutName: scheduled.workoutName,
           workoutType: scheduled.workoutType || 'regular',
           category: scheduled.category || 'strength',

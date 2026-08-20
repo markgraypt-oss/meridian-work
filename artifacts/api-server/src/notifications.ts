@@ -385,6 +385,11 @@ export interface WellbeingContactEmailInput {
   companyName?: string | null;
 }
 
+// Same banner as the sign-up / password-reset emails. Served by the API host —
+// note that https://meridian.work/email-banner.png 404s, so don't reuse
+// APP_BASE_URL here (that points at the marketing/app domain for CTA links).
+const EMAIL_BANNER_URL = process.env.EMAIL_BANNER_URL || "https://api.meridian.work/email-banner.png";
+
 const WELLBEING_FOOTER =
   "Sent at the employee's request through MeridianWork. No health data, scores or app activity have been shared with you.";
 
@@ -393,7 +398,8 @@ function wellbeingEmailHtml(paragraphs: string[], footer: string): string {
     .map(p => `<p style="font-size:16px; line-height:1.6; color:#222; margin:0 0 16px;">${p}</p>`)
     .join("\n");
   return `
-    <div style="font-family: Arial, Helvetica, sans-serif; max-width: 560px; margin: 0 auto; background:#fff;">
+    <div style="font-family: Arial, Helvetica, sans-serif; max-width: 600px; margin: 0 auto; background:#fff;">
+      <img src="${EMAIL_BANNER_URL}" alt="MeridianWork" style="width: 100%; max-width: 600px; height: auto; display: block; border: 0;" />
       <div style="padding: 28px 24px; color:#222;">
         ${body}
         <hr style="border:none; border-top:1px solid #e5e5e5; margin:28px 0 14px;" />
@@ -446,48 +452,6 @@ export async function sendWellbeingContactEmail(input: WellbeingContactEmailInpu
     return true;
   } catch (e) {
     console.error("[wellbeing] contact email exception:", e);
-    return false;
-  }
-}
-
-/**
- * Copy to the employee, so they always have a dated record of exactly what was
- * sent and to whom. Best-effort — a failure here never fails the request.
- */
-export async function sendWellbeingRequestCopyToEmployee(input: WellbeingContactEmailInput): Promise<boolean> {
-  if (!resend) return false;
-  const who = escapeHtml(input.contactName) + (input.contactRole ? ` (${escapeHtml(input.contactRole)})` : "");
-  try {
-    const { error } = await resend.emails.send({
-      from: "MeridianWork <no-reply@meridian.work>",
-      to: input.employeeEmail,
-      subject: "Your request has been sent",
-      html: wellbeingEmailHtml(
-        [
-          `We've asked <strong>${who}</strong> to get in touch with you about workload and wellbeing.`,
-          `Here's exactly what they were told: that you'd like them to reach out. Nothing else — your Burnout Index, check-ins and any other health data stayed private.`,
-          `If you don't hear anything in a few days, you can send another request from the app.`,
-        ],
-        "This is your own copy, for your records.",
-      ),
-      text: [
-        `We've asked ${input.contactName}${input.contactRole ? ` (${input.contactRole})` : ""} to get in touch with you about workload and wellbeing.`,
-        "",
-        "Here's exactly what they were told: that you'd like them to reach out. Nothing else — your Burnout Index, check-ins and any other health data stayed private.",
-        "",
-        "If you don't hear anything in a few days, you can send another request from the app.",
-        "",
-        "---",
-        "This is your own copy, for your records.",
-      ].join("\n"),
-    });
-    if (error) {
-      console.error("[wellbeing] employee copy error:", error);
-      return false;
-    }
-    return true;
-  } catch (e) {
-    console.error("[wellbeing] employee copy exception:", e);
     return false;
   }
 }

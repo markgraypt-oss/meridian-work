@@ -7,7 +7,7 @@ import { setupAuth, isAuthenticated, generateResetToken, hashToken, sendUserInvi
 import rateLimit, { ipKeyGenerator } from "express-rate-limit";
 import { registerNotificationRoutes } from "../notificationsRoutes";
 import { registerCommunityRoutes } from "../community";
-import { notify, sendWellbeingContactEmail, sendWellbeingRequestCopyToEmployee, sendWellbeingTestEmail } from "../notifications";
+import { notify, sendWellbeingContactEmail, sendWellbeingTestEmail } from "../notifications";
 import {
   recordEngagementActivity,
   awardPoints,
@@ -23059,17 +23059,6 @@ Respond as the Recovery Coach. Reference their specific assessment data and prov
         // Never report success we didn't achieve — the user is relying on this.
         return res.status(502).json({ message: "Couldn't send that just now" });
       }
-
-      // Best-effort copy for the user's own records; failure here doesn't fail
-      // the request, because the person we needed to reach has been reached.
-      sendWellbeingRequestCopyToEmployee({
-        contactEmail: contact.email,
-        contactName: contact.name,
-        contactRole: contact.role,
-        employeeName,
-        employeeEmail: user.email,
-        companyName: company.name,
-      }).catch(() => {});
 
       res.json({
         success: true,

@@ -7,7 +7,7 @@ import { setupAuth, isAuthenticated, generateResetToken, hashToken, sendUserInvi
 import rateLimit, { ipKeyGenerator } from "express-rate-limit";
 import { registerNotificationRoutes } from "../notificationsRoutes";
 import { registerCommunityRoutes } from "../community";
-import { notify } from "../notifications";
+import { notify, sendWellbeingContactEmail, sendWellbeingRequestCopyToEmployee, sendWellbeingTestEmail } from "../notifications";
 import {
   recordEngagementActivity,
   awardPoints,
@@ -441,7 +441,7 @@ import { computeBurnoutScore } from '../burnoutEngine';
 import { computeCyclePhase } from '../cyclePhase';
 import { normalizeSex } from '../coach/lifeStage';
 import { trackCalibrationEvent, trackRecoveryModeActivation, generateCalibrationReport, getLevel as getBurnoutLevel, writePhysiologicalSnapshot } from '../burnoutCalibration';
-import { burnoutScores, insertCompanySchema, insertCompanyBenefitSchema, checkIns, bodyMapLogs, departments, companyInvites, usageAlerts, insertAiPromptSchema, workdayBreakLogs, aiInsightReads, recoveryModePeriods, physiologicalSnapshots, cycleSettings, cycleLogs } from "@workspace/db";
+import { burnoutScores, insertCompanySchema, insertCompanyBenefitSchema, insertCompanyWellbeingContactSchema, checkIns, bodyMapLogs, departments, companyInvites, usageAlerts, insertAiPromptSchema, workdayBreakLogs, aiInsightReads, recoveryModePeriods, physiologicalSnapshots, cycleSettings, cycleLogs } from "@workspace/db";
 
 import {
   insertExerciseLibraryItemSchema,
@@ -3328,6 +3328,88 @@ export async function registerRoutes(app: Express): Promise<Server> {
     } catch (error) {
       console.error("Error deleting benefit:", error);
       res.status(500).json({ message: "Failed to delete benefit" });
+    }
+  });
+
+  // ─── Wellbeing contacts (admin) ─────────────────────────────────────────
+  // The per-company list of people an employee can ask to check in with them
+  // from Burnout Index → Talk to Your Manager. Platform-admin only: these are
+  // configured by us at onboarding, not self-served by the company.
+
+  const EMAIL_RE = /^[^@\s]+@[^@\s]+\.[^@\s]+$/;
+
+  app.get('/api/admin/companies/:id/wellbeing-contacts', isAuthenticated, requireAdmin, async (req: any, res) => {
+    try {
+      const contacts = await storage.getWellbeingContacts(parseInt(req.params.id));
+      res.json(contacts);
+    } catch (error) {
+      console.error("Error fetching wellbeing contacts:", error);
+      res.status(500).json({ message: "Failed to fetch wellbeing contacts" });
+    }
+  });
+
+  app.post('/api/admin/companies/:id/wellbeing-contacts', isAuthenticated, requireAdmin, async (req: any, res) => {
+    try {
+      const parsed = insertCompanyWellbeingContactSchema.safeParse({
+        ...req.body,
+        companyId: parseInt(req.params.id),
+      });
+      if (!parsed.success) {
+        return res.status(400).json({ message: "Invalid contact data", errors: parsed.error.flatten() });
+      }
+      // A malformed address is worse than an empty one: the app would show a
+      // button that silently goes nowhere.
+      if (!EMAIL_RE.test(parsed.data.email || "")) {
+        return res.status(400).json({ message: "That doesn't look like a valid email address" });
+      }
+      const contact = await storage.createWellbeingContact(parsed.data);
+      res.json(contact);
+    } catch (error) {
+      console.error("Error creating wellbeing contact:", error);
+      res.status(500).json({ message: "Failed to create wellbeing contact" });
+    }
+  });
+
+  app.patch('/api/admin/wellbeing-contacts/:id', isAuthenticated, requireAdmin, async (req: any, res) => {
+    try {
+      const parsed = insertCompanyWellbeingContactSchema.partial().safeParse(req.body);
+      if (!parsed.success) {
+        return res.status(400).json({ message: "Invalid contact data", errors: parsed.error.flatten() });
+      }
+      if (parsed.data.email != null && !EMAIL_RE.test(parsed.data.email)) {
+        return res.status(400).json({ message: "That doesn't look like a valid email address" });
+      }
+      const contact = await storage.updateWellbeingContact(parseInt(req.params.id), parsed.data);
+      res.json(contact);
+    } catch (error) {
+      console.error("Error updating wellbeing contact:", error);
+      res.status(500).json({ message: "Failed to update wellbeing contact" });
+    }
+  });
+
+  app.delete('/api/admin/wellbeing-contacts/:id', isAuthenticated, requireAdmin, async (req: any, res) => {
+    try {
+      await storage.deleteWellbeingContact(parseInt(req.params.id));
+      res.json({ success: true });
+    } catch (error) {
+      console.error("Error deleting wellbeing contact:", error);
+      res.status(500).json({ message: "Failed to delete wellbeing contact" });
+    }
+  });
+
+  // Prove an address works at onboarding time, rather than finding out when a
+  // distressed employee's request bounces.
+  app.post('/api/admin/wellbeing-contacts/:id/test', isAuthenticated, requireAdmin, async (req: any, res) => {
+    try {
+      const contact = await storage.getWellbeingContactById(parseInt(req.params.id));
+      if (!contact) return res.status(404).json({ message: "Contact not found" });
+      const company = await storage.getCompanyById(contact.companyId);
+      const ok = await sendWellbeingTestEmail(contact.email, company?.name || "your company");
+      if (!ok) return res.status(502).json({ message: "Couldn't send the test email" });
+      res.json({ success: true, sentTo: contact.email });
+    } catch (error) {
+      console.error("Error sending wellbeing test email:", error);
+      res.status(500).json({ message: "Failed to send test email" });
     }
   });
 
@@ -22876,6 +22958,130 @@ Respond as the Recovery Coach. Reference their specific assessment data and prov
   });
 
   // ===== Burnout Early Warning Routes =====
+
+  // ─── Wellbeing contact button ───────────────────────────────────────────
+  // Burnout Index → Talk to Your Manager → "Ask someone to check in with me".
+  // One tap tells a nominated person at the user's company that they'd like to
+  // be contacted. Nothing about their health is shared — see notifications.ts.
+
+  const WELLBEING_DEFAULT_LABEL = "Ask someone to check in with me";
+  const WELLBEING_DEFAULT_INTRO =
+    "Pressing this asks someone at your company to get in touch with you. You don't have to explain anything or write a thing.";
+  const WELLBEING_COOLDOWN_DAYS = 7;
+
+  app.get("/api/wellbeing/contacts", isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = req.user.claims.sub;
+      const company = await storage.getCompanyForUser(userId);
+      const empty = { enabled: false, buttonLabel: WELLBEING_DEFAULT_LABEL, introText: WELLBEING_DEFAULT_INTRO, contacts: [], lastRequest: null, cooldownDays: WELLBEING_COOLDOWN_DAYS };
+      if (!company || company.wellbeingContactEnabled === false) return res.json(empty);
+
+      const contacts = await storage.getWellbeingContacts(company.id, true);
+      if (contacts.length === 0) return res.json(empty);
+
+      const last = await storage.getLastWellbeingRequest(userId);
+
+      res.json({
+        enabled: true,
+        buttonLabel: company.wellbeingButtonLabel || WELLBEING_DEFAULT_LABEL,
+        introText: company.wellbeingIntroText || WELLBEING_DEFAULT_INTRO,
+        // NOTE: email addresses are deliberately NOT returned. The app sends by
+        // id; there is no reason for a mobile bundle to carry a company's
+        // internal contact list.
+        contacts: contacts.map(c => ({ id: c.id, name: c.name, role: c.role })),
+        lastRequest: last
+          ? { contactId: last.contactId, contactName: last.contactName, sentAt: last.createdAt }
+          : null,
+        cooldownDays: WELLBEING_COOLDOWN_DAYS,
+      });
+    } catch (error) {
+      console.error("Error fetching wellbeing contacts:", error);
+      res.status(500).json({ message: "Failed to fetch wellbeing contacts" });
+    }
+  });
+
+  app.post("/api/wellbeing/contacts/:contactId/request", isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = req.user.claims.sub;
+      const user = await storage.getUser(userId);
+      if (!user?.email) {
+        return res.status(400).json({ message: "Your account needs an email address before you can send a request" });
+      }
+
+      const company = await storage.getCompanyForUser(userId);
+      if (!company || company.wellbeingContactEnabled === false) {
+        return res.status(404).json({ message: "No wellbeing contacts available" });
+      }
+
+      const contact = await storage.getWellbeingContactById(parseInt(req.params.contactId));
+      // Must belong to THIS user's company, and be active.
+      if (!contact || contact.companyId !== company.id || !contact.isActive) {
+        return res.status(404).json({ message: "Contact not found" });
+      }
+
+      // Cooldown: stops a double-tap or an offline retry from emailing HR twice,
+      // and stops the button becoming a way to nag someone.
+      const last = await storage.getLastWellbeingRequest(userId, contact.id);
+      if (last?.createdAt) {
+        const ageMs = Date.now() - new Date(last.createdAt).getTime();
+        if (ageMs < WELLBEING_COOLDOWN_DAYS * 24 * 60 * 60 * 1000) {
+          return res.status(429).json({
+            error: "already_sent",
+            message: "You've already sent this person a request recently",
+            sentAt: last.createdAt,
+            contactName: last.contactName,
+          });
+        }
+      }
+
+      const employeeName =
+        [user.firstName, user.lastName].filter(Boolean).join(" ").trim() || user.email;
+
+      const sent = await sendWellbeingContactEmail({
+        contactEmail: contact.email,
+        contactName: contact.name,
+        contactRole: contact.role,
+        employeeName,
+        employeeEmail: user.email,
+        companyName: company.name,
+      });
+
+      await storage.logWellbeingRequest({
+        userId,
+        companyId: company.id,
+        contactId: contact.id,
+        contactName: contact.name,
+        contactEmail: contact.email,
+        status: sent ? "sent" : "failed",
+      });
+
+      if (!sent) {
+        // Never report success we didn't achieve — the user is relying on this.
+        return res.status(502).json({ message: "Couldn't send that just now" });
+      }
+
+      // Best-effort copy for the user's own records; failure here doesn't fail
+      // the request, because the person we needed to reach has been reached.
+      sendWellbeingRequestCopyToEmployee({
+        contactEmail: contact.email,
+        contactName: contact.name,
+        contactRole: contact.role,
+        employeeName,
+        employeeEmail: user.email,
+        companyName: company.name,
+      }).catch(() => {});
+
+      res.json({
+        success: true,
+        contactName: contact.name,
+        contactRole: contact.role,
+        sentAt: new Date().toISOString(),
+      });
+    } catch (error) {
+      console.error("Error sending wellbeing contact request:", error);
+      res.status(500).json({ message: "Failed to send request" });
+    }
+  });
 
   app.get("/api/burnout/current", isAuthenticated, async (req: any, res) => {
     try {

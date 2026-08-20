@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useAuth } from "@/hooks/useAuth";
 import { useLocation } from "wouter";
 import TopHeader from "@/components/TopHeader";
@@ -11,7 +11,7 @@ import { Switch } from "@/components/ui/switch";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
-import { Plus, Edit, Trash2, Building2, Users, Search, ExternalLink, Phone, Mail, Calendar, Shield, Upload, BarChart3, Heart, AlertTriangle, FolderTree, Send, TrendingUp, TrendingDown, Minus, Activity, Brain, Zap } from "lucide-react";
+import { Plus, Edit, Trash2, Building2, Users, Search, ExternalLink, Phone, Mail, Calendar, Shield, Upload, BarChart3, Heart, AlertTriangle, FolderTree, Send, TrendingUp, TrendingDown, Minus, Activity, Brain, Zap, LifeBuoy, MailCheck } from "lucide-react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
@@ -43,6 +43,21 @@ type CompanyData = {
   reportingCadence: string | null;
   lastReportSentAt: string | null;
   engagementAlertThreshold: number | null;
+  wellbeingContactEnabled: boolean | null;
+  wellbeingButtonLabel: string | null;
+  wellbeingIntroText: string | null;
+};
+
+// A person an employee can ask to check in with them, from the Burnout Index →
+// Talk to Your Manager screen in the app.
+type WellbeingContactData = {
+  id: number;
+  companyId: number;
+  name: string;
+  role: string | null;
+  email: string;
+  isActive: boolean;
+  sortOrder: number;
 };
 
 type EngagementData = {
@@ -170,6 +185,12 @@ export default function AdminCompanies() {
   const [deptName, setDeptName] = useState("");
   const [editingDept, setEditingDept] = useState<DepartmentData | null>(null);
 
+  const [showWellbeingForm, setShowWellbeingForm] = useState(false);
+  const [editingWellbeingContact, setEditingWellbeingContact] = useState<WellbeingContactData | null>(null);
+  const [deleteWellbeingId, setDeleteWellbeingId] = useState<number | null>(null);
+  const [wellbeingForm, setWellbeingForm] = useState({ name: "", role: "", email: "", isActive: true });
+  const [wellbeingCopy, setWellbeingCopy] = useState({ buttonLabel: "", introText: "" });
+
   const [companyForm, setCompanyForm] = useState({
     name: "",
     industry: "",
@@ -254,6 +275,100 @@ export default function AdminCompanies() {
       return res.json();
     },
     enabled: !!user && !!selectedCompanyId,
+  });
+
+  const { data: wellbeingContacts = [] } = useQuery<WellbeingContactData[]>({
+    queryKey: ["/api/admin/companies", selectedCompanyId, "wellbeing-contacts"],
+    queryFn: async () => {
+      const res = await fetch(`/api/admin/companies/${selectedCompanyId}/wellbeing-contacts`, { credentials: "include" });
+      if (!res.ok) throw new Error("Failed to fetch wellbeing contacts");
+      return res.json();
+    },
+    enabled: !!user && !!selectedCompanyId,
+  });
+
+  // Keep the editable copy fields in step with whichever company is selected.
+  useEffect(() => {
+    setWellbeingCopy({
+      buttonLabel: companyDetail?.wellbeingButtonLabel || "",
+      introText: companyDetail?.wellbeingIntroText || "",
+    });
+  }, [companyDetail?.id, companyDetail?.wellbeingButtonLabel, companyDetail?.wellbeingIntroText]);
+
+  const invalidateWellbeing = () => {
+    queryClient.invalidateQueries({ queryKey: ["/api/admin/companies", selectedCompanyId, "wellbeing-contacts"] });
+  };
+
+  const createWellbeingMutation = useMutation({
+    mutationFn: async (data: Record<string, unknown>) => {
+      return apiRequest("POST", `/api/admin/companies/${selectedCompanyId}/wellbeing-contacts`, data);
+    },
+    onSuccess: () => {
+      invalidateWellbeing();
+      setShowWellbeingForm(false);
+      setWellbeingForm({ name: "", role: "", email: "", isActive: true });
+      toast({ title: "Wellbeing contact added" });
+    },
+    onError: (error: any) => {
+      toast({ title: "Failed to add contact", description: error.message, variant: "destructive" });
+    },
+  });
+
+  const updateWellbeingMutation = useMutation({
+    mutationFn: async ({ id, data }: { id: number; data: Record<string, unknown> }) => {
+      return apiRequest("PATCH", `/api/admin/wellbeing-contacts/${id}`, data);
+    },
+    onSuccess: () => {
+      invalidateWellbeing();
+      setShowWellbeingForm(false);
+      setEditingWellbeingContact(null);
+      setWellbeingForm({ name: "", role: "", email: "", isActive: true });
+      toast({ title: "Wellbeing contact updated" });
+    },
+    onError: (error: any) => {
+      toast({ title: "Failed to update contact", description: error.message, variant: "destructive" });
+    },
+  });
+
+  const deleteWellbeingMutation = useMutation({
+    mutationFn: async (id: number) => {
+      return apiRequest("DELETE", `/api/admin/wellbeing-contacts/${id}`);
+    },
+    onSuccess: () => {
+      invalidateWellbeing();
+      setDeleteWellbeingId(null);
+      toast({ title: "Wellbeing contact removed" });
+    },
+    onError: (error: any) => {
+      toast({ title: "Failed to remove contact", description: error.message, variant: "destructive" });
+    },
+  });
+
+  const testWellbeingMutation = useMutation({
+    mutationFn: async (id: number) => {
+      return apiRequest("POST", `/api/admin/wellbeing-contacts/${id}/test`, {});
+    },
+    onSuccess: () => {
+      toast({ title: "Test email sent", description: "Check with the contact that it arrived." });
+    },
+    onError: (error: any) => {
+      toast({ title: "Test email failed", description: error.message, variant: "destructive" });
+    },
+  });
+
+  // The enable toggle and copy overrides live on the company row itself.
+  const updateWellbeingSettingsMutation = useMutation({
+    mutationFn: async (data: Record<string, unknown>) => {
+      return apiRequest("PATCH", `/api/admin/companies/${selectedCompanyId}`, data);
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/admin/companies", selectedCompanyId] });
+      queryClient.invalidateQueries({ queryKey: ["/api/admin/companies"] });
+      toast({ title: "Wellbeing button settings saved" });
+    },
+    onError: (error: any) => {
+      toast({ title: "Failed to save settings", description: error.message, variant: "destructive" });
+    },
   });
 
   const createCompanyMutation = useMutation({
@@ -780,6 +895,112 @@ export default function AdminCompanies() {
             </CardContent>
           </Card>
 
+          {/* Wellbeing contacts — powers the "Ask someone to check in with me"
+              button on the app's Burnout Index → Talk to Your Manager screen.
+              With no active contacts, the app hides that section entirely. */}
+          <Card className="border-border">
+            <CardHeader className="flex flex-row items-center justify-between pb-2">
+              <CardTitle className="text-sm font-semibold text-foreground flex items-center gap-2">
+                <LifeBuoy className="h-4 w-4 text-[#0cc9a9]" />
+                Wellbeing Contacts ({wellbeingContacts.length})
+              </CardTitle>
+              <Button size="sm" variant="outline" onClick={() => { setEditingWellbeingContact(null); setWellbeingForm({ name: "", role: "", email: "", isActive: true }); setShowWellbeingForm(true); }}>
+                <Plus className="h-3.5 w-3.5 mr-1" />
+                Add
+              </Button>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <div className="flex items-start justify-between gap-4 border border-border rounded-lg p-3">
+                <div>
+                  <p className="text-sm text-foreground font-medium">Button enabled in the app</p>
+                  <p className="text-xs text-muted-foreground mt-0.5">
+                    Turn off to hide the button for this company even while contacts exist.
+                  </p>
+                </div>
+                <Switch
+                  checked={companyDetail.wellbeingContactEnabled !== false}
+                  onCheckedChange={(checked) => updateWellbeingSettingsMutation.mutate({ wellbeingContactEnabled: checked })}
+                />
+              </div>
+
+              {wellbeingContacts.length === 0 ? (
+                <p className="text-sm text-muted-foreground text-center py-3">
+                  No contacts yet — the button is hidden in the app for this company.
+                </p>
+              ) : (
+                <div className="space-y-2">
+                  {wellbeingContacts.map((c) => (
+                    <div key={c.id} className="flex items-center justify-between gap-3 bg-background border border-border rounded-lg px-3 py-2">
+                      <div className="min-w-0">
+                        <div className="flex items-center gap-2">
+                          <span className="text-sm text-foreground font-medium truncate">{c.name}</span>
+                          {c.role && <span className="text-xs text-muted-foreground truncate">— {c.role}</span>}
+                          {!c.isActive && <Badge variant="outline" className="text-[10px]">Inactive</Badge>}
+                        </div>
+                        <p className="text-xs text-muted-foreground truncate">{c.email}</p>
+                      </div>
+                      <div className="flex items-center gap-1 shrink-0">
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          className="h-7 w-7"
+                          title="Send a test email to this address"
+                          disabled={testWellbeingMutation.isPending}
+                          onClick={() => testWellbeingMutation.mutate(c.id)}
+                        >
+                          <MailCheck className="h-3.5 w-3.5" />
+                        </Button>
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          className="h-7 w-7"
+                          onClick={() => { setEditingWellbeingContact(c); setWellbeingForm({ name: c.name, role: c.role || "", email: c.email, isActive: c.isActive }); setShowWellbeingForm(true); }}
+                        >
+                          <Edit className="h-3.5 w-3.5" />
+                        </Button>
+                        <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => setDeleteWellbeingId(c.id)}>
+                          <Trash2 className="h-3.5 w-3.5 text-destructive" />
+                        </Button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+
+              <div className="border-t border-border pt-3 space-y-3">
+                <div>
+                  <Label className="text-xs text-muted-foreground">Button label</Label>
+                  <Input
+                    value={wellbeingCopy.buttonLabel}
+                    onChange={(e) => setWellbeingCopy({ ...wellbeingCopy, buttonLabel: e.target.value })}
+                    placeholder="Ask someone to check in with me"
+                    className="mt-1"
+                  />
+                </div>
+                <div>
+                  <Label className="text-xs text-muted-foreground">Intro text</Label>
+                  <Input
+                    value={wellbeingCopy.introText}
+                    onChange={(e) => setWellbeingCopy({ ...wellbeingCopy, introText: e.target.value })}
+                    placeholder="Leave blank to use the default wording"
+                    className="mt-1"
+                  />
+                </div>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  disabled={updateWellbeingSettingsMutation.isPending}
+                  onClick={() => updateWellbeingSettingsMutation.mutate({
+                    wellbeingButtonLabel: wellbeingCopy.buttonLabel.trim() || null,
+                    wellbeingIntroText: wellbeingCopy.introText.trim() || null,
+                  })}
+                >
+                  Save wording
+                </Button>
+              </div>
+            </CardContent>
+          </Card>
+
           <Card className="border-border">
             <CardHeader className="flex flex-row items-center justify-between pb-2">
               <CardTitle className="text-sm font-semibold text-foreground flex items-center gap-2">
@@ -911,6 +1132,8 @@ export default function AdminCompanies() {
         {renderAssignUserDialog()}
         {renderBulkInviteDialog()}
         {renderDeptDialog()}
+        {renderWellbeingDialog()}
+        {renderDeleteWellbeingDialog()}
       </div>
     );
   }
@@ -1430,6 +1653,106 @@ export default function AdminCompanies() {
               disabled={deleteDeptMutation.isPending}
             >
               Delete
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+    );
+  }
+
+  function renderWellbeingDialog() {
+    const canSave = wellbeingForm.name.trim().length > 0 && wellbeingForm.email.trim().length > 0;
+    return (
+      <Dialog open={showWellbeingForm} onOpenChange={setShowWellbeingForm}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>{editingWellbeingContact ? "Edit Wellbeing Contact" : "Add Wellbeing Contact"}</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4">
+            <p className="text-xs text-muted-foreground">
+              This person receives an email when someone at this company presses the button.
+              They can reply to it directly to reach the employee. No health data is ever shared with them.
+            </p>
+            <div>
+              <Label>Name</Label>
+              <Input
+                value={wellbeingForm.name}
+                onChange={(e) => setWellbeingForm({ ...wellbeingForm, name: e.target.value })}
+                placeholder="Priya Shah"
+                className="mt-1"
+              />
+            </div>
+            <div>
+              <Label>Role</Label>
+              <Input
+                value={wellbeingForm.role}
+                onChange={(e) => setWellbeingForm({ ...wellbeingForm, role: e.target.value })}
+                placeholder="HR Business Partner"
+                className="mt-1"
+              />
+              <p className="text-xs text-muted-foreground mt-1">Shown in the app so people know who they're reaching.</p>
+            </div>
+            <div>
+              <Label>Email</Label>
+              <Input
+                type="email"
+                value={wellbeingForm.email}
+                onChange={(e) => setWellbeingForm({ ...wellbeingForm, email: e.target.value })}
+                placeholder="priya@company.com"
+                className="mt-1"
+              />
+            </div>
+            <div className="flex items-center justify-between">
+              <div>
+                <Label>Active</Label>
+                <p className="text-xs text-muted-foreground">Inactive contacts don't appear in the app.</p>
+              </div>
+              <Switch
+                checked={wellbeingForm.isActive}
+                onCheckedChange={(checked) => setWellbeingForm({ ...wellbeingForm, isActive: checked })}
+              />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setShowWellbeingForm(false)}>Cancel</Button>
+            <Button
+              disabled={!canSave || createWellbeingMutation.isPending || updateWellbeingMutation.isPending}
+              onClick={() => {
+                const data = {
+                  name: wellbeingForm.name.trim(),
+                  role: wellbeingForm.role.trim() || null,
+                  email: wellbeingForm.email.trim(),
+                  isActive: wellbeingForm.isActive,
+                };
+                if (editingWellbeingContact) {
+                  updateWellbeingMutation.mutate({ id: editingWellbeingContact.id, data });
+                } else {
+                  createWellbeingMutation.mutate(data);
+                }
+              }}
+            >
+              {editingWellbeingContact ? "Save" : "Add Contact"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+    );
+  }
+
+  function renderDeleteWellbeingDialog() {
+    return (
+      <AlertDialog open={!!deleteWellbeingId} onOpenChange={() => setDeleteWellbeingId(null)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Remove Wellbeing Contact</AlertDialogTitle>
+            <AlertDialogDescription>
+              They'll stop appearing in the app straight away. Requests already sent to them are unaffected.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction onClick={() => deleteWellbeingId && deleteWellbeingMutation.mutate(deleteWellbeingId)}>
+              Remove
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>

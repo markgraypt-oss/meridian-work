@@ -386,6 +386,12 @@ import {
   type InsertCompany,
   type CompanyBenefit,
   type InsertCompanyBenefit,
+  companyWellbeingContacts,
+  type CompanyWellbeingContact,
+  type InsertCompanyWellbeingContact,
+  wellbeingContactRequests,
+  type WellbeingContactRequest,
+  type InsertWellbeingContactRequest,
   departments,
   insertDepartmentSchema,
   type Department,
@@ -1212,6 +1218,16 @@ export interface IStorage {
   createCompanyBenefit(data: InsertCompanyBenefit): Promise<CompanyBenefit>;
   updateCompanyBenefit(id: number, data: Partial<InsertCompanyBenefit>): Promise<CompanyBenefit>;
   deleteCompanyBenefit(id: number): Promise<void>;
+
+  // Wellbeing contacts (Burnout Index -> Talk to Your Manager button)
+  getCompanyForUser(userId: string): Promise<Company | undefined>;
+  getWellbeingContacts(companyId: number, activeOnly?: boolean): Promise<CompanyWellbeingContact[]>;
+  getWellbeingContactById(id: number): Promise<CompanyWellbeingContact | undefined>;
+  createWellbeingContact(data: InsertCompanyWellbeingContact): Promise<CompanyWellbeingContact>;
+  updateWellbeingContact(id: number, data: Partial<InsertCompanyWellbeingContact>): Promise<CompanyWellbeingContact>;
+  deleteWellbeingContact(id: number): Promise<void>;
+  getLastWellbeingRequest(userId: string, contactId?: number): Promise<WellbeingContactRequest | undefined>;
+  logWellbeingRequest(data: InsertWellbeingContactRequest): Promise<WellbeingContactRequest>;
 
   // User-company linking
   assignUserToCompany(userId: string, companyId: number): Promise<void>;
@@ -13796,6 +13812,89 @@ export class DatabaseStorage implements IStorage {
 
   async deleteCompanyBenefit(id: number): Promise<void> {
     await db.delete(companyBenefits).where(eq(companyBenefits.id, id));
+  }
+
+  // ─── Wellbeing contacts ────────────────────────────────────────────────
+  // The people an employee can ask to check in with them from the Burnout
+  // Index -> Talk to Your Manager screen. Configured per company by the
+  // platform admin (Mark), never by the company itself.
+
+  /**
+   * Resolve a user's company. Prefers the FK, but falls back to matching on
+   * company_name — there are legacy user rows carrying only the name, and those
+   * people should still get the button.
+   */
+  async getCompanyForUser(userId: string): Promise<Company | undefined> {
+    const [user] = await db.select().from(users).where(eq(users.id, userId));
+    if (!user) return undefined;
+    if (user.companyId) {
+      const [company] = await db.select().from(companies).where(eq(companies.id, user.companyId));
+      if (company) return company;
+    }
+    if (user.companyName) {
+      const [company] = await db.select().from(companies).where(eq(companies.name, user.companyName));
+      return company;
+    }
+    return undefined;
+  }
+
+  async getWellbeingContacts(companyId: number, activeOnly = false): Promise<CompanyWellbeingContact[]> {
+    const where = activeOnly
+      ? and(eq(companyWellbeingContacts.companyId, companyId), eq(companyWellbeingContacts.isActive, true))
+      : eq(companyWellbeingContacts.companyId, companyId);
+    return await db
+      .select()
+      .from(companyWellbeingContacts)
+      .where(where)
+      .orderBy(asc(companyWellbeingContacts.sortOrder), asc(companyWellbeingContacts.id));
+  }
+
+  async getWellbeingContactById(id: number): Promise<CompanyWellbeingContact | undefined> {
+    const [contact] = await db.select().from(companyWellbeingContacts).where(eq(companyWellbeingContacts.id, id));
+    return contact;
+  }
+
+  async createWellbeingContact(data: InsertCompanyWellbeingContact): Promise<CompanyWellbeingContact> {
+    const [contact] = await db.insert(companyWellbeingContacts).values(data).returning();
+    return contact;
+  }
+
+  async updateWellbeingContact(id: number, data: Partial<InsertCompanyWellbeingContact>): Promise<CompanyWellbeingContact> {
+    const [contact] = await db
+      .update(companyWellbeingContacts)
+      .set({ ...data, updatedAt: new Date() })
+      .where(eq(companyWellbeingContacts.id, id))
+      .returning();
+    return contact;
+  }
+
+  async deleteWellbeingContact(id: number): Promise<void> {
+    await db.delete(companyWellbeingContacts).where(eq(companyWellbeingContacts.id, id));
+  }
+
+  /**
+   * Most recent SUCCESSFUL request by this user — overall, or to one contact.
+   * Failed sends are excluded so a Resend outage never locks someone out of
+   * asking for help.
+   */
+  async getLastWellbeingRequest(userId: string, contactId?: number): Promise<WellbeingContactRequest | undefined> {
+    const conditions = [
+      eq(wellbeingContactRequests.userId, userId),
+      eq(wellbeingContactRequests.status, "sent"),
+    ];
+    if (contactId != null) conditions.push(eq(wellbeingContactRequests.contactId, contactId));
+    const [row] = await db
+      .select()
+      .from(wellbeingContactRequests)
+      .where(and(...conditions))
+      .orderBy(desc(wellbeingContactRequests.createdAt))
+      .limit(1);
+    return row;
+  }
+
+  async logWellbeingRequest(data: InsertWellbeingContactRequest): Promise<WellbeingContactRequest> {
+    const [row] = await db.insert(wellbeingContactRequests).values(data).returning();
+    return row;
   }
 
   async assignUserToCompany(userId: string, companyId: number): Promise<void> {

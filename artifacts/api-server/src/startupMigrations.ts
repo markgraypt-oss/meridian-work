@@ -419,6 +419,39 @@ const SELF_HEAL_DDL: string[] = [
   `ALTER TABLE workout_logs ADD COLUMN IF NOT EXISTS client_session_id text`,
   `CREATE UNIQUE INDEX IF NOT EXISTS workout_logs_client_session_uq
      ON workout_logs (client_session_id) WHERE client_session_id IS NOT NULL`,
+
+  // Wellbeing contact button (Burnout Index -> Talk to Your Manager), 20 Aug 2026.
+  // Per-company list of people an employee can ask to check in with them, plus an
+  // audit log of the requests (used for the 7-day rate limit and the sent state).
+  `CREATE TABLE IF NOT EXISTS company_wellbeing_contacts (
+     id serial PRIMARY KEY,
+     company_id integer NOT NULL REFERENCES companies(id) ON DELETE CASCADE,
+     name varchar NOT NULL,
+     role varchar,
+     email varchar NOT NULL,
+     is_active boolean NOT NULL DEFAULT true,
+     sort_order integer NOT NULL DEFAULT 0,
+     created_at timestamp DEFAULT now(),
+     updated_at timestamp DEFAULT now()
+   )`,
+  `CREATE INDEX IF NOT EXISTS idx_wellbeing_contacts_company
+     ON company_wellbeing_contacts (company_id)`,
+  `CREATE TABLE IF NOT EXISTS wellbeing_contact_requests (
+     id serial PRIMARY KEY,
+     user_id varchar NOT NULL,
+     company_id integer,
+     contact_id integer,
+     contact_name varchar,
+     contact_email varchar,
+     status text NOT NULL DEFAULT 'sent',
+     created_at timestamp DEFAULT now()
+   )`,
+  `CREATE INDEX IF NOT EXISTS idx_wellbeing_requests_user_contact
+     ON wellbeing_contact_requests (user_id, contact_id, created_at DESC)`,
+  // Company-level toggle + copy overrides for the button.
+  `ALTER TABLE companies ADD COLUMN IF NOT EXISTS wellbeing_contact_enabled boolean NOT NULL DEFAULT true`,
+  `ALTER TABLE companies ADD COLUMN IF NOT EXISTS wellbeing_button_label varchar`,
+  `ALTER TABLE companies ADD COLUMN IF NOT EXISTS wellbeing_intro_text text`,
 ];
 
 export async function runSchemaSelfHealOnce(): Promise<void> {

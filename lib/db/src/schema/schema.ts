@@ -3085,6 +3085,12 @@ export const companies = pgTable("companies", {
   reportingCadence: varchar("reporting_cadence"),
   lastReportSentAt: timestamp("last_report_sent_at"),
   engagementAlertThreshold: integer("engagement_alert_threshold"),
+  // Wellbeing contact button (Burnout Index -> Talk to Your Manager).
+  // enabled=false is a kill switch for a client whose legal team opts out,
+  // independent of whether any contacts exist.
+  wellbeingContactEnabled: boolean("wellbeing_contact_enabled").notNull().default(true),
+  wellbeingButtonLabel: varchar("wellbeing_button_label"),
+  wellbeingIntroText: text("wellbeing_intro_text"),
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow(),
 });
@@ -3155,6 +3161,48 @@ export const companyBenefits = pgTable("company_benefits", {
 export const insertCompanyBenefitSchema = createInsertSchema(companyBenefits).omit({ id: true, createdAt: true });
 export type InsertCompanyBenefit = z.infer<typeof insertCompanyBenefitSchema>;
 export type CompanyBenefit = typeof companyBenefits.$inferSelect;
+
+// Company Wellbeing Contacts - the people an employee can ask to check in with
+// them from Burnout Index -> Talk to Your Manager. Deliberately SEPARATE from
+// companies.primaryContactEmail / accountManagerEmail, which are the billing and
+// account contacts and are the wrong people to email about someone's wellbeing.
+export const companyWellbeingContacts = pgTable("company_wellbeing_contacts", {
+  id: serial("id").primaryKey(),
+  companyId: integer("company_id").notNull().references(() => companies.id, { onDelete: "cascade" }),
+  name: varchar("name").notNull(),
+  role: varchar("role"),
+  email: varchar("email").notNull(),
+  isActive: boolean("is_active").notNull().default(true),
+  sortOrder: integer("sort_order").notNull().default(0),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+});
+
+export const insertCompanyWellbeingContactSchema = createInsertSchema(companyWellbeingContacts)
+  .omit({ id: true, createdAt: true, updatedAt: true });
+export type InsertCompanyWellbeingContact = z.infer<typeof insertCompanyWellbeingContactSchema>;
+export type CompanyWellbeingContact = typeof companyWellbeingContacts.$inferSelect;
+
+// Wellbeing Contact Requests - audit log of "please check in with me" requests.
+// Powers the 7-day rate limit and the "already sent" state in the app, and gives
+// us a record if a client ever disputes that someone reached out. Records THAT a
+// request was made, never why - no health data is stored here.
+export const wellbeingContactRequests = pgTable("wellbeing_contact_requests", {
+  id: serial("id").primaryKey(),
+  userId: varchar("user_id").notNull(),
+  companyId: integer("company_id"),
+  contactId: integer("contact_id"),
+  // Snapshots so the sent-state still renders if the contact is later deleted.
+  contactName: varchar("contact_name"),
+  contactEmail: varchar("contact_email"),
+  status: text("status").notNull().default("sent"),
+  createdAt: timestamp("created_at").defaultNow(),
+});
+
+export const insertWellbeingContactRequestSchema = createInsertSchema(wellbeingContactRequests)
+  .omit({ id: true, createdAt: true });
+export type InsertWellbeingContactRequest = z.infer<typeof insertWellbeingContactRequestSchema>;
+export type WellbeingContactRequest = typeof wellbeingContactRequests.$inferSelect;
 
 // Burnout Calibration Events - tracks outcome signals for threshold validation
 // Each event records a user's score transition, enabling automated analysis of

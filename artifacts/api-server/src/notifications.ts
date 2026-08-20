@@ -365,3 +365,157 @@ function escapeHtml(s: string): string {
     .replace(/>/g, "&gt;")
     .replace(/"/g, "&quot;");
 }
+
+// ─── Wellbeing contact requests ──────────────────────────────────────────────
+// Burnout Index → Talk to Your Manager → "Ask someone to check in with me".
+// Deliberately NOT routed through sendCategoryEmail: this needs a Reply-To of
+// the employee, no "Open MeridianWork" CTA, and none of the notification-
+// settings footer. It should read like a person asking, not a product ping.
+//
+// HARD RULE: this email must never contain a burnout score, band, trajectory,
+// check-in data or any other health datum. The user consented to their NAME
+// being passed on, nothing more.
+
+export interface WellbeingContactEmailInput {
+  contactEmail: string;
+  contactName: string;
+  contactRole?: string | null;
+  employeeName: string;
+  employeeEmail: string;
+  companyName?: string | null;
+}
+
+const WELLBEING_FOOTER =
+  "Sent at the employee's request through MeridianWork. No health data, scores or app activity have been shared with you.";
+
+function wellbeingEmailHtml(paragraphs: string[], footer: string): string {
+  const body = paragraphs
+    .map(p => `<p style="font-size:16px; line-height:1.6; color:#222; margin:0 0 16px;">${p}</p>`)
+    .join("\n");
+  return `
+    <div style="font-family: Arial, Helvetica, sans-serif; max-width: 560px; margin: 0 auto; background:#fff;">
+      <div style="padding: 28px 24px; color:#222;">
+        ${body}
+        <hr style="border:none; border-top:1px solid #e5e5e5; margin:28px 0 14px;" />
+        <p style="color:#888; font-size:12px; line-height:1.5; margin:0;">${footer}</p>
+      </div>
+    </div>
+  `;
+}
+
+/** Email the nominated company contact. Returns false if it did not send. */
+export async function sendWellbeingContactEmail(input: WellbeingContactEmailInput): Promise<boolean> {
+  if (!resend) {
+    console.warn("[wellbeing] RESEND_API_KEY not set — contact request not sent");
+    return false;
+  }
+  const employee = escapeHtml(input.employeeName);
+  const contactFirst = escapeHtml((input.contactName || "").split(" ")[0] || "there");
+  try {
+    const { error } = await resend.emails.send({
+      from: "MeridianWork <no-reply@meridian.work>",
+      to: input.contactEmail,
+      replyTo: input.employeeEmail,
+      subject: "A team member has asked you to check in with them",
+      html: wellbeingEmailHtml(
+        [
+          `Hi ${contactFirst},`,
+          `<strong>${employee}</strong> has used MeridianWork to ask you to get in touch with them about workload and wellbeing.`,
+          `They've taken the first step. The next one is yours — reach out to them directly over the next day or two.`,
+          `Just reply to this email to reach ${employee} (${escapeHtml(input.employeeEmail)}).`,
+        ],
+        WELLBEING_FOOTER,
+      ),
+      text: [
+        `Hi ${input.contactName.split(" ")[0] || "there"},`,
+        "",
+        `${input.employeeName} has used MeridianWork to ask you to get in touch with them about workload and wellbeing.`,
+        "",
+        "They've taken the first step. The next one is yours — reach out to them directly over the next day or two.",
+        "",
+        `Just reply to this email to reach ${input.employeeName} (${input.employeeEmail}).`,
+        "",
+        "---",
+        WELLBEING_FOOTER,
+      ].join("\n"),
+    });
+    if (error) {
+      console.error("[wellbeing] contact email error:", error);
+      return false;
+    }
+    return true;
+  } catch (e) {
+    console.error("[wellbeing] contact email exception:", e);
+    return false;
+  }
+}
+
+/**
+ * Copy to the employee, so they always have a dated record of exactly what was
+ * sent and to whom. Best-effort — a failure here never fails the request.
+ */
+export async function sendWellbeingRequestCopyToEmployee(input: WellbeingContactEmailInput): Promise<boolean> {
+  if (!resend) return false;
+  const who = escapeHtml(input.contactName) + (input.contactRole ? ` (${escapeHtml(input.contactRole)})` : "");
+  try {
+    const { error } = await resend.emails.send({
+      from: "MeridianWork <no-reply@meridian.work>",
+      to: input.employeeEmail,
+      subject: "Your request has been sent",
+      html: wellbeingEmailHtml(
+        [
+          `We've asked <strong>${who}</strong> to get in touch with you about workload and wellbeing.`,
+          `Here's exactly what they were told: that you'd like them to reach out. Nothing else — your Burnout Index, check-ins and any other health data stayed private.`,
+          `If you don't hear anything in a few days, you can send another request from the app.`,
+        ],
+        "This is your own copy, for your records.",
+      ),
+      text: [
+        `We've asked ${input.contactName}${input.contactRole ? ` (${input.contactRole})` : ""} to get in touch with you about workload and wellbeing.`,
+        "",
+        "Here's exactly what they were told: that you'd like them to reach out. Nothing else — your Burnout Index, check-ins and any other health data stayed private.",
+        "",
+        "If you don't hear anything in a few days, you can send another request from the app.",
+        "",
+        "---",
+        "This is your own copy, for your records.",
+      ].join("\n"),
+    });
+    if (error) {
+      console.error("[wellbeing] employee copy error:", error);
+      return false;
+    }
+    return true;
+  } catch (e) {
+    console.error("[wellbeing] employee copy exception:", e);
+    return false;
+  }
+}
+
+/** Admin-only: prove a configured contact address actually works. */
+export async function sendWellbeingTestEmail(to: string, companyName: string): Promise<boolean> {
+  if (!resend) return false;
+  try {
+    const { error } = await resend.emails.send({
+      from: "MeridianWork <no-reply@meridian.work>",
+      to,
+      subject: "Test: you're set up as a wellbeing contact",
+      html: wellbeingEmailHtml(
+        [
+          `This is a test message — no one has requested anything.`,
+          `You've been set up as a wellbeing contact for <strong>${escapeHtml(companyName)}</strong> on MeridianWork. If a team member asks for a check-in, the request will arrive at this address and you can reply to it directly to reach them.`,
+          `Nothing further is needed from you right now.`,
+        ],
+        "Sent by a MeridianWork administrator to verify this address.",
+      ),
+    });
+    if (error) {
+      console.error("[wellbeing] test email error:", error);
+      return false;
+    }
+    return true;
+  } catch (e) {
+    console.error("[wellbeing] test email exception:", e);
+    return false;
+  }
+}

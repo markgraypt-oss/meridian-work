@@ -86,6 +86,7 @@ import AdminOutcomeEditor from "@/pages/admin-outcome-editor";
 import AdminUsers from "@/pages/admin-users";
 import AdminCompanies from "@/pages/admin-companies";
 import AdminReports from "@/pages/admin-reports";
+import AdminRewards from "@/pages/admin/AdminRewards";
 import WeeklyCheckinPage from "@/pages/weekly-checkin";
 import WeeklyCheckinDevTest from "@/pages/dev/WeeklyCheckinDevTest";
 import Achievements from "@/pages/achievements";
@@ -361,6 +362,7 @@ function Router() {
               <Route path="/admin/users" component={AdminUsers} />
               <Route path="/admin/companies" component={AdminCompanies} />
               <Route path="/admin/reports" component={AdminReports} />
+              <Route path="/admin/rewards" component={AdminRewards} />
               <Route path="/weekly-checkin/:id" component={WeeklyCheckinPage} />
               <Route path="/weekly-checkin" component={WeeklyCheckinPage} />
               <Route path="/admin" component={AdminPanel} />

@@ -95,6 +95,10 @@ if (Number.isNaN(port) || port <= 0) {
       startOuraSubscriptionScheduler();
     }).catch((e: any) => logger.error({ e }, "[startup] oura subscription scheduler failed"));
 
+    import("./rewardsScheduler").then(({ startRewardsScheduler }) => {
+      startRewardsScheduler();
+    }).catch((e: any) => logger.error({ e }, "[startup] rewards scheduler failed"));
+
     import("./baselineScheduler").then(({ startBaselineScheduler }) => {
       startBaselineScheduler();
     }).catch((e: any) => logger.error({ e }, "[startup] baseline scheduler failed"));

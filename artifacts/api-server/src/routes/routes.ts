@@ -20551,55 +20551,243 @@ Keep your response concise, practical, and evidence-based. This is general guida
   });
 
   // ============================================
-  // WORKFORCE REWARDS (Phase 1a — data loop; aggregate counts only)
+  // WORKFORCE REWARDS (Phase 1 — data loop, tickets, draw, fulfilment)
   // ============================================
-  // Aggregate participation for a company/month. Returns COUNTS ONLY, never
-  // individuals — this is what an employer is allowed to see.
+  // Privacy rule for everything under /api/admin/rewards: an employer may read
+  // COUNTS, and may read a winner's name ONLY after that one person released it.
+  // No endpoint here returns an individual's activity.
+
+  // Resolve the company an admin is allowed to act on. A company admin is
+  // pinned to their own company so they cannot read another company's data.
+  const resolveRewardCompany = async (req: any): Promise<any> => {
+    const currentUser = await storage.getUser(req.user.claims.sub);
+    if (!currentUser?.isAdmin) return { error: "Admin access required", code: 403 };
+    const requested = decodeURIComponent(req.params.companyName);
+    if (currentUser.companyName && currentUser.companyName !== requested) {
+      return { error: "You can only manage your own company's rewards", code: 403 };
+    }
+    return { company: requested };
+  };
+
+  // --- Programme configuration ---
+
+  app.get('/api/admin/rewards/company/:companyName/program', isAuthenticated, async (req: any, res) => {
+    try {
+      const resolved: any = await resolveRewardCompany(req);
+      if (resolved.error) return res.status(resolved.code).json({ message: resolved.error });
+      const { getOrCreateProgram } = await import("../rewardsEngine");
+      res.json(await getOrCreateProgram(resolved.company));
+    } catch (error) {
+      console.error("Error fetching reward program:", error);
+      res.status(500).json({ message: "Failed to fetch reward program" });
+    }
+  });
+
+  app.patch('/api/admin/rewards/company/:companyName/program', isAuthenticated, async (req: any, res) => {
+    try {
+      const resolved: any = await resolveRewardCompany(req);
+      if (resolved.error) return res.status(resolved.code).json({ message: resolved.error });
+      const patch = { ...(req.body || {}) };
+      // The acknowledgement is stamped with the admin who made it, never a
+      // value the client can spoof.
+      if (patch.acknowledgeLegal === true) {
+        patch.legal_acknowledged_by = req.user.claims.sub;
+      }
+      delete patch.acknowledgeLegal;
+      const { updateProgram } = await import("../rewardsEngine");
+      res.json(await updateProgram(resolved.company, patch));
+    } catch (error: any) {
+      console.error("Error updating reward program:", error);
+      res.status(500).json({ message: error?.message || "Failed to update reward program" });
+    }
+  });
+
+  // --- Aggregate participation + evaluation ---
+
   app.get('/api/admin/rewards/company/:companyName/participation', isAuthenticated, async (req: any, res) => {
     try {
-      const currentUser = await storage.getUser(req.user.claims.sub);
-      if (!currentUser?.isAdmin) return res.status(403).json({ message: "Admin access required" });
-      const companyName = decodeURIComponent(req.params.companyName);
+      const resolved: any = await resolveRewardCompany(req);
+      if (resolved.error) return res.status(resolved.code).json({ message: resolved.error });
       const now = new Date();
-      const month = (req.query.month as string) || now.toISOString().slice(0, 7);
+      const period = (req.query.period as string) || (req.query.month as string) || now.toISOString().slice(0, 7);
       const { getRewardParticipation } = await import("../rewardsEngine");
-      res.json(await getRewardParticipation(companyName, month, now));
+      res.json(await getRewardParticipation(resolved.company, period, now));
     } catch (error) {
       console.error("Error fetching reward participation:", error);
       res.status(500).json({ message: "Failed to fetch reward participation" });
     }
   });
 
-  // Recompute the period from device step data (anti-cheat caps applied), then
-  // return the fresh aggregate. Admin-triggered; also intended for a scheduled job.
+  // Recompute the month AND its ISO weeks from device data, then return the
+  // fresh aggregate. The scheduler does this nightly; this is the manual path.
   app.post('/api/admin/rewards/company/:companyName/evaluate', isAuthenticated, async (req: any, res) => {
     try {
-      const currentUser = await storage.getUser(req.user.claims.sub);
-      if (!currentUser?.isAdmin) return res.status(403).json({ message: "Admin access required" });
-      const companyName = decodeURIComponent(req.params.companyName);
+      const resolved: any = await resolveRewardCompany(req);
+      if (resolved.error) return res.status(resolved.code).json({ message: resolved.error });
       const now = new Date();
       const month = (req.query.month as string) || now.toISOString().slice(0, 7);
-      const { evaluateRewardPeriod, getRewardParticipation } = await import("../rewardsEngine");
-      const result = await evaluateRewardPeriod(companyName, month, now);
-      const participation = await getRewardParticipation(companyName, month, now);
-      res.json({ evaluated: result.evaluated, hit: result.hit, period: result.period, participation });
+      const { evaluateCompanyFully, getRewardParticipation } = await import("../rewardsEngine");
+      const result = await evaluateCompanyFully(resolved.company, month, now);
+      const participation = await getRewardParticipation(resolved.company, month, now);
+      res.json({
+        month: result.month,
+        weeksEvaluated: result.weeks.map((w: any) => ({ period: w.period.key, hit: w.hit, eligible: w.eligible })),
+        participation,
+      });
     } catch (error) {
       console.error("Error evaluating rewards:", error);
       res.status(500).json({ message: "Failed to evaluate rewards" });
     }
   });
 
-  // The company's reward programme config (created with defaults on first read).
-  app.get('/api/admin/rewards/company/:companyName/program', isAuthenticated, async (req: any, res) => {
+  // --- Anti-cheat review (numbers only, no names) ---
+
+  app.get('/api/admin/rewards/company/:companyName/flagged', isAuthenticated, async (req: any, res) => {
     try {
-      const currentUser = await storage.getUser(req.user.claims.sub);
-      if (!currentUser?.isAdmin) return res.status(403).json({ message: "Admin access required" });
-      const companyName = decodeURIComponent(req.params.companyName);
-      const { getOrCreateProgram } = await import("../rewardsEngine");
-      res.json(await getOrCreateProgram(companyName));
+      const resolved: any = await resolveRewardCompany(req);
+      if (resolved.error) return res.status(resolved.code).json({ message: resolved.error });
+      const now = new Date();
+      const period = (req.query.period as string) || now.toISOString().slice(0, 7);
+      const { listFlaggedResults } = await import("../rewardsEngine");
+      res.json(await listFlaggedResults(resolved.company, period));
     } catch (error) {
-      console.error("Error fetching reward program:", error);
-      res.status(500).json({ message: "Failed to fetch reward program" });
+      console.error("Error listing flagged results:", error);
+      res.status(500).json({ message: "Failed to list flagged results" });
+    }
+  });
+
+  app.post('/api/admin/rewards/company/:companyName/flagged/:resultId/review', isAuthenticated, async (req: any, res) => {
+    try {
+      const resolved: any = await resolveRewardCompany(req);
+      if (resolved.error) return res.status(resolved.code).json({ message: resolved.error });
+      const decision = req.body?.decision;
+      if (decision !== "cleared" && decision !== "rejected") {
+        return res.status(400).json({ message: "decision must be 'cleared' or 'rejected'" });
+      }
+      const { reviewResult } = await import("../rewardsEngine");
+      res.json(await reviewResult(resolved.company, Number(req.params.resultId), decision));
+    } catch (error: any) {
+      console.error("Error reviewing flagged result:", error);
+      res.status(400).json({ message: error?.message || "Failed to review result" });
+    }
+  });
+
+  // --- Draws ---
+
+  app.get('/api/admin/rewards/company/:companyName/draws', isAuthenticated, async (req: any, res) => {
+    try {
+      const resolved: any = await resolveRewardCompany(req);
+      if (resolved.error) return res.status(resolved.code).json({ message: resolved.error });
+      const { listDraws } = await import("../rewardsEngine");
+      res.json(await listDraws(resolved.company));
+    } catch (error) {
+      console.error("Error listing draws:", error);
+      res.status(500).json({ message: "Failed to list draws" });
+    }
+  });
+
+  app.post('/api/admin/rewards/company/:companyName/draws/run', isAuthenticated, async (req: any, res) => {
+    try {
+      const resolved: any = await resolveRewardCompany(req);
+      if (resolved.error) return res.status(resolved.code).json({ message: resolved.error });
+      const now = new Date();
+      const period = (req.body?.period as string) || now.toISOString().slice(0, 7);
+      const { runDraw } = await import("../rewardsEngine");
+      const result = await runDraw(resolved.company, period, now, {
+        drawnBy: req.user.claims.sub,
+        rewardDescription: req.body?.rewardDescription,
+        // A redraw destroys an audit trail, so it is never the default and is
+        // only reachable by asking for it explicitly.
+        redraw: req.body?.redraw === true,
+      });
+      res.json(result);
+    } catch (error: any) {
+      console.error("Error running draw:", error);
+      res.status(400).json({ message: error?.message || "Failed to run draw" });
+    }
+  });
+
+  // --- Fulfilment ---
+
+  app.get('/api/admin/rewards/company/:companyName/fulfilments', isAuthenticated, async (req: any, res) => {
+    try {
+      const resolved: any = await resolveRewardCompany(req);
+      if (resolved.error) return res.status(resolved.code).json({ message: resolved.error });
+      const { listFulfilments } = await import("../rewardsEngine");
+      res.json(await listFulfilments(resolved.company, req.query.status as string | undefined));
+    } catch (error) {
+      console.error("Error listing fulfilments:", error);
+      res.status(500).json({ message: "Failed to list fulfilments" });
+    }
+  });
+
+  app.patch('/api/admin/rewards/company/:companyName/fulfilments/:id', isAuthenticated, async (req: any, res) => {
+    try {
+      const resolved: any = await resolveRewardCompany(req);
+      if (resolved.error) return res.status(resolved.code).json({ message: resolved.error });
+      const { updateFulfilment } = await import("../rewardsEngine");
+      const updated = await updateFulfilment(
+        resolved.company,
+        Number(req.params.id),
+        req.body?.status,
+        req.body?.adminNote ?? null,
+        req.user.claims.sub
+      );
+      res.json(updated);
+    } catch (error: any) {
+      console.error("Error updating fulfilment:", error);
+      res.status(400).json({ message: error?.message || "Failed to update fulfilment" });
+    }
+  });
+
+  // ============================================
+  // WORKFORCE REWARDS — user-facing (mobile)
+  // ============================================
+  // Everything here is scoped to the calling user and returns only their own
+  // data. Rewards consent is captured separately from the WWI basis.
+
+  app.get('/api/rewards/me', isAuthenticated, async (req: any, res) => {
+    try {
+      const { getMyRewardsStatus } = await import("../rewardsEngine");
+      res.json(await getMyRewardsStatus(req.user.claims.sub, new Date()));
+    } catch (error) {
+      console.error("Error fetching rewards status:", error);
+      res.status(500).json({ message: "Failed to fetch rewards status" });
+    }
+  });
+
+  // Join / leave the programme, and record that step access was granted.
+  // Step access is mandatory to take part: enrolling without it leaves the
+  // person not-enrolled for the period rather than scoring them a zero.
+  app.post('/api/rewards/enrol', isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = req.user.claims.sub;
+      const user = await storage.getUser(userId);
+      const { setConsent } = await import("../rewardsEngine");
+      const updated = await setConsent(userId, user?.companyName ?? null, {
+        enrolled: typeof req.body?.enrolled === "boolean" ? req.body.enrolled : undefined,
+        stepAccessGranted:
+          typeof req.body?.stepAccessGranted === "boolean" ? req.body.stepAccessGranted : undefined,
+        consentIdentityOnWin:
+          typeof req.body?.consentIdentityOnWin === "boolean" ? req.body.consentIdentityOnWin : undefined,
+      });
+      res.json(updated);
+    } catch (error) {
+      console.error("Error updating rewards enrolment:", error);
+      res.status(500).json({ message: "Failed to update rewards enrolment" });
+    }
+  });
+
+  // Winner's identity-release decision. Declining keeps the prize — the
+  // employer is simply told a winner exists without being told who.
+  app.post('/api/rewards/wins/:id/respond', isAuthenticated, async (req: any, res) => {
+    try {
+      const accept = req.body?.accept === true;
+      const { respondToWin } = await import("../rewardsEngine");
+      res.json(await respondToWin(req.user.claims.sub, Number(req.params.id), accept));
+    } catch (error: any) {
+      console.error("Error responding to win:", error);
+      res.status(400).json({ message: error?.message || "Failed to record your decision" });
     }
   });
 

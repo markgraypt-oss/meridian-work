@@ -20929,7 +20929,20 @@ Keep your response concise, practical, and evidence-based. This is general guida
       const me = await storage.getUser(userId);
       if (!me?.isAdmin) return res.status(403).json({ message: "Admin only" });
       const cfg = await getEngagementConfig();
-      res.json(cfg);
+      // Backward-compat shim. Points and levels were retired on 25 Aug 2026, so
+      // getEngagementConfig no longer returns weeklyCaps/streakBonuses/levels.
+      // A browser still holding the PREVIOUS admin bundle reads those keys
+      // unguarded and white-screens on `weeklyCaps.soft1`. Returning inert
+      // legacy values turns that crash into a page showing a few dead settings
+      // until the new bundle loads. Writes to these keys are already rejected
+      // by the PUT below.
+      // SAFE TO DELETE once no cached client can still be running the old app.
+      res.json({
+        ...cfg,
+        weeklyCaps: { soft1: 0, soft1Multiplier: 1, soft2: 0, soft2Multiplier: 1 },
+        streakBonuses: [],
+        levels: [{ level: 1, name: "Retired", minPoints: 0 }],
+      });
     } catch (error: any) {
       console.error("Error fetching engagement config:", error?.message);
       res.status(500).json({ message: "Failed to load config" });

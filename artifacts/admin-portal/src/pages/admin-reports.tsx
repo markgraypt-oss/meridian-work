@@ -780,8 +780,7 @@ export default function AdminReports() {
     reason?: string;
     cohortSize?: number;
     window?: string;
-    avgWeekPoints?: number;
-    avgLevel?: number;
+    avgActivitiesPerActiveUser?: number;
     activeUsers?: number;
     participationRate?: number;
     topActivities?: Array<{ activityType: string; count: number }>;
@@ -1600,18 +1599,14 @@ export default function AdminReports() {
                     </div>
                   ) : (
                     <>
-                      <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 mb-6">
-                        <div>
-                          <p className="text-xs text-muted-foreground uppercase mb-1">Avg Pts / Week</p>
-                          <p className="text-2xl font-bold text-foreground" data-testid="text-avg-week-points">{engagementData.avgWeekPoints}</p>
-                        </div>
-                        <div>
-                          <p className="text-xs text-muted-foreground uppercase mb-1">Avg Level</p>
-                          <p className="text-2xl font-bold text-foreground">{engagementData.avgLevel}</p>
-                        </div>
+                      <div className="grid grid-cols-2 sm:grid-cols-3 gap-4 mb-6">
                         <div>
                           <p className="text-xs text-muted-foreground uppercase mb-1">Active Users</p>
                           <p className="text-2xl font-bold text-foreground">{engagementData.activeUsers}</p>
+                        </div>
+                        <div>
+                          <p className="text-xs text-muted-foreground uppercase mb-1">Activities / Active User</p>
+                          <p className="text-2xl font-bold text-foreground" data-testid="text-avg-activities">{engagementData.avgActivitiesPerActiveUser}</p>
                         </div>
                         <div>
                           <p className="text-xs text-muted-foreground uppercase mb-1">Participation</p>

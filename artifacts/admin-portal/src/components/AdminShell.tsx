@@ -27,6 +27,7 @@ import {
   MessagesSquare,
   Flame,
   LineChart,
+  Trophy,
   ClipboardCheck,
   Settings,
   UserCheck,
@@ -55,6 +56,7 @@ import AdminAiActivity from "@/pages/admin/AdminAiActivity";
 import AdminDeskReferences from "@/pages/admin/AdminDeskReferences";
 import AdminBurnoutCalibration from "@/pages/admin/AdminBurnoutCalibration";
 import AdminEngagement from "@/pages/admin/AdminEngagement";
+import AdminRewards from "@/pages/admin/AdminRewards";
 import AdminWeeklyCheckinPreview from "@/pages/admin/AdminWeeklyCheckinPreview";
 import AdminSettings from "@/pages/admin-settings";
 import AdminClients from "@/pages/admin-clients";
@@ -92,6 +94,7 @@ const NAV_ITEMS: NavItem[] = [
   { label: "Reporting", href: "/admin/reports", icon: BarChart3, group: "Analytics" },
   { label: "Wellbeing Index", href: "/admin/wwi", icon: HeartPulse, group: "Analytics" },
   { label: "Engagement", href: "/admin/engagement", icon: LineChart, group: "Analytics" },
+  { label: "Rewards", href: "/admin/rewards", icon: Trophy, group: "Analytics" },
   { label: "AI Activity", href: "/admin/ai-activity", icon: ClipboardCheck, group: "Analytics" },
   { label: "AI Coaching", href: "/admin/ai-coaching", icon: MessageSquareText, group: "Config" },
   { label: "AI Prompts", href: "/admin?tab=ai-prompts", tab: "ai-prompts", icon: BookOpen, group: "Config" },
@@ -238,6 +241,7 @@ export default function AdminShell() {
           <Route path="/admin/ai-activity" component={AdminAiActivity} />
           <Route path="/admin/burnout-calibration" component={AdminBurnoutCalibration} />
           <Route path="/admin/engagement" component={AdminEngagement} />
+          <Route path="/admin/rewards" component={AdminRewards} />
           <Route path="/admin/weekly-checkin-preview" component={AdminWeeklyCheckinPreview} />
           <Route path="/admin/settings" component={AdminSettings} />
           <Route path="/admin/outcome-editor/:id" component={AdminOutcomeEditor} />

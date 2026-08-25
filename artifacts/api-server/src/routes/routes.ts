@@ -10,7 +10,6 @@ import { registerCommunityRoutes } from "../community";
 import { notify, sendWellbeingContactEmail, sendWellbeingTestEmail } from "../notifications";
 import {
   recordEngagementActivity,
-  awardPoints,
   getUserEngagement,
   computeEngagementIndex,
   runEngagementMigration,
@@ -20792,7 +20791,7 @@ Keep your response concise, practical, and evidence-based. This is general guida
   });
 
   // ============================================
-  // ENGAGEMENT FOUNDATION (Points/XP, Streaks, Levels)
+  // ENGAGEMENT FOUNDATION (Streaks + activity log; points/levels retired 25 Aug 2026)
   // ============================================
 
   // Per-user engagement summary for the personal dashboard.
@@ -20944,7 +20943,8 @@ Keep your response concise, practical, and evidence-based. This is general guida
       const me = await storage.getUser(userId);
       if (!me?.isAdmin) return res.status(403).json({ message: "Admin only" });
       const ConfigSchema = z.object({
-        key: z.enum(["activities", "weeklyCaps", "streakBonuses", "levels", "trackActivities"]),
+        // weeklyCaps / streakBonuses / levels were points tunables and are gone.
+        key: z.enum(["activities", "trackActivities"]),
         value: z.any(),
         description: z.string().optional(),
       });

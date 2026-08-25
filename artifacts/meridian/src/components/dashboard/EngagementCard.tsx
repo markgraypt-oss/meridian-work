@@ -1,6 +1,10 @@
+// Streaks card. Points and levels were retired on 25 Aug 2026 — the rewards
+// programme is target-and-draw based and needs no currency, and streaks are
+// the part people actually respond to.
 import { useQuery } from "@tanstack/react-query";
 import { Card, CardContent } from "@/components/ui/card";
-import { Trophy, Flame, Heart, Apple, Activity } from "lucide-react";
+import { Flame, Heart, Apple, Activity } from "lucide-react";
+import { formatDistanceToNow } from "date-fns";
 
 type StreakTrack = "checkin" | "movement" | "recovery" | "nutrition";
 
@@ -12,18 +16,12 @@ interface TrackStreak {
 }
 
 interface EngagementResp {
-  totalPoints: number;
-  weekPoints: number;
-  level: number;
-  levelName: string;
-  nextLevel: { level: number; name: string; minPoints: number } | null;
-  progressToNext: number;
+  weekStart: string;
+  activitiesThisWeek: number;
   streaks: Record<StreakTrack, TrackStreak | null>;
   recentActivity: Array<{
     id: number;
     activityType: string;
-    awardedPoints: number;
-    cappedReason: string | null;
     createdAt: string;
   }>;
 }
@@ -46,11 +44,13 @@ const ACTIVITY_LABEL: Record<string, string> = {
   sleep_log: "Sleep logged",
   hydration_goal: "Hydration goal",
   perfect_week: "Perfect week",
+  readiness_weekly_baseline: "Above baseline week",
 };
 
 function StreakRing({ track, streak }: { track: StreakTrack; streak: TrackStreak | null }) {
   const meta = TRACK_META[track];
   const days = streak?.currentStreak ?? 0;
+  const best = streak?.longestStreak ?? 0;
   const Icon = meta.Icon;
   return (
     <div className="flex flex-col items-center" data-testid={`streak-${track}`}>
@@ -62,6 +62,9 @@ function StreakRing({ track, streak }: { track: StreakTrack; streak: TrackStreak
       </div>
       <p className="text-sm font-semibold text-foreground mt-1">{days}d</p>
       <p className="text-[10px] uppercase tracking-wide text-muted-foreground">{meta.label}</p>
+      {best > days && best > 0 && (
+        <p className="text-[10px] text-muted-foreground/70">best {best}d</p>
+      )}
     </div>
   );
 }
@@ -82,44 +85,25 @@ export default function EngagementCard() {
   }
   if (!data) return null;
 
-  const pct = Math.round((data.progressToNext || 0) * 100);
+  const streakValues = (Object.keys(TRACK_META) as StreakTrack[])
+    .map((t) => data.streaks[t]?.currentStreak ?? 0);
+  const bestActive = Math.max(0, ...streakValues);
 
   return (
     <Card className="bg-card border-border" data-testid="card-engagement">
       <CardContent className="py-5 space-y-5">
         <div className="flex items-center justify-between">
           <div>
-            <p className="text-xs uppercase tracking-wide text-muted-foreground">Level {data.level}</p>
-            <p className="text-lg font-semibold text-foreground" data-testid="text-level-name">
-              {data.levelName}
+            <p className="text-xs uppercase tracking-wide text-muted-foreground">Your streaks</p>
+            <p className="text-lg font-semibold text-foreground" data-testid="text-streak-headline">
+              {bestActive > 0 ? `${bestActive} day${bestActive === 1 ? "" : "s"} going` : "Start one today"}
             </p>
           </div>
           <div className="text-right">
-            <div className="flex items-center gap-1 justify-end">
-              <Trophy className="h-4 w-4 text-[#0cc9a9]" />
-              <p className="text-xl font-bold text-foreground" data-testid="text-week-points">
-                {data.weekPoints.toLocaleString()}
-              </p>
-            </div>
-            <p className="text-[10px] uppercase tracking-wide text-muted-foreground">pts this week</p>
-          </div>
-        </div>
-
-        <div>
-          <div className="h-2 bg-muted rounded-full overflow-hidden">
-            <div
-              className="h-full bg-[#0cc9a9] transition-all"
-              style={{ width: `${pct}%` }}
-              data-testid="progress-next-level"
-            />
-          </div>
-          <div className="flex justify-between text-[11px] text-muted-foreground mt-1">
-            <span>{data.totalPoints.toLocaleString()} total</span>
-            <span>
-              {data.nextLevel
-                ? `${(data.nextLevel.minPoints - data.totalPoints).toLocaleString()} to ${data.nextLevel.name}`
-                : "Max level"}
-            </span>
+            <p className="text-xl font-bold text-foreground" data-testid="text-week-activities">
+              {data.activitiesThisWeek}
+            </p>
+            <p className="text-[10px] uppercase tracking-wide text-muted-foreground">this week</p>
           </div>
         </div>
 
@@ -133,13 +117,13 @@ export default function EngagementCard() {
           <div>
             <p className="text-[10px] uppercase tracking-wide text-muted-foreground mb-1.5">Recent</p>
             <ul className="space-y-1">
-              {data.recentActivity.slice(0, 4).map((tx) => (
-                <li key={tx.id} className="flex items-center justify-between text-xs">
+              {data.recentActivity.slice(0, 4).map((a) => (
+                <li key={a.id} className="flex items-center justify-between text-xs">
                   <span className="text-foreground">
-                    {ACTIVITY_LABEL[tx.activityType] || tx.activityType}
+                    {ACTIVITY_LABEL[a.activityType] || a.activityType}
                   </span>
-                  <span className={tx.awardedPoints > 0 ? "text-[#0cc9a9] font-medium" : "text-muted-foreground"}>
-                    {tx.awardedPoints > 0 ? `+${tx.awardedPoints}` : "0"}
+                  <span className="text-muted-foreground">
+                    {a.createdAt ? formatDistanceToNow(new Date(a.createdAt), { addSuffix: true }) : ""}
                   </span>
                 </li>
               ))}

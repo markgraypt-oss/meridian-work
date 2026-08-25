@@ -37,7 +37,6 @@ import { db } from "./db";
 import {
   checkIns,
   dailyReadinessHistory,
-  pointsTransactions,
   sleepEntries,
   stepEntries,
   userPhysiologicalBaselines,
@@ -45,7 +44,7 @@ import {
   wearableMetricsDaily,
   workoutLogs,
 } from "@workspace/db";
-import { awardPoints } from "./engagementEngine";
+import { logActivity, hasLoggedActivity } from "./engagementEngine";
 import { notify } from "./notifications";
 
 export const MIN_INPUTS_FOR_SCORE = 2;
@@ -1067,27 +1066,23 @@ export async function getTodayForUser(userId: string): Promise<{
 }
 
 /**
- * Award the +100 Points "Above Baseline" weekly reward when the user had
+ * Record the "Above Baseline" weekly milestone when the user had
  * 5+ days last week scoring strictly above their personal 30-day rolling
- * average (computed up to the start of that week). Idempotent — checks for
- * an existing readiness_weekly_baseline transaction for the week.
+ * average (computed up to the start of that week). Idempotent — checks the
+ * engagement activity log for an existing entry for this user+week.
+ *
+ * This used to award +100 points. Points were retired on 25 Aug 2026; the
+ * milestone is still recorded because it is a real user-facing signal, but it
+ * carries no currency. Daily Readiness is Beta and user-only, so this activity
+ * type stays excluded from every company-facing figure.
  */
 export async function maybeAwardWeeklyBaseline(userId: string, weekStartKey: string): Promise<boolean> {
-  // Idempotency: skip if already awarded for this user+week.
-  // Use a typed Drizzle query (not raw SQL) so the result is statically
-  // typed and we don't need any `as any` casts to read row count.
-  const existing = await db
-    .select({ id: pointsTransactions.id })
-    .from(pointsTransactions)
-    .where(
-      and(
-        eq(pointsTransactions.userId, userId),
-        eq(pointsTransactions.activityType, "readiness_weekly_baseline"),
-        sql`(${pointsTransactions.metadata}->>'weekStart') = ${weekStartKey}`,
-      ),
-    )
-    .limit(1);
-  if (existing.length > 0) return false;
+  // Idempotency: skip if this user+week is already in the activity log.
+  // hasLoggedActivity fails CLOSED (returns true on error) so a database
+  // blip can never cause a duplicate weekly record.
+  if (await hasLoggedActivity(userId, "readiness_weekly_baseline", "weekStart", weekStartKey)) {
+    return false;
+  }
 
   const weekStart = startOfLocalDay(weekStartKey);
   const weekEnd = new Date(weekStart.getTime() + 7 * 24 * 60 * 60 * 1000);
@@ -1125,7 +1120,7 @@ export async function maybeAwardWeeklyBaseline(userId: string, weekStartKey: str
   const aboveBaseline = weekRows.filter((r) => (r.score ?? 0) > baseline).length;
   if (aboveBaseline < WEEKLY_REWARD_DAYS_REQUIRED) return false;
 
-  await awardPoints(userId, "readiness_weekly_baseline", {
+  await logActivity(userId, "readiness_weekly_baseline", {
     weekStart: weekStartKey,
     weekEnd: weekEndKey,
     baseline: Math.round(baseline * 10) / 10,

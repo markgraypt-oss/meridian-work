@@ -95,6 +95,12 @@ if (Number.isNaN(port) || port <= 0) {
       startOuraSubscriptionScheduler();
     }).catch((e: any) => logger.error({ e }, "[startup] oura subscription scheduler failed"));
 
+    // Engagement activity log: create it and backfill from the retired
+    // points_transactions ledger if it's empty.
+    import("./engagementEngine").then(({ ensureActivityLogOnce }) => {
+      ensureActivityLogOnce().catch((e: any) => logger.error({ e }, "[startup] activity log ensure failed"));
+    }).catch((e: any) => logger.error({ e }, "[startup] engagement engine import failed"));
+
     import("./rewardsScheduler").then(({ startRewardsScheduler }) => {
       startRewardsScheduler();
     }).catch((e: any) => logger.error({ e }, "[startup] rewards scheduler failed"));

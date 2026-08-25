@@ -1,17 +1,32 @@
 /**
- * Engagement Foundation engine: Points, multi-track Streaks, Levels.
- * All tunables loaded from engagement_config table with defaults seeded on first read.
+ * Engagement Foundation engine: multi-track Streaks + the activity event log.
+ *
+ * POINTS AND LEVELS WERE RETIRED (25 Aug 2026). The Workforce Rewards
+ * programme is target-and-draw based and needs no points currency, and the
+ * old economy was never surfaced anywhere users cared about.
+ *
+ * The subtlety that made this non-trivial: `points_transactions` was doing two
+ * jobs. It was the points ledger AND it was the activity event log that the
+ * company-facing Engagement Index reads (active users, top activities,
+ * participation rate). Deleting the points economy without noticing that would
+ * have silently zeroed a live employer report.
+ *
+ * So the two jobs are now separate. `engagement_activity_log` is a clean event
+ * log — who did what, when — with no currency attached. The Index reads that.
+ * `user_points` / `points_transactions` are no longer written by anything;
+ * their rows are backfilled into the new log on boot and the tables are left
+ * in place (not dropped) so the data survives until you're sure.
+ *
+ * If a points economy ever returns for the consumer/Vitality-catalog model, it
+ * gets its own clean ledger — it does not come back here.
  */
-import { db } from "./db";
+import { db, pool } from "./db";
 import {
   engagementConfig,
-  userPoints,
-  pointsTransactions,
   userTrackStreaks,
-  type UserPoints,
   type UserTrackStreak,
 } from "@workspace/db";
-import { and, eq, gte, sql } from "drizzle-orm";
+import { and, eq, sql } from "drizzle-orm";
 
 export type ActivityType =
   | "daily_checkin"
@@ -29,49 +44,30 @@ export type ActivityType =
 export type StreakTrack = "checkin" | "movement" | "recovery" | "nutrition";
 
 interface ActivityRule {
-  basePoints: number;
-  dailyCap?: number; // max awards per day at full rate (subsequent at curve)
-  curve?: "workout"; // workout: 100% / 50% / 0%
   track?: StreakTrack;
 }
 
 interface EngagementDefaults {
   activities: Record<ActivityType, ActivityRule>;
-  weeklyCaps: { soft1: number; soft1Multiplier: number; soft2: number; soft2Multiplier: number };
-  streakBonuses: Array<{ days: number; multiplier: number }>;
-  levels: Array<{ level: number; name: string; minPoints: number }>;
   trackActivities: Record<StreakTrack, ActivityType[]>;
 }
 
 const DEFAULTS: EngagementDefaults = {
   activities: {
-    daily_checkin: { basePoints: 50, dailyCap: 1, track: "checkin" },
-    weekly_checkin: { basePoints: 200, dailyCap: 1, track: "checkin" },
-    workout: { basePoints: 100, dailyCap: 3, curve: "workout", track: "movement" },
-    meal_log: { basePoints: 20, dailyCap: 3, track: "nutrition" },
-    body_map: { basePoints: 30, dailyCap: 2, track: "movement" },
-    meditation: { basePoints: 15, dailyCap: 4, track: "recovery" },
-    breathwork: { basePoints: 15, dailyCap: 4, track: "recovery" },
-    sleep_log: { basePoints: 15, dailyCap: 1, track: "recovery" },
-    hydration_goal: { basePoints: 10, dailyCap: 1, track: "nutrition" },
-    perfect_week: { basePoints: 150, dailyCap: 1 },
-    // Daily Readiness (Beta): +100 for 5+ days in a week above personal
-    // 30-day rolling average. Awarded weekly by server/dailyReadiness.ts.
-    readiness_weekly_baseline: { basePoints: 100, dailyCap: 1 },
+    daily_checkin: { track: "checkin" },
+    weekly_checkin: { track: "checkin" },
+    workout: { track: "movement" },
+    meal_log: { track: "nutrition" },
+    body_map: { track: "movement" },
+    meditation: { track: "recovery" },
+    breathwork: { track: "recovery" },
+    sleep_log: { track: "recovery" },
+    hydration_goal: { track: "nutrition" },
+    perfect_week: {},
+    // Daily Readiness (Beta) is user-only and stays OUT of every
+    // company-facing figure — see the containment note in computeEngagementIndex.
+    readiness_weekly_baseline: {},
   },
-  weeklyCaps: { soft1: 500, soft1Multiplier: 0.5, soft2: 1000, soft2Multiplier: 0.25 },
-  streakBonuses: [
-    { days: 90, multiplier: 1.5 },
-    { days: 30, multiplier: 1.25 },
-    { days: 7, multiplier: 1.1 },
-  ],
-  levels: [
-    { level: 1, name: "Explorer", minPoints: 0 },
-    { level: 2, name: "Builder", minPoints: 500 },
-    { level: 3, name: "Guardian", minPoints: 2000 },
-    { level: 4, name: "Champion", minPoints: 5000 },
-    { level: 5, name: "Master", minPoints: 12000 },
-  ],
   trackActivities: {
     checkin: ["daily_checkin", "weekly_checkin"],
     movement: ["workout", "body_map"],
@@ -79,6 +75,9 @@ const DEFAULTS: EngagementDefaults = {
     nutrition: ["meal_log", "hydration_goal"],
   },
 };
+
+// Activity types that must never reach a company-facing number.
+const READINESS_EXCLUDED = ["readiness_weekly_baseline"] as const;
 
 let cachedConfig: EngagementDefaults | null = null;
 let cacheLoadedAt = 0;
@@ -90,11 +89,10 @@ export async function getEngagementConfig(): Promise<EngagementDefaults> {
     const rows = await db.select().from(engagementConfig);
     const map: Record<string, any> = {};
     for (const r of rows) map[r.key] = r.value;
+    // Legacy rows for points tunables (weeklyCaps, streakBonuses, levels) may
+    // still exist in engagement_config. They are ignored, not read.
     const merged: EngagementDefaults = {
       activities: { ...DEFAULTS.activities, ...(map.activities || {}) },
-      weeklyCaps: { ...DEFAULTS.weeklyCaps, ...(map.weeklyCaps || {}) },
-      streakBonuses: map.streakBonuses || DEFAULTS.streakBonuses,
-      levels: map.levels || DEFAULTS.levels,
       trackActivities: { ...DEFAULTS.trackActivities, ...(map.trackActivities || {}) },
     };
     cachedConfig = merged;
@@ -125,164 +123,96 @@ function todayStr(): string {
   return new Date().toISOString().split("T")[0];
 }
 
-function pickLevel(totalPoints: number, levels: EngagementDefaults["levels"]): { level: number; name: string } {
-  const sorted = [...levels].sort((a, b) => b.minPoints - a.minPoints);
-  const match = sorted.find((l) => totalPoints >= l.minPoints) || sorted[sorted.length - 1];
-  return { level: match.level, name: match.name };
-}
+// ---- Activity log (the clean replacement for points_transactions) ----
 
-async function ensureUserPoints(userId: string): Promise<UserPoints> {
-  const existing = await db.select().from(userPoints).where(eq(userPoints.userId, userId)).limit(1);
-  if (existing.length > 0) return existing[0];
-  const inserted = await db
-    .insert(userPoints)
-    .values({ userId, totalPoints: 0, weekPoints: 0, weekStart: getWeekStart(), level: 1, levelName: "Explorer" })
-    .returning();
-  return inserted[0];
-}
+let hasEnsuredLog = false;
 
-async function getActivityCountToday(userId: string, activityType: ActivityType): Promise<number> {
-  const today = todayStr();
-  const result = await db.execute(sql`
-    SELECT COUNT(*)::int AS c
-    FROM points_transactions
-    WHERE user_id = ${userId}
-      AND activity_type = ${activityType}
-      AND DATE(created_at) = ${today}::date
-  `);
-  const row = (result as any).rows?.[0] || (result as any)[0];
-  return row ? Number(row.c) : 0;
-}
+export async function ensureActivityLogOnce(): Promise<void> {
+  if (hasEnsuredLog) return;
+  hasEnsuredLog = true;
+  try {
+    await pool.query(
+      `CREATE TABLE IF NOT EXISTS engagement_activity_log (
+         id serial PRIMARY KEY,
+         user_id varchar NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+         activity_type text NOT NULL,
+         metadata jsonb,
+         created_at timestamp NOT NULL DEFAULT now()
+       )`
+    );
+    await pool.query(
+      `CREATE INDEX IF NOT EXISTS engagement_activity_user_time_idx
+         ON engagement_activity_log (user_id, created_at DESC)`
+    );
+    await pool.query(
+      `CREATE INDEX IF NOT EXISTS engagement_activity_type_time_idx
+         ON engagement_activity_log (activity_type, created_at)`
+    );
 
-function workoutMultiplier(countToday: number): { mult: number; reason: string | null } {
-  // 1st full, 2nd 50%, 3rd+ 0%
-  if (countToday === 0) return { mult: 1, reason: null };
-  if (countToday === 1) return { mult: 0.5, reason: "workout_2nd" };
-  return { mult: 0, reason: "workout_3rd_plus" };
-}
-
-function dailyCapMultiplier(countToday: number, cap: number): { mult: number; reason: string | null } {
-  return countToday < cap ? { mult: 1, reason: null } : { mult: 0, reason: "daily_cap" };
-}
-
-function pickStreakBonus(currentStreak: number, bonuses: EngagementDefaults["streakBonuses"]): number {
-  for (const b of bonuses) {
-    if (currentStreak >= b.days) return b.multiplier;
+    // One-time backfill so the Engagement Index keeps its history. Guarded by
+    // emptiness rather than a flag table: if the log has any row, a backfill
+    // has already happened (or real traffic has started) and we leave it alone.
+    const existing = await pool.query(`SELECT 1 FROM engagement_activity_log LIMIT 1`);
+    if (existing.rowCount === 0) {
+      const copied = await pool.query(
+        `INSERT INTO engagement_activity_log (user_id, activity_type, metadata, created_at)
+         SELECT user_id, activity_type, metadata, created_at
+         FROM points_transactions`
+      );
+      console.log(`[ENGAGEMENT] activity log backfilled from points_transactions: ${copied.rowCount} row(s)`);
+    }
+    console.log("[ENGAGEMENT] activity log ready");
+  } catch (e: any) {
+    // points_transactions may already be gone on a future install — that's fine.
+    console.error("[ENGAGEMENT] activity log ensure failed:", e?.message || e);
   }
-  return 1;
 }
 
-function weeklyCapMultiplier(weekPoints: number, caps: EngagementDefaults["weeklyCaps"]): { mult: number; reason: string | null } {
-  if (weekPoints >= caps.soft2) return { mult: caps.soft2Multiplier, reason: `weekly_soft_cap_${caps.soft2}` };
-  if (weekPoints >= caps.soft1) return { mult: caps.soft1Multiplier, reason: `weekly_soft_cap_${caps.soft1}` };
-  return { mult: 1, reason: null };
-}
-
-export interface AwardResult {
-  awarded: number;
-  basePoints: number;
-  multiplier: number;
-  cappedReason: string | null;
-  newTotal: number;
-  newWeekTotal: number;
-  level: number;
-  levelName: string;
-  leveledUp: boolean;
-}
-
-/**
- * Award points for an activity. Idempotency is the caller's responsibility — call once per
- * persisted activity. Background-safe: never throws.
- */
-export async function awardPoints(
+/** Record that an activity happened. No currency, no caps, no multipliers. */
+export async function logActivity(
   userId: string,
   activityType: ActivityType,
   metadata?: Record<string, any>,
-): Promise<AwardResult | null> {
+): Promise<void> {
   try {
-    const cfg = await getEngagementConfig();
-    const rule = cfg.activities[activityType];
-    if (!rule) {
-      console.warn(`[ENGAGEMENT] Unknown activity ${activityType}`);
-      return null;
-    }
-
-    const countToday = await getActivityCountToday(userId, activityType);
-
-    // Per-activity cap / curve
-    const capRes = rule.curve === "workout"
-      ? workoutMultiplier(countToday)
-      : dailyCapMultiplier(countToday, rule.dailyCap ?? Infinity);
-
-    const up = await ensureUserPoints(userId);
-    const currentWeek = getWeekStart();
-    const weekPoints = up.weekStart === currentWeek ? up.weekPoints : 0;
-
-    // Streak multiplier (use track's streak if track defined, else 1)
-    let streakMult = 1;
-    let trackStreakDays = 0;
-    if (rule.track) {
-      const trackRows = await db
-        .select()
-        .from(userTrackStreaks)
-        .where(and(eq(userTrackStreaks.userId, userId), eq(userTrackStreaks.track, rule.track)))
-        .limit(1);
-      trackStreakDays = trackRows[0]?.currentStreak ?? 0;
-      streakMult = pickStreakBonus(trackStreakDays, cfg.streakBonuses);
-    }
-
-    const weeklyRes = weeklyCapMultiplier(weekPoints, cfg.weeklyCaps);
-
-    const combinedMult = capRes.mult * streakMult * weeklyRes.mult;
-    const awarded = Math.round(rule.basePoints * combinedMult);
-    const cappedReason = capRes.reason || weeklyRes.reason;
-
-    // Always record the transaction (even 0-point ones, for transparency)
-    await db.insert(pointsTransactions).values({
-      userId,
-      activityType,
-      basePoints: rule.basePoints,
-      multiplier: combinedMult,
-      awardedPoints: awarded,
-      cappedReason: cappedReason ?? null,
-      metadata: metadata ?? null,
-    });
-
-    const newTotal = (up.totalPoints || 0) + awarded;
-    const newWeek = weekPoints + awarded;
-    const oldLevel = up.level;
-    const lvl = pickLevel(newTotal, cfg.levels);
-
-    await db
-      .update(userPoints)
-      .set({
-        totalPoints: newTotal,
-        weekPoints: newWeek,
-        weekStart: currentWeek,
-        level: lvl.level,
-        levelName: lvl.name,
-        updatedAt: new Date(),
-      })
-      .where(eq(userPoints.userId, userId));
-
-    return {
-      awarded,
-      basePoints: rule.basePoints,
-      multiplier: combinedMult,
-      cappedReason,
-      newTotal,
-      newWeekTotal: newWeek,
-      level: lvl.level,
-      levelName: lvl.name,
-      leveledUp: lvl.level > oldLevel,
-    };
+    await ensureActivityLogOnce();
+    await pool.query(
+      `INSERT INTO engagement_activity_log (user_id, activity_type, metadata)
+       VALUES ($1, $2, $3)`,
+      [userId, activityType, metadata ? JSON.stringify(metadata) : null]
+    );
   } catch (err: any) {
-    console.error(`[ENGAGEMENT] awardPoints failed user=${userId} type=${activityType}:`, err?.message);
-    return null;
+    // Background-safe: an engagement log write must never break the user's action.
+    console.error(`[ENGAGEMENT] logActivity failed user=${userId} type=${activityType}:`, err?.message);
   }
 }
 
-/** Update one of the four track streaks. Same daily-deduplication pattern as legacy streak. */
+/** Has this activity+metadata-key already been logged? Used for weekly idempotency. */
+export async function hasLoggedActivity(
+  userId: string,
+  activityType: ActivityType,
+  metadataKey: string,
+  metadataValue: string,
+): Promise<boolean> {
+  try {
+    await ensureActivityLogOnce();
+    const r = await pool.query(
+      `SELECT 1 FROM engagement_activity_log
+       WHERE user_id = $1 AND activity_type = $2 AND metadata->>$3 = $4
+       LIMIT 1`,
+      [userId, activityType, metadataKey, metadataValue]
+    );
+    return (r.rowCount ?? 0) > 0;
+  } catch (err: any) {
+    console.error(`[ENGAGEMENT] hasLoggedActivity failed user=${userId}:`, err?.message);
+    // Fail closed: treat an error as "already done" so we never double-award.
+    return true;
+  }
+}
+
+// ---- Streaks (preserved — badges and the Index depend on these) ----
+
+/** Update one of the four track streaks. Daily-deduplicated. */
 export async function updateTrackStreak(userId: string, track: StreakTrack): Promise<UserTrackStreak | null> {
   try {
     const today = todayStr();
@@ -323,7 +253,11 @@ export async function updateTrackStreak(userId: string, track: StreakTrack): Pro
   }
 }
 
-/** Record both: per-track streak update AND points award. Convenience wrapper called from routes. */
+/**
+ * Record an activity: update its track streak and write the event log.
+ * Called from ~11 places in routes.ts. Signature unchanged from the points era
+ * so every call site keeps working.
+ */
 export async function recordEngagementActivity(
   userId: string,
   activityType: ActivityType,
@@ -334,14 +268,12 @@ export async function recordEngagementActivity(
   if (rule?.track) {
     await updateTrackStreak(userId, rule.track);
   }
-  await awardPoints(userId, activityType, metadata);
+  await logActivity(userId, activityType, metadata);
 }
 
 export async function getUserEngagement(userId: string) {
-  const cfg = await getEngagementConfig();
-  const up = await ensureUserPoints(userId);
+  await ensureActivityLogOnce();
   const currentWeek = getWeekStart();
-  const weekPoints = up.weekStart === currentWeek ? up.weekPoints : 0;
 
   const tracks = await db.select().from(userTrackStreaks).where(eq(userTrackStreaks.userId, userId));
   const trackMap: Record<StreakTrack, UserTrackStreak | null> = {
@@ -349,36 +281,40 @@ export async function getUserEngagement(userId: string) {
   };
   for (const t of tracks) trackMap[t.track as StreakTrack] = t;
 
-  const recentTx = await db
-    .select()
-    .from(pointsTransactions)
-    .where(eq(pointsTransactions.userId, userId))
-    .orderBy(sql`${pointsTransactions.createdAt} DESC`)
-    .limit(10);
+  const recent = await pool.query(
+    `SELECT id, activity_type AS "activityType", metadata, created_at AS "createdAt"
+     FROM engagement_activity_log
+     WHERE user_id = $1
+     ORDER BY created_at DESC
+     LIMIT 10`,
+    [userId]
+  );
 
-  // Next-level info
-  const sortedLevels = [...cfg.levels].sort((a, b) => a.minPoints - b.minPoints);
-  const nextLevel = sortedLevels.find((l) => l.minPoints > up.totalPoints);
-  const currentLevelDef = sortedLevels.filter((l) => l.minPoints <= up.totalPoints).pop() ?? sortedLevels[0];
+  const weekCount = await pool.query(
+    `SELECT COUNT(*)::int AS c
+     FROM engagement_activity_log
+     WHERE user_id = $1 AND created_at >= ($2 || ' 00:00:00')::timestamp`,
+    [userId, currentWeek]
+  );
 
   return {
-    totalPoints: up.totalPoints,
-    weekPoints,
     weekStart: currentWeek,
-    level: up.level,
-    levelName: up.levelName,
-    nextLevel: nextLevel ? { level: nextLevel.level, name: nextLevel.name, minPoints: nextLevel.minPoints } : null,
-    progressToNext: nextLevel
-      ? Math.min(1, (up.totalPoints - currentLevelDef.minPoints) / (nextLevel.minPoints - currentLevelDef.minPoints))
-      : 1,
+    activitiesThisWeek: Number(weekCount.rows[0]?.c ?? 0),
     streaks: trackMap,
-    recentActivity: recentTx,
+    recentActivity: recent.rows,
   };
 }
 
 /**
- * Compute Engagement Index for a cohort (admin reports).
- * Returns null when cohort < minCohortSize for k-anonymity.
+ * Compute the Engagement Index for a cohort (admin reports).
+ * Returns null when the cohort is below minCohortSize for k-anonymity.
+ *
+ * CONTAINMENT: Daily Readiness (Beta, user-only) is excluded from every
+ * company-facing input — the active-user count and the top-activities
+ * breakdown. A user whose ONLY activity in-window is a readiness reward must
+ * not count toward `activeUsers`. (The old points-subtraction machinery here
+ * existed only to stop readiness inflating levels; with points gone, the
+ * exclusion is just this filter.)
  */
 export async function computeEngagementIndex(
   userIds: string[],
@@ -387,117 +323,52 @@ export async function computeEngagementIndex(
   minCohortSize: number,
 ): Promise<{
   cohortSize: number;
-  avgWeekPoints: number;
-  avgLevel: number;
   activeUsers: number;
   participationRate: number;
+  avgActivitiesPerActiveUser: number;
   topActivities: Array<{ activityType: string; count: number }>;
   avgStreaks: Record<StreakTrack, number>;
 } | null> {
   if (userIds.length < minCohortSize) return null;
+  await ensureActivityLogOnce();
 
-  // node-postgres expands a plain array interpolation into a parenthesised
-  // tuple, which breaks `= ANY(...)::varchar[]`. Build a proper ARRAY[] literal.
-  const idArray = sql`ARRAY[${sql.join(userIds.map((i) => sql`${i}`), sql`, `)}]::varchar[]`;
-
-  // CONTAINMENT: Daily Readiness (Beta, User-Only) is strictly excluded
-  // from every company-facing Engagement Index input. We exclude its
-  // activity type from:
-  //   - the active-users-in-window count
-  //   - the per-user weekly points sum
-  //   - the per-user lifetime points sum (so derived level is unaffected)
-  //   - the top-activities cohort breakdown
-  // A user whose ONLY activity in-window is a readiness reward must not
-  // count toward `activeUsers`.
-  const READINESS_EXCLUDED = ["readiness_weekly_baseline"] as const;
-
-  // Active users in window (had any non-readiness points tx).
-  const activeRes = await db.execute(sql`
-    SELECT COUNT(DISTINCT user_id)::int AS c
-    FROM points_transactions
-    WHERE user_id = ANY(${idArray})
-      AND created_at >= ${startDate}
-      AND created_at <= ${endDate}
-      AND activity_type NOT IN ('readiness_weekly_baseline')
-  `);
-  const activeRows = (activeRes as unknown as { rows?: Array<{ c: number }> }).rows ?? [];
-  const activeUsers = Number(activeRows[0]?.c ?? 0);
+  const activeRes = await pool.query(
+    `SELECT COUNT(DISTINCT user_id)::int AS active,
+            COUNT(*)::int                AS total
+     FROM engagement_activity_log
+     WHERE user_id = ANY($1::varchar[])
+       AND created_at >= $2 AND created_at <= $3
+       AND activity_type <> ALL($4::text[])`,
+    [userIds, startDate, endDate, READINESS_EXCLUDED as unknown as string[]]
+  );
+  const activeUsers = Number(activeRes.rows[0]?.active ?? 0);
+  const totalActivities = Number(activeRes.rows[0]?.total ?? 0);
   if (activeUsers < minCohortSize) return null;
 
-  // Per-user readiness contributions to subtract from user_points totals.
-  // weekStart on user_points is the Monday of the current week, so "this
-  // week's" readiness points = sum of awarded_points where created_at >=
-  // that weekStart. Lifetime readiness = all-time sum per user.
-  const readinessRes = await db.execute(sql`
-    SELECT
-      pt.user_id AS user_id,
-      COALESCE(SUM(pt.awarded_points), 0)::int AS lifetime,
-      COALESCE(SUM(CASE
-        WHEN up.week_start IS NOT NULL
-         AND pt.created_at >= (up.week_start || ' 00:00:00')::timestamp
-        THEN pt.awarded_points ELSE 0 END), 0)::int AS this_week
-    FROM points_transactions pt
-    LEFT JOIN user_points up ON up.user_id = pt.user_id
-    WHERE pt.user_id = ANY(${idArray})
-      AND pt.activity_type IN ('readiness_weekly_baseline')
-    GROUP BY pt.user_id
-  `);
-  const readinessRows =
-    (readinessRes as unknown as { rows?: Array<{ user_id: string; lifetime: number; this_week: number }> })
-      .rows ?? [];
-  const readinessByUser = new Map<string, { lifetime: number; thisWeek: number }>();
-  for (const r of readinessRows) {
-    readinessByUser.set(r.user_id, { lifetime: Number(r.lifetime), thisWeek: Number(r.this_week) });
-  }
-
-  const upRows = await db
-    .select()
-    .from(userPoints)
-    .where(sql`${userPoints.userId} = ANY(${idArray})`);
-
-  // Recompute level from (totalPoints - readiness lifetime) using the
-  // same engagement config so readiness rewards never inflate avgLevel.
-  const cfg = await getEngagementConfig();
-  const adjusted = upRows.map((r) => {
-    const r0 = readinessByUser.get(r.userId) ?? { lifetime: 0, thisWeek: 0 };
-    const adjTotal = Math.max(0, (r.totalPoints || 0) - r0.lifetime);
-    const adjWeek = Math.max(0, (r.weekPoints || 0) - r0.thisWeek);
-    const lvl = pickLevel(adjTotal, cfg.levels);
-    return { weekPoints: adjWeek, level: lvl.level };
-  });
-  const avgWeekPoints = adjusted.length > 0
-    ? Math.round(adjusted.reduce((s, r) => s + r.weekPoints, 0) / adjusted.length)
-    : 0;
-  const avgLevel = adjusted.length > 0
-    ? Math.round((adjusted.reduce((s, r) => s + r.level, 0) / adjusted.length) * 10) / 10
-    : 1;
-
-  // Top activities cohort tile — also excludes readiness.
-  const txRes = await db.execute(sql`
-    SELECT activity_type, COUNT(*)::int AS c
-    FROM points_transactions
-    WHERE user_id = ANY(${idArray})
-      AND created_at >= ${startDate}
-      AND created_at <= ${endDate}
-      AND activity_type NOT IN ('readiness_weekly_baseline')
-    GROUP BY activity_type
-    ORDER BY c DESC
-    LIMIT 5
-  `);
-  const txRows = (txRes as unknown as { rows?: Array<{ activity_type: string; c: number }> }).rows ?? [];
-  const topActivities = txRows.map((r) => ({
+  const txRes = await pool.query(
+    `SELECT activity_type, COUNT(*)::int AS c
+     FROM engagement_activity_log
+     WHERE user_id = ANY($1::varchar[])
+       AND created_at >= $2 AND created_at <= $3
+       AND activity_type <> ALL($4::text[])
+     GROUP BY activity_type
+     ORDER BY c DESC
+     LIMIT 5`,
+    [userIds, startDate, endDate, READINESS_EXCLUDED as unknown as string[]]
+  );
+  const topActivities = txRes.rows.map((r: any) => ({
     activityType: r.activity_type,
     count: Number(r.c),
   }));
-  // Defensive invariant: readiness must never appear in topActivities.
-  if (topActivities.some((a) => READINESS_EXCLUDED.includes(a.activityType as typeof READINESS_EXCLUDED[number]))) {
+  // Defensive invariant: readiness must never appear in a company-facing list.
+  if (topActivities.some((a) => (READINESS_EXCLUDED as readonly string[]).includes(a.activityType))) {
     throw new Error("[readiness-containment] readiness activity leaked into Engagement Index topActivities");
   }
 
   const trackRows = await db
     .select()
     .from(userTrackStreaks)
-    .where(sql`${userTrackStreaks.userId} = ANY(${idArray})`);
+    .where(sql`${userTrackStreaks.userId} = ANY(${sql`ARRAY[${sql.join(userIds.map((i) => sql`${i}`), sql`, `)}]::varchar[]`})`);
   const trackTotals: Record<StreakTrack, { sum: number; n: number }> = {
     checkin: { sum: 0, n: 0 }, movement: { sum: 0, n: 0 },
     recovery: { sum: 0, n: 0 }, nutrition: { sum: 0, n: 0 },
@@ -509,36 +380,32 @@ export async function computeEngagementIndex(
       trackTotals[k].n += 1;
     }
   }
-  const avgStreaks: Record<StreakTrack, number> = {
-    checkin: trackTotals.checkin.n ? Math.round((trackTotals.checkin.sum / trackTotals.checkin.n) * 10) / 10 : 0,
-    movement: trackTotals.movement.n ? Math.round((trackTotals.movement.sum / trackTotals.movement.n) * 10) / 10 : 0,
-    recovery: trackTotals.recovery.n ? Math.round((trackTotals.recovery.sum / trackTotals.recovery.n) * 10) / 10 : 0,
-    nutrition: trackTotals.nutrition.n ? Math.round((trackTotals.nutrition.sum / trackTotals.nutrition.n) * 10) / 10 : 0,
-  };
+  const avg = (x: { sum: number; n: number }) => (x.n ? Math.round((x.sum / x.n) * 10) / 10 : 0);
 
   return {
     cohortSize: userIds.length,
-    avgWeekPoints,
-    avgLevel,
     activeUsers,
     participationRate: Math.round((activeUsers / userIds.length) * 1000) / 10,
+    avgActivitiesPerActiveUser: activeUsers > 0 ? Math.round((totalActivities / activeUsers) * 10) / 10 : 0,
     topActivities,
-    avgStreaks,
+    avgStreaks: {
+      checkin: avg(trackTotals.checkin),
+      movement: avg(trackTotals.movement),
+      recovery: avg(trackTotals.recovery),
+      nutrition: avg(trackTotals.nutrition),
+    },
   };
 }
 
 /**
- * Idempotent migration: marks existing badges as 'legacy', seeds Check-in track streak from
- * users.currentStreak, awards a one-time "Founding Member" badge to all existing users.
- * Safe to run multiple times.
+ * Idempotent migration: tags existing badges as 'legacy' and seeds the Check-in
+ * track streak from users.currentStreak. Safe to run repeatedly.
+ * (The old step that created user_points rows is gone with the points economy.)
  */
 export async function runEngagementMigration(): Promise<{
   legacyBadgesTagged: number;
   trackStreaksSeeded: number;
-  pointsRowsCreated: number;
 }> {
-  // 1. Tag all currently-active badges as legacy if they haven't been re-tagged yet.
-  //    (Admin will explicitly mark new gamified badges with collection='current'.)
   const tagRes = await db.execute(sql`
     UPDATE badges
     SET collection = 'legacy'
@@ -548,7 +415,6 @@ export async function runEngagementMigration(): Promise<{
   `);
   const legacyBadgesTagged = ((tagRes as any).rows || tagRes as any).length || 0;
 
-  // 2. Seed Check-in track streak from existing users.current_streak.
   const usersWithStreaks = await db.execute(sql`
     SELECT id, current_streak, longest_streak, last_streak_activity_date
     FROM users
@@ -575,16 +441,5 @@ export async function runEngagementMigration(): Promise<{
     }
   }
 
-  // 3. Create user_points rows for any user that doesn't have one yet.
-  const created = await db.execute(sql`
-    INSERT INTO user_points (user_id, total_points, week_points, week_start, level, level_name, updated_at)
-    SELECT u.id, 0, 0, ${getWeekStart()}, 1, 'Explorer', NOW()
-    FROM users u
-    LEFT JOIN user_points up ON up.user_id = u.id
-    WHERE up.user_id IS NULL
-    RETURNING user_id
-  `);
-  const pointsRowsCreated = ((created as any).rows || created as any).length || 0;
-
-  return { legacyBadgesTagged, trackStreaksSeeded, pointsRowsCreated };
+  return { legacyBadgesTagged, trackStreaksSeeded };
 }

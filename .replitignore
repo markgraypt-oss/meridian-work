@@ -12,3 +12,28 @@
 
 # Build-time source assets — already bundled into dist by the build step.
 attached_assets
+
+# Legacy media (~3.4 GB). These are NOT served in production and never have
+# been: under the previous Autoscale target they were excluded from the build
+# entirely, which is exactly why restoreRecipeImagesFromUploadsOnce() exists to
+# copy them into Object Storage. The deploymentTarget is now "gce", which ships
+# the whole filesystem, so they were being pushed on every publish for nothing
+# and took the Repl layer over the size it can push.
+#
+# The express.static mounts on /uploads and /videos keep working: they resolve
+# to nothing in production (as before), and every multer write destination
+# does mkdirSync(recursive) so uploads still work.
+#
+# ROOT-LEVEL ONLY. This must not match dist/public — that is the built
+# frontend and excluding it would serve a blank site.
+/uploads
+/public
+
+# Build cache, regenerated on every install.
+.cache
+
+# Defensive: whatever matches above, the build output must always ship.
+# dist/public IS the site. Later patterns win in .dockerignore, so these
+# exceptions guarantee it survives.
+!dist
+!dist/**

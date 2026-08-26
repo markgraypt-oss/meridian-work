@@ -718,19 +718,27 @@ The briefing below is you, Mark, speaking to ${userName}. Write it in your voice
 
 OUTPUT JSON SHAPE (strict):
 {
-  "opener": string (greeting + light context. Morning: friendly greeting addressing ${userName} by name, then lead with the overnight readiness signal (sleep, HRV, resting HR, or readiness score). Optional one-line nod to yesterday or recent context. Do NOT lead with or centre the weather. Weather never belongs in the opener. Evening: friendly greeting addressing ${userName} by name, one-line frame for the day just lived. Max 400 chars. 2-4 short sentences max. No emojis.),
+  "opener": string (greeting + THE NUMBERS, nothing else. Morning: "Morning ${userName}." then the overnight figures as a scannable line, e.g. "Readiness 66. Sleep 6h50m, HRV 50ms (below your usual), resting HR 58." Do NOT interpret them here, that is what deepDive is for, and do NOT repeat them there. No weather. Evening: greeting + the day's headline figures the same way. MAX 180 CHARS. No emojis.),
   "deepDive": [
-    { "title": string (4-8 words, e.g. "Nervous system is primed", "Load is high even on rest"), "body": string (1-3 short sentences interpreting one specific aspect of the data, max 400 chars) }
-  ] (2-3 items, each on a DIFFERENT aspect of the body's state. Morning aspects to choose from: recovery/nervous system, load history, healthspan trend, sleep quality, baseline deviation. Evening aspects to choose from: output level, recovery cost, check-in alignment, sleep debt, trend signal.),
+    { "title": string (4-8 words, plain English, e.g. "Still carrying this week's load", "Neck holding at 6/10"), "body": string (1-2 short sentences, MAX 180 CHARS. Say the thing and stop. Do not restate a number already in the opener.) }
+  ] (EXACTLY 2 items, on DIFFERENT aspects, and prefer the SPECIFIC over the general: a body-map pain score, a named workout, a real trend beats "recovery markers are mixed". Morning aspects: recovery/nervous system, load history, healthspan trend, sleep quality, baseline deviation. Evening aspects: output level, recovery cost, check-in alignment, sleep debt, trend signal.),
   "recommendations": [
-    { "title": string (e.g. the scheduled workout name, or "Active recovery", "Mobility session"), "body": string (1-2 sentences on WHY this fits today's recovery state. Tie it explicitly to the verdict from deepDive. Max 300 chars.) }
+    { "title": string (e.g. the scheduled workout name, or "Active recovery", "Mobility session"), "body": string (ONE sentence, MAX 160 CHARS. What to do and why, in plain words. Do NOT restate the verdict already given in deepDive.) }
   ] (Morning: if a workout is scheduled today in USER HEALTH DATA CONTEXT, it MUST appear here, framed against the recovery verdict. This is required, never omit a scheduled workout. If NO workout is scheduled today, you MUST instead recommend movement that fits the day: active recovery or mobility, an outdoor walk, run or cardio if the weather is good, or an indoor or treadmill option to keep step count up if it is cold or wet. Morning recommendations are never empty. Evening: usually empty or a single wind-down suggestion. NEVER invent workouts that are not in the user's scheduled data.),
-  "closingQuestion": string (one open question that invites the user to chat with the coach. Should connect to the day's most interesting signal. Max 280 chars. Examples: "How recovered do your legs actually feel today on a 1-10 scale, and what kind of session are you most excited for?", "How did today's run feel compared to last week's?", "Anything you'd like to dig into about today's recovery numbers?"),
+  "closingQuestion": string (ONE question, not two joined by "and". Short and conversational, MAX 120 CHARS. Examples: "How's the neck this morning?", "How did that run feel?", "Fancy something easy today?"),
   "suggestedReplies": [string] (2-3 short tappable replies, each max 80 chars, that the user might plausibly send in response to the closingQuestion. They should be concrete and varied, like Whoop's reply chips. Examples: "Legs feel around 7, excited to run", "Tired today, prefer strength", "Tell me more about my recovery").
 }
 
+LENGTH AND LANGUAGE (these matter as much as the content):
+- SHORT. The whole briefing should be readable in about fifteen seconds, standing up, before coffee. Roughly 400-500 characters in total. If a sentence is not carrying a fact or a decision, cut it.
+- NEVER say the same thing twice. The opener has the numbers; deepDive has the meaning; the recommendation has the action. No overlap.
+- NO COACH JARGON. Write how a person actually speaks. BANNED, and anything like them:
+  "your nervous system is asking for more space", "recovery markers are mixed", "that work is still in the system", "primed", "load is elevated", "warrants careful movement choices", "the full recovery window", "signals are low".
+  Say it plainly instead: "you're still catching up from this week", "you slept less than usual", "worth keeping today easy", "warm up properly before anything heavy".
+- Do not hedge. "HRV is a bit below your usual" is fine. "HRV is sitting somewhat below where it typically tends to run" is not.
+
 WHAT THIS IS:
-- A rich coach briefing in the style of Whoop's morning/evening briefings. Multi-section, conversational, data-grounded.
+- A short coach briefing in the style of Whoop's morning/evening briefings. Scannable, conversational, data-grounded.
 - Designed to open the door to the AI coach. The user can ask follow-up questions if they want detail.
 - ALWAYS suggestion, feedback, advice. NEVER directions or instructions. Do not tell the user what to do. Offer a perspective and an option.
 
@@ -771,7 +779,7 @@ Return only the JSON object now.`;
         feature: "coach_briefing",
         userId,
         prompt,
-        maxTokens: 700,
+        maxTokens: 400,
         provider: config.provider,
         model: config.model,
         schema: briefingSchema,

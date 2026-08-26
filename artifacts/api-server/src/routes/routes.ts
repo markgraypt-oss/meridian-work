@@ -5810,7 +5810,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         : 'in_progress';
 
       // Find an existing row for this session, or make one.
-      const [existing] = await db
+      let [existing] = await db
         .select()
         .from(workoutLogs)
         .where(eq(workoutLogs.clientSessionId, clientSessionId))
@@ -5818,6 +5818,24 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       if (existing && existing.userId !== userId) {
         return res.status(403).json({ message: "Not authorized" });
+      }
+
+      // ADOPTION. A custom WOD is created server-side as 'pending' when it is
+      // built, then started later. Starting it offline means the phone owns the
+      // session from that point on — but it must become THAT row, not a second
+      // one, or syncing would strand the original as pending next to a duplicate
+      // of the same workout. Claim the row by stamping the device's session id
+      // on it; from then on the normal clientSessionId lookup finds it.
+      if (!existing && doc.adoptLogId) {
+        const adoptId = parseInt(String(doc.adoptLogId), 10);
+        if (Number.isFinite(adoptId)) {
+          const candidate = await storage.getWorkoutLogById(adoptId);
+          if (candidate && candidate.userId === userId && !candidate.clientSessionId) {
+            await storage.updateWorkoutLog(adoptId, { clientSessionId } as any);
+            const adopted = await storage.getWorkoutLogById(adoptId);
+            if (adopted) existing = adopted as typeof existing;
+          }
+        }
       }
 
       const startedAt = doc.startedAt ? new Date(doc.startedAt) : new Date();

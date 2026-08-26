@@ -152,6 +152,21 @@ export async function ensureBriefingConversation(
   return conversation.id;
 }
 
+/** Floor on how often a briefing may be regenerated, however much its inputs
+ *  drift. Without it, every view regenerated — see the note in the drift check. */
+const MIN_REGENERATE_INTERVAL_MS = 30 * 60 * 1000;
+
+/**
+ * When each briefing was last GENERATED, keyed userId:dateKey:type.
+ *
+ * Deliberately in memory rather than a column: coach_briefings has only
+ * createdAt, and a regeneration updates the row in place, so createdAt goes
+ * stale and a floor built on it would stop working after the first half hour.
+ * A restart forgives at most one extra regeneration per briefing, which is
+ * nothing next to the per-view regeneration this replaces.
+ */
+const lastGeneratedAt = new Map<string, number>();
+
 export async function getOrGenerateBriefing(
   userId: string,
   type: BriefingType,
@@ -215,6 +230,24 @@ export async function getOrGenerateBriefing(
     ) {
       return existing;
     }
+
+    // MINIMUM REGENERATION INTERVAL. The drift check above is right in
+    // principle - copy must never quote a number the app no longer shows - but
+    // on its own it had no floor, and the `inflight` lock below only dedupes
+    // CONCURRENT requests. HealthKit background delivery moves today's activity
+    // row hourly and readiness recomputes on demand, so something had almost
+    // always drifted: every open of the coach view regenerated. One user, one
+    // day: 41 calls, ~208k tokens, where the design expects about two.
+    //
+    // 30 minutes is well inside the window where stale copy would be noticed
+    // (the briefing is read once or twice a day) and turns a per-view cost into
+    // a per-half-hour ceiling.
+    const floorKey = `${userId}:${dateKey}:${type}`;
+    const lastGen = lastGeneratedAt.get(floorKey)
+      ?? ((existing as any).createdAt ? new Date((existing as any).createdAt).getTime() : null);
+    if (lastGen != null && Date.now() - lastGen < MIN_REGENERATE_INTERVAL_MS) {
+      return existing;
+    }
     // Fall through to regeneration. The lock below covers concurrent
     // dashboard requests so we only regenerate once.
   }
@@ -224,7 +257,9 @@ export async function getOrGenerateBriefing(
 
   const work = (async () => {
     try {
-      return await generateAndStoreBriefing(userId, type, dateKey, !!existing, userTz);
+      const result = await generateAndStoreBriefing(userId, type, dateKey, !!existing, userTz);
+      lastGeneratedAt.set(lockKey, Date.now());
+      return result;
     } finally {
       inflight.delete(lockKey);
     }

@@ -215,6 +215,21 @@ export async function getOrGenerateBriefing(
   // prior days stay strict. Evening quotes today's activity, so it stays
   // fully strict. Do NOT loosen the remaining comparisons.
   if (existing && (existing as any).source !== "fallback") {
+    // ONCE READ, FROZEN. A briefing is a MESSAGE, not a live dashboard: it is
+    // compiled at the moment it is sent and it says what was true then. Nobody
+    // expects a message they have already read to quietly rewrite itself, and
+    // the evening briefing in particular quotes today's activity, which keeps
+    // moving all evening - so "keep it in sync" meant regenerating it every
+    // time the user opened the app. That was most of the 41 calls in a day.
+    //
+    // The drift check below therefore only applies while the briefing is still
+    // UNREAD, where it is genuinely needed: a 06:30 morning briefing can be
+    // written before HealthKit has delivered last night's sleep, and without
+    // this it would quote nothing useful and never correct itself.
+    if ((existing as any).readAt) {
+      return existing;
+    }
+
     const stored = existing.contextSnapshot as BriefingContextSnapshot | null;
     const fresh = await buildContextSnapshot(userId);
     // Regenerate when ANY user-visible input the briefing quotes has changed —
@@ -231,17 +246,11 @@ export async function getOrGenerateBriefing(
       return existing;
     }
 
-    // MINIMUM REGENERATION INTERVAL. The drift check above is right in
-    // principle - copy must never quote a number the app no longer shows - but
-    // on its own it had no floor, and the `inflight` lock below only dedupes
-    // CONCURRENT requests. HealthKit background delivery moves today's activity
-    // row hourly and readiness recomputes on demand, so something had almost
-    // always drifted: every open of the coach view regenerated. One user, one
-    // day: 41 calls, ~208k tokens, where the design expects about two.
-    //
-    // 30 minutes is well inside the window where stale copy would be noticed
-    // (the briefing is read once or twice a day) and turns a per-view cost into
-    // a per-half-hour ceiling.
+    // Backstop for the unread window. Something on Home polls this endpoint, so
+    // an unread briefing could still be regenerated on every poll while the
+    // user has not opened it. The `inflight` lock only dedupes CONCURRENT
+    // requests, so a floor is still needed here - just a much smaller one now
+    // that reading it settles the matter permanently.
     const floorKey = `${userId}:${dateKey}:${type}`;
     const lastGen = lastGeneratedAt.get(floorKey)
       ?? ((existing as any).createdAt ? new Date((existing as any).createdAt).getTime() : null);

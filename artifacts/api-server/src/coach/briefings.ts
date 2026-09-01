@@ -226,8 +226,24 @@ export async function getOrGenerateBriefing(
     // UNREAD, where it is genuinely needed: a 06:30 morning briefing can be
     // written before HealthKit has delivered last night's sleep, and without
     // this it would quote nothing useful and never correct itself.
+    const storedSnap = (existing as any).contextSnapshot as BriefingContextSnapshot | null;
     if ((existing as any).readAt) {
-      return existing;
+      // ONE EXCEPTION. If this briefing was written before the user's WHOOP or
+      // Oura data arrived, it quoted Apple/Google numbers as stand-ins, which
+      // is not what the athlete's own app shows them. That briefing is
+      // provisional and must be allowed to correct itself once the real data
+      // lands — otherwise freezing it on read makes the wrong numbers
+      // permanent, which is worse than the churn the freeze was added to stop.
+      let stillProvisional = false;
+      if (storedSnap?.oauthPhysioPending) {
+        try {
+          const { getOauthPhysioHold } = await import("../wearables");
+          const gate = await getOauthPhysioHold(userId, dateKey);
+          // Data has now arrived: neither holding nor degraded.
+          stillProvisional = !gate.hold && !gate.degraded;
+        } catch {}
+      }
+      if (!stillProvisional) return existing;
     }
 
     const stored = existing.contextSnapshot as BriefingContextSnapshot | null;
@@ -496,6 +512,13 @@ interface WearableDaySnapshot {
 }
 
 interface BriefingContextSnapshot {
+  /**
+   * True when a WHOOP/Oura user's briefing was written WITHOUT that provider's
+   * physio for the day — i.e. it fell back to Apple/Google numbers. Such a
+   * briefing is provisional: it must be allowed to correct itself when the real
+   * data lands, even if it has already been read.
+   */
+  oauthPhysioPending?: boolean;
   // App-computed Daily Readiness Score (0-100), quoted in the briefing copy.
   // Part of the drift trigger so a score change (e.g. after a check-in)
   // regenerates the briefing instead of leaving copy that disagrees with the
@@ -605,6 +628,14 @@ async function buildContextSnapshot(userId: string): Promise<BriefingContextSnap
   // is also the drift-detection source of truth - see wearableSnapshotsEqual.
   const snap: BriefingContextSnapshot = {};
   snap.wearable = await buildWearableSnapshot(userId);
+  try {
+    const { getOauthPhysioHold } = await import("../wearables");
+    const dateKey = todayKeyForUser(null);
+    const gate = await getOauthPhysioHold(userId, dateKey);
+    // hold=false + degraded=true means: provider connected, its data has NOT
+    // arrived, and we generated anyway. That is exactly the provisional case.
+    snap.oauthPhysioPending = !!gate.degraded;
+  } catch { /* best effort; absence just means "not provisional" */ }
   try {
     const dr = await readFreshReadiness(userId);
     snap.readinessScore = dr?.score ?? null;
@@ -741,9 +772,28 @@ OUTPUT JSON SHAPE (strict):
 LENGTH AND LANGUAGE (these matter as much as the content):
 - SHORT. The whole briefing should be readable in about fifteen seconds, standing up, before coffee. Roughly 400-500 characters in total. If a sentence is not carrying a fact or a decision, cut it.
 - NEVER say the same thing twice. The opener has the numbers; deepDive has the meaning; the recommendation has the action. No overlap.
-- NO COACH JARGON. Write how a person actually speaks. BANNED, and anything like them:
-  "your nervous system is asking for more space", "recovery markers are mixed", "that work is still in the system", "primed", "load is elevated", "warrants careful movement choices", "the full recovery window", "signals are low".
-  Say it plainly instead: "you're still catching up from this week", "you slept less than usual", "worth keeping today easy", "warm up properly before anything heavy".
+- NO COACH JARGON. Write how a person actually speaks to another person.
+
+  BANNED CONSTRUCTION 1 - the body as a character that wants things. NEVER write that a body,
+  nervous system, HRV or any other measurement is "asking for", "telling you", "wanting", "craving",
+  "requesting", "crying out for", "needs more space", or "isn't ready for" anything. This is the
+  single most common failure and it is banned in EVERY wording, not just these examples. The body
+  does not make requests.
+    WRONG: "Your body's asking for a bit more space today."
+    WRONG: "Your nervous system needs more room before you go hard."
+    RIGHT: "You're still catching up from this week, so keep today easy."
+
+  BANNED CONSTRUCTION 2 - clinical or systems language about a person. No "markers", "signals",
+  "inputs", "load is elevated", "still in the system", "recovery window", "primed", "suppressed",
+  "warrants", "conditions are favourable".
+    WRONG: "Recovery markers are mixed and load is still elevated."
+    RIGHT: "You slept well but you've trained hard twice this week."
+
+  BANNED CONSTRUCTION 3 - hedging stacks. One qualifier maximum. "a bit below your usual" is fine.
+  "sitting somewhat below where it typically tends to run" is not.
+
+  TEST BEFORE YOU WRITE EACH SENTENCE: would a coach say this out loud, in a gym, to someone's face?
+  If it would sound odd spoken aloud, rewrite it as what you'd actually say.
 - Do not hedge. "HRV is a bit below your usual" is fine. "HRV is sitting somewhat below where it typically tends to run" is not.
 
 WHAT THIS IS:

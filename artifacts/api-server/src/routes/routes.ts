@@ -23733,13 +23733,28 @@ Respond as the Recovery Coach. Reference their specific assessment data and prov
 
       if (!latestScore) return res.json({ suggest: false });
 
-      const concerningTier = latestScore.tier === 'strained'
-        || latestScore.tier === 'overloaded'
-        || latestScore.tier === 'sustained_overload';
-      const concerningTrajectory = latestScore.trajectory === 'rising'
-        || latestScore.trajectory === 'elevated';
+      // Recovery Mode changes how the coach programmes training for 30 days, so the
+      // LEVEL has to justify it. Trajectory alone must never open this door:
+      // 'rising' only means the check-in trend moved 5+ points and 'elevated' means
+      // 15+ — both describe MOVEMENT, not severity. Someone drifting 27 -> 32 is
+      // still Balanced and does not need a month of modified training.
+      //
+      // NB: this used to read `latestScore.tier`, a column that does not exist on
+      // burnout_scores. It was always undefined, so the tier half never fired once
+      // and the whole check collapsed to trajectory-only — the actual bug.
+      const level = getBurnoutLevel(latestScore.score);
+      const levelWarrantsIt = level === 'strained'
+        || level === 'overloaded'
+        || level === 'sustained_overload';
 
-      if (!concerningTier && !concerningTrajectory) {
+      // The one exception, kept deliberately narrow: Balanced but genuinely about
+      // to cross into Strained — near the boundary AND climbing fast. This is the
+      // "stay ahead of overload" promise; it is not an excuse to fire on drift.
+      const aboutToCross = level === 'balanced'
+        && latestScore.score >= 36
+        && latestScore.trajectory === 'elevated';
+
+      if (!levelWarrantsIt && !aboutToCross) {
         return res.json({ suggest: false });
       }
 

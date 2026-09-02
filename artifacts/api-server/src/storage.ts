@@ -419,6 +419,22 @@ import {
 import { db, pool } from "./db";
 import { eq, ne, desc, and, ilike, or, gte, lte, inArray, lt, asc, sql, isNull, isNotNull, aliasedTable, type SQL } from "drizzle-orm";
 
+// One row of the Burnout Index "Monthly Trend Log": a whole month, not a sample
+// day from it. `score` is the month's average and `trajectory` is that average
+// against the previous month's. `partial` marks the month still in progress.
+export interface MonthlyBurnoutLogEntry {
+  id: number;
+  score: number;
+  trajectory: string;
+  computedDate: string;
+  partial: boolean;
+  dayCount: number;
+}
+
+// How many computed days the CURRENT month needs before we are willing to put a
+// direction on it. Below this it reports 'pending'.
+const MONTH_TRAJECTORY_MIN_DAYS = 7;
+
 export interface IStorage {
   // User operations
   getUser(id: string): Promise<User | undefined>;
@@ -1192,7 +1208,7 @@ export interface IStorage {
   // Burnout Early Warning operations
   getBurnoutScore(userId: string): Promise<BurnoutScore | undefined>;
   getBurnoutScoreHistory(userId: string, startDate: Date, endDate: Date): Promise<BurnoutScore[]>;
-  getMonthlyBurnoutLog(userId: string): Promise<BurnoutScore[]>;
+  getMonthlyBurnoutLog(userId: string): Promise<MonthlyBurnoutLogEntry[]>;
   createBurnoutScore(score: InsertBurnoutScore): Promise<BurnoutScore>;
 
   // Burnout settings (recovery mode)
@@ -13675,23 +13691,89 @@ export class DatabaseStorage implements IStorage {
       .orderBy(asc(burnoutScores.computedDate));
   }
 
-  async getMonthlyBurnoutLog(userId: string): Promise<BurnoutScore[]> {
+  async getMonthlyBurnoutLog(userId: string): Promise<MonthlyBurnoutLogEntry[]> {
+    // This used to take the LAST score row in each month and print its `score`
+    // and `trajectory` under the month's name. Two things were wrong with that,
+    // and together they made the log say things it had not measured:
+    //
+    //   1. One day was labelled as a month. Whatever happened to be computed
+    //      last in August became "August". A single bad night at the end of a
+    //      month became the month's headline, and the current month's row was
+    //      just today - on the 2nd, "September" was one day old.
+    //
+    //   2. The trajectory shown was not a month-over-month figure at all. The
+    //      engine computes trajectory as the last 7 check-ins vs the ones before
+    //      (>= 5 points -> 'rising'), a rolling window that mostly sits in the
+    //      PREVIOUS month. Printed beside a month name it reads as "September vs
+    //      August", which is not what it measures. That is why a month could show
+    //      -5 month-over-month and still be labelled Stable while another showed
+    //      +5 and was labelled Rising.
+    //
+    // A monthly log should show the month, so: average the month's scores, and
+    // derive the label from the change against the previous month's average.
     const allScores = await db.select().from(burnoutScores)
       .where(eq(burnoutScores.userId, userId))
       .orderBy(desc(burnoutScores.computedDate));
 
-    const monthMap = new Map<string, BurnoutScore>();
+    const buckets = new Map<string, { rows: BurnoutScore[] }>();
     for (const score of allScores) {
       const date = new Date(score.computedDate);
       const key = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`;
-      if (!monthMap.has(key)) {
-        monthMap.set(key, score);
-      }
+      if (!buckets.has(key)) buckets.set(key, { rows: [] });
+      buckets.get(key)!.rows.push(score);
     }
 
-    return Array.from(monthMap.values()).sort((a, b) =>
-      new Date(a.computedDate).getTime() - new Date(b.computedDate).getTime()
-    );
+    const now = new Date();
+    const currentKey = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+
+    const months = Array.from(buckets.entries())
+      .sort((a, b) => a[0].localeCompare(b[0]))
+      .map(([key, { rows }]) => {
+        const avg = rows.reduce((sum, r) => sum + r.score, 0) / rows.length;
+        // Newest row in the month - `allScores` is ordered desc, so it is first.
+        const representative = rows[0];
+        return { key, avg, dayCount: rows.length, representative };
+      });
+
+    return months.map((m, i) => {
+      const prev = i > 0 ? months[i - 1] : null;
+      const isCurrentMonth = m.key === currentKey;
+
+      // A month barely underway has no honest verdict yet. Comparing two days of
+      // September against the whole of August is the same mistake in a new place,
+      // so say "in progress" rather than invent a direction.
+      const tooEarlyToCall = isCurrentMonth && m.dayCount < MONTH_TRAJECTORY_MIN_DAYS;
+
+      let trajectory: string;
+      if (tooEarlyToCall) {
+        trajectory = 'pending';
+      } else if (!prev) {
+        trajectory = 'stable';
+      } else {
+        const diff = m.avg - prev.avg;
+        // Thresholds on a month's AVERAGE, which is far steadier than the 7-day
+        // rolling window - so these describe a real move, not a couple of poor
+        // nights. Bands are 20 points wide; 4 is a fifth of one.
+        if (diff >= 10) trajectory = 'elevated';
+        else if (diff >= 4) trajectory = 'rising';
+        else if (diff <= -4) trajectory = 'recovering';
+        else trajectory = 'stable';
+      }
+
+      const [year, month] = m.key.split('-').map(Number);
+      return {
+        id: m.representative.id,
+        score: Math.round(m.avg),
+        trajectory,
+        // Anchored to the month itself, not to whichever day was computed last.
+        computedDate: new Date(year, month - 1, 1).toISOString(),
+        partial: isCurrentMonth,
+        dayCount: m.dayCount,
+      };
+    });
+    // Ascending (oldest month first) - the screen renders this order top-down and
+    // reads April -> September. Do not flip it.
+
   }
 
   async createBurnoutScore(score: InsertBurnoutScore): Promise<BurnoutScore> {

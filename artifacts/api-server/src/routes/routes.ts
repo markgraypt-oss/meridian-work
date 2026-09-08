@@ -8323,8 +8323,14 @@ Rules:
       // Use normalized body area name (ID format) for consistent matching
       const normalizedAreaName = bodyArea?.name || log.bodyPart.toLowerCase().replace(/\s+/g, '_');
       
-      // Store matchedOutcomeId and reassessmentDays on the log for future reference
-      const reassessmentDays = matchedOutcome?.reassessInDays || null;
+      // Store matchedOutcomeId and reassessmentDays on the log for future reference.
+      //
+      // The outcome's reassess_in_days is nullable, and a blank one used to mean
+      // "never ask again" - assess someone's shoulder, match an outcome an admin
+      // had not filled that field in on, and silently never follow up. Silence is
+      // not a safe default for a pain flag, so it now falls back to severity.
+      const { defaultReassessInDays } = await import('../bodyMapReassessment');
+      const reassessmentDays = matchedOutcome?.reassessInDays || defaultReassessInDays(log.severity);
       if (matchedOutcome || reassessmentDays) {
         await storage.updateBodyMapLog(log.id, {
           matchedOutcomeId: matchedOutcome?.id || null,
@@ -8335,16 +8341,18 @@ Rules:
       // 1. Complete any existing reminders for this body area (new assessment = reminder completed)
       await storage.completeReassessmentReminders(userId, normalizedAreaName, log.id);
       
-      // 2. Create a new reminder if the matched outcome has reassessInDays set
+      // 2. Always create a reminder. Previously this was conditional on the
+      //    outcome carrying reassessInDays, which is why an assessment could
+      //    finish with nothing scheduled behind it.
       let reminderCreated = false;
-      if (matchedOutcome?.reassessInDays) {
+      {
         const dueAt = new Date();
-        dueAt.setDate(dueAt.getDate() + matchedOutcome.reassessInDays);
-        
+        dueAt.setDate(dueAt.getDate() + reassessmentDays);
+
         await storage.createReassessmentReminder({
           userId,
           bodyArea: normalizedAreaName,
-          outcomeId: matchedOutcome.id,
+          outcomeId: matchedOutcome?.id ?? null,
           bodyMapLogId: log.id,
           assessedAt: new Date(),
           dueAt,
@@ -8359,7 +8367,7 @@ Rules:
         hasModifications: modifications.length > 0,
         matchedOutcomeId: matchedOutcome?.id || null,
         reminderCreated,
-        reminderDueAt: matchedOutcome?.reassessInDays ? new Date(Date.now() + matchedOutcome.reassessInDays * 24 * 60 * 60 * 1000) : null
+        reminderDueAt: new Date(Date.now() + reassessmentDays * 24 * 60 * 60 * 1000)
       });
     } catch (error) {
       console.error("Error creating body map log:", error);

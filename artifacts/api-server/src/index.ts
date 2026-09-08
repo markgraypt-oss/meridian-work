@@ -56,6 +56,15 @@ if (Number.isNaN(port) || port <= 0) {
         });
     }).catch((e: any) => logger.error({ e }, "[startup-migration] startup migrations import failed"));
 
+    // Reassessment reminder backfill: give assessments already taken the follow-up
+    // row they should have had, so the Home card and the push have something to
+    // fire on. Once per database, idempotent.
+    import("./bodyMapReassessment").then(({ backfillReassessmentRemindersOnce }) => {
+      backfillReassessmentRemindersOnce().catch((e) => {
+        console.error("[startup-migration] reassessment reminder backfill failed:", e);
+      });
+    }).catch((e) => console.error("[startup-migration] reassessment backfill import failed:", e));
+
     // Content write-ups backfill: description + summary/takeaways/transcript for
     // Mux lab videos, once per database (production included). Ensures the columns
     // exist so the patched API never errors, then populates them via AI.

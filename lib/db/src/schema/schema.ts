@@ -2478,6 +2478,10 @@ export const workdayPositions = pgTable("workday_positions", {
   name: text("name").notNull(), // 'Seated', 'Standing', 'Kneeling', etc.
   description: text("description").notNull(), // When to use this position
   imageUrl: text("image_url"), // Visual representation
+  // A position is a thing you have to SEE done - "how to stand correctly" is a
+  // demonstration, not a paragraph. Micro-resets have had video all along; this
+  // section only had a still, which is why the setup content had nowhere to go.
+  muxPlaybackId: text("mux_playback_id"),
   setupCues: text("setup_cues").array(), // Key setup cues
   positionType: text("position_type").notNull().default('seated'), // 'seated' | 'standing' | 'alternative'
   minDuration: integer("min_duration").default(30), // DEPRECATED: legacy column kept for prod compatibility

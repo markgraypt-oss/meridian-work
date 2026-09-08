@@ -417,6 +417,7 @@ const SELF_HEAL_DDL: string[] = [
   // of creating a second copy of the workout. Partial unique index because
   // every log written before this feature has NULL here.
   `ALTER TABLE workout_logs ADD COLUMN IF NOT EXISTS client_session_id text`,
+  `ALTER TABLE workday_positions ADD COLUMN IF NOT EXISTS mux_playback_id text`,
   `CREATE UNIQUE INDEX IF NOT EXISTS workout_logs_client_session_uq
      ON workout_logs (client_session_id) WHERE client_session_id IS NOT NULL`,
 

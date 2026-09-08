@@ -418,7 +418,7 @@ const SELF_HEAL_DDL: string[] = [
   // every log written before this feature has NULL here.
   `ALTER TABLE workout_logs ADD COLUMN IF NOT EXISTS client_session_id text`,
   `ALTER TABLE workday_desk_setups ADD COLUMN IF NOT EXISTS mux_playback_id text`,
-  `ALTER TABLE workday_desk_setups ADD COLUMN IF NOT EXISTS aspect_ratio text DEFAULT '4:5'`,
+  `ALTER TABLE workday_desk_setups ADD COLUMN IF NOT EXISTS aspect_ratio text DEFAULT '3:4'`,
   `ALTER TABLE workday_desk_setups ADD COLUMN IF NOT EXISTS view_angle text DEFAULT 'side'`,
   `ALTER TABLE workday_desk_setups ALTER COLUMN image_url DROP NOT NULL`,
   `CREATE UNIQUE INDEX IF NOT EXISTS workout_logs_client_session_uq

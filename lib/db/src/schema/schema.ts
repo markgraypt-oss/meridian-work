@@ -3809,8 +3809,12 @@ export const workdayDeskSetups = pgTable("workday_desk_setups", {
   // Setups are filmed from whatever angle shows the thing, and those angles are
   // not the same shape: an overhead of keyboard-and-mouse is wide, a side-on of
   // monitor height is tall. One hard-coded ratio would letterbox half the
-  // library, so each setup carries its own. '4:5' | '1:1' | '16:9' | '9:16'.
-  aspectRatio: text("aspect_ratio").default('4:5'),
+  // library, so each setup carries its own. '3:4' | '1:1' | '16:9' | '9:16'.
+  //
+  // Default is 3:4 rather than 4:5 because 4:5 is not a ratio the video model
+  // can output — asking for it means generating 3:4 and cropping, which loses
+  // the top and bottom of a shot framed to hold floor-to-monitor exactly.
+  aspectRatio: text("aspect_ratio").default('3:4'),
   // 'side' | 'overhead' | 'close' - shown as a badge, and it tells the person
   // what they are about to look at before it loads.
   viewAngle: text("view_angle").default('side'),

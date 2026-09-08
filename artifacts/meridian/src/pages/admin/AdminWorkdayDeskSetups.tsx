@@ -35,7 +35,7 @@ const defaultFormData: DeskSetupFormData = {
   deskType: "any",
   positionType: "any",
   viewAngle: "side",
-  aspectRatio: "4:5",
+  aspectRatio: "3:4",
   muxPlaybackId: "",
   imageUrl: "",
   keyAdjustments: [],
@@ -59,16 +59,19 @@ const positionTypes = [
 // The angle decides the shape of the shot, so the two selects sit next to each
 // other and the ratio hint changes with the angle.
 const viewAngles = [
-  { value: "side", label: "Side on", hint: "Best at 4:5 — the body is a tall subject" },
-  { value: "overhead", label: "Overhead", hint: "Best at 16:9 or 1:1 — a desk is a wide subject" },
-  { value: "close", label: "Close up", hint: "Best at 1:1 — hands and a keyboard, tight" },
+  { value: "side", label: "Side on", hint: "Use 3:4 — the body is a tall subject" },
+  { value: "overhead", label: "Overhead", hint: "Use 16:9 — a desk is a wide subject" },
+  { value: "close", label: "Close up", hint: "Use 1:1 — hands and a keyboard, tight" },
 ];
 
+// Only ratios the video model can actually output. 4:5 is deliberately absent:
+// it is not in Seedance's enum, so asking for it means generating 3:4 and
+// cropping, which eats the top and bottom of a shot framed floor-to-monitor.
 const aspectRatios = [
-  { value: "4:5", label: "4:5 — portrait (side on)" },
+  { value: "3:4", label: "3:4 — portrait (side on)" },
   { value: "1:1", label: "1:1 — square (close up)" },
   { value: "16:9", label: "16:9 — landscape (overhead)" },
-  { value: "3:4", label: "3:4 — portrait, softer" },
+  { value: "9:16", label: "9:16 — tall portrait (rarely right)" },
 ];
 
 export default function AdminWorkdayDeskSetups() {
@@ -129,7 +132,7 @@ export default function AdminWorkdayDeskSetups() {
       deskType: item.deskType || "any",
       positionType: item.positionType || "any",
       viewAngle: (item as any).viewAngle || "side",
-      aspectRatio: (item as any).aspectRatio || "4:5",
+      aspectRatio: (item as any).aspectRatio || "3:4",
       muxPlaybackId: (item as any).muxPlaybackId || "",
       imageUrl: item.imageUrl || "",
       keyAdjustments: item.keyAdjustments || [],
@@ -418,7 +421,7 @@ export default function AdminWorkdayDeskSetups() {
                   <div className="flex-1 min-w-0">
                     <p className="font-medium truncate">{item.title}</p>
                     <p className="text-xs text-muted-foreground truncate">
-                      {(item as any).viewAngle || "side"} · {(item as any).aspectRatio || "4:5"}
+                      {(item as any).viewAngle || "side"} · {(item as any).aspectRatio || "3:4"}
                       {(item as any).muxPlaybackId ? " · video" : item.imageUrl ? " · image" : " · no media"}
                       {item.isActive ? "" : " · hidden"}
                     </p>

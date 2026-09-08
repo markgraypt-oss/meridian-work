@@ -322,6 +322,7 @@ import {
   type InsertShoppingList,
   type ShoppingListItem,
   workdayPositions,
+  workdayDeskSetups,
   workdayMicroResets,
   workdayAchesFixes,
   workdayDeskTips,
@@ -332,6 +333,8 @@ import {
   type InsertUserDeskFixTask,
   type WorkdayPosition,
   type InsertWorkdayPosition,
+  type WorkdayDeskSetup,
+  type InsertWorkdayDeskSetup,
   type WorkdayMicroReset,
   type InsertWorkdayMicroReset,
   type WorkdayAchesFix,
@@ -1208,6 +1211,13 @@ export interface IStorage {
   // Burnout Early Warning operations
   getBurnoutScore(userId: string): Promise<BurnoutScore | undefined>;
   getBurnoutScoreHistory(userId: string, startDate: Date, endDate: Date): Promise<BurnoutScore[]>;
+  getWorkdayDeskSetups(): Promise<WorkdayDeskSetup[]>;
+  getAllWorkdayDeskSetups(): Promise<WorkdayDeskSetup[]>;
+  getWorkdayDeskSetupById(id: number): Promise<WorkdayDeskSetup | undefined>;
+  createWorkdayDeskSetup(setup: InsertWorkdayDeskSetup): Promise<WorkdayDeskSetup>;
+  updateWorkdayDeskSetup(id: number, setup: Partial<InsertWorkdayDeskSetup>): Promise<WorkdayDeskSetup>;
+  deleteWorkdayDeskSetup(id: number): Promise<void>;
+  reorderWorkdayDeskSetups(orderedIds: number[]): Promise<void>;
   getMonthlyBurnoutLog(userId: string): Promise<MonthlyBurnoutLogEntry[]>;
   createBurnoutScore(score: InsertBurnoutScore): Promise<BurnoutScore>;
 
@@ -12409,6 +12419,63 @@ export class DatabaseStorage implements IStorage {
 
   async deleteWorkdayPosition(id: number): Promise<void> {
     await db.delete(workdayPositions).where(eq(workdayPositions.id, id));
+  }
+
+  // ── Desk Setups ───────────────────────────────────────────────────────────
+  // The "how do I set this up" guides. Separate from workdayPositions, which is
+  // rotation planning.
+
+  async getWorkdayDeskSetups(): Promise<WorkdayDeskSetup[]> {
+    return await db.select().from(workdayDeskSetups)
+      .where(eq(workdayDeskSetups.isActive, true))
+      .orderBy(asc(workdayDeskSetups.orderIndex));
+  }
+
+  async getAllWorkdayDeskSetups(): Promise<WorkdayDeskSetup[]> {
+    return await db.select().from(workdayDeskSetups)
+      .orderBy(asc(workdayDeskSetups.orderIndex));
+  }
+
+  async getWorkdayDeskSetupById(id: number): Promise<WorkdayDeskSetup | undefined> {
+    const [setup] = await db.select().from(workdayDeskSetups).where(eq(workdayDeskSetups.id, id));
+    return setup;
+  }
+
+  async createWorkdayDeskSetup(setup: InsertWorkdayDeskSetup): Promise<WorkdayDeskSetup> {
+    const values = { ...setup };
+    if (values.orderIndex === undefined || values.orderIndex === null) {
+      const [{ maxOrder }] = await db
+        .select({ maxOrder: sql<number>`COALESCE(MAX(${workdayDeskSetups.orderIndex}), -1)` })
+        .from(workdayDeskSetups);
+      values.orderIndex = Number(maxOrder) + 1;
+    }
+    const [created] = await db.insert(workdayDeskSetups).values(values).returning();
+    return created;
+  }
+
+  async updateWorkdayDeskSetup(id: number, setup: Partial<InsertWorkdayDeskSetup>): Promise<WorkdayDeskSetup> {
+    const [updated] = await db
+      .update(workdayDeskSetups)
+      .set({ ...setup, updatedAt: new Date() })
+      .where(eq(workdayDeskSetups.id, id))
+      .returning();
+    return updated;
+  }
+
+  async deleteWorkdayDeskSetup(id: number): Promise<void> {
+    await db.delete(workdayDeskSetups).where(eq(workdayDeskSetups.id, id));
+  }
+
+  async reorderWorkdayDeskSetups(orderedIds: number[]): Promise<void> {
+    if (orderedIds.length === 0) return;
+    await db.transaction(async (tx) => {
+      for (let i = 0; i < orderedIds.length; i++) {
+        await tx
+          .update(workdayDeskSetups)
+          .set({ orderIndex: i, updatedAt: new Date() })
+          .where(eq(workdayDeskSetups.id, orderedIds[i]));
+      }
+    });
   }
 
   async reorderWorkdayPositions(orderedIds: number[]): Promise<void> {

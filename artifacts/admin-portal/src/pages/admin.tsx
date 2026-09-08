@@ -12,7 +12,7 @@ import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/component
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
-import { Plus, Edit, Trash2, Users, BookOpen, Play, ChefHat, Dumbbell, Search, X, Filter, ChevronDown, ChevronRight, MapPin, Sparkles, BarChart3, Building2, Trophy } from "lucide-react";
+import { Plus, Edit, Trash2, Users, BookOpen, Play, ChefHat, Dumbbell, Search, X, Filter, ChevronDown, ChevronRight, MapPin, Sparkles, BarChart3, Building2, Trophy, Monitor } from "lucide-react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { apiRequest } from "@/lib/queryClient";
 import { isUnauthorizedError } from "@/lib/authUtils";
@@ -1914,6 +1914,23 @@ export default function AdminPanel() {
             <p className="text-muted-foreground">Manage all workday health content including positions, micro-resets, aches & fixes, and desk setups.</p>
             
             <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+              <Card 
+                className="cursor-pointer hover:shadow-lg transition-shadow border-2 hover:border-primary"
+                onClick={() => navigate('/admin/workday/desk-setups')}
+                data-testid="card-admin-workday-desk-setups"
+              >
+                <CardHeader>
+                  <CardTitle className="text-lg flex items-center gap-2">
+                    <Monitor className="h-5 w-5 text-primary" />
+                    Desk Setups
+                  </CardTitle>
+                  <CardDescription>Monitor, keyboard and mouse setup guides with video</CardDescription>
+                </CardHeader>
+                <CardContent>
+                  <Button variant="outline" size="sm">Manage Desk Setups</Button>
+                </CardContent>
+              </Card>
+
               <Card 
                 className="cursor-pointer hover:shadow-lg transition-shadow border-2 hover:border-primary"
                 onClick={() => navigate('/admin/workday/positions')}

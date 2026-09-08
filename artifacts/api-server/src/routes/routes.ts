@@ -489,6 +489,7 @@ import {
   supplements,
   supplementLogs,
   insertWorkdayPositionSchema,
+  insertWorkdayDeskSetupSchema,
   insertWorkdayMicroResetSchema,
   insertWorkdayAchesFixSchema,
   insertWorkdayDeskTipSchema,
@@ -19511,6 +19512,55 @@ Keep your response concise, practical, and evidence-based. This is general guida
   });
 
   // Workday Micro-Resets - Admin CRUD
+  app.get('/api/admin/workday/desk-setups', isAuthenticated, requireAdmin, async (req: any, res) => {
+    try {
+      res.json(await storage.getAllWorkdayDeskSetups());
+    } catch (error) {
+      console.error("Error fetching desk setups:", error);
+      res.status(500).json({ message: "Failed to fetch desk setups" });
+    }
+  });
+
+  app.post('/api/admin/workday/desk-setups', isAuthenticated, requireAdmin, async (req: any, res) => {
+    try {
+      const validated = insertWorkdayDeskSetupSchema.parse(req.body);
+      res.json(await storage.createWorkdayDeskSetup(validated as any));
+    } catch (error) {
+      console.error("Error creating desk setup:", error);
+      res.status(500).json({ message: "Failed to create desk setup" });
+    }
+  });
+
+  app.patch('/api/admin/workday/desk-setups/:id', isAuthenticated, requireAdmin, async (req: any, res) => {
+    try {
+      res.json(await storage.updateWorkdayDeskSetup(parseInt(req.params.id), req.body));
+    } catch (error) {
+      console.error("Error updating desk setup:", error);
+      res.status(500).json({ message: "Failed to update desk setup" });
+    }
+  });
+
+  app.delete('/api/admin/workday/desk-setups/:id', isAuthenticated, requireAdmin, async (req: any, res) => {
+    try {
+      await storage.deleteWorkdayDeskSetup(parseInt(req.params.id));
+      res.json({ success: true });
+    } catch (error) {
+      console.error("Error deleting desk setup:", error);
+      res.status(500).json({ message: "Failed to delete desk setup" });
+    }
+  });
+
+  app.put('/api/admin/workday/desk-setups/reorder', isAuthenticated, requireAdmin, async (req: any, res) => {
+    try {
+      const ids = Array.isArray(req.body?.orderedIds) ? req.body.orderedIds.map(Number) : [];
+      await storage.reorderWorkdayDeskSetups(ids);
+      res.json({ success: true });
+    } catch (error) {
+      console.error("Error reordering desk setups:", error);
+      res.status(500).json({ message: "Failed to reorder desk setups" });
+    }
+  });
+
   app.get('/api/admin/workday/micro-resets', isAuthenticated, requireAdmin, async (req: any, res) => {
     try {
       const targetArea = req.query.targetArea as string | undefined;
@@ -19724,6 +19774,29 @@ Keep your response concise, practical, and evidence-based. This is general guida
   });
 
   // User-facing Workday Engine routes
+
+  // Desk Setups: the "how do I set this up" guides. The admin hub has linked to
+  // this path for a while; the route never existed, so its count silently 404'd.
+  app.get('/api/workday/desk-setups', isAuthenticated, async (req: any, res) => {
+    try {
+      res.json(await storage.getWorkdayDeskSetups());
+    } catch (error) {
+      console.error("Error fetching desk setups:", error);
+      res.status(500).json({ message: "Failed to fetch desk setups" });
+    }
+  });
+
+  app.get('/api/workday/desk-setups/:id', isAuthenticated, async (req: any, res) => {
+    try {
+      const setup = await storage.getWorkdayDeskSetupById(parseInt(req.params.id));
+      if (!setup || !setup.isActive) return res.status(404).json({ message: "Desk setup not found" });
+      res.json(setup);
+    } catch (error) {
+      console.error("Error fetching desk setup:", error);
+      res.status(500).json({ message: "Failed to fetch desk setup" });
+    }
+  });
+
   app.get('/api/workday/positions', isAuthenticated, async (req: any, res) => {
     try {
       const positions = await storage.getWorkdayPositions();

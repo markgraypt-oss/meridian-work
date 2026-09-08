@@ -28,7 +28,6 @@ interface PositionFormData {
   name: string;
   description: string;
   imageUrl: string;
-  muxPlaybackId: string;
   setupCues: string[];
   positionType: PositionType;
   isActive: boolean;
@@ -38,7 +37,6 @@ const defaultFormData: PositionFormData = {
   name: "",
   description: "",
   imageUrl: "",
-  muxPlaybackId: "",
   setupCues: [],
   positionType: "seated",
   isActive: true,
@@ -156,7 +154,6 @@ export default function AdminWorkdayPositions() {
       name: position.name,
       description: position.description,
       imageUrl: position.imageUrl || "",
-      muxPlaybackId: position.muxPlaybackId || "",
       setupCues: position.setupCues || [],
       positionType,
       isActive: position.isActive ?? true,
@@ -282,23 +279,6 @@ export default function AdminWorkdayPositions() {
                     className="bg-background border-border"
                     required
                     data-testid="input-description"
-                  />
-                </div>
-
-                <div className="space-y-2">
-                  <Label htmlFor="muxPlaybackId">Mux Playback ID (optional)</Label>
-                  <p className="text-xs text-muted-foreground">
-                    The demonstration video for this position - how to sit or stand in it correctly.
-                    When set, it replaces the still image on the position screen; the image is still
-                    used for the list thumbnail if no video poster is available.
-                  </p>
-                  <Input
-                    id="muxPlaybackId"
-                    value={formData.muxPlaybackId}
-                    onChange={(e) => setFormData({ ...formData, muxPlaybackId: e.target.value })}
-                    placeholder="e.g., DS00Spx1CV902MCtPj5WknGlR102V5HFkDe"
-                    className="bg-background border-border"
-                    data-testid="input-mux-playback-id"
                   />
                 </div>
 

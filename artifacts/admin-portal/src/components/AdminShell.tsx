@@ -50,6 +50,7 @@ import AddProgramme from "@/pages/admin/AddProgramme";
 import EditProgramme from "@/pages/admin/EditProgramme";
 import AdminWorkdayPositions from "@/pages/admin/AdminWorkdayPositions";
 import AdminWorkdayMicroResets from "@/pages/admin/AdminWorkdayMicroResets";
+import AdminWorkdayDeskSetups from "@/pages/admin/AdminWorkdayDeskSetups";
 import AdminWorkdayAchesFixes from "@/pages/admin/AdminWorkdayAchesFixes";
 import AdminAiCoaching from "@/pages/admin/AdminAiCoaching";
 import AdminAiActivity from "@/pages/admin/AdminAiActivity";
@@ -235,6 +236,7 @@ export default function AdminShell() {
           <Route path="/admin/yoga/create" component={CreateYogaWorkout} />
           <Route path="/admin/workday/positions" component={AdminWorkdayPositions} />
           <Route path="/admin/workday/micro-resets" component={AdminWorkdayMicroResets} />
+          <Route path="/admin/workday/desk-setups" component={AdminWorkdayDeskSetups} />
           <Route path="/admin/workday/aches-fixes" component={AdminWorkdayAchesFixes} />
           <Route path="/admin/workday/desk-references" component={AdminDeskReferences} />
           <Route path="/admin/ai-coaching" component={AdminAiCoaching} />

@@ -2478,10 +2478,6 @@ export const workdayPositions = pgTable("workday_positions", {
   name: text("name").notNull(), // 'Seated', 'Standing', 'Kneeling', etc.
   description: text("description").notNull(), // When to use this position
   imageUrl: text("image_url"), // Visual representation
-  // A position is a thing you have to SEE done - "how to stand correctly" is a
-  // demonstration, not a paragraph. Micro-resets have had video all along; this
-  // section only had a still, which is why the setup content had nowhere to go.
-  muxPlaybackId: text("mux_playback_id"),
   setupCues: text("setup_cues").array(), // Key setup cues
   positionType: text("position_type").notNull().default('seated'), // 'seated' | 'standing' | 'alternative'
   minDuration: integer("min_duration").default(30), // DEPRECATED: legacy column kept for prod compatibility
@@ -3797,19 +3793,37 @@ export const appointments = pgTable("appointments", {
   createdAt: timestamp("created_at").defaultNow(),
 });
 
+// Desk Setups - the "how do I actually set this up" guides. Distinct from
+// workday_positions, which is rotation planning (which posture, for how long).
+// This is the reference you follow once, with a tape measure, then come back to.
 export const workdayDeskSetups = pgTable("workday_desk_setups", {
   id: serial("id").primaryKey(),
   title: text("title").notNull(),
   deskType: text("desk_type").notNull(),
   positionType: text("position_type").notNull(),
   description: text("description"),
-  imageUrl: text("image_url").notNull(),
+  // Nullable now. It was NOT NULL when a setup was only ever a still; a setup
+  // led by video may have no separate image at all.
+  imageUrl: text("image_url"),
+  muxPlaybackId: text("mux_playback_id"),
+  // Setups are filmed from whatever angle shows the thing, and those angles are
+  // not the same shape: an overhead of keyboard-and-mouse is wide, a side-on of
+  // monitor height is tall. One hard-coded ratio would letterbox half the
+  // library, so each setup carries its own. '4:5' | '1:1' | '16:9' | '9:16'.
+  aspectRatio: text("aspect_ratio").default('4:5'),
+  // 'side' | 'overhead' | 'close' - shown as a badge, and it tells the person
+  // what they are about to look at before it loads.
+  viewAngle: text("view_angle").default('side'),
   keyAdjustments: text("key_adjustments").array(),
   orderIndex: integer("order_index").default(0),
   isActive: boolean("is_active").default(true),
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow(),
 });
+
+export type WorkdayDeskSetup = typeof workdayDeskSetups.$inferSelect;
+export type InsertWorkdayDeskSetup = typeof workdayDeskSetups.$inferInsert;
+export const insertWorkdayDeskSetupSchema = createInsertSchema(workdayDeskSetups).omit({ id: true, createdAt: true, updatedAt: true });
 
 export const legacyProgramExercises = pgTable("program_exercises", {
   id: serial("id").primaryKey(),

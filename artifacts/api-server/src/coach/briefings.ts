@@ -32,6 +32,7 @@ function sanitizeBriefingContent(c: BriefingContent): BriefingContent {
   return {
     // New rich shape
     opener: clampStr(c.opener) || undefined,
+    notificationTeaser: clampStr(c.notificationTeaser) || undefined,
     deepDive: c.deepDive?.map((s) => ({
       title: clampMedical(s.title),
       body: clampMedical(s.body),
@@ -52,6 +53,10 @@ function sanitizeBriefingContent(c: BriefingContent): BriefingContent {
 const briefingSchema = z.object({
   // New rich shape — preferred
   opener: z.string().max(400).optional().nullable(),
+  // The lock-screen line. Deliberately NOT the opener: the opener is a scannable
+  // numbers row, which is right in-app and terrible on a lock screen - it reads
+  // as a stat dump with nothing human in it and no reason to open the app.
+  notificationTeaser: z.string().max(160).optional().nullable(),
   deepDive: z.array(z.object({
     title: z.string().min(1).max(80),
     body: z.string().min(1).max(400),
@@ -759,6 +764,12 @@ The briefing below is you, Mark, speaking to ${userName}. Write it in your voice
 OUTPUT JSON SHAPE (strict):
 {
   "opener": string (greeting + THE NUMBERS, nothing else. Morning: "Morning ${userName}." then the overnight figures as a scannable line, e.g. "Readiness 66. Sleep 6h50m, HRV 50ms (below your usual), resting HR 58." Do NOT interpret them here, that is what deepDive is for, and do NOT repeat them there. No weather. Evening: greeting + the day's headline figures the same way. MAX 180 CHARS. No emojis.),
+  "notificationTeaser": string (THE LOCK-SCREEN LINE. This is the only thing the user sees before deciding whether to open the app, so it must sound like a person, not a readout. Greeting by name, then THE ONE THING that actually matters today, in plain words. MAX 110 CHARS. NO stat lists - no "Readiness 75. Sleep 7h12m, HRV 66ms". A number is allowed only if it IS the point and it is the only one. Do not restate this line anywhere else in the briefing.
+    RIGHT: "Morning ${userName}. Slept well and you're clear for the session today."
+    RIGHT: "Morning ${userName}. Third hard day running - worth taking this one easy."
+    RIGHT: "Morning ${userName}. Best sleep you've had in a fortnight."
+    WRONG: "Morning ${userName}. Readiness 75. Sleep 7h12m, HRV 66ms, resting HR 57."
+    WRONG: "Your recovery markers are looking favourable today."),
   "deepDive": [
     { "title": string (4-8 words, plain English, e.g. "Still carrying this week's load", "Neck holding at 6/10"), "body": string (1-2 short sentences, MAX 180 CHARS. Say the thing and stop. Do not restate a number already in the opener.) }
   ] (EXACTLY 2 items, on DIFFERENT aspects, and prefer the SPECIFIC over the general: a body-map pain score, a named workout, a real trend beats "recovery markers are mixed". Morning aspects: recovery/nervous system, load history, healthspan trend, sleep quality, baseline deviation. Evening aspects: output level, recovery cost, check-in alignment, sleep debt, trend signal.),
@@ -929,7 +940,10 @@ Return only the JSON object now.`;
     // from the opener (rich shape) or the legacy body field, truncated so
     // the lock screen does not show a wall of text.
     const notifTitle = isEvening ? "Evening Briefing" : "Morning Briefing";
-    const rawBody = (content.opener || content.body || "").trim();
+    // Prefer the purpose-written teaser. The opener is the in-app numbers row and
+    // makes a bleak lock-screen notification; it is only a fallback for briefings
+    // generated before the teaser existed.
+    const rawBody = (content.notificationTeaser || content.opener || content.body || "").trim();
     const truncateToSentence = (s: string, max: number) => {
       if (!s) return s;
       if (s.length <= max) return s;

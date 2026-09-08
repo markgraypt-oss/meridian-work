@@ -1,9 +1,9 @@
-import { and, eq, gte, lt, sql } from "drizzle-orm";
+import { and, eq, gte, isNull, lt, lte, sql } from "drizzle-orm";
 import { db } from "./db";
 import {
   habits,
   habitCompletions,
-  bodyMapLogs,
+  reassessmentReminders,
   notificationPreferences,
   notifications,
   users,
@@ -111,13 +111,36 @@ async function runHabitReminders(): Promise<void> {
   void activeHabits;
 }
 
+// body_area is stored as a slug ("left_shoulder", "lower-back"). Say it the way
+// a person would, since it now appears in the notification title.
+function humaniseBodyArea(area: string): string {
+  const cleaned = (area || "").replace(/[_-]+/g, " ").trim().toLowerCase();
+  return cleaned || "flagged area";
+}
+
 // ── Body Map Reassessment ────────────────────────────────────────────────────
 
+// Drive this from reassessment_reminders - the SAME table the home-screen
+// Reassessment card reads - not from the raw age of the newest body_map_log.
+//
+// It used to do the latter, and that is why this notification behaved the way it
+// did. Two systems that never spoke:
+//
+//   * The card on Home comes from reassessment_reminders: one row per body area,
+//     with a due date, a status, and dismiss / snooze / complete tracking.
+//   * This push ignored that table entirely and asked "is the newest body map log
+//     older than bodyMapFrequencyDays?" So it fired every morning, forever, for a
+//     user with no due reminder at all - hence a notification with no matching
+//     card behind it, and no body part named, because it never looked one up.
+//     It also deep-linked to /body-map while the card opens /training/body-map.
+//
+// Now: only fire when a reminder is actually due, name the area, and point at the
+// same screen the card does. When the user dismisses, snoozes or completes it,
+// the row changes and the nagging stops on its own.
 async function runBodyMapReassessments(): Promise<void> {
   const userPrefs = await db
     .select({
       userId: notificationPreferences.userId,
-      bodyMapFrequencyDays: notificationPreferences.bodyMapFrequencyDays,
       timezone: users.timezone,
     })
     .from(notificationPreferences)
@@ -130,18 +153,29 @@ async function runBodyMapReassessments(): Promise<void> {
       if (!isWithinWindowTz("09:00", pref.timezone)) continue;
 
       const today = startOfUserLocalDayUtc(pref.timezone);
-      const frequencyDays = pref.bodyMapFrequencyDays ?? 14;
-      const cutoff = new Date(today.getTime() - frequencyDays * 24 * 60 * 60 * 1000);
+      const endOfToday = new Date(today.getTime() + 24 * 60 * 60 * 1000);
 
-      // Most recent body map log
-      const [latestLog] = await db
-        .select({ id: bodyMapLogs.id, createdAt: bodyMapLogs.createdAt })
-        .from(bodyMapLogs)
-        .where(eq(bodyMapLogs.userId, pref.userId))
-        .orderBy(sql`${bodyMapLogs.createdAt} desc`)
-        .limit(1);
-      if (!latestLog) continue;
-      if (latestLog.createdAt > cutoff) continue;
+      // Reminders genuinely due: not dismissed, not completed, due by end of the
+      // user's today (so overdue ones are included).
+      const due = await db
+        .select({
+          id: reassessmentReminders.id,
+          bodyArea: reassessmentReminders.bodyArea,
+          dueAt: reassessmentReminders.dueAt,
+        })
+        .from(reassessmentReminders)
+        .where(
+          and(
+            eq(reassessmentReminders.userId, pref.userId),
+            isNull(reassessmentReminders.dismissedAt),
+            isNull(reassessmentReminders.completedAt),
+            sql`${reassessmentReminders.status} in ('scheduled','due')`,
+            lte(reassessmentReminders.dueAt, endOfToday),
+          ),
+        )
+        .orderBy(sql`${reassessmentReminders.dueAt} asc`);
+
+      if (due.length === 0) continue;
 
       // Dedupe: already sent today (user-local day)
       const [alreadySent] = await db
@@ -157,12 +191,36 @@ async function runBodyMapReassessments(): Promise<void> {
         .limit(1);
       if (alreadySent) continue;
 
+      // Name the area. "Time to check in on your left shoulder" is actionable in
+      // a way that "time for a body map check-in" never was.
+      const areas = due.map((d) => humaniseBodyArea(d.bodyArea));
+      const areaText =
+        areas.length === 1
+          ? areas[0]
+          : areas.length === 2
+          ? `${areas[0]} and ${areas[1]}`
+          : `${areas[0]}, ${areas[1]} and ${areas.length - 2} more`;
+
+      const oldest = due[0].dueAt;
+      const daysOverdue = Math.floor((today.getTime() - new Date(oldest).getTime()) / 86_400_000);
+      const timing =
+        daysOverdue >= 1
+          ? `It's been ${daysOverdue} day${daysOverdue === 1 ? "" : "s"} since it was due.`
+          : "It's due today.";
+
       await notify({
         userId: pref.userId,
         category: "recovery",
-        title: "Time for a body map check-in",
-        body: `It's been ${frequencyDays}+ days since your last assessment. How are you feeling?`,
-        data: { bodyMapReassessment: true, url: "/body-map" },
+        title: due.length === 1 ? `How's your ${areas[0]}?` : "Time to reassess",
+        body: `${timing} A quick reassessment of your ${areaText} keeps your training adjusted to it.`,
+        data: {
+          bodyMapReassessment: true,
+          // Same destination as the Home card. These disagreed before.
+          url: "/training/body-map",
+          route: "/training/body-map",
+          reminderId: due[0].id,
+          bodyArea: due[0].bodyArea,
+        },
         disableEmail: true,
         prefKey: "bodyMapReassessment",
       });

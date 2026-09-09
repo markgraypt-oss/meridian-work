@@ -217,7 +217,7 @@ export default function AdminEditPath() {
           <CardHeader>
             <div className="space-y-4">
               <div>
-                <label className="text-sm font-medium text-slate-400">Path Title</label>
+                <label className="text-sm font-medium text-muted-foreground">Path Title</label>
                 <Input
                   value={editingTitle}
                   onChange={(e) => setEditingTitle(e.target.value)}
@@ -228,7 +228,7 @@ export default function AdminEditPath() {
               </div>
 
               <div>
-                <label className="text-sm font-medium text-slate-400">Description</label>
+                <label className="text-sm font-medium text-muted-foreground">Description</label>
                 <textarea
                   value={editingDescription}
                   onChange={(e) => setEditingDescription(e.target.value)}
@@ -258,15 +258,15 @@ export default function AdminEditPath() {
           <div className="grid grid-cols-2 gap-4">
             <Card className="bg-card border-border">
               <CardContent className="pt-6 text-center">
-                <Clock className="h-5 w-5 mx-auto mb-2 text-blue-400" />
-                <p className="text-sm text-slate-400">{calculatedDuration} min</p>
-                <p className="text-xs text-slate-500 mt-1">Total Duration</p>
+                <Clock className="h-5 w-5 mx-auto mb-2 text-blue-600" />
+                <p className="text-sm text-muted-foreground">{calculatedDuration} min</p>
+                <p className="text-xs text-muted-foreground mt-1">Total Duration</p>
               </CardContent>
             </Card>
             <Card className="bg-card border-border">
               <CardContent className="pt-6 text-center">
                 <p className="text-sm font-medium">{pathLibraryContent.length} items</p>
-                <p className="text-xs text-slate-500 mt-1">Content</p>
+                <p className="text-xs text-muted-foreground mt-1">Content</p>
               </CardContent>
             </Card>
           </div>
@@ -309,7 +309,7 @@ export default function AdminEditPath() {
                                 <div className="flex gap-4 flex-1">
                                   <div
                                     {...provided.dragHandleProps}
-                                    className="flex-shrink-0 pt-1 cursor-grab active:cursor-grabbing text-slate-500 hover:text-slate-300"
+                                    className="flex-shrink-0 pt-1 cursor-grab active:cursor-grabbing text-muted-foreground hover:text-muted-foreground"
                                   >
                                     <GripVertical className="h-5 w-5" />
                                   </div>
@@ -318,9 +318,9 @@ export default function AdminEditPath() {
                                   </div>
                                   <div className="flex-1">
                                     <h3 className="font-semibold text-foreground">{item.title}</h3>
-                                    <p className="text-sm text-slate-400 mt-1">{item.description || "No description"}</p>
+                                    <p className="text-sm text-muted-foreground mt-1">{item.description || "No description"}</p>
                                     {item.duration && (
-                                      <p className="text-xs text-slate-500 mt-2">{formatDuration(item.duration)}</p>
+                                      <p className="text-xs text-muted-foreground mt-2">{formatDuration(item.duration)}</p>
                                     )}
                                   </div>
                                 </div>
@@ -353,7 +353,7 @@ export default function AdminEditPath() {
             </DragDropContext>
           ) : (
             <Card className="bg-card border-border p-8 text-center">
-              <p className="text-slate-400">No content items yet. Click "Add Content" to select videos from the topic library.</p>
+              <p className="text-muted-foreground">No content items yet. Click "Add Content" to select videos from the topic library.</p>
             </Card>
           )}
         </div>
@@ -417,13 +417,13 @@ export default function AdminEditPath() {
                               </div>
                               <div className="flex-1">
                                 <h3 className="font-semibold text-foreground">{item.title}</h3>
-                                <p className="text-sm text-slate-400 mt-1">{item.description || "No description"}</p>
+                                <p className="text-sm text-muted-foreground mt-1">{item.description || "No description"}</p>
                                 <div className="flex items-center gap-2 mt-2">
                                   <Badge variant="secondary" className="text-xs">
                                     {item.contentType}
                                   </Badge>
                                   {item.duration && (
-                                    <span className="text-xs text-slate-500">
+                                    <span className="text-xs text-muted-foreground">
                                       {formatDuration(item.duration)}
                                     </span>
                                   )}
@@ -455,7 +455,7 @@ export default function AdminEditPath() {
                   item.title.toLowerCase().includes(searchQuery.toLowerCase()) ||
                   (item.description || "").toLowerCase().includes(searchQuery.toLowerCase())
                 ).length === 0 && (
-                  <p className="text-center text-slate-400 py-8">No content found in this topic. Add videos to the topic first.</p>
+                  <p className="text-center text-muted-foreground py-8">No content found in this topic. Add videos to the topic first.</p>
                 )}
               </div>
             </div>

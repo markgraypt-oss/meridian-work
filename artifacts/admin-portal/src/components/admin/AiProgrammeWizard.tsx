@@ -491,35 +491,35 @@ export default function AiProgrammeWizard({ open, onOpenChange, defaultProgramme
             {showOptions && (
               <div className="space-y-3 rounded-lg border border-border bg-muted/20 p-3">
                 <div className="space-y-1.5">
-                  <p className="text-[10px] uppercase tracking-wide text-muted-foreground">Length</p>
+                  <p className="text-[10px] uppercase tracking-wide text-gold">Length</p>
                   {renderChipRow(LENGTH_CHIPS)}
                 </div>
                 <div className="space-y-1.5">
-                  <p className="text-[10px] uppercase tracking-wide text-muted-foreground">Frequency</p>
+                  <p className="text-[10px] uppercase tracking-wide text-gold">Frequency</p>
                   {renderChipRow(FREQUENCY_CHIPS)}
                 </div>
                 <div className="space-y-1.5">
-                  <p className="text-[10px] uppercase tracking-wide text-muted-foreground">Goal</p>
+                  <p className="text-[10px] uppercase tracking-wide text-gold">Goal</p>
                   {renderChipRow(GOAL_CHIPS)}
                 </div>
                 <div className="space-y-1.5">
-                  <p className="text-[10px] uppercase tracking-wide text-muted-foreground">Equipment</p>
+                  <p className="text-[10px] uppercase tracking-wide text-gold">Equipment</p>
                   {renderChipRow(EQUIPMENT_CHIPS)}
                 </div>
                 <div className="space-y-1.5">
-                  <p className="text-[10px] uppercase tracking-wide text-muted-foreground">Difficulty</p>
+                  <p className="text-[10px] uppercase tracking-wide text-gold">Difficulty</p>
                   {renderChipRow(DIFFICULTY_CHIPS)}
                 </div>
                 <div className="space-y-1.5">
-                  <p className="text-[10px] uppercase tracking-wide text-muted-foreground">Focus area</p>
+                  <p className="text-[10px] uppercase tracking-wide text-gold">Focus area</p>
                   {renderChipRow(FOCUS_CHIPS)}
                 </div>
                 <div className="space-y-1.5">
-                  <p className="text-[10px] uppercase tracking-wide text-muted-foreground">Workout style</p>
+                  <p className="text-[10px] uppercase tracking-wide text-gold">Workout style</p>
                   {renderChipRow(STYLE_CHIPS)}
                 </div>
                 <div className="space-y-1.5">
-                  <p className="text-[10px] uppercase tracking-wide text-muted-foreground">Avoid</p>
+                  <p className="text-[10px] uppercase tracking-wide text-gold">Avoid</p>
                   {renderChipRow(AVOID_CHIPS)}
                 </div>
               </div>
@@ -611,7 +611,7 @@ export default function AiProgrammeWizard({ open, onOpenChange, defaultProgramme
                       <div className="text-xs text-muted-foreground">{w.category} · {w.duration}min · {w.difficulty}</div>
                       {w.blocks.map((b, bIdx) => (
                         <div key={bIdx} className="ml-2 border-l pl-3 space-y-2">
-                          <div className="text-xs uppercase text-muted-foreground">{b.section} · {b.blockType}</div>
+                          <div className="text-xs uppercase text-gold">{b.section} · {b.blockType}</div>
                           {b.exercises.map((ex, eIdx) => {
                             const lib = exerciseById.get(ex.exerciseLibraryId);
                             return (

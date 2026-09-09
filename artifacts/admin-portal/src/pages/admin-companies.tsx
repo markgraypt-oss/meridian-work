@@ -148,13 +148,13 @@ function formatDate(dateStr: string | null): string {
 
 function getCategoryColor(category: string): string {
   const colors: Record<string, string> = {
-    "Physiotherapy": "bg-blue-500/20 text-blue-400 border-blue-500/30",
-    "Therapy/Counselling": "bg-purple-500/20 text-purple-400 border-purple-500/30",
-    "EAP": "bg-[#0cc9a9]/20 text-[#0cc9a9] border-[#0cc9a9]/30",
-    "Mental Health": "bg-green-500/20 text-green-400 border-green-500/30",
-    "Fitness": "bg-orange-500/20 text-orange-400 border-orange-500/30",
-    "Nutrition": "bg-emerald-500/20 text-emerald-400 border-emerald-500/30",
-    "Other": "bg-gray-500/20 text-gray-400 border-gray-500/30",
+    "Physiotherapy": "bg-blue-500/20 text-blue-600 border-blue-500/30",
+    "Therapy/Counselling": "bg-purple-500/20 text-purple-600 border-purple-500/30",
+    "EAP": "bg-[#b8874a]/20 text-[#b8874a] border-[#b8874a]/30",
+    "Mental Health": "bg-green-500/20 text-emerald-700 border-green-500/30",
+    "Fitness": "bg-orange-500/20 text-orange-600 border-orange-500/30",
+    "Nutrition": "bg-emerald-500/20 text-emerald-700 border-emerald-500/30",
+    "Other": "bg-gray-500/20 text-muted-foreground border-gray-500/30",
   };
   return colors[category] || colors["Other"];
 }
@@ -734,8 +734,8 @@ export default function AdminCompanies() {
                   {companyDetail.logoUrl ? (
                     <img src={companyDetail.logoUrl} alt={companyDetail.name} className="h-16 w-16 rounded-xl object-cover border border-border" />
                   ) : (
-                    <div className="h-16 w-16 rounded-xl bg-[#0cc9a9]/10 flex items-center justify-center border border-border">
-                      <Building2 className="h-8 w-8 text-[#0cc9a9]" />
+                    <div className="h-16 w-16 rounded-xl bg-[#b8874a]/10 flex items-center justify-center border border-border">
+                      <Building2 className="h-8 w-8 text-[#b8874a]" />
                     </div>
                   )}
                   <label className="absolute -bottom-1 -right-1 h-6 w-6 rounded-full bg-card border border-border flex items-center justify-center cursor-pointer hover:bg-muted transition-colors">
@@ -751,8 +751,8 @@ export default function AdminCompanies() {
                     <h2 className="text-xl font-bold text-foreground truncate">{companyDetail.name}</h2>
                     <Badge variant="outline" className={`shrink-0 text-xs ${
                       companyDetail.status === "active"
-                        ? "bg-emerald-100 text-emerald-700 border-emerald-300 dark:bg-emerald-500/20 dark:text-emerald-400 dark:border-emerald-500/30"
-                        : "bg-red-100 text-red-700 border-red-300 dark:bg-red-500/20 dark:text-red-400 dark:border-red-500/30"
+                        ? "bg-emerald-100 text-emerald-700 border-emerald-300 dark:bg-emerald-500/20 dark:text-emerald-700 dark:border-emerald-500/30"
+                        : "bg-red-100 text-red-700 border-red-300 dark:bg-red-500/20 dark:text-red-600 dark:border-red-500/30"
                     }`}>
                       {companyDetail.status === "active" ? "Active" : "Inactive"}
                     </Badge>
@@ -768,13 +768,13 @@ export default function AdminCompanies() {
           </Card>
 
           {unreadAlerts.length > 0 && (
-            <div className="bg-[#0cc9a9]/10 dark:bg-[#0cc9a9]/10 border border-[#0cc9a9]/30 dark:border-[#0cc9a9]/30 rounded-lg p-3">
+            <div className="bg-[#b8874a]/10 dark:bg-[#b8874a]/10 border border-[#b8874a]/30 dark:border-[#b8874a]/30 rounded-lg p-3">
               <div className="flex items-center gap-2 mb-1">
-                <AlertTriangle className="h-4 w-4 text-[#0cc9a9] dark:text-[#0cc9a9]" />
-                <span className="text-sm font-medium text-[#0cc9a9] dark:text-[#0cc9a9]">{unreadAlerts.length} Alert{unreadAlerts.length > 1 ? "s" : ""}</span>
+                <AlertTriangle className="h-4 w-4 text-[#b8874a] dark:text-[#b8874a]" />
+                <span className="text-sm font-medium text-[#b8874a] dark:text-[#b8874a]">{unreadAlerts.length} Alert{unreadAlerts.length > 1 ? "s" : ""}</span>
               </div>
               {unreadAlerts.slice(0, 3).map(a => (
-                <p key={a.id} className="text-xs text-[#0cc9a9] dark:text-[#0cc9a9] ml-6">{a.message}</p>
+                <p key={a.id} className="text-xs text-[#b8874a] dark:text-[#b8874a] ml-6">{a.message}</p>
               ))}
             </div>
           )}
@@ -866,7 +866,7 @@ export default function AdminCompanies() {
           <Card className="border-border">
             <CardHeader className="flex flex-row items-center justify-between pb-2">
               <CardTitle className="text-sm font-semibold text-foreground flex items-center gap-2">
-                <FolderTree className="h-4 w-4 text-[#0cc9a9]" />
+                <FolderTree className="h-4 w-4 text-[#b8874a]" />
                 Departments ({companyDepartments.length})
               </CardTitle>
               <Button size="sm" variant="outline" onClick={() => { setDeptName(""); setEditingDept(null); setShowDeptForm(true); }}>
@@ -901,7 +901,7 @@ export default function AdminCompanies() {
           <Card className="border-border">
             <CardHeader className="flex flex-row items-center justify-between pb-2">
               <CardTitle className="text-sm font-semibold text-foreground flex items-center gap-2">
-                <LifeBuoy className="h-4 w-4 text-[#0cc9a9]" />
+                <LifeBuoy className="h-4 w-4 text-[#b8874a]" />
                 Wellbeing Contacts ({wellbeingContacts.length})
               </CardTitle>
               <Button size="sm" variant="outline" onClick={() => { setEditingWellbeingContact(null); setWellbeingForm({ name: "", role: "", email: "", isActive: true }); setShowWellbeingForm(true); }}>
@@ -1004,7 +1004,7 @@ export default function AdminCompanies() {
           <Card className="border-border">
             <CardHeader className="flex flex-row items-center justify-between pb-2">
               <CardTitle className="text-sm font-semibold text-foreground flex items-center gap-2">
-                <Users className="h-4 w-4 text-[#0cc9a9]" />
+                <Users className="h-4 w-4 text-[#b8874a]" />
                 Users ({companyDetail.users?.length || 0})
               </CardTitle>
               <div className="flex gap-2">
@@ -1040,7 +1040,7 @@ export default function AdminCompanies() {
                       </div>
                       <div className="flex items-center gap-2">
                         {u.isAdmin && (
-                          <Badge variant="outline" className="text-xs bg-purple-100 text-purple-700 border-purple-300 dark:bg-purple-500/20 dark:text-purple-400 dark:border-purple-500/30">Admin</Badge>
+                          <Badge variant="outline" className="text-xs bg-purple-100 text-purple-700 border-purple-300 dark:bg-purple-500/20 dark:text-purple-600 dark:border-purple-500/30">Admin</Badge>
                         )}
                         <Button variant="ghost" size="sm" className="text-destructive hover:text-destructive" onClick={() => removeUserMutation.mutate(u.id)} disabled={removeUserMutation.isPending}>
                           Remove
@@ -1055,7 +1055,7 @@ export default function AdminCompanies() {
                   <p className="text-xs text-muted-foreground mb-2">Pending Invites</p>
                   <div className="flex flex-wrap gap-2">
                     {invites.filter(i => i.status === "pending").map((inv) => (
-                      <Badge key={inv.id} variant="outline" className="text-xs bg-[#0cc9a9]/10 text-[#0cc9a9] border-[#0cc9a9]/30 dark:bg-[#0cc9a9]/10 dark:text-[#0cc9a9] dark:border-[#0cc9a9]/30">
+                      <Badge key={inv.id} variant="outline" className="text-xs bg-[#b8874a]/10 text-[#b8874a] border-[#b8874a]/30 dark:bg-[#b8874a]/10 dark:text-[#b8874a] dark:border-[#b8874a]/30">
                         {inv.email}
                       </Badge>
                     ))}
@@ -1068,7 +1068,7 @@ export default function AdminCompanies() {
           <Card className="border-border">
             <CardHeader className="flex flex-row items-center justify-between pb-2">
               <CardTitle className="text-sm font-semibold text-foreground flex items-center gap-2">
-                <Building2 className="h-4 w-4 text-[#0cc9a9]" />
+                <Building2 className="h-4 w-4 text-[#b8874a]" />
                 Benefits ({companyDetail.benefits?.length || 0})
               </CardTitle>
               <Button size="sm" onClick={openCreateBenefit}>
@@ -1096,7 +1096,7 @@ export default function AdminCompanies() {
                           )}
                           <div className="flex flex-wrap gap-3">
                             {b.link && (
-                              <a href={b.link} target="_blank" rel="noopener noreferrer" className="flex items-center gap-1 text-xs text-[#0cc9a9] hover:underline">
+                              <a href={b.link} target="_blank" rel="noopener noreferrer" className="flex items-center gap-1 text-xs text-[#b8874a] hover:underline">
                                 <ExternalLink className="h-3 w-3" />
                                 Link
                               </a>
@@ -1143,7 +1143,7 @@ export default function AdminCompanies() {
       <div className="min-h-screen bg-background pb-20">
         <TopHeader title="Loading..." onBack={() => setSelectedCompanyId(null)} />
         <div className="flex items-center justify-center pt-32">
-          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-[#0cc9a9]" />
+          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-[#b8874a]" />
         </div>
       </div>
     );
@@ -1182,18 +1182,18 @@ export default function AdminCompanies() {
             <p className="text-xs text-muted-foreground">Total</p>
           </div>
           <div className="bg-card rounded-lg p-3 border border-border text-center">
-            <p className="text-2xl font-bold text-[#0cc9a9]">{activeCompanies}</p>
+            <p className="text-2xl font-bold text-[#b8874a]">{activeCompanies}</p>
             <p className="text-xs text-muted-foreground">Active</p>
           </div>
           <div className="bg-card rounded-lg p-3 border border-border text-center">
-            <p className="text-2xl font-bold text-red-400">{inactiveCompanies}</p>
+            <p className="text-2xl font-bold text-red-600">{inactiveCompanies}</p>
             <p className="text-xs text-muted-foreground">Inactive</p>
           </div>
         </div>
 
         {companiesLoading ? (
           <div className="flex items-center justify-center py-12">
-            <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-[#0cc9a9]" />
+            <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-[#b8874a]" />
           </div>
         ) : filteredCompanies.length === 0 ? (
           <Card>
@@ -1206,14 +1206,14 @@ export default function AdminCompanies() {
             {filteredCompanies.map((company) => (
               <Card
                 key={company.id}
-                className="cursor-pointer hover:border-[#0cc9a9]/50 transition-colors border-border"
+                className="cursor-pointer hover:border-[#b8874a]/50 transition-colors border-border"
                 onClick={() => setSelectedCompanyId(company.id)}
               >
                 <CardContent className="p-4">
                   <div className="flex items-start justify-between">
                     <div className="flex items-start gap-3 flex-1 min-w-0">
-                      <div className="h-10 w-10 rounded-lg bg-[#0cc9a9]/10 flex items-center justify-center shrink-0">
-                        <Building2 className="h-5 w-5 text-[#0cc9a9]" />
+                      <div className="h-10 w-10 rounded-lg bg-[#b8874a]/10 flex items-center justify-center shrink-0">
+                        <Building2 className="h-5 w-5 text-[#b8874a]" />
                       </div>
                       <div className="min-w-0 flex-1">
                         <div className="flex items-center gap-2 mb-1">
@@ -1222,8 +1222,8 @@ export default function AdminCompanies() {
                             variant="outline"
                             className={`shrink-0 text-xs ${
                               company.status === "active"
-                                ? "bg-emerald-100 text-emerald-700 border-emerald-300 dark:bg-emerald-500/20 dark:text-emerald-400 dark:border-emerald-500/30"
-                                : "bg-red-100 text-red-700 border-red-300 dark:bg-red-500/20 dark:text-red-400 dark:border-red-500/30"
+                                ? "bg-emerald-100 text-emerald-700 border-emerald-300 dark:bg-emerald-500/20 dark:text-emerald-700 dark:border-emerald-500/30"
+                                : "bg-red-100 text-red-700 border-red-300 dark:bg-red-500/20 dark:text-red-600 dark:border-red-500/30"
                             }`}
                           >
                             {company.status === "active" ? "Active" : "Inactive"}
@@ -1815,7 +1815,7 @@ export default function AdminCompanies() {
                 filteredUnassigned.map((u) => (
                   <div
                     key={u.id}
-                    className="flex items-center justify-between p-3 rounded-lg border border-border hover:border-[#0cc9a9]/50 transition-colors"
+                    className="flex items-center justify-between p-3 rounded-lg border border-border hover:border-[#b8874a]/50 transition-colors"
                   >
                     <div>
                       <p className="text-sm font-medium text-foreground">

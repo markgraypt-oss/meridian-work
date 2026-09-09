@@ -1028,7 +1028,7 @@ export default function AdminPanel() {
             ];
             const renderSection = (title: string, rows: typeof contentRows) => (
               <div>
-                <h3 className="text-sm font-semibold text-muted-foreground uppercase tracking-wider mb-2">{title}</h3>
+                <h3 className="text-sm font-semibold text-gold uppercase tracking-wider mb-2">{title}</h3>
                 <div className="rounded-lg border border-border divide-y divide-border bg-card">
                   {rows.map((row) => (
                     <button
@@ -2013,7 +2013,7 @@ export default function AdminPanel() {
                 className={`px-4 py-2 rounded font-medium transition-colors ${
                   learningTab === "learning-paths"
                     ? "bg-blue-500 text-foreground"
-                    : "bg-card text-slate-300 hover:bg-muted"
+                    : "bg-card text-muted-foreground hover:bg-muted"
                 }`}
               >
                 Learning Paths
@@ -2023,7 +2023,7 @@ export default function AdminPanel() {
                 className={`px-4 py-2 rounded font-medium transition-colors ${
                   learningTab === "learn-videos"
                     ? "bg-blue-500 text-foreground"
-                    : "bg-card text-slate-300 hover:bg-muted"
+                    : "bg-card text-muted-foreground hover:bg-muted"
                 }`}
               >
                 Video Topics
@@ -2178,7 +2178,7 @@ export default function AdminPanel() {
                   <>
                     <button
                       onClick={() => setSelectedVideoTopic(null)}
-                      className="text-blue-500 hover:text-blue-400 font-medium mb-4"
+                      className="text-blue-500 hover:text-blue-600 font-medium mb-4"
                     >
                       ← Back to Topics
                     </button>
@@ -2218,7 +2218,7 @@ export default function AdminPanel() {
                                   </CardHeader>
                                   <CardContent>
                                     <p className="text-sm text-muted-foreground">{item.description || 'No description'}</p>
-                                    <p className="text-xs text-slate-400 mt-2">Type: {item.content_type}</p>
+                                    <p className="text-xs text-muted-foreground mt-2">Type: {item.content_type}</p>
                                   </CardContent>
                                 </Card>
                               ))}
@@ -2226,7 +2226,7 @@ export default function AdminPanel() {
                           ) : (
                             <Card className="p-12 text-center">
                               <p className="text-muted-foreground mb-4">No content found for this topic.</p>
-                              <p className="text-sm text-slate-400">Content will appear here once you add videos or PDFs for this topic.</p>
+                              <p className="text-sm text-muted-foreground">Content will appear here once you add videos or PDFs for this topic.</p>
                               <div className="flex gap-2 justify-center mt-4">
                                 <Button onClick={() => setShowCreateVideoModal(true)}>Add Video</Button>
                                 <Button variant="outline" onClick={() => setShowCreatePdfModal(true)}>Add PDF</Button>
@@ -2621,7 +2621,7 @@ export default function AdminPanel() {
                   setAddContentMuxPlaybackId('');
                   setAddContentDocFiles([]);
                 }}
-                className="text-slate-400 hover:text-foreground"
+                className="text-muted-foreground hover:text-foreground"
               >
                 ✕
               </button>
@@ -2658,7 +2658,7 @@ export default function AdminPanel() {
                     className="w-full px-3 py-2 bg-card text-foreground border border-border rounded"
                     placeholder="Enter Mux Playback ID (e.g., abc123xyz)"
                   />
-                  <p className="text-xs text-slate-500 mt-1">Get the Playback ID from your Mux dashboard after uploading the video</p>
+                  <p className="text-xs text-muted-foreground mt-1">Get the Playback ID from your Mux dashboard after uploading the video</p>
                 </div>
 
 
@@ -2677,7 +2677,7 @@ export default function AdminPanel() {
                     className="w-full px-3 py-2 bg-card text-foreground border border-border rounded"
                   />
                   {addContentDocFiles.length > 0 && (
-                    <div className="text-xs text-blue-400 mt-2 space-y-1">
+                    <div className="text-xs text-blue-600 mt-2 space-y-1">
                       {addContentDocFiles.map((file, idx) => (
                         <div key={idx} className="flex justify-between items-center">
                           <p>✓ {file.name}</p>
@@ -2686,7 +2686,7 @@ export default function AdminPanel() {
                             onClick={() => {
                               setAddContentDocFiles(prev => prev.filter((_, i) => i !== idx));
                             }}
-                            className="text-red-400 hover:text-red-300 text-xs"
+                            className="text-red-600 hover:text-red-600 text-xs"
                           >
                             remove
                           </button>
@@ -2778,7 +2778,7 @@ export default function AdminPanel() {
                   setNewContentDescription('');
                   setContentMuxPlaybackId('');
                 }}
-                className="text-slate-400 hover:text-foreground"
+                className="text-muted-foreground hover:text-foreground"
               >
                 ✕
               </button>
@@ -2813,7 +2813,7 @@ export default function AdminPanel() {
                   className="w-full mt-1 px-3 py-2 bg-card text-foreground border border-border rounded"
                   placeholder="Enter Mux Playback ID (e.g., abc123xyz)"
                 />
-                <p className="text-xs text-slate-500 mt-1">Get the Playback ID from your Mux dashboard</p>
+                <p className="text-xs text-muted-foreground mt-1">Get the Playback ID from your Mux dashboard</p>
               </div>
               <div className="flex gap-2 justify-end pt-4">
                 <Button
@@ -2852,7 +2852,7 @@ export default function AdminPanel() {
                   setNewContentDescription('');
                   setContentFile(null);
                 }}
-                className="text-slate-400 hover:text-foreground"
+                className="text-muted-foreground hover:text-foreground"
               >
                 ✕
               </button>
@@ -2923,7 +2923,7 @@ export default function AdminPanel() {
                   setEditingContentFile(null);
                   setEditingContentMuxPlaybackId('');
                 }}
-                className="text-slate-400 hover:text-foreground"
+                className="text-muted-foreground hover:text-foreground"
               >
                 ✕
               </button>
@@ -2958,7 +2958,7 @@ export default function AdminPanel() {
                     placeholder="Enter Mux Playback ID"
                     className="w-full px-3 py-2 bg-card text-foreground border border-border rounded"
                   />
-                  <p className="text-xs text-slate-400 mt-1">Get this from your Mux dashboard</p>
+                  <p className="text-xs text-muted-foreground mt-1">Get this from your Mux dashboard</p>
                 </div>
 
                 <div>
@@ -2974,7 +2974,7 @@ export default function AdminPanel() {
                     }}
                     className="w-full px-3 py-2 bg-card text-foreground border border-border rounded"
                   />
-                  {editingContentFile && <p className="text-xs text-blue-400 mt-1">New file selected: {editingContentFile.name}</p>}
+                  {editingContentFile && <p className="text-xs text-blue-600 mt-1">New file selected: {editingContentFile.name}</p>}
                 </div>
               </div>
 
@@ -3026,7 +3026,7 @@ export default function AdminPanel() {
                   setNewPathDescription("");
                   setNewPathTopicId(null);
                 }}
-                className="text-slate-400 hover:text-foreground"
+                className="text-muted-foreground hover:text-foreground"
               >
                 ✕
               </button>
@@ -3126,7 +3126,7 @@ export default function AdminPanel() {
                 setShowWorkoutForm(false);
                 setWorkoutFormStep(1);
                 setWorkoutFormData({ title: "", description: "", workoutType: "regular", category: "strength", difficulty: "beginner", duration: 30, equipment: [], exercises: [] });
-              }} className="text-slate-400 hover:text-foreground">✕</button>
+              }} className="text-muted-foreground hover:text-foreground">✕</button>
             </CardHeader>
             <CardContent className="space-y-4">
               {workoutFormStep === 1 ? (

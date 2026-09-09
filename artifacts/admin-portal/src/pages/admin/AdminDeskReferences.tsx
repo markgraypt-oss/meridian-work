@@ -111,7 +111,7 @@ export default function AdminDeskReferences() {
     <div className="min-h-screen bg-background pb-24">
       <TopHeader title="Desk Reference Photos" onBack={() => navigate("/admin")} />
       <main className="px-4 pt-14 pb-4 space-y-4 max-w-2xl mx-auto">
-        <Card className="bg-gradient-to-br from-[#0cc9a9]/15 to-[#0cc9a9]/5 border-[#0cc9a9]/30">
+        <Card className="bg-gradient-to-br from-[#b8874a]/15 to-[#b8874a]/5 border-[#b8874a]/30">
           <CardContent className="p-4">
             <h2 className="font-semibold text-foreground mb-1">Choose what users see as the ideal setup</h2>
             <p className="text-sm text-foreground/80">
@@ -122,7 +122,7 @@ export default function AdminDeskReferences() {
 
         {isLoading ? (
           <div className="flex justify-center py-10">
-            <Loader2 className="h-6 w-6 animate-spin text-[#0cc9a9]" />
+            <Loader2 className="h-6 w-6 animate-spin text-[#b8874a]" />
           </div>
         ) : (
           POSITIONS.map(({ id, label, help }) => {
@@ -135,7 +135,7 @@ export default function AdminDeskReferences() {
                   <CardDescription>{help}</CardDescription>
                 </CardHeader>
                 <CardContent className="space-y-3">
-                  <div className="rounded-lg overflow-hidden bg-black/40 border border-border min-h-[180px] flex items-center justify-center">
+                  <div className="rounded-lg overflow-hidden bg-muted border border-border min-h-[180px] flex items-center justify-center">
                     {url ? (
                       <img src={url} alt={`Custom ${label}`} className="w-full h-auto max-h-[300px] object-contain" />
                     ) : (
@@ -160,7 +160,7 @@ export default function AdminDeskReferences() {
                     <Button
                       onClick={() => inputs.current[id]?.click()}
                       disabled={isBusy}
-                      className="flex-1 bg-[#0cc9a9] hover:bg-[#0cc9a9]/80 text-black"
+                      className="flex-1 bg-[#111d2e] hover:bg-[#b8874a]/80 text-black"
                       data-testid={`button-upload-${id}`}
                     >
                       {isBusy ? (
@@ -174,7 +174,7 @@ export default function AdminDeskReferences() {
                         variant="outline"
                         onClick={() => { setBusy(id); deleteMutation.mutate(id); }}
                         disabled={isBusy}
-                        className="border-red-500/40 text-red-400 hover:bg-red-500/10"
+                        className="border-red-500/40 text-red-600 hover:bg-red-500/10"
                         data-testid={`button-reset-${id}`}
                       >
                         <Trash2 className="h-4 w-4 mr-1.5" /> Reset

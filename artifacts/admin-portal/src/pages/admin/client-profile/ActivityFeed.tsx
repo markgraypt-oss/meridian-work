@@ -102,16 +102,16 @@ export function ActivityFeed({
 
 function EventIcon({ ev }: { ev: FeedEvent }) {
   const base = "h-7 w-7 rounded-full flex items-center justify-center shrink-0 mt-0.5";
-  if (ev.kind === 'weigh-in')  return <div className={`${base} bg-blue-500/15`}><Scale className="h-3.5 w-3.5 text-blue-400" /></div>;
-  if (ev.kind === 'workout')   return <div className={`${base} bg-orange-500/15`}><Dumbbell className="h-3.5 w-3.5 text-orange-400" /></div>;
-  if (ev.kind === 'check-in')  return <div className={`${base} bg-violet-500/15`}><ClipboardCheck className="h-3.5 w-3.5 text-violet-400" /></div>;
-  return <div className={`${base} bg-emerald-500/15`}><Camera className="h-3.5 w-3.5 text-emerald-400" /></div>;
+  if (ev.kind === 'weigh-in')  return <div className={`${base} bg-blue-500/15`}><Scale className="h-3.5 w-3.5 text-blue-600" /></div>;
+  if (ev.kind === 'workout')   return <div className={`${base} bg-orange-500/15`}><Dumbbell className="h-3.5 w-3.5 text-orange-600" /></div>;
+  if (ev.kind === 'check-in')  return <div className={`${base} bg-violet-500/15`}><ClipboardCheck className="h-3.5 w-3.5 text-purple-600" /></div>;
+  return <div className={`${base} bg-emerald-500/15`}><Camera className="h-3.5 w-3.5 text-emerald-700" /></div>;
 }
 
 function EventText({ ev }: { ev: FeedEvent }) {
   if (ev.kind === 'weigh-in') {
     const delta = ev.delta !== null
-      ? <span className={`text-xs ml-1 ${ev.delta > 0 ? 'text-red-400' : ev.delta < 0 ? 'text-emerald-400' : 'text-muted-foreground'}`}>
+      ? <span className={`text-xs ml-1 ${ev.delta > 0 ? 'text-red-600' : ev.delta < 0 ? 'text-emerald-700' : 'text-muted-foreground'}`}>
           ({ev.delta > 0 ? '+' : ''}{ev.delta} kg)
         </span>
       : null;

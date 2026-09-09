@@ -23,6 +23,9 @@
   --color-destructive: var(--destructive);
   --color-destructive-foreground: var(--destructive-foreground);
   --color-ring: var(--ring);
+  --color-navy: var(--navy);
+  --color-gold: var(--gold);
+  --color-gold-soft: var(--gold-soft);
 
   --radius-sm: calc(var(--radius) - 4px);
   --radius-md: calc(var(--radius) - 2px);
@@ -33,38 +36,61 @@
 }
 
 :root {
-  --background: #0e1114;
-  --foreground: hsl(210, 40%, 98%);
-  --muted: #1a1f24;
-  --muted-foreground: hsl(215, 20%, 65%);
-  --popover: #141920;
-  --popover-foreground: hsl(210, 40%, 98%);
-  --card: #141920;
-  --card-foreground: hsl(210, 40%, 98%);
-  --border: #1e2630;
-  --input: #1e2630;
-  --primary: #0cc9a9;
-  --primary-foreground: hsl(0, 0%, 0%);
-  --secondary: #1a1f24;
-  --secondary-foreground: hsl(210, 40%, 98%);
-  --accent: #1a1f24;
-  --accent-foreground: hsl(210, 40%, 98%);
-  --destructive: hsl(0, 84%, 60%);
-  --destructive-foreground: hsl(0, 0%, 100%);
-  --ring: #0cc9a9;
+  /* MeridianWork brand: deep navy + brass gold on a light ground.
+     Navy #111d2e and gold #d4a574 come from the brand wordmark; gold is darkened
+     to #b8874a wherever it is used as TEXT on white so it passes contrast. */
+  --navy: #111d2e;
+  --gold: #b8874a;
+  --gold-soft: #d4a574;
+
+  --background: #f4f5f7;
+  --foreground: #111d2e;
+  --muted: #eef0f3;
+  --muted-foreground: #4b5563;
+  --popover: #ffffff;
+  --popover-foreground: #111d2e;
+  --card: #ffffff;
+  --card-foreground: #111d2e;
+  --border: #e3e7ec;
+  --input: #e3e7ec;
+  --primary: #111d2e;
+  --primary-foreground: #ffffff;
+  --secondary: #eef0f3;
+  --secondary-foreground: #111d2e;
+  --accent: #f6efe4;
+  --accent-foreground: #111d2e;
+  --destructive: #d63c3c;
+  --destructive-foreground: #ffffff;
+  --ring: #d4a574;
   --radius: 0.5rem;
 
-  --button-outline: rgba(255,255,255, .10);
-  --badge-outline: rgba(255,255,255, .05);
-  --opaque-button-border-intensity: 9;
-  --elevate-1: rgba(255,255,255, .04);
-  --elevate-2: rgba(255,255,255, .09);
+  --button-outline: rgba(17,29,46, .12);
+  --badge-outline: rgba(17,29,46, .08);
+  --opaque-button-border-intensity: -9;
+  --elevate-1: rgba(17,29,46, .04);
+  --elevate-2: rgba(17,29,46, .08);
 
   --primary-border: var(--primary);
   --secondary-border: var(--secondary);
   --muted-border: var(--muted);
   --accent-border: var(--accent);
   --destructive-border: var(--destructive);
+}
+
+/* The sidebar keeps the brand navy. Everything inside it reads these instead. */
+.brand-sidebar {
+  --background: #111d2e;
+  --foreground: #ffffff;
+  --card: #111d2e;
+  --card-foreground: #ffffff;
+  --muted: rgba(255,255,255,0.08);
+  --muted-foreground: rgba(255,255,255,0.68);
+  --border: rgba(255,255,255,0.10);
+  --primary: #d4a574;
+  --primary-foreground: #111d2e;
+  --accent: rgba(255,255,255,0.08);
+  --accent-foreground: #ffffff;
+  color-scheme: dark;
 }
 
 @layer base {

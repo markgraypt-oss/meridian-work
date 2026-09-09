@@ -193,7 +193,7 @@ export default function AdminAiPromptLibrary() {
                   </div>
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center gap-2 flex-wrap">
-                      <Sparkles className="h-3.5 w-3.5 text-[#0cc9a9]" />
+                      <Sparkles className="h-3.5 w-3.5 text-[#b8874a]" />
                       <span className="font-semibold text-sm">{p.title}</span>
                       {!p.isActive && <Badge variant="outline" className="text-[10px]">Inactive</Badge>}
                     </div>

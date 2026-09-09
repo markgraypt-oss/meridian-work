@@ -179,7 +179,7 @@ function ClientHeader({ name, email, timeline, workouts, checkIns, bodyweight, s
           {displayFlags.length === 0 ? (
             dataLoading ? null : hasAnyData ? (
               <Badge variant="outline"
-                className="text-emerald-400 border-emerald-400/30 bg-emerald-400/10 text-[10px] py-0 gap-1">
+                className="text-emerald-700 border-emerald-400/30 bg-emerald-400/10 text-[10px] py-0 gap-1">
                 <CheckCircle2 className="h-2.5 w-2.5" /> On track
               </Badge>
             ) : (
@@ -191,8 +191,8 @@ function ClientHeader({ name, email, timeline, workouts, checkIns, bodyweight, s
           ) : displayFlags.map((f, i) => (
             <Badge key={i} variant="outline"
               className={`text-[10px] py-0 gap-1 ${f.level === 'red'
-                ? 'text-red-400 border-red-400/30 bg-red-400/10'
-                : 'text-amber-400 border-amber-400/30 bg-amber-400/10'}`}>
+                ? 'text-red-600 border-red-400/30 bg-red-400/10'
+                : 'text-amber-600 border-amber-400/30 bg-amber-400/10'}`}>
               <AlertTriangle className="h-2.5 w-2.5" /> {f.label}
             </Badge>
           ))}
@@ -203,7 +203,7 @@ function ClientHeader({ name, email, timeline, workouts, checkIns, bodyweight, s
           {lastActiveLabel && (
             <span className="text-xs text-muted-foreground hidden sm:block">{lastActiveLabel}</span>
           )}
-          <Badge className="bg-emerald-950 text-emerald-400 border-emerald-800 text-[10px]">
+          <Badge className="bg-emerald-950 text-emerald-700 border-emerald-800 text-[10px]">
             Access granted
           </Badge>
           <Button variant="ghost" size="sm" onClick={onBack} className="h-7 px-2 text-xs gap-1">

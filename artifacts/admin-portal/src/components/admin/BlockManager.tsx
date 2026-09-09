@@ -794,11 +794,11 @@ export function BlockManager({
                 // Render rest item
                 if (exercise.isRest) {
                   return (
-                    <div key={exercise.id} className="w-full px-3 py-3 bg-[#0cc9a9]/10 rounded-lg border border-[#0cc9a9]/30">
+                    <div key={exercise.id} className="w-full px-3 py-3 bg-[#b8874a]/10 rounded-lg border border-[#b8874a]/30">
                       <div className="flex items-center justify-between">
                         <div className="flex items-center gap-3">
-                          <Timer className="h-4 w-4 text-[#0cc9a9]" />
-                          <span className="text-sm font-medium text-[#0cc9a9]">Rest</span>
+                          <Timer className="h-4 w-4 text-[#b8874a]" />
+                          <span className="text-sm font-medium text-[#b8874a]">Rest</span>
                           <Select
                             value={exercise.restDuration || '30 sec'}
                             onValueChange={(val) => updateRestItemDuration(blockIndex, exerciseIndex, val)}
@@ -1007,11 +1007,11 @@ export function BlockManager({
               // Render rest block
               if (block.blockType === 'rest') {
                 return (
-                  <Card key={block.id} data-block-id={block.id} className="w-full px-3 py-4 border-l-4 border-l-[#0cc9a9] bg-[#0cc9a9]/5">
+                  <Card key={block.id} data-block-id={block.id} className="w-full px-3 py-4 border-l-4 border-l-[#b8874a] bg-[#b8874a]/5">
                     <div className="flex items-center justify-between">
                       <div className="flex items-center gap-3">
-                        <Timer className="h-5 w-5 text-[#0cc9a9]" />
-                        <span className="text-sm font-bold text-[#0cc9a9]">Rest Period</span>
+                        <Timer className="h-5 w-5 text-[#b8874a]" />
+                        <span className="text-sm font-bold text-[#b8874a]">Rest Period</span>
                         <Select
                           value={block.restDuration || '30 sec'}
                           onValueChange={(val) => updateRestBlockDuration(blockIndex, val)}
@@ -1151,11 +1151,11 @@ export function BlockManager({
                       // Render rest item
                       if (exercise.isRest) {
                         return (
-                          <div key={exercise.id} className="w-full px-3 py-3 bg-[#0cc9a9]/10 rounded-lg border border-[#0cc9a9]/30">
+                          <div key={exercise.id} className="w-full px-3 py-3 bg-[#b8874a]/10 rounded-lg border border-[#b8874a]/30">
                             <div className="flex items-center justify-between">
                               <div className="flex items-center gap-3">
-                                <Timer className="h-4 w-4 text-[#0cc9a9]" />
-                                <span className="text-sm font-medium text-[#0cc9a9]">Rest</span>
+                                <Timer className="h-4 w-4 text-[#b8874a]" />
+                                <span className="text-sm font-medium text-[#b8874a]">Rest</span>
                                 <Select
                                   value={exercise.restDuration || '30 sec'}
                                   onValueChange={(val) => updateRestItemDuration(blockIndex, exerciseIndex, val)}

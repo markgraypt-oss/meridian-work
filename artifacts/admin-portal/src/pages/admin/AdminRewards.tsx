@@ -132,10 +132,10 @@ function Stat({ label, value, sub, icon: Icon, tone }: any) {
     <Card>
       <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
         <CardTitle className="text-sm font-medium">{label}</CardTitle>
-        {Icon ? <Icon className={`h-4 w-4 ${tone || "text-[#0cc9a9]"}`} /> : null}
+        {Icon ? <Icon className={`h-4 w-4 ${tone || "text-[#b8874a]"}`} /> : null}
       </CardHeader>
       <CardContent>
-        <div className={`text-2xl font-bold ${tone || "text-[#0cc9a9]"}`}>{value}</div>
+        <div className={`text-2xl font-bold ${tone || "text-[#b8874a]"}`}>{value}</div>
         {sub ? <p className="text-xs text-muted-foreground">{sub}</p> : null}
       </CardContent>
     </Card>
@@ -246,7 +246,7 @@ export default function AdminRewards() {
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
           <h1 className="text-2xl font-bold flex items-center gap-2">
-            <Trophy className="h-6 w-6 text-[#0cc9a9]" /> Workforce Rewards
+            <Trophy className="h-6 w-6 text-[#b8874a]" /> Workforce Rewards
           </h1>
           <p className="text-sm text-muted-foreground">
             Hit the target, earn tickets, win the draw. You see counts — never anyone's activity.

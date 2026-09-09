@@ -493,11 +493,11 @@ export default function AdminAiCoaching() {
       />
 
       <main className="p-4 pt-16 space-y-6">
-        <Card className="bg-gradient-to-br from-purple-500/20 to-[#0cc9a9]/20 border-purple-500/30">
+        <Card className="bg-gradient-to-br from-[#111d2e]/[0.06] to-[#d4a574]/25 border-[#d4a574]">
           <CardContent className="p-4">
             <div className="flex items-start gap-3">
-              <div className="p-2 bg-purple-500/20 rounded-lg">
-                <Brain className="h-5 w-5 text-purple-400" />
+              <div className="p-2 bg-[#d4a574]/30 rounded-lg">
+                <Brain className="h-5 w-5 text-[#111d2e]" />
               </div>
               <div>
                 <h3 className="font-semibold text-foreground">Train Your AI Coach</h3>
@@ -512,7 +512,7 @@ export default function AdminAiCoaching() {
         <Card>
           <CardHeader className="pb-3">
             <div className="flex items-center gap-2">
-              <Sparkles className="h-5 w-5 text-purple-500" />
+              <Sparkles className="h-5 w-5 text-gold" />
               <CardTitle className="text-lg">Your Coaching Identity</CardTitle>
             </div>
             <CardDescription>
@@ -573,7 +573,7 @@ export default function AdminAiCoaching() {
 
             <div className="space-y-2">
               <Label htmlFor="globalNever" className="font-medium flex items-center gap-2">
-                <Ban className="h-4 w-4 text-red-400" />
+                <Ban className="h-4 w-4 text-red-600" />
                 Things to Never Do
               </Label>
               <p className="text-xs text-muted-foreground">
@@ -619,7 +619,7 @@ export default function AdminAiCoaching() {
 
         <div className="space-y-3">
           <div className="flex items-center gap-2">
-            <Cpu className="h-5 w-5 text-[#0cc9a9]" />
+            <Cpu className="h-5 w-5 text-[#b8874a]" />
             <h2 className="text-lg font-semibold text-foreground">Feature-Specific Expertise</h2>
           </div>
           <p className="text-sm text-muted-foreground">
@@ -664,7 +664,7 @@ export default function AdminAiCoaching() {
                   <Card className="bg-muted/50 border-border">
                     <CardContent className="p-4 space-y-3">
                       <div className="flex items-center gap-2">
-                        <Cpu className="h-4 w-4 text-[#0cc9a9]" />
+                        <Cpu className="h-4 w-4 text-[#b8874a]" />
                         <Label className="font-medium text-sm">AI Provider & Model</Label>
                       </div>
                       <div className="grid grid-cols-2 gap-3">

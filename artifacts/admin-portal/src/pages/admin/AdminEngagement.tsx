@@ -235,7 +235,7 @@ function ConfigSection<K extends ConfigKey>({
       <CardContent className="space-y-4">
         {render(value, setValue)}
         {error && (
-          <div className="flex items-start gap-2 text-xs text-red-400" data-testid={`error-${cfgKey}`}>
+          <div className="flex items-start gap-2 text-xs text-red-600" data-testid={`error-${cfgKey}`}>
             <AlertTriangle className="h-4 w-4 mt-0.5 flex-shrink-0" />
             <span>{error}</span>
           </div>
@@ -286,7 +286,7 @@ export default function AdminEngagement() {
       <TopHeader title="Engagement Tunables" onBack={() => navigate("/admin")} />
       <div className="px-5 pt-14 space-y-5 max-w-2xl mx-auto">
         <div className="flex items-center gap-2 text-sm text-muted-foreground">
-          <Trophy className="h-4 w-4 text-[#0cc9a9]" />
+          <Trophy className="h-4 w-4 text-[#b8874a]" />
           <span>Edit which activities feed which streak track. Points and levels were retired on 25 Aug 2026.</span>
         </div>
 
@@ -299,7 +299,7 @@ export default function AdminEngagement() {
 
         {error && (
           <Card>
-            <CardContent className="pt-6 text-sm text-red-400">
+            <CardContent className="pt-6 text-sm text-red-600">
               Failed to load config. You may not have admin access.
             </CardContent>
           </Card>

@@ -1090,11 +1090,11 @@ export function ProgrammeBlockManager({ workoutId, programId, programmeType, onB
                 // Render rest item
                 if (exercise.isRest) {
                   return (
-                    <div key={exercise.id} className="w-full px-3 py-3 bg-[#0cc9a9]/10 rounded-lg border border-[#0cc9a9]/30">
+                    <div key={exercise.id} className="w-full px-3 py-3 bg-[#b8874a]/10 rounded-lg border border-[#b8874a]/30">
                       <div className="flex items-center justify-between">
                         <div className="flex items-center gap-3">
-                          <Timer className="h-4 w-4 text-[#0cc9a9]" />
-                          <span className="text-sm font-medium text-[#0cc9a9]">Rest</span>
+                          <Timer className="h-4 w-4 text-[#b8874a]" />
+                          <span className="text-sm font-medium text-[#b8874a]">Rest</span>
                           <Select
                             value={exercise.restDuration || '30 sec'}
                             onValueChange={(val) => updateRestItemDuration(intervalBlock.id, exerciseIndex, val)}
@@ -1304,11 +1304,11 @@ export function ProgrammeBlockManager({ workoutId, programId, programmeType, onB
               // Render rest block
               if (block.blockType === 'rest') {
                 return (
-                  <Card key={block.id} data-block-id={block.id} className="w-full px-3 py-4 bg-[#0cc9a9]/10 border-l-4 border-l-[#0cc9a9]">
+                  <Card key={block.id} data-block-id={block.id} className="w-full px-3 py-4 bg-[#b8874a]/10 border-l-4 border-l-[#b8874a]">
                     <div className="flex items-center justify-between">
                       <div className="flex items-center gap-3">
-                        <Timer className="h-5 w-5 text-[#0cc9a9]" />
-                        <span className="text-sm font-bold text-[#0cc9a9]">Rest Period</span>
+                        <Timer className="h-5 w-5 text-[#b8874a]" />
+                        <span className="text-sm font-bold text-[#b8874a]">Rest Period</span>
                         <Select
                           value={block.rest || ''}
                           onValueChange={(val) => updateRestBlockDuration(block.id, val)}
@@ -1445,11 +1445,11 @@ export function ProgrammeBlockManager({ workoutId, programId, programmeType, onB
                       // Render rest item
                       if (exercise.isRest) {
                         return (
-                          <div key={exercise.id} className="w-full px-3 py-3 bg-[#0cc9a9]/10 rounded-lg border border-[#0cc9a9]/30">
+                          <div key={exercise.id} className="w-full px-3 py-3 bg-[#b8874a]/10 rounded-lg border border-[#b8874a]/30">
                             <div className="flex items-center justify-between">
                               <div className="flex items-center gap-3">
-                                <Timer className="h-4 w-4 text-[#0cc9a9]" />
-                                <span className="text-sm font-medium text-[#0cc9a9]">Rest</span>
+                                <Timer className="h-4 w-4 text-[#b8874a]" />
+                                <span className="text-sm font-medium text-[#b8874a]">Rest</span>
                                 <Select
                                   value={exercise.restDuration || '30 sec'}
                                   onValueChange={(val) => updateRestItemDuration(block.id, exerciseIndex, val)}
@@ -1782,7 +1782,7 @@ export function ProgrammeBlockManager({ workoutId, programId, programmeType, onB
       <div className="flex items-center justify-between pt-6 border-t border-border">
         <div className="flex items-center gap-2">
           {(isDirty || detailsDirty) && (
-            <span className="text-sm text-[#0cc9a9] font-medium">Unsaved changes</span>
+            <span className="text-sm text-[#b8874a] font-medium">Unsaved changes</span>
           )}
         </div>
         <div className="flex items-center gap-3">

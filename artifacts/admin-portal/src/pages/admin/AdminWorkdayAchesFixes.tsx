@@ -98,7 +98,7 @@ function ArrayInput({
             <button
               type="button"
               onClick={() => onRemove(index)}
-              className="text-gray-400 hover:text-white"
+              className="text-muted-foreground hover:text-foreground"
             >
               <X className="h-3 w-3" />
             </button>
@@ -234,7 +234,7 @@ export default function AdminWorkdayAchesFixes() {
         {!showForm && (
           <Button
             onClick={() => setShowForm(true)}
-            className="w-full bg-[#0cc9a9] hover:bg-[#0cc9a9]/90"
+            className="w-full bg-[#111d2e] hover:bg-[#1c2c44]"
             data-testid="button-add-aches-fix"
           >
             <Plus className="h-4 w-4 mr-2" />
@@ -245,7 +245,7 @@ export default function AdminWorkdayAchesFixes() {
         {showForm && (
           <Card className="bg-card border-border">
             <CardHeader className="flex flex-row items-center justify-between">
-              <CardTitle className="text-white">
+              <CardTitle className="text-foreground">
                 {editingId ? "Edit Aches & Fix" : "New Aches & Fix"}
               </CardTitle>
               <Button variant="ghost" size="icon" onClick={resetForm} data-testid="button-close-form">
@@ -397,7 +397,7 @@ export default function AdminWorkdayAchesFixes() {
 
                 <Button
                   type="submit"
-                  className="w-full bg-[#0cc9a9] hover:bg-[#0cc9a9]/90"
+                  className="w-full bg-[#111d2e] hover:bg-[#1c2c44]"
                   disabled={createMutation.isPending || updateMutation.isPending}
                   data-testid="button-submit"
                 >
@@ -409,9 +409,9 @@ export default function AdminWorkdayAchesFixes() {
         )}
 
         {isLoading ? (
-          <div className="text-center py-8 text-gray-400">Loading...</div>
+          <div className="text-center py-8 text-muted-foreground">Loading...</div>
         ) : achesFixes.length === 0 ? (
-          <div className="text-center py-8 text-gray-400">No aches & fixes yet.</div>
+          <div className="text-center py-8 text-muted-foreground">No aches & fixes yet.</div>
         ) : (
           <div className="space-y-3">
             {achesFixes.map((item) => (
@@ -427,12 +427,12 @@ export default function AdminWorkdayAchesFixes() {
                     )}
                     <div className="flex-1 min-w-0">
                       <div className="flex items-center gap-2">
-                        <h3 className="font-semibold text-white">{item.title}</h3>
-                        <span className="text-xs bg-orange-500/20 text-orange-400 px-2 py-0.5 rounded">
+                        <h3 className="font-semibold text-foreground">{item.title}</h3>
+                        <span className="text-xs bg-orange-500/20 text-orange-600 px-2 py-0.5 rounded">
                           {issueTypes.find(t => t.value === item.issueType)?.label}
                         </span>
                       </div>
-                      <p className="text-sm text-gray-400 line-clamp-2">{item.description}</p>
+                      <p className="text-sm text-muted-foreground line-clamp-2">{item.description}</p>
                     </div>
                     <div className="flex gap-2">
                       <Button variant="ghost" size="icon" onClick={() => handleEdit(item)} data-testid={`button-edit-${item.id}`}>
@@ -442,7 +442,7 @@ export default function AdminWorkdayAchesFixes() {
                         variant="ghost"
                         size="icon"
                         onClick={() => deleteMutation.mutate(item.id)}
-                        className="text-red-400 hover:text-red-300"
+                        className="text-red-600 hover:text-red-600"
                         data-testid={`button-delete-${item.id}`}
                       >
                         <Trash2 className="h-4 w-4" />

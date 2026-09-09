@@ -76,7 +76,7 @@ function MeasurementsPanel({ userId }: { userId: string }) {
                 <tr key={c.key} className="border-b border-border/40 last:border-0">
                   <td className="py-1.5 pr-4 text-muted-foreground whitespace-nowrap">{c.label}</td>
                   <td className="py-1.5 pr-4 text-right tabular-nums font-medium">{val} cm</td>
-                  <td className={`py-1.5 text-right tabular-nums text-xs ${!d ? 'text-muted-foreground' : d.startsWith('+') ? 'text-red-400' : 'text-emerald-400'}`}>
+                  <td className={`py-1.5 text-right tabular-nums text-xs ${!d ? 'text-muted-foreground' : d.startsWith('+') ? 'text-red-600' : 'text-emerald-700'}`}>
                     {d ?? '—'}
                   </td>
                 </tr>
@@ -197,14 +197,14 @@ export function BodyPanel({ userId }: { userId: string }) {
       <CardContent>
         <div className="grid grid-cols-1 md:grid-cols-2 gap-8 divide-y md:divide-y-0 md:divide-x divide-border">
           <div>
-            <div className="flex items-center gap-2 text-xs font-medium text-muted-foreground uppercase tracking-wide mb-3">
+            <div className="flex items-center gap-2 text-xs font-medium text-gold uppercase tracking-wide mb-3">
               <Ruler className="h-3.5 w-3.5" />
               Measurements
             </div>
             <MeasurementsPanel userId={userId} />
           </div>
           <div className="pt-8 md:pt-0 md:pl-8">
-            <div className="flex items-center gap-2 text-xs font-medium text-muted-foreground uppercase tracking-wide mb-3">
+            <div className="flex items-center gap-2 text-xs font-medium text-gold uppercase tracking-wide mb-3">
               <Camera className="h-3.5 w-3.5" />
               Progress photos
             </div>

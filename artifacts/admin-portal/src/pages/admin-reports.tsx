@@ -215,16 +215,16 @@ type CompanyReport = {
 };
 
 function TrendIcon({ direction }: { direction: TrendDirection }) {
-  if (direction === "improving") return <TrendingUp className="h-4 w-4 text-green-400" />;
-  if (direction === "declining") return <TrendingDown className="h-4 w-4 text-red-400" />;
-  return <Minus className="h-4 w-4 text-gray-400" />;
+  if (direction === "improving") return <TrendingUp className="h-4 w-4 text-emerald-700" />;
+  if (direction === "declining") return <TrendingDown className="h-4 w-4 text-red-600" />;
+  return <Minus className="h-4 w-4 text-muted-foreground" />;
 }
 
 function TrendBadge({ direction, label }: { direction: TrendDirection; label: string }) {
   const colors = {
-    improving: "bg-green-500/20 text-green-400 border-green-500/30",
-    stable: "bg-gray-500/20 text-gray-400 border-gray-500/30",
-    declining: "bg-red-500/20 text-red-400 border-red-500/30",
+    improving: "bg-green-500/20 text-emerald-700 border-green-500/30",
+    stable: "bg-gray-500/20 text-muted-foreground border-gray-500/30",
+    declining: "bg-red-500/20 text-red-600 border-red-500/30",
   };
   return (
     <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs border ${colors[direction]}`}>
@@ -236,9 +236,9 @@ function TrendBadge({ direction, label }: { direction: TrendDirection; label: st
 
 function RiskBadge({ level, label }: { level: RiskLevel; label: string }) {
   const colors = {
-    low: "bg-green-500/20 text-green-400 border-green-500/30",
-    moderate: "bg-[#0cc9a9]/20 text-[#0cc9a9] border-[#0cc9a9]/30",
-    high: "bg-red-500/20 text-red-400 border-red-500/30",
+    low: "bg-green-500/20 text-emerald-700 border-green-500/30",
+    moderate: "bg-[#b8874a]/20 text-[#b8874a] border-[#b8874a]/30",
+    high: "bg-red-500/20 text-red-600 border-red-500/30",
   };
   return (
     <span className={`inline-flex items-center gap-1 px-2 py-1 rounded-full text-xs font-medium border ${colors[level]}`}>
@@ -252,8 +252,8 @@ function ScoreCard({ label, value, suffix, icon: Icon, trend }: { label: string;
   return (
     <div className="bg-card rounded-lg p-4 border border-border">
       <div className="flex items-center justify-between mb-2">
-        <span className="text-xs text-muted-foreground uppercase tracking-wide">{label}</span>
-        {Icon && <Icon className="h-4 w-4 text-[#0cc9a9]" />}
+        <span className="text-xs text-gold uppercase tracking-wide">{label}</span>
+        {Icon && <Icon className="h-4 w-4 text-[#b8874a]" />}
       </div>
       <div className="flex items-end gap-2">
         <span className="text-2xl font-bold text-foreground">
@@ -278,7 +278,7 @@ function PercentCard({ label, value, threshold, invertWarning }: { label: string
   return (
     <div className="flex items-center justify-between py-2.5 px-3 rounded-lg bg-card border border-border">
       <span className="text-sm text-muted-foreground">{label}</span>
-      <span className={`text-sm font-semibold ${isWarning ? "text-red-400" : "text-foreground"}`}>
+      <span className={`text-sm font-semibold ${isWarning ? "text-red-600" : "text-foreground"}`}>
         {value !== null ? `${value.toFixed(1)}%` : "---"}
       </span>
     </div>
@@ -292,9 +292,9 @@ function formatBodyPart(part: string): string {
 }
 
 function getParticipationQuality(rate: number): { label: string; color: string; icon: any } {
-  if (rate >= 75) return { label: "High", color: "text-green-400", icon: CheckCircle2 };
-  if (rate >= 60) return { label: "Medium", color: "text-[#0cc9a9]", icon: Info };
-  return { label: "Low", color: "text-amber-400", icon: AlertCircle };
+  if (rate >= 75) return { label: "High", color: "text-emerald-700", icon: CheckCircle2 };
+  if (rate >= 60) return { label: "Medium", color: "text-[#b8874a]", icon: Info };
+  return { label: "Low", color: "text-amber-600", icon: AlertCircle };
 }
 
 function computeProtectiveScore(metrics: AggregateMetrics): { score: number; trend: string } {
@@ -351,7 +351,7 @@ function getBurnoutConfidence(usersAssessed: number, totalUsers: number, totalCh
   if (participation >= 40) {
     return { label: "Medium", color: "text-muted-foreground", bgClass: "" };
   }
-  return { label: "Low", color: "text-amber-400", bgClass: "bg-amber-500/10 border border-amber-500/20 rounded-lg p-3" };
+  return { label: "Low", color: "text-amber-600", bgClass: "bg-amber-500/10 border border-amber-500/20 rounded-lg p-3" };
 }
 
 function getCurrentMonthStr(): string {
@@ -364,11 +364,11 @@ function exportReportToCSV(report: CompanyReport, timeWindow: string, showMonthO
   const pct = (v: number | null, dp = 1) => v !== null ? v.toFixed(dp) : "";
   const e = (v: string) => v.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
 
-  const headerStyle = 'style="background-color:#1a1a2e;color:#0cc9a9;font-weight:bold;font-size:14px;padding:8px 12px;border:1px solid #333"';
-  const labelStyle = 'style="background-color:#16213e;color:#e0e0e0;font-weight:bold;padding:6px 12px;border:1px solid #333"';
-  const colHeaderStyle = 'style="background-color:#0f3460;color:#ffffff;font-weight:bold;padding:6px 12px;border:1px solid #333"';
-  const cellStyle = 'style="background-color:#1a1a2e;color:#e0e0e0;padding:6px 12px;border:1px solid #333"';
-  const emptyStyle = 'style="background-color:#0d1117;border:none"';
+  const headerStyle = 'style="background-color:#111d2e;color:#d4a574;font-weight:bold;font-size:14px;padding:8px 12px;border:1px solid #111d2e"';
+  const labelStyle = 'style="background-color:#eef0f3;color:#111d2e;font-weight:bold;padding:6px 12px;border:1px solid #e3e7ec"';
+  const colHeaderStyle = 'style="background-color:#1c2c44;color:#ffffff;font-weight:bold;padding:6px 12px;border:1px solid #1c2c44"';
+  const cellStyle = 'style="background-color:#ffffff;color:#111d2e;padding:6px 12px;border:1px solid #e3e7ec"';
+  const emptyStyle = 'style="background-color:#ffffff;border:none"';
 
   let html = `<html xmlns:o="urn:schemas-microsoft-com:office:office" xmlns:x="urn:schemas-microsoft-com:office:spreadsheet" xmlns="http://www.w3.org/TR/REC-html40">
 <head><meta charset="utf-8"><style>td,th{mso-number-format:'\\@';}</style></head>
@@ -377,7 +377,7 @@ function exportReportToCSV(report: CompanyReport, timeWindow: string, showMonthO
   const emptyRow = () => `<tr><td ${emptyStyle}></td><td ${emptyStyle}></td><td ${emptyStyle}></td><td ${emptyStyle}></td></tr>`;
   const sectionHeader = (title: string, sub = "") => `<tr><td colspan="4" ${headerStyle}>${e(title)}${sub ? " " + e(sub) : ""}</td></tr>`;
 
-  html += `<tr><td colspan="4" style="background-color:#0d1117;color:#0cc9a9;font-weight:bold;font-size:18px;padding:12px;border:none">Company Report Export</td></tr>`;
+  html += `<tr><td colspan="4" style="background-color:#ffffff;color:#111d2e;font-weight:bold;font-size:18px;padding:12px;border:none">Company Report Export</td></tr>`;
   html += emptyRow();
   html += `<tr><td ${labelStyle}>Company</td><td colspan="3" ${cellStyle}>${e(report.companyName)}</td></tr>`;
   let dateRangeStr = "";
@@ -408,7 +408,7 @@ function exportReportToCSV(report: CompanyReport, timeWindow: string, showMonthO
     html += `<tr><td ${labelStyle}>Total Check-ins</td><td ${cellStyle}>${report.metrics?.totalCheckIns ?? 0}</td><td ${emptyStyle}></td><td ${emptyStyle}></td></tr>`;
     html += `<tr><td ${labelStyle}>Unique Users Checked In</td><td ${cellStyle}>${report.metrics?.uniqueUsers ?? 0}</td><td ${emptyStyle}></td><td ${emptyStyle}></td></tr>`;
     if (report.participation.participationRate < 60) {
-      html += `<tr><td colspan="4" style="background-color:#3d2800;color:#fbbf24;padding:6px 12px;border:1px solid #333">Note: Participation below 60% - data reliability may be reduced</td></tr>`;
+      html += `<tr><td colspan="4" style="background-color:#fff8ec;color:#9a6a12;padding:6px 12px;border:1px solid #d4a574">Note: Participation below 60% - data reliability may be reduced</td></tr>`;
     }
     html += emptyRow();
   }
@@ -574,7 +574,7 @@ function exportReportToCSV(report: CompanyReport, timeWindow: string, showMonthO
   }
 
   html += emptyRow();
-  html += `<tr><td colspan="4" style="color:#888;font-style:italic;padding:8px 12px;border:none;background-color:#0d1117">All data is anonymous and aggregated. No individual user data is included.</td></tr>`;
+  html += `<tr><td colspan="4" style="color:#4b5563;font-style:italic;padding:8px 12px;border:none;background-color:#ffffff">All data is anonymous and aggregated. No individual user data is included.</td></tr>`;
   html += `</table></body></html>`;
 
   const blob = new Blob([html], { type: "application/vnd.ms-excel;charset=utf-8;" });
@@ -816,7 +816,7 @@ export default function AdminReports() {
   if (isLoading) {
     return (
       <div className="min-h-screen bg-background flex items-center justify-center">
-        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-[#0cc9a9]" />
+        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-[#b8874a]" />
       </div>
     );
   }
@@ -843,7 +843,7 @@ export default function AdminReports() {
                   <span className="flex items-center gap-2 whitespace-nowrap">
                     <span className="truncate max-w-[140px]">{c.companyName}</span>
                     <span className="text-xs text-muted-foreground">({c.userCount} users)</span>
-                    {!c.eligible && <span className="text-xs text-red-400">(min {settingsData?.effective.minCohortSize ?? 5})</span>}
+                    {!c.eligible && <span className="text-xs text-red-600">(min {settingsData?.effective.minCohortSize ?? 5})</span>}
                   </span>
                 </SelectItem>
               ))}
@@ -874,7 +874,7 @@ export default function AdminReports() {
             variant={showMonthOverMonth ? "default" : "outline"}
             size="sm"
             onClick={() => setShowMonthOverMonth(!showMonthOverMonth)}
-            className={showMonthOverMonth ? "bg-[#0cc9a9] hover:bg-[#0cc9a9]/80 text-black" : "border-border text-muted-foreground hover:text-foreground"}
+            className={showMonthOverMonth ? "bg-[#111d2e] hover:bg-[#b8874a]/80 text-black" : "border-border text-muted-foreground hover:text-foreground"}
           >
             <CalendarIcon className="h-4 w-4 mr-1" />
             Month vs Month
@@ -944,7 +944,7 @@ export default function AdminReports() {
               </div>
             </div>
             {customDateError && (
-              <p className="text-xs text-red-400">{customDateError}</p>
+              <p className="text-xs text-red-600">{customDateError}</p>
             )}
           </div>
         )}
@@ -1044,7 +1044,7 @@ export default function AdminReports() {
                 </Button>
               )}
               <Button variant="ghost" onClick={() => setSettingsOpen(false)}>Cancel</Button>
-              <Button onClick={() => saveSettings.mutate()} disabled={saveSettings.isPending || targetSettingsLoading || !targetSettingsData} className="bg-[#0cc9a9] hover:bg-[#0cc9a9]/80 text-black" data-testid="button-save-settings">
+              <Button onClick={() => saveSettings.mutate()} disabled={saveSettings.isPending || targetSettingsLoading || !targetSettingsData} className="bg-[#111d2e] hover:bg-[#b8874a]/80 text-black" data-testid="button-save-settings">
                 {saveSettings.isPending ? "Saving…" : targetSettingsLoading ? "Loading…" : "Save"}
               </Button>
             </DialogFooter>
@@ -1063,14 +1063,14 @@ export default function AdminReports() {
 
         {selectedCompany && reportLoading && (
           <div className="flex items-center justify-center py-16">
-            <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-[#0cc9a9]" />
+            <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-[#b8874a]" />
           </div>
         )}
 
         {report && !report.eligible && (
           <Card className="bg-card border-border">
             <CardContent className="py-12 text-center">
-              <Shield className="h-12 w-12 text-[#0cc9a9] mx-auto mb-4" />
+              <Shield className="h-12 w-12 text-[#b8874a] mx-auto mb-4" />
               <p className="text-foreground text-lg font-medium mb-2">Insufficient Users for Anonymous Reporting</p>
               <p className="text-muted-foreground">{report.reason}</p>
             </CardContent>
@@ -1083,7 +1083,7 @@ export default function AdminReports() {
               <CardHeader className="pb-3">
                 <div className="flex items-center justify-between flex-wrap gap-2">
                   <CardTitle className="text-foreground flex items-center gap-2">
-                    <Sparkles className="h-5 w-5 text-[#0cc9a9]" />
+                    <Sparkles className="h-5 w-5 text-[#b8874a]" />
                     Executive Summary
                     {narrativeData?.cached && !narrativeData.suppressed && (
                       <span className="text-xs font-normal px-2 py-0.5 rounded-full bg-muted text-muted-foreground">cached</span>
@@ -1163,14 +1163,14 @@ export default function AdminReports() {
               <CardContent>
                 {narrativeLoading && !narrativeData ? (
                   <div className="flex items-center gap-2 text-muted-foreground py-6">
-                    <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-[#0cc9a9]" />
+                    <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-[#b8874a]" />
                     Generating AI narrative…
                   </div>
                 ) : narrativeData?.suppressed ? (
                   <div className="flex items-start gap-2 bg-amber-500/10 border border-amber-500/20 rounded-lg p-3">
-                    <Shield className="h-4 w-4 text-amber-400 mt-0.5 shrink-0" />
+                    <Shield className="h-4 w-4 text-amber-600 mt-0.5 shrink-0" />
                     <div>
-                      <p className="text-sm text-amber-300 font-medium">Narrative suppressed</p>
+                      <p className="text-sm text-amber-600 font-medium">Narrative suppressed</p>
                       <p className="text-xs text-amber-200/80 mt-1">{narrativeData.suppressionReason}</p>
                     </div>
                   </div>
@@ -1186,43 +1186,43 @@ export default function AdminReports() {
                     </div>
                     <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
                       <div className="bg-background border border-border rounded-lg p-3">
-                        <p className="text-xs uppercase text-muted-foreground mb-2 flex items-center gap-1">
-                          <CheckCircle2 className="h-3 w-3 text-[#0cc9a9]" /> Highlights
+                        <p className="text-xs uppercase text-gold mb-2 flex items-center gap-1">
+                          <CheckCircle2 className="h-3 w-3 text-[#b8874a]" /> Highlights
                         </p>
                         {narrativeData.narrative.highlights.length === 0 ? (
                           <p className="text-xs text-muted-foreground/70">None reported</p>
                         ) : (
                           <ul className="text-sm text-foreground space-y-1.5">
                             {narrativeData.narrative.highlights.map((h, i) => (
-                              <li key={i} className="flex items-start gap-1.5"><ChevronRight className="h-3 w-3 mt-1 shrink-0 text-[#0cc9a9]" /><span>{h}</span></li>
+                              <li key={i} className="flex items-start gap-1.5"><ChevronRight className="h-3 w-3 mt-1 shrink-0 text-[#b8874a]" /><span>{h}</span></li>
                             ))}
                           </ul>
                         )}
                       </div>
                       <div className="bg-background border border-border rounded-lg p-3">
-                        <p className="text-xs uppercase text-muted-foreground mb-2 flex items-center gap-1">
-                          <AlertTriangle className="h-3 w-3 text-amber-400" /> Risks
+                        <p className="text-xs uppercase text-gold mb-2 flex items-center gap-1">
+                          <AlertTriangle className="h-3 w-3 text-amber-600" /> Risks
                         </p>
                         {narrativeData.narrative.risks.length === 0 ? (
                           <p className="text-xs text-muted-foreground/70">None flagged</p>
                         ) : (
                           <ul className="text-sm text-foreground space-y-1.5">
                             {narrativeData.narrative.risks.map((r, i) => (
-                              <li key={i} className="flex items-start gap-1.5"><ChevronRight className="h-3 w-3 mt-1 shrink-0 text-amber-400" /><span>{r}</span></li>
+                              <li key={i} className="flex items-start gap-1.5"><ChevronRight className="h-3 w-3 mt-1 shrink-0 text-amber-600" /><span>{r}</span></li>
                             ))}
                           </ul>
                         )}
                       </div>
                       <div className="bg-background border border-border rounded-lg p-3">
-                        <p className="text-xs uppercase text-muted-foreground mb-2 flex items-center gap-1">
-                          <Lightbulb className="h-3 w-3 text-[#0cc9a9]" /> Recommendations
+                        <p className="text-xs uppercase text-gold mb-2 flex items-center gap-1">
+                          <Lightbulb className="h-3 w-3 text-[#b8874a]" /> Recommendations
                         </p>
                         {narrativeData.narrative.recommendations.length === 0 ? (
                           <p className="text-xs text-muted-foreground/70">None</p>
                         ) : (
                           <ul className="text-sm text-foreground space-y-1.5">
                             {narrativeData.narrative.recommendations.map((r, i) => (
-                              <li key={i} className="flex items-start gap-1.5"><ChevronRight className="h-3 w-3 mt-1 shrink-0 text-[#0cc9a9]" /><span>{r}</span></li>
+                              <li key={i} className="flex items-start gap-1.5"><ChevronRight className="h-3 w-3 mt-1 shrink-0 text-[#b8874a]" /><span>{r}</span></li>
                             ))}
                           </ul>
                         )}
@@ -1243,10 +1243,10 @@ export default function AdminReports() {
                         <ChevronDown className={`h-3 w-3 transition-transform ${provenanceOpen ? "rotate-180" : ""}`} />
                         {narrativeData.createdAt ? `Generated ${new Date(narrativeData.createdAt).toLocaleString()} · cohort ${narrativeData.cohortSize}` : `cohort ${narrativeData.cohortSize}`}
                         {narrativeData.validationOutcome === "repaired" && (
-                          <span className="ml-1 px-1.5 py-0.5 rounded-full bg-amber-500/15 text-amber-300 border border-amber-500/30">repaired</span>
+                          <span className="ml-1 px-1.5 py-0.5 rounded-full bg-amber-500/15 text-amber-600 border border-amber-500/30">repaired</span>
                         )}
                         {narrativeData.safetyFlags && narrativeData.safetyFlags.length > 0 && (
-                          <span className="ml-1 px-1.5 py-0.5 rounded-full bg-red-500/15 text-red-300 border border-red-500/30 inline-flex items-center gap-1">
+                          <span className="ml-1 px-1.5 py-0.5 rounded-full bg-red-500/15 text-red-600 border border-red-500/30 inline-flex items-center gap-1">
                             <ShieldCheck className="h-3 w-3" />
                             {narrativeData.safetyFlags.length} safety {narrativeData.safetyFlags.length === 1 ? "flag" : "flags"}
                           </span>
@@ -1260,7 +1260,7 @@ export default function AdminReports() {
                           <div><span className="text-muted-foreground/60">Source:</span> <span className="text-foreground/80">{narrativeData.cached ? "cache hit" : "fresh generation"}</span></div>
                           <div className="col-span-2 break-all"><span className="text-muted-foreground/60">Snapshot:</span> <span className="font-mono text-foreground/80">{narrativeData.snapshotHash}</span></div>
                           {narrativeData.safetyFlags && narrativeData.safetyFlags.length > 0 && (
-                            <div className="col-span-full"><span className="text-muted-foreground/60">Safety flags:</span> <span className="text-red-300">{narrativeData.safetyFlags.join(", ")}</span></div>
+                            <div className="col-span-full"><span className="text-muted-foreground/60">Safety flags:</span> <span className="text-red-600">{narrativeData.safetyFlags.join(", ")}</span></div>
                           )}
                         </div>
                       )}
@@ -1274,7 +1274,7 @@ export default function AdminReports() {
               <DialogContent className="bg-card border-border max-w-md">
                 <DialogHeader>
                   <DialogTitle className="text-foreground flex items-center gap-2">
-                    <Flag className="h-4 w-4 text-amber-400" />
+                    <Flag className="h-4 w-4 text-amber-600" />
                     Report a problem with this summary
                   </DialogTitle>
                 </DialogHeader>
@@ -1316,7 +1316,7 @@ export default function AdminReports() {
                   <Button
                     onClick={() => submitFeedback.mutate()}
                     disabled={submitFeedback.isPending}
-                    className="bg-[#0cc9a9] hover:bg-[#0cc9a9]/80 text-black"
+                    className="bg-[#111d2e] hover:bg-[#b8874a]/80 text-black"
                     data-testid="button-submit-feedback"
                   >
                     {submitFeedback.isPending ? "Sending…" : "Send feedback"}
@@ -1329,7 +1329,7 @@ export default function AdminReports() {
               <CardHeader className="pb-3">
                 <div className="flex items-center justify-between">
                   <CardTitle className="text-foreground flex items-center gap-2">
-                    <Users className="h-5 w-5 text-[#0cc9a9]" />
+                    <Users className="h-5 w-5 text-[#b8874a]" />
                     Participation
                   </CardTitle>
                   {report.participation && (
@@ -1347,27 +1347,27 @@ export default function AdminReports() {
                     <>
                       <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
                         <div>
-                          <p className="text-xs text-muted-foreground uppercase mb-1">Total Users</p>
+                          <p className="text-xs text-gold uppercase mb-1">Total Users</p>
                           <p className="text-2xl font-bold text-foreground">{report.participation.totalUsersInCompany}</p>
                         </div>
                         <div>
-                          <p className="text-xs text-muted-foreground uppercase mb-1">Active in Window</p>
+                          <p className="text-xs text-gold uppercase mb-1">Active in Window</p>
                           <p className="text-2xl font-bold text-foreground">{report.participation.activeUsersInWindow}</p>
                         </div>
                         <div>
-                          <p className="text-xs text-muted-foreground uppercase mb-1">Participation Rate</p>
-                          <p className="text-2xl font-bold text-[#0cc9a9]">{report.participation.participationRate}%</p>
+                          <p className="text-xs text-gold uppercase mb-1">Participation Rate</p>
+                          <p className="text-2xl font-bold text-[#b8874a]">{report.participation.participationRate}%</p>
                           <span className={`inline-flex items-center gap-1 mt-1 text-xs ${quality.color}`}>
                             <QualityIcon className="h-3 w-3" />
                             {quality.label} quality
                           </span>
                         </div>
                         <div>
-                          <p className="text-xs text-muted-foreground uppercase mb-1">vs Previous Period</p>
+                          <p className="text-xs text-gold uppercase mb-1">vs Previous Period</p>
                           <p className={`text-2xl font-bold ${
-                            report.participation.changeVsPrevious === null ? "text-gray-500" :
-                            report.participation.changeVsPrevious > 0 ? "text-green-400" :
-                            report.participation.changeVsPrevious < 0 ? "text-red-400" : "text-gray-400"
+                            report.participation.changeVsPrevious === null ? "text-muted-foreground" :
+                            report.participation.changeVsPrevious > 0 ? "text-emerald-700" :
+                            report.participation.changeVsPrevious < 0 ? "text-red-600" : "text-muted-foreground"
                           }`}>
                             {report.participation.changeVsPrevious !== null
                               ? `${report.participation.changeVsPrevious > 0 ? "+" : ""}${report.participation.changeVsPrevious}%`
@@ -1377,8 +1377,8 @@ export default function AdminReports() {
                       </div>
                       {report.participation.participationRate < 60 && (
                         <div className="mt-3 flex items-start gap-2 bg-amber-500/10 border border-amber-500/20 rounded-lg p-3">
-                          <AlertCircle className="h-4 w-4 text-amber-400 mt-0.5 shrink-0" />
-                          <p className="text-xs text-amber-300">
+                          <AlertCircle className="h-4 w-4 text-amber-600 mt-0.5 shrink-0" />
+                          <p className="text-xs text-amber-600">
                             Participation is below 60%. Data reliability may be reduced. Consider initiatives to increase engagement with daily check-ins.
                           </p>
                         </div>
@@ -1397,7 +1397,7 @@ export default function AdminReports() {
             <Card className="bg-card border-border">
               <CardHeader className="pb-3">
                 <CardTitle className="text-foreground flex items-center gap-2">
-                  <Activity className="h-5 w-5 text-[#0cc9a9]" />
+                  <Activity className="h-5 w-5 text-[#b8874a]" />
                   Core Wellbeing Scores
                   <span className="text-xs text-muted-foreground font-normal">(1-5 scale)</span>
                 </CardTitle>
@@ -1417,7 +1417,7 @@ export default function AdminReports() {
               <Card className="bg-card border-border">
                 <CardHeader className="pb-3">
                   <CardTitle className="text-foreground flex items-center gap-2">
-                    <AlertTriangle className="h-5 w-5 text-[#0cc9a9]" />
+                    <AlertTriangle className="h-5 w-5 text-[#b8874a]" />
                     Risk Signals
                   </CardTitle>
                 </CardHeader>
@@ -1425,7 +1425,7 @@ export default function AdminReports() {
                   <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
                     <div className="space-y-2">
                       <div className="flex items-center gap-2 mb-2">
-                        <Shield className="h-4 w-4 text-[#0cc9a9]" />
+                        <Shield className="h-4 w-4 text-[#b8874a]" />
                         <RiskBadge level={report.risks.recoveryRisk} label="Recovery" />
                       </div>
                       {report.risks.recoveryFactors.length > 0 ? (
@@ -1443,7 +1443,7 @@ export default function AdminReports() {
                     </div>
                     <div className="space-y-2">
                       <div className="flex items-center gap-2 mb-2">
-                        <Brain className="h-4 w-4 text-[#0cc9a9]" />
+                        <Brain className="h-4 w-4 text-[#b8874a]" />
                         <RiskBadge level={report.risks.cognitiveStrainRisk} label="Cognitive" />
                       </div>
                       {report.risks.cognitiveFactors.length > 0 ? (
@@ -1461,7 +1461,7 @@ export default function AdminReports() {
                     </div>
                     <div className="space-y-2">
                       <div className="flex items-center gap-2 mb-2">
-                        <Heart className="h-4 w-4 text-[#0cc9a9]" />
+                        <Heart className="h-4 w-4 text-[#b8874a]" />
                         <RiskBadge level={report.risks.emotionalStrainRisk} label="Emotional" />
                       </div>
                       {report.risks.emotionalFactors.length > 0 ? (
@@ -1489,7 +1489,7 @@ export default function AdminReports() {
                 <Card className="bg-card border-border">
                   <CardHeader className="pb-3">
                     <CardTitle className="text-foreground flex items-center gap-2">
-                      <Lightbulb className="h-5 w-5 text-[#0cc9a9]" />
+                      <Lightbulb className="h-5 w-5 text-[#b8874a]" />
                       Recommended Actions
                     </CardTitle>
                   </CardHeader>
@@ -1497,7 +1497,7 @@ export default function AdminReports() {
                     <div className="space-y-2">
                       {actions.map((action, i) => (
                         <div key={i} className="flex items-start gap-2.5 py-2.5 px-3 rounded-lg bg-background border border-border">
-                          <ChevronRight className="h-4 w-4 mt-0.5 shrink-0 text-[#0cc9a9]" />
+                          <ChevronRight className="h-4 w-4 mt-0.5 shrink-0 text-[#b8874a]" />
                           <p className="text-sm text-muted-foreground">{action}</p>
                         </div>
                       ))}
@@ -1510,7 +1510,7 @@ export default function AdminReports() {
             <Card className="bg-card border-border">
               <CardHeader className="pb-3">
                 <CardTitle className="text-foreground flex items-center gap-2">
-                  <BarChart3 className="h-5 w-5 text-[#0cc9a9]" />
+                  <BarChart3 className="h-5 w-5 text-[#b8874a]" />
                   Health Signals
                   <span className="text-xs text-muted-foreground font-normal">(% of check-ins reporting)</span>
                 </CardTitle>
@@ -1532,7 +1532,7 @@ export default function AdminReports() {
             <Card className="bg-card border-border">
               <CardHeader className="pb-3">
                 <CardTitle className="text-foreground flex items-center gap-2">
-                  <ShieldCheck className="h-5 w-5 text-[#0cc9a9]" />
+                  <ShieldCheck className="h-5 w-5 text-[#b8874a]" />
                   Protective Behaviours
                   <span className="text-xs text-muted-foreground font-normal">(% of check-ins reporting)</span>
                 </CardTitle>
@@ -1540,28 +1540,28 @@ export default function AdminReports() {
               <CardContent>
                 {(() => {
                   const protective = computeProtectiveScore(report.metrics!);
-                  const scoreColor = protective.score >= 60 ? "text-green-400" : protective.score >= 40 ? "text-[#0cc9a9]" : "text-amber-400";
+                  const scoreColor = protective.score >= 60 ? "text-emerald-700" : protective.score >= 40 ? "text-[#b8874a]" : "text-amber-600";
                   return (
                     <div className="mb-4 p-3 rounded-lg bg-background border border-border">
                       <div className="flex items-center justify-between mb-2">
                         <div>
-                          <p className="text-xs text-muted-foreground uppercase mb-1">Composite Score</p>
+                          <p className="text-xs text-gold uppercase mb-1">Composite Score</p>
                           <p className={`text-2xl font-bold ${scoreColor}`}>
                             {protective.score}
                             <span className="text-sm font-normal text-muted-foreground"> / 100</span>
                           </p>
                         </div>
                         <span className={`inline-flex items-center gap-1 px-2 py-1 rounded-full text-xs font-medium border ${
-                          protective.trend === "Strong" ? "bg-green-500/20 text-green-400 border-green-500/30" :
-                          protective.trend === "Moderate" ? "bg-[#0cc9a9]/20 text-[#0cc9a9] border-[#0cc9a9]/30" :
-                          "bg-amber-500/20 text-amber-400 border-amber-500/30"
+                          protective.trend === "Strong" ? "bg-green-500/20 text-emerald-700 border-green-500/30" :
+                          protective.trend === "Moderate" ? "bg-[#b8874a]/20 text-[#b8874a] border-[#b8874a]/30" :
+                          "bg-amber-500/20 text-amber-600 border-amber-500/30"
                         }`}>
                           {protective.trend}
                         </span>
                       </div>
                       <div className="w-full bg-background rounded-full h-2 border border-border">
                         <div
-                          className={`h-full rounded-full ${protective.score >= 60 ? "bg-green-400" : protective.score >= 40 ? "bg-[#0cc9a9]" : "bg-amber-400"}`}
+                          className={`h-full rounded-full ${protective.score >= 60 ? "bg-green-400" : protective.score >= 40 ? "bg-[#111d2e]" : "bg-amber-400"}`}
                           style={{ width: `${Math.min(protective.score, 100)}%` }}
                         />
                       </div>
@@ -1584,7 +1584,7 @@ export default function AdminReports() {
               <Card className="bg-card border-border" data-testid="card-engagement-index">
                 <CardHeader className="pb-3">
                   <CardTitle className="text-foreground flex items-center gap-2">
-                    <Trophy className="h-5 w-5 text-[#0cc9a9]" />
+                    <Trophy className="h-5 w-5 text-[#b8874a]" />
                     Engagement Index
                     <span className="text-xs text-muted-foreground font-normal">(points · streaks · participation)</span>
                   </CardTitle>
@@ -1594,39 +1594,39 @@ export default function AdminReports() {
                     <div className="py-6 text-center text-muted-foreground text-sm">Loading…</div>
                   ) : !engagementData?.eligible ? (
                     <div className="flex items-start gap-2 bg-amber-500/10 border border-amber-500/20 rounded-lg p-3">
-                      <Shield className="h-4 w-4 text-amber-400 mt-0.5 shrink-0" />
+                      <Shield className="h-4 w-4 text-amber-600 mt-0.5 shrink-0" />
                       <p className="text-sm text-amber-200/80">{engagementData?.reason || "Cohort below minimum size for anonymous engagement metrics."}</p>
                     </div>
                   ) : (
                     <>
                       <div className="grid grid-cols-2 sm:grid-cols-3 gap-4 mb-6">
                         <div>
-                          <p className="text-xs text-muted-foreground uppercase mb-1">Active Users</p>
+                          <p className="text-xs text-gold uppercase mb-1">Active Users</p>
                           <p className="text-2xl font-bold text-foreground">{engagementData.activeUsers}</p>
                         </div>
                         <div>
-                          <p className="text-xs text-muted-foreground uppercase mb-1">Activities / Active User</p>
+                          <p className="text-xs text-gold uppercase mb-1">Activities / Active User</p>
                           <p className="text-2xl font-bold text-foreground" data-testid="text-avg-activities">{engagementData.avgActivitiesPerActiveUser}</p>
                         </div>
                         <div>
-                          <p className="text-xs text-muted-foreground uppercase mb-1">Participation</p>
-                          <p className="text-2xl font-bold text-[#0cc9a9]">{engagementData.participationRate}%</p>
+                          <p className="text-xs text-gold uppercase mb-1">Participation</p>
+                          <p className="text-2xl font-bold text-[#b8874a]">{engagementData.participationRate}%</p>
                         </div>
                       </div>
                       {engagementData.avgStreaks && (
                         <div className="grid grid-cols-4 gap-3 mb-4">
                           {(["checkin", "movement", "recovery", "nutrition"] as const).map((t) => (
                             <div key={t} className="bg-background border border-border rounded-lg p-2 text-center">
-                              <Flame className="h-4 w-4 text-orange-400 mx-auto mb-1" />
+                              <Flame className="h-4 w-4 text-orange-600 mx-auto mb-1" />
                               <p className="text-sm font-bold text-foreground">{engagementData.avgStreaks![t]}d</p>
-                              <p className="text-[10px] uppercase text-muted-foreground capitalize">{t}</p>
+                              <p className="text-[10px] uppercase text-gold capitalize">{t}</p>
                             </div>
                           ))}
                         </div>
                       )}
                       {engagementData.topActivities && engagementData.topActivities.length > 0 && (
                         <div>
-                          <p className="text-xs text-muted-foreground uppercase mb-2">Top Activities</p>
+                          <p className="text-xs text-gold uppercase mb-2">Top Activities</p>
                           <div className="space-y-1.5">
                             {engagementData.topActivities.map((a) => (
                               <div key={a.activityType} className="flex items-center justify-between py-1.5 px-3 rounded bg-background border border-border">
@@ -1647,7 +1647,7 @@ export default function AdminReports() {
               <Card className="bg-card border-border">
                 <CardHeader className="pb-3">
                   <CardTitle className="text-foreground flex items-center gap-2">
-                    <Shield className="h-5 w-5 text-[#0cc9a9]" />
+                    <Shield className="h-5 w-5 text-[#b8874a]" />
                     Musculoskeletal Pain
                     <span className="text-xs text-muted-foreground font-normal">(severity 4+ from body map)</span>
                   </CardTitle>
@@ -1659,8 +1659,8 @@ export default function AdminReports() {
                     <>
                       <div className="grid grid-cols-2 sm:grid-cols-3 gap-4 mb-4">
                         <div>
-                          <p className="text-xs text-muted-foreground uppercase mb-1">Users Reporting Pain</p>
-                          <p className={`text-2xl font-bold ${report.bodyMapStats.usersReportingPainPercent > 30 ? "text-red-400" : "text-foreground"}`}>
+                          <p className="text-xs text-gold uppercase mb-1">Users Reporting Pain</p>
+                          <p className={`text-2xl font-bold ${report.bodyMapStats.usersReportingPainPercent > 30 ? "text-red-600" : "text-foreground"}`}>
                             {report.bodyMapStats.usersReportingPainPercent}%
                           </p>
                           {report.bodyMapStats.painPercentTrend && (
@@ -1668,11 +1668,11 @@ export default function AdminReports() {
                           )}
                         </div>
                         <div>
-                          <p className="text-xs text-muted-foreground uppercase mb-1">Total Assessments</p>
+                          <p className="text-xs text-gold uppercase mb-1">Total Assessments</p>
                           <p className="text-2xl font-bold text-foreground">{report.bodyMapStats.totalAssessments}</p>
                         </div>
                         <div>
-                          <p className="text-xs text-muted-foreground uppercase mb-1">Avg Severity</p>
+                          <p className="text-xs text-gold uppercase mb-1">Avg Severity</p>
                           <p className="text-2xl font-bold text-foreground">
                             {report.bodyMapStats.avgSeverity !== null ? `${report.bodyMapStats.avgSeverity}/10` : "---"}
                           </p>
@@ -1683,7 +1683,7 @@ export default function AdminReports() {
                       </div>
                       {report.bodyMapStats.topBodyAreas.length > 0 && (
                         <div>
-                          <p className="text-xs text-muted-foreground uppercase mb-2">Most Reported Areas (severity 4+)</p>
+                          <p className="text-xs text-gold uppercase mb-2">Most Reported Areas (severity 4+)</p>
                           <div className="space-y-2">
                             {report.bodyMapStats.topBodyAreas.map((area) => (
                               <div key={area.bodyPart} className="flex items-center justify-between py-2 px-3 rounded-lg bg-background border border-border">
@@ -1693,7 +1693,7 @@ export default function AdminReports() {
                                 </div>
                                 <div className="flex items-center gap-3">
                                   <span className="text-xs text-muted-foreground">{area.count} people</span>
-                                  <span className={`text-sm font-semibold ${area.avgSeverity >= 7 ? "text-red-400" : area.avgSeverity >= 5 ? "text-[#0cc9a9]" : "text-foreground"}`}>
+                                  <span className={`text-sm font-semibold ${area.avgSeverity >= 7 ? "text-red-600" : area.avgSeverity >= 5 ? "text-[#b8874a]" : "text-foreground"}`}>
                                     {area.avgSeverity}/10
                                   </span>
                                 </div>
@@ -1712,7 +1712,7 @@ export default function AdminReports() {
               <Card className="bg-card border-border">
                 <CardHeader className="pb-3">
                   <CardTitle className="text-foreground flex items-center gap-2">
-                    <Brain className="h-5 w-5 text-[#0cc9a9]" />
+                    <Brain className="h-5 w-5 text-[#b8874a]" />
                     Burnout Index
                     <span className="text-xs text-muted-foreground font-normal">(0-100 scale)</span>
                   </CardTitle>
@@ -1720,8 +1720,8 @@ export default function AdminReports() {
                 <CardContent>
                   <div className="grid grid-cols-2 sm:grid-cols-3 gap-4 mb-6">
                     <div>
-                      <p className="text-xs text-muted-foreground uppercase mb-1">Avg Burnout Score</p>
-                      <p className={`text-2xl font-bold ${(report.burnoutStats.avgScore ?? 0) > 60 ? "text-red-400" : (report.burnoutStats.avgScore ?? 0) > 40 ? "text-orange-400" : "text-[#0cc9a9]"}`}>
+                      <p className="text-xs text-gold uppercase mb-1">Avg Burnout Score</p>
+                      <p className={`text-2xl font-bold ${(report.burnoutStats.avgScore ?? 0) > 60 ? "text-red-600" : (report.burnoutStats.avgScore ?? 0) > 40 ? "text-orange-600" : "text-[#b8874a]"}`}>
                         {report.burnoutStats.avgScore ?? "N/A"}
                         <span className="text-sm font-normal text-muted-foreground"> / 100</span>
                       </p>
@@ -1730,12 +1730,12 @@ export default function AdminReports() {
                       )}
                     </div>
                     <div>
-                      <p className="text-xs text-muted-foreground uppercase mb-1">Users Assessed</p>
+                      <p className="text-xs text-gold uppercase mb-1">Users Assessed</p>
                       <p className="text-2xl font-bold text-foreground">{report.burnoutStats.usersAssessed}</p>
                     </div>
                     {report.burnoutStats.previousAvgScore !== null && (
                       <div>
-                        <p className="text-xs text-muted-foreground uppercase mb-1">Previous Period</p>
+                        <p className="text-xs text-gold uppercase mb-1">Previous Period</p>
                         <p className="text-2xl font-bold text-muted-foreground">
                           {report.burnoutStats.previousAvgScore}
                           <span className="text-sm font-normal"> / 100</span>
@@ -1753,12 +1753,12 @@ export default function AdminReports() {
                     const isLow = confidence.label === "Low";
                     return (
                       <div className={`mb-6 ${isLow ? "flex items-start gap-2 bg-amber-500/10 border border-amber-500/20 rounded-lg p-3" : "px-1"}`}>
-                        {isLow && <AlertCircle className="h-4 w-4 text-amber-400 mt-0.5 shrink-0" />}
+                        {isLow && <AlertCircle className="h-4 w-4 text-amber-600 mt-0.5 shrink-0" />}
                         <div>
-                          <p className={`text-xs ${isLow ? "text-amber-300" : "text-muted-foreground"}`}>
+                          <p className={`text-xs ${isLow ? "text-amber-600" : "text-muted-foreground"}`}>
                             Based on {report.burnoutStats!.totalCheckIns} check-ins from {report.burnoutStats!.usersAssessed} active users
                             {" - "}
-                            <span className={`font-medium ${isLow ? "text-amber-400" : "text-muted-foreground"}`}>
+                            <span className={`font-medium ${isLow ? "text-amber-600" : "text-muted-foreground"}`}>
                               {confidence.label} confidence
                             </span>
                             {" "}
@@ -1770,11 +1770,11 @@ export default function AdminReports() {
                   })()}
 
                   <div className="mb-6">
-                    <p className="text-xs text-muted-foreground uppercase mb-3">Risk Distribution</p>
+                    <p className="text-xs text-gold uppercase mb-3">Risk Distribution</p>
                     <div className="flex gap-1 h-6 rounded-lg overflow-hidden mb-2">
                       {[
-                        { key: 'optimal' as const, color: 'bg-[#0cc9a9]', label: 'Optimal' },
-                        { key: 'mild' as const, color: 'bg-[#0cc9a9]/60', label: 'Mild' },
+                        { key: 'optimal' as const, color: 'bg-[#111d2e]', label: 'Optimal' },
+                        { key: 'mild' as const, color: 'bg-[#b8874a]/60', label: 'Mild' },
                         { key: 'moderate' as const, color: 'bg-orange-400', label: 'Moderate' },
                         { key: 'high' as const, color: 'bg-orange-600', label: 'High' },
                         { key: 'severe' as const, color: 'bg-red-500', label: 'Severe' },
@@ -1790,8 +1790,8 @@ export default function AdminReports() {
                       {(() => {
                         const b = settingsData?.effective.burnoutBands ?? [20, 40, 60, 80];
                         return [
-                          { key: 'optimal' as const, color: 'bg-[#0cc9a9]', label: `Optimal (0-${b[0]})` },
-                          { key: 'mild' as const, color: 'bg-[#0cc9a9]/60', label: `Mild (${b[0] + 1}-${b[1]})` },
+                          { key: 'optimal' as const, color: 'bg-[#111d2e]', label: `Optimal (0-${b[0]})` },
+                          { key: 'mild' as const, color: 'bg-[#b8874a]/60', label: `Mild (${b[0] + 1}-${b[1]})` },
                           { key: 'moderate' as const, color: 'bg-orange-400', label: `Moderate (${b[1] + 1}-${b[2]})` },
                           { key: 'high' as const, color: 'bg-orange-600', label: `High (${b[2] + 1}-${b[3]})` },
                           { key: 'severe' as const, color: 'bg-red-500', label: `Severe (${b[3] + 1}+)` },
@@ -1807,13 +1807,13 @@ export default function AdminReports() {
 
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-6">
                     <div>
-                      <p className="text-xs text-muted-foreground uppercase mb-2">Trajectory</p>
+                      <p className="text-xs text-gold uppercase mb-2">Trajectory</p>
                       <div className="space-y-1.5">
                         {[
-                          { key: 'stable' as const, label: 'Stable', color: 'text-[#0cc9a9]' },
-                          { key: 'recovering' as const, label: 'Recovering', color: 'text-green-400' },
-                          { key: 'rising' as const, label: 'Rising', color: 'text-orange-400' },
-                          { key: 'elevated' as const, label: 'Elevated', color: 'text-red-400' },
+                          { key: 'stable' as const, label: 'Stable', color: 'text-[#b8874a]' },
+                          { key: 'recovering' as const, label: 'Recovering', color: 'text-emerald-700' },
+                          { key: 'rising' as const, label: 'Rising', color: 'text-orange-600' },
+                          { key: 'elevated' as const, label: 'Elevated', color: 'text-red-600' },
                         ].map(t => (
                           <div key={t.key} className="flex items-center justify-between py-1 px-2 rounded bg-background border border-border">
                             <span className={`text-sm ${t.color}`}>{t.label}</span>
@@ -1824,7 +1824,7 @@ export default function AdminReports() {
                     </div>
                     {report.burnoutStats.topDrivers.length > 0 && (
                       <div>
-                        <p className="text-xs text-muted-foreground uppercase mb-2">Top Drivers</p>
+                        <p className="text-xs text-gold uppercase mb-2">Top Drivers</p>
                         <div className="space-y-1.5">
                           {report.burnoutStats.topDrivers.map((d) => (
                             <div key={d.key} className="flex items-center justify-between py-1 px-2 rounded bg-background border border-border">
@@ -1844,7 +1844,7 @@ export default function AdminReports() {
               <Card className="bg-card border-border">
                 <CardHeader className="pb-3">
                   <CardTitle className="text-foreground flex items-center gap-2">
-                    <CalendarIcon className="h-5 w-5 text-[#0cc9a9]" />
+                    <CalendarIcon className="h-5 w-5 text-[#b8874a]" />
                     Month vs Month
                     <span className="text-xs text-muted-foreground font-normal">
                       {report.monthOverMonth.previousMonth} vs {report.monthOverMonth.currentMonth}
@@ -1880,8 +1880,8 @@ export default function AdminReports() {
                                 <td className="text-right py-2.5 px-3">{row.curr !== null ? row.curr.toFixed(2) : "---"}</td>
                                 <td className={`text-right py-2.5 pl-3 font-medium ${
                                   diff === null ? "text-muted-foreground" :
-                                  isPositive ? "text-green-400" :
-                                  diff === 0 ? "text-gray-400" : "text-red-400"
+                                  isPositive ? "text-emerald-700" :
+                                  diff === 0 ? "text-muted-foreground" : "text-red-600"
                                 }`}>
                                   {diff !== null ? `${diff > 0 ? "+" : ""}${diff.toFixed(2)}` : "---"}
                                 </td>
@@ -1906,8 +1906,8 @@ export default function AdminReports() {
                                 <td className="text-right py-2.5 px-3">{row.curr !== null ? `${row.curr!.toFixed(1)}%` : "---"}</td>
                                 <td className={`text-right py-2.5 pl-3 font-medium ${
                                   diff === null ? "text-muted-foreground" :
-                                  isPositive ? "text-green-400" :
-                                  diff === 0 ? "text-gray-400" : "text-red-400"
+                                  isPositive ? "text-emerald-700" :
+                                  diff === 0 ? "text-muted-foreground" : "text-red-600"
                                 }`}>
                                   {diff !== null ? `${diff > 0 ? "+" : ""}${diff.toFixed(1)}%` : "---"}
                                 </td>

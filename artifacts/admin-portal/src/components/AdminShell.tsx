@@ -128,7 +128,7 @@ function SidebarNav({ collapsed }: { collapsed: boolean }) {
       {groups.map((group) => (
         <div key={group ?? "root"}>
           {group && !collapsed && (
-            <p className="px-2 pt-4 pb-1 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+            <p className="px-2 pt-4 pb-1 text-[10px] font-semibold uppercase tracking-wider text-gold">
               {group}
             </p>
           )}
@@ -143,7 +143,7 @@ function SidebarNav({ collapsed }: { collapsed: boolean }) {
                 className={cn(
                   "flex items-center gap-2.5 rounded-md px-2 py-1.5 text-sm transition-colors",
                   active
-                    ? "bg-primary/15 text-primary font-medium"
+                    ? "bg-primary/15 text-primary font-semibold"
                     : "text-muted-foreground hover:bg-muted hover:text-foreground",
                   collapsed && "justify-center px-0"
                 )}
@@ -170,21 +170,18 @@ export default function AdminShell() {
       {/* Sidebar */}
       <aside
         className={cn(
-          "flex flex-col flex-shrink-0 bg-card border-r border-border transition-all duration-200",
+          "brand-sidebar flex flex-col flex-shrink-0 bg-card border-r border-border transition-all duration-200",
           collapsed ? "w-14" : "w-56"
         )}
       >
-        {/* Logo */}
-        <div className="flex items-center gap-2 px-3 py-4 border-b border-border min-h-[56px]">
-          <div className="w-7 h-7 rounded-md bg-primary flex items-center justify-center flex-shrink-0">
-            <svg className="w-4 h-4 text-primary-foreground" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z" />
-            </svg>
-          </div>
-          {!collapsed && (
+        {/* Brand */}
+        <div className={cn("flex items-center border-b border-border min-h-[64px]", collapsed ? "justify-center px-2" : "px-4")}>
+          {collapsed ? (
+            <img src={`${import.meta.env.BASE_URL}meridianwork-mark.png`} alt="MeridianWork" className="h-7 w-7 object-contain" />
+          ) : (
             <div className="min-w-0">
-              <p className="text-sm font-bold text-foreground leading-tight">Meridian</p>
-              <p className="text-[10px] text-muted-foreground leading-tight">Admin Portal</p>
+              <img src={`${import.meta.env.BASE_URL}meridianwork-wordmark.png`} alt="MeridianWork" className="h-[22px] w-auto" />
+              <p className="text-[10px] font-semibold uppercase tracking-[0.18em] mt-1.5" style={{ color: "#d4a574" }}>Admin Portal</p>
             </div>
           )}
         </div>

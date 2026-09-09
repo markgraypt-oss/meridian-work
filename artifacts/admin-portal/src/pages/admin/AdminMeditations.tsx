@@ -268,7 +268,7 @@ export default function AdminMeditations() {
                   )}
                 </Button>
                 {formData.audioUrl && !isUploading && (
-                  <span className="flex items-center text-sm text-[#0cc9a9]">
+                  <span className="flex items-center text-sm text-[#b8874a]">
                     <Check className="h-4 w-4 mr-1" />Audio attached
                   </span>
                 )}
@@ -371,12 +371,12 @@ export default function AdminMeditations() {
                   <div className="flex-1 min-w-0">
                     <CardTitle className="text-base">{m.title}</CardTitle>
                     <div className="flex items-center gap-2 mt-1 flex-wrap">
-                      <span className="text-xs px-2 py-0.5 rounded bg-[#0cc9a9]/10 text-[#0cc9a9] font-medium">
+                      <span className="text-xs px-2 py-0.5 rounded bg-[#b8874a]/10 text-[#b8874a] font-medium">
                         {m.category}
                       </span>
                       <span className="text-xs text-muted-foreground">{m.durationMin} min</span>
                       {m.audioUrl ? (
-                        <span className="text-xs px-2 py-0.5 rounded bg-[#0cc9a9]/10 text-[#0cc9a9] font-medium flex items-center gap-1">
+                        <span className="text-xs px-2 py-0.5 rounded bg-[#b8874a]/10 text-[#b8874a] font-medium flex items-center gap-1">
                           <Music className="h-3 w-3" />Audio
                         </span>
                       ) : (

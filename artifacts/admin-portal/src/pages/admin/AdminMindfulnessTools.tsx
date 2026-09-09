@@ -257,7 +257,7 @@ export default function AdminMindfulnessTools() {
                   <div className="flex-1 min-w-0">
                     <CardTitle className="text-base">{tool.title}</CardTitle>
                     <div className="flex items-center gap-2 mt-1">
-                      <span className="text-xs px-2 py-0.5 rounded bg-[#0cc9a9]/10 text-[#0cc9a9] font-medium">
+                      <span className="text-xs px-2 py-0.5 rounded bg-[#b8874a]/10 text-[#b8874a] font-medium">
                         {getCategoryLabel(tool.category)}
                       </span>
                       {tool.duration && (

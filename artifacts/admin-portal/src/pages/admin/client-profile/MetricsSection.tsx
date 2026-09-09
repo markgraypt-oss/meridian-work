@@ -127,8 +127,8 @@ function MetricCard({ metricKey, data, workouts, isLoading, onClick }: MetricCar
   const deltaColour = stats?.delta == null || stats.delta === 0
     ? 'text-muted-foreground'
     : stats.positiveGood
-      ? (stats.delta > 0 ? 'text-emerald-400' : 'text-red-400')
-      : (stats.delta > 0 ? 'text-red-400' : 'text-emerald-400');
+      ? (stats.delta > 0 ? 'text-emerald-700' : 'text-red-600')
+      : (stats.delta > 0 ? 'text-red-600' : 'text-emerald-700');
 
   return (
     <Card className="cursor-pointer hover:border-muted-foreground/40 transition-colors select-none" onClick={onClick}>

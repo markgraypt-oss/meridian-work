@@ -138,9 +138,9 @@ export function WorkoutScheduleEditor({ programId, totalWeeks, selectedWeek }: W
 
   const getWorkoutTypeColor = (type: string) => {
     switch (type) {
-      case 'interval': return 'bg-[#0cc9a9]/20 text-[#0cc9a9] border-[#0cc9a9]/30';
-      case 'circuit': return 'bg-purple-500/20 text-purple-400 border-purple-500/30';
-      case 'video': return 'bg-blue-500/20 text-blue-400 border-blue-500/30';
+      case 'interval': return 'bg-[#b8874a]/20 text-[#b8874a] border-[#b8874a]/30';
+      case 'circuit': return 'bg-purple-500/20 text-purple-600 border-purple-500/30';
+      case 'video': return 'bg-blue-500/20 text-blue-600 border-blue-500/30';
       default: return 'bg-primary/20 text-primary border-primary/30';
     }
   };

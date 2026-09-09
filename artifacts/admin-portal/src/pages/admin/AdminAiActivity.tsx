@@ -132,7 +132,7 @@ export default function AdminAiActivity() {
             <CardContent>
               <p className="text-3xl font-bold">{Math.round(aggregates?.avgLatencyMs ?? 0)} ms</p>
               {(aggregates?.safetyFlagCount ?? 0) > 0 && (
-                <p className="text-xs text-amber-600 dark:text-amber-400 mt-1 flex items-center gap-1">
+                <p className="text-xs text-amber-600 dark:text-amber-600 mt-1 flex items-center gap-1">
                   <AlertTriangle className="h-3 w-3" /> {aggregates?.safetyFlagCount} safety flag(s)
                 </p>
               )}
@@ -249,11 +249,11 @@ export default function AdminAiActivity() {
                       <td className="p-2 text-right">{log.latencyMs ?? 0}ms</td>
                       <td className="p-2">
                         {log.safetyFlags && log.safetyFlags.length > 0 ? (
-                          <span className="text-amber-600 dark:text-amber-400 text-xs flex items-center gap-1">
+                          <span className="text-amber-600 dark:text-amber-600 text-xs flex items-center gap-1">
                             <AlertTriangle className="h-3 w-3" /> {log.safetyFlags.join(", ")}
                           </span>
                         ) : log.errorMessage ? (
-                          <span className="text-red-600 dark:text-red-400 text-xs truncate max-w-[200px] inline-block" title={log.errorMessage}>
+                          <span className="text-red-600 dark:text-red-600 text-xs truncate max-w-[200px] inline-block" title={log.errorMessage}>
                             {log.errorMessage}
                           </span>
                         ) : (

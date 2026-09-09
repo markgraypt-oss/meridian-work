@@ -172,7 +172,7 @@ export default function AdminWorkdayMicroResets() {
         {!showForm && (
           <Button
             onClick={() => setShowForm(true)}
-            className="w-full bg-[#0cc9a9] hover:bg-[#0cc9a9]/90"
+            className="w-full bg-[#111d2e] hover:bg-[#1c2c44]"
             data-testid="button-add-micro-reset"
           >
             <Plus className="h-4 w-4 mr-2" />
@@ -183,7 +183,7 @@ export default function AdminWorkdayMicroResets() {
         {showForm && (
           <Card className="bg-card border-border">
             <CardHeader className="flex flex-row items-center justify-between">
-              <CardTitle className="text-white">
+              <CardTitle className="text-foreground">
                 {editingId ? "Edit Micro-Reset" : "New Micro-Reset"}
               </CardTitle>
               <Button variant="ghost" size="icon" onClick={resetForm} data-testid="button-close-form">
@@ -292,7 +292,7 @@ export default function AdminWorkdayMicroResets() {
                   <div className="space-y-2 mt-2">
                     {formData.steps.map((step, index) => (
                       <div key={index} className="flex items-center gap-2 bg-muted p-2 rounded">
-                        <GripVertical className="h-4 w-4 text-gray-500" />
+                        <GripVertical className="h-4 w-4 text-muted-foreground" />
                         <span className="flex-1 text-sm">{index + 1}. {step}</span>
                         <Button
                           type="button"
@@ -379,7 +379,7 @@ export default function AdminWorkdayMicroResets() {
 
                 <Button
                   type="submit"
-                  className="w-full bg-[#0cc9a9] hover:bg-[#0cc9a9]/90"
+                  className="w-full bg-[#111d2e] hover:bg-[#1c2c44]"
                   disabled={createMutation.isPending || updateMutation.isPending}
                   data-testid="button-submit"
                 >
@@ -391,9 +391,9 @@ export default function AdminWorkdayMicroResets() {
         )}
 
         {isLoading ? (
-          <div className="text-center py-8 text-gray-400">Loading...</div>
+          <div className="text-center py-8 text-muted-foreground">Loading...</div>
         ) : microResets.length === 0 ? (
-          <div className="text-center py-8 text-gray-400">No micro-resets yet.</div>
+          <div className="text-center py-8 text-muted-foreground">No micro-resets yet.</div>
         ) : (
           <div className="space-y-3">
             {microResets.map((item) => (
@@ -409,13 +409,13 @@ export default function AdminWorkdayMicroResets() {
                     )}
                     <div className="flex-1 min-w-0">
                       <div className="flex items-center gap-2">
-                        <h3 className="font-semibold text-white">{item.name}</h3>
-                        <span className="text-xs bg-[#0cc9a9]/20 text-[#0cc9a9] px-2 py-0.5 rounded">
+                        <h3 className="font-semibold text-foreground">{item.name}</h3>
+                        <span className="text-xs bg-[#b8874a]/20 text-[#b8874a] px-2 py-0.5 rounded">
                           {targetAreas.find(a => a.value === item.targetArea)?.label}
                         </span>
                       </div>
-                      <p className="text-sm text-gray-400 line-clamp-2">{item.description}</p>
-                      <p className="text-xs text-gray-500 mt-1">
+                      <p className="text-sm text-muted-foreground line-clamp-2">{item.description}</p>
+                      <p className="text-xs text-muted-foreground mt-1">
                         {(item as any).exerciseType === "reps" ? `${item.duration} reps` : `${item.duration}s`}
                       </p>
                     </div>
@@ -427,7 +427,7 @@ export default function AdminWorkdayMicroResets() {
                         variant="ghost"
                         size="icon"
                         onClick={() => deleteMutation.mutate(item.id)}
-                        className="text-red-400 hover:text-red-300"
+                        className="text-red-600 hover:text-red-600"
                         data-testid={`button-delete-${item.id}`}
                       >
                         <Trash2 className="h-4 w-4" />

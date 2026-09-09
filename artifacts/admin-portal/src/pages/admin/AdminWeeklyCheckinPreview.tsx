@@ -52,7 +52,7 @@ export default function AdminWeeklyCheckinPreview() {
   if (isLoading) {
     return (
       <div className="min-h-screen bg-background flex items-center justify-center">
-        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-[#0cc9a9]" />
+        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-[#b8874a]" />
       </div>
     );
   }
@@ -87,7 +87,7 @@ export default function AdminWeeklyCheckinPreview() {
         <Card className="mb-4">
           <CardHeader>
             <CardTitle className="text-base flex items-center gap-2">
-              <Sparkles className="h-4 w-4 text-[#0cc9a9]" /> Run preview
+              <Sparkles className="h-4 w-4 text-[#b8874a]" /> Run preview
             </CardTitle>
           </CardHeader>
           <CardContent className="space-y-3">

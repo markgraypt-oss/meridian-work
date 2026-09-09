@@ -44,7 +44,7 @@ export function TrainingPanel({ timeline }: Props) {
     <Card className="h-full">
       <CardHeader className="pb-2">
         <CardTitle className="text-sm font-medium flex items-center gap-2">
-          <Dumbbell className="h-4 w-4 text-orange-400" />
+          <Dumbbell className="h-4 w-4 text-orange-600" />
           Training
         </CardTitle>
       </CardHeader>
@@ -78,7 +78,7 @@ export function TrainingPanel({ timeline }: Props) {
             {/* This week's sessions */}
             {thisWeek && thisWeek.total > 0 && (
               <div>
-                <p className="text-xs font-medium text-muted-foreground mb-2 uppercase tracking-wide">This week</p>
+                <p className="text-xs font-medium text-gold mb-2 uppercase tracking-wide">This week</p>
                 <div className="flex items-center gap-1.5">
                   {Array.from({ length: thisWeek.total }, (_, i) => (
                     <div key={i}
@@ -94,10 +94,10 @@ export function TrainingPanel({ timeline }: Props) {
             {/* Up next */}
             {next && (
               <div>
-                <p className="text-xs font-medium text-muted-foreground mb-2 uppercase tracking-wide">Up next</p>
+                <p className="text-xs font-medium text-gold mb-2 uppercase tracking-wide">Up next</p>
                 <div className="rounded-lg border border-border/60 p-3 flex items-start gap-3">
                   <div className="h-8 w-8 rounded-full bg-orange-500/15 flex items-center justify-center shrink-0">
-                    <CalendarClock className="h-4 w-4 text-orange-400" />
+                    <CalendarClock className="h-4 w-4 text-orange-600" />
                   </div>
                   <div className="min-w-0">
                     <div className="text-sm font-medium truncate">{next.name}</div>

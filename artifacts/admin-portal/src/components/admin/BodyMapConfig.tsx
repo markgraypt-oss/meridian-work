@@ -394,17 +394,17 @@ export function BodyMapConfig() {
                         {/* Conditions summary */}
                         <div className="flex flex-wrap gap-2 mt-2">
                           {(outcome.severityMin !== null || outcome.severityMax !== null) && (
-                            <span className="text-xs bg-blue-500/20 text-blue-400 px-2 py-0.5 rounded">
+                            <span className="text-xs bg-blue-500/20 text-blue-600 px-2 py-0.5 rounded">
                               Severity: {outcome.severityMin ?? "Any"} - {outcome.severityMax ?? "Any"}
                             </span>
                           )}
                           {outcome.trainingImpact && (
-                            <span className="text-xs bg-orange-500/20 text-orange-400 px-2 py-0.5 rounded">
+                            <span className="text-xs bg-orange-500/20 text-orange-600 px-2 py-0.5 rounded">
                               Training: {outcome.trainingImpact}
                             </span>
                           )}
                           {outcome.movementImpact && (
-                            <span className="text-xs bg-green-500/20 text-green-400 px-2 py-0.5 rounded">
+                            <span className="text-xs bg-green-500/20 text-emerald-700 px-2 py-0.5 rounded">
                               Movement: {outcome.movementImpact}
                             </span>
                           )}

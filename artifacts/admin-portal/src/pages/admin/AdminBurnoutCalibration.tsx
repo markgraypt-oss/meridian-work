@@ -45,11 +45,11 @@ interface CalibrationReport {
 }
 
 const levelConfig: Record<string, { label: string; color: string; bg: string; dot: string }> = {
-  optimal: { label: "Optimal", color: "text-emerald-400", bg: "bg-emerald-500/10", dot: "bg-emerald-400" },
-  balanced: { label: "Balanced", color: "text-teal-300", bg: "bg-teal-500/10", dot: "bg-teal-400" },
-  strained: { label: "Strained", color: "text-[#0cc9a9]", bg: "bg-[#0cc9a9]/100/10", dot: "bg-[#0cc9a9]" },
-  overloaded: { label: "Overloaded", color: "text-orange-400", bg: "bg-orange-500/10", dot: "bg-orange-400" },
-  sustained_overload: { label: "Sustained Overload", color: "text-red-300/70", bg: "bg-red-500/8", dot: "bg-red-400" },
+  optimal: { label: "Optimal", color: "text-emerald-700", bg: "bg-emerald-500/10", dot: "bg-emerald-400" },
+  balanced: { label: "Balanced", color: "text-gold", bg: "bg-gold/10", dot: "bg-gold" },
+  strained: { label: "Strained", color: "text-[#b8874a]", bg: "bg-[#b8874a]/100/10", dot: "bg-[#111d2e]" },
+  overloaded: { label: "Overloaded", color: "text-orange-600", bg: "bg-orange-500/10", dot: "bg-orange-400" },
+  sustained_overload: { label: "Sustained Overload", color: "text-red-600/70", bg: "bg-red-500/8", dot: "bg-red-400" },
 };
 
 const eventTypeLabels: Record<string, string> = {
@@ -102,12 +102,12 @@ export default function AdminBurnoutCalibration() {
             {report.thresholdAlerts.length > 0 && (
               <div className="space-y-2.5">
                 <h2 className="text-sm font-bold text-foreground flex items-center gap-2">
-                  <AlertTriangle className="h-4 w-4 text-[#0cc9a9]" />
+                  <AlertTriangle className="h-4 w-4 text-[#b8874a]" />
                   Threshold Alerts
                 </h2>
                 {report.thresholdAlerts.map((alert, i) => (
-                  <div key={i} className="rounded-xl bg-[#0cc9a9]/100/5 border border-[#0cc9a9]/20 p-4">
-                    <p className="text-xs text-[#0cc9a9]/80 leading-relaxed">{alert}</p>
+                  <div key={i} className="rounded-xl bg-[#b8874a]/100/5 border border-[#b8874a]/20 p-4">
+                    <p className="text-xs text-[#b8874a]/80 leading-relaxed">{alert}</p>
                   </div>
                 ))}
               </div>
@@ -116,21 +116,21 @@ export default function AdminBurnoutCalibration() {
             <div className="grid grid-cols-2 gap-3">
               <Card className="border-border/60">
                 <CardContent className="pt-4 pb-4 px-4">
-                  <p className="text-[11px] text-muted-foreground uppercase tracking-wide font-semibold">Total Events</p>
+                  <p className="text-[11px] text-gold uppercase tracking-wide font-semibold">Total Events</p>
                   <p className="text-2xl font-bold text-foreground mt-1">{report.totalEvents}</p>
                 </CardContent>
               </Card>
               <Card className="border-border/60">
                 <CardContent className="pt-4 pb-4 px-4">
-                  <p className="text-[11px] text-muted-foreground uppercase tracking-wide font-semibold">Event Types</p>
+                  <p className="text-[11px] text-gold uppercase tracking-wide font-semibold">Event Types</p>
                   <p className="text-2xl font-bold text-foreground mt-1">{Object.keys(report.eventsByType).length}</p>
                 </CardContent>
               </Card>
               <Card className="border-border/60">
                 <CardContent className="pt-4 pb-4 px-4">
                   <div className="flex items-center gap-1.5">
-                    <TrendingUp className="h-3.5 w-3.5 text-[#0cc9a9]/70" />
-                    <p className="text-[11px] text-muted-foreground uppercase tracking-wide font-semibold">Avg Escalation</p>
+                    <TrendingUp className="h-3.5 w-3.5 text-[#b8874a]/70" />
+                    <p className="text-[11px] text-gold uppercase tracking-wide font-semibold">Avg Escalation</p>
                   </div>
                   <p className="text-2xl font-bold text-foreground mt-1">
                     {report.avgDaysBeforeEscalation !== null ? `${report.avgDaysBeforeEscalation}d` : "--"}
@@ -141,8 +141,8 @@ export default function AdminBurnoutCalibration() {
               <Card className="border-border/60">
                 <CardContent className="pt-4 pb-4 px-4">
                   <div className="flex items-center gap-1.5">
-                    <TrendingDown className="h-3.5 w-3.5 text-emerald-400/70" />
-                    <p className="text-[11px] text-muted-foreground uppercase tracking-wide font-semibold">Avg Recovery</p>
+                    <TrendingDown className="h-3.5 w-3.5 text-emerald-700/70" />
+                    <p className="text-[11px] text-gold uppercase tracking-wide font-semibold">Avg Recovery</p>
                   </div>
                   <p className="text-2xl font-bold text-foreground mt-1">
                     {report.avgDaysBeforeDeescalation !== null ? `${report.avgDaysBeforeDeescalation}d` : "--"}
@@ -155,7 +155,7 @@ export default function AdminBurnoutCalibration() {
             <Card className="border-border/60">
               <CardHeader className="pb-3">
                 <CardTitle className="text-sm font-bold flex items-center gap-2">
-                  <Activity className="h-4 w-4 text-[#0cc9a9]" />
+                  <Activity className="h-4 w-4 text-[#b8874a]" />
                   Event Breakdown
                 </CardTitle>
               </CardHeader>
@@ -172,7 +172,7 @@ export default function AdminBurnoutCalibration() {
             <Card className="border-border/60">
               <CardHeader className="pb-3">
                 <CardTitle className="text-sm font-bold flex items-center gap-2">
-                  <Clock className="h-4 w-4 text-[#0cc9a9]" />
+                  <Clock className="h-4 w-4 text-[#b8874a]" />
                   Level Stability
                 </CardTitle>
                 <p className="text-[11px] text-muted-foreground">How long users stay in each level and where they go</p>
@@ -198,13 +198,13 @@ export default function AdminBurnoutCalibration() {
                         </div>
                         <div>
                           <p className="text-[10px] text-muted-foreground flex items-center gap-0.5">
-                            <TrendingUp className="h-2.5 w-2.5 text-[#0cc9a9]/60" /> Escalated
+                            <TrendingUp className="h-2.5 w-2.5 text-[#b8874a]/60" /> Escalated
                           </p>
                           <p className="text-sm font-bold text-foreground">{data.escalationRate}%</p>
                         </div>
                         <div>
                           <p className="text-[10px] text-muted-foreground flex items-center gap-0.5">
-                            <TrendingDown className="h-2.5 w-2.5 text-emerald-400/60" /> Improved
+                            <TrendingDown className="h-2.5 w-2.5 text-emerald-700/60" /> Improved
                           </p>
                           <p className="text-sm font-bold text-foreground">{data.deescalationRate}%</p>
                         </div>
@@ -221,7 +221,7 @@ export default function AdminBurnoutCalibration() {
             <Card className="border-border/60">
               <CardHeader className="pb-3">
                 <CardTitle className="text-sm font-bold flex items-center gap-2">
-                  <BarChart3 className="h-4 w-4 text-[#0cc9a9]" />
+                  <BarChart3 className="h-4 w-4 text-[#b8874a]" />
                   Transition Matrix
                 </CardTitle>
                 <p className="text-[11px] text-muted-foreground">How users move between levels (from row to column)</p>
@@ -266,7 +266,7 @@ export default function AdminBurnoutCalibration() {
             <Card className="border-border/60">
               <CardHeader className="pb-3">
                 <CardTitle className="text-sm font-bold flex items-center gap-2">
-                  <Shield className="h-4 w-4 text-emerald-400" />
+                  <Shield className="h-4 w-4 text-emerald-700" />
                   Recovery Mode Effectiveness
                 </CardTitle>
                 <p className="text-[11px] text-muted-foreground">Whether activating Recovery Mode leads to score improvement</p>
@@ -282,8 +282,8 @@ export default function AdminBurnoutCalibration() {
                     </div>
                     <div className="grid grid-cols-3 gap-3">
                       <div className="rounded-xl bg-emerald-500/8 p-3 text-center">
-                        <CheckCircle2 className="h-4 w-4 text-emerald-400 mx-auto mb-1" />
-                        <p className="text-lg font-bold text-emerald-400">{report.recoveryModeEffectiveness.improvedAfter}</p>
+                        <CheckCircle2 className="h-4 w-4 text-emerald-700 mx-auto mb-1" />
+                        <p className="text-lg font-bold text-emerald-700">{report.recoveryModeEffectiveness.improvedAfter}</p>
                         <p className="text-[10px] text-muted-foreground">Improved</p>
                       </div>
                       <div className="rounded-xl bg-zinc-500/8 p-3 text-center">
@@ -291,16 +291,16 @@ export default function AdminBurnoutCalibration() {
                         <p className="text-lg font-bold text-foreground">{report.recoveryModeEffectiveness.stableAfter}</p>
                         <p className="text-[10px] text-muted-foreground">Stable</p>
                       </div>
-                      <div className="rounded-xl bg-[#0cc9a9]/100/5 p-3 text-center">
-                        <XCircle className="h-4 w-4 text-[#0cc9a9]/60 mx-auto mb-1" />
-                        <p className="text-lg font-bold text-[#0cc9a9]/70">{report.recoveryModeEffectiveness.worsenedAfter}</p>
+                      <div className="rounded-xl bg-[#b8874a]/100/5 p-3 text-center">
+                        <XCircle className="h-4 w-4 text-[#b8874a]/60 mx-auto mb-1" />
+                        <p className="text-lg font-bold text-[#b8874a]/70">{report.recoveryModeEffectiveness.worsenedAfter}</p>
                         <p className="text-[10px] text-muted-foreground">Worsened</p>
                       </div>
                     </div>
                     {report.recoveryModeEffectiveness.effectivenessRate !== null && (
-                      <div className="rounded-xl bg-[#0cc9a9]/5 border border-[#0cc9a9]/15 p-3 text-center">
-                        <p className="text-[10px] text-muted-foreground uppercase tracking-wide font-semibold">Effectiveness Rate</p>
-                        <p className="text-2xl font-bold text-[#0cc9a9] mt-0.5">{report.recoveryModeEffectiveness.effectivenessRate}%</p>
+                      <div className="rounded-xl bg-[#b8874a]/5 border border-[#b8874a]/15 p-3 text-center">
+                        <p className="text-[10px] text-gold uppercase tracking-wide font-semibold">Effectiveness Rate</p>
+                        <p className="text-2xl font-bold text-[#b8874a] mt-0.5">{report.recoveryModeEffectiveness.effectivenessRate}%</p>
                       </div>
                     )}
                   </div>

@@ -217,7 +217,7 @@ export default function AdminWorkdayPositions() {
         {!showForm && (
           <Button
             onClick={() => setShowForm(true)}
-            className="w-full bg-[#0cc9a9] hover:bg-[#0cc9a9]/90"
+            className="w-full bg-[#111d2e] hover:bg-[#1c2c44]"
             data-testid="button-add-position"
           >
             <Plus className="h-4 w-4 mr-2" />
@@ -228,7 +228,7 @@ export default function AdminWorkdayPositions() {
         {showForm && (
           <Card className="bg-card border-border">
             <CardHeader className="flex flex-row items-center justify-between">
-              <CardTitle className="text-white">
+              <CardTitle className="text-foreground">
                 {editingId ? "Edit Position" : "New Position"}
               </CardTitle>
               <Button variant="ghost" size="icon" onClick={resetForm} data-testid="button-close-form">
@@ -308,7 +308,7 @@ export default function AdminWorkdayPositions() {
                         </button>
                       </div>
                       {imageJustUploaded && (
-                        <div className="flex items-center gap-1.5 text-xs text-[#0cc9a9]" data-testid="text-image-attached">
+                        <div className="flex items-center gap-1.5 text-xs text-[#b8874a]" data-testid="text-image-attached">
                           <Check className="h-3.5 w-3.5" />
                           Image attached. Click {editingId ? "Update" : "Create"} to save.
                         </div>
@@ -380,7 +380,7 @@ export default function AdminWorkdayPositions() {
                   <div className="space-y-2 mt-2">
                     {formData.setupCues.map((cue, index) => (
                       <div key={index} className="flex items-center gap-2 bg-muted p-2 rounded">
-                        <GripVertical className="h-4 w-4 text-gray-500" />
+                        <GripVertical className="h-4 w-4 text-muted-foreground" />
                         <span className="flex-1 text-sm">{cue}</span>
                         <Button
                           type="button"
@@ -409,7 +409,7 @@ export default function AdminWorkdayPositions() {
 
                 <Button
                   type="submit"
-                  className="w-full bg-[#0cc9a9] hover:bg-[#0cc9a9]/90"
+                  className="w-full bg-[#111d2e] hover:bg-[#1c2c44]"
                   disabled={createMutation.isPending || updateMutation.isPending}
                   data-testid="button-submit"
                 >
@@ -421,9 +421,9 @@ export default function AdminWorkdayPositions() {
         )}
 
         {isLoading ? (
-          <div className="text-center py-8 text-gray-400">Loading...</div>
+          <div className="text-center py-8 text-muted-foreground">Loading...</div>
         ) : positions.length === 0 ? (
-          <div className="text-center py-8 text-gray-400">
+          <div className="text-center py-8 text-muted-foreground">
             No positions yet. Add your first position above.
           </div>
         ) : (
@@ -452,7 +452,7 @@ export default function AdminWorkdayPositions() {
                             <div className="flex items-start gap-3">
                               <div
                                 {...dragProvided.dragHandleProps}
-                                className="flex-shrink-0 pt-1 cursor-grab active:cursor-grabbing text-gray-500 hover:text-gray-300"
+                                className="flex-shrink-0 pt-1 cursor-grab active:cursor-grabbing text-muted-foreground hover:text-muted-foreground"
                                 aria-label="Drag to reorder"
                                 data-testid={`drag-handle-${position.id}`}
                               >
@@ -467,7 +467,7 @@ export default function AdminWorkdayPositions() {
                               )}
                               <div className="flex-1 min-w-0">
                                 <div className="flex items-center gap-2 flex-wrap">
-                                  <h3 className="font-semibold text-white">{position.name}</h3>
+                                  <h3 className="font-semibold text-foreground">{position.name}</h3>
                                   <span className="text-xs bg-muted px-2 py-0.5 rounded text-foreground/80">
                                     {typeLabel(position.positionType)}
                                   </span>
@@ -475,7 +475,7 @@ export default function AdminWorkdayPositions() {
                                     <span className="text-xs bg-gray-600 px-2 py-0.5 rounded">Inactive</span>
                                   )}
                                 </div>
-                                <p className="text-sm text-gray-400 line-clamp-2">{position.description}</p>
+                                <p className="text-sm text-muted-foreground line-clamp-2">{position.description}</p>
                               </div>
                               <div className="flex gap-2">
                                 <Button
@@ -490,7 +490,7 @@ export default function AdminWorkdayPositions() {
                                   variant="ghost"
                                   size="icon"
                                   onClick={() => deleteMutation.mutate(position.id)}
-                                  className="text-red-400 hover:text-red-300"
+                                  className="text-red-600 hover:text-red-600"
                                   data-testid={`button-delete-${position.id}`}
                                 >
                                   <Trash2 className="h-4 w-4" />

@@ -7816,36 +7816,61 @@ export class DatabaseStorage implements IStorage {
       sessions.push({ day: pd.pos + 1, name: firstWo.name, exercises });
     }
 
-    // Phase blocks (for phased programmes): group consecutive weeks whose exercise set is
-    // identical, on a representative day slot (all training days match within a week).
-    const phases: any[] = [];
-    if (phased) {
-      const rep = posData.find((pd) => pd.perWeekWo.some(Boolean));
-      if (rep) {
-        let start = 1;
-        for (let w = 2; w <= totalWeeks + 1; w++) {
-          if (w > totalWeeks || sig(rep.perWeekEx[w - 1]) !== sig(rep.perWeekEx[start - 1])) {
-            const end = w - 1;
-            const wo = rep.perWeekWo[start - 1];
-            const list = rep.perWeekEx[start - 1] || [];
-            if (wo && list.length) {
-              const weeks: number[] = [];
-              for (let k = start; k <= end; k++) weeks.push(k);
-              phases.push({
-                label: start === end ? `Week ${start}` : `Weeks ${start}–${end}`,
-                weeks,
-                name: wo.name,
-                workoutId: wo.id,
-                exercises: list.map((ex: any) => ({ name: ex.name, reps: ex.reps })),
-              });
-            }
-            start = w;
+    // Phase blocks: group consecutive weeks whose exercise set is identical.
+    //
+    // Built PER DAY SLOT. This used to pick ONE representative position - the
+    // first with any workouts - and derive the whole programme's phases from it,
+    // on the assumption that "all training days match within a week". Two things
+    // broke when that assumption did not hold:
+    //
+    //   * A programme whose training days are DIFFERENT sessions showed only the
+    //     first of them. Five scheduled days, one workout listed.
+    //   * `phased` is detected by scanning EVERY position, while the
+    //     representative was always the first. So a programme where day 1 never
+    //     changes but day 4 progresses came back phased: true with exactly one
+    //     phase block - detection and presentation disagreeing about which slot
+    //     they were describing.
+    const phasesForPosition = (pd: { pos: number; perWeekWo: any[]; perWeekEx: any[] }): any[] => {
+      const out: any[] = [];
+      let start = 1;
+      for (let w = 2; w <= totalWeeks + 1; w++) {
+        if (w > totalWeeks || sig(pd.perWeekEx[w - 1]) !== sig(pd.perWeekEx[start - 1])) {
+          const end = w - 1;
+          const wo = pd.perWeekWo[start - 1];
+          const list = pd.perWeekEx[start - 1] || [];
+          if (wo && list.length) {
+            const weeks: number[] = [];
+            for (let k = start; k <= end; k++) weeks.push(k);
+            out.push({
+              label: start === end ? `Week ${start}` : `Weeks ${start}\u2013${end}`,
+              weeks,
+              name: wo.name,
+              workoutId: wo.id,
+              // The cover. Absent before, which is why phased programmes fell
+              // back to a placeholder icon while every other list showed art.
+              imageUrl: wo.imageUrl ?? null,
+              exercises: list.map((ex: any) => ({ name: ex.name, reps: ex.reps })),
+            });
           }
+          start = w;
         }
       }
-    }
+      return out;
+    };
 
-    return { weeks: totalWeeks, sessions, phased, phases };
+    // One entry per training day that actually has workouts, each with its own
+    // phases. `days` is the honest shape; `phases` below is kept so an older app
+    // build still renders something rather than an empty Workouts section.
+    const days: any[] = [];
+    if (phased) {
+      for (const pd of posData) {
+        const ph = phasesForPosition(pd);
+        if (ph.length) days.push({ day: pd.pos + 1, name: ph[0].name, phases: ph });
+      }
+    }
+    const phases: any[] = days.length ? days[0].phases : [];
+
+    return { weeks: totalWeeks, sessions, phased, phases, days };
   }
 
   async getProgrammeWorkoutTemplates(programId: number, weekNumber?: number): Promise<any[]> {

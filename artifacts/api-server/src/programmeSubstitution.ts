@@ -194,6 +194,23 @@ export interface SubstituteCandidate {
 
 const LEVEL_ORDER = ['beginner', 'intermediate', 'advanced'];
 
+/**
+ * A level a substitute may never be offered at.
+ *
+ * This engine only ever runs because someone has reported pain, so the question
+ * "is an advanced exercise appropriate here?" already has an answer: no. It is a
+ * HARD filter, not a scoring penalty, and it does not wait for an outcome to
+ * configure flaggingLevel — an admin forgetting to tick a box is not a reason to
+ * hand a sore shoulder a barbell exercise rated advanced.
+ *
+ * Deliberately not blocked: a candidate merely HARDER than the original but
+ * still under advanced. That is a scoring penalty below instead, because
+ * blocking it would empty the list whenever the athlete was already working at
+ * beginner level, and an intermediate machine press is a safer object than
+ * nothing at all.
+ */
+const NEVER_OFFER_LEVEL = 'advanced';
+
 function levelDistance(a?: string | null, b?: string | null): number | null {
   if (!a || !b) return null;
   const ia = LEVEL_ORDER.indexOf(String(a).toLowerCase());
@@ -285,6 +302,14 @@ export function rankSubstitutes(opts: {
     // incline press to someone who cannot press a barbell.
     if (evaluateFlag(candidate, rules).flagged) continue;
 
+    // Never offer an advanced exercise to someone who has just reported pain,
+    // whatever the outcome's rules say and whatever the original was. An
+    // exercise with no level recorded is allowed through rather than blocked —
+    // a gap in the library's tagging should not silently empty the list — but it
+    // is scored below anything properly tagged.
+    const candidateLevel = candidate.level ? String(candidate.level).toLowerCase() : null;
+    if (candidateLevel === NEVER_OFFER_LEVEL) continue;
+
     const isCurated = curatedOrder.has(candidate.id);
     let score = 0;
 
@@ -319,9 +344,17 @@ export function rankSubstitutes(opts: {
     if (original.exerciseType && candidate.exerciseType === original.exerciseType) score += 8;
     if (original.laterality && candidate.laterality === original.laterality) score += 3;
 
-    const dist = levelDistance(original.level, candidate.level);
-    if (dist === 0) score += 8;
-    else if (dist === 1) score += 4;
+    // Level. Same as the original is ideal; easier is fine; harder while sore is
+    // a step in the wrong direction, so it costs.
+    const oi = original.level ? LEVEL_ORDER.indexOf(String(original.level).toLowerCase()) : -1;
+    const ci = candidateLevel ? LEVEL_ORDER.indexOf(candidateLevel) : -1;
+    if (oi !== -1 && ci !== -1) {
+      if (ci === oi) score += 8;
+      else if (ci < oi) score += 5;   // easier: appropriate while managing pain
+      else score -= 12;               // harder than what they were already doing
+    } else if (ci === -1) {
+      score -= 4;                     // untagged: usable, but not preferred
+    }
 
     // Nothing in common, not curated, and not a pattern the coach nominated:
     // that is not a substitute, just another exercise in the library.

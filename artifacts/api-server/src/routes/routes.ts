@@ -439,6 +439,7 @@ const uploadDoc = multer({
 import { computeBurnoutScore } from '../burnoutEngine';
 import { computeCyclePhase } from '../cyclePhase';
 import { normalizeSex } from '../coach/lifeStage';
+import { rulesFromOutcome, poolFromOutcome, hasAnyCriteria, evaluateFlag, rankSubstitutes } from '../programmeSubstitution';
 import { trackCalibrationEvent, trackRecoveryModeActivation, generateCalibrationReport, getLevel as getBurnoutLevel, writePhysiologicalSnapshot } from '../burnoutCalibration';
 import { burnoutScores, insertCompanySchema, insertCompanyBenefitSchema, insertCompanyWellbeingContactSchema, checkIns, bodyMapLogs, departments, companyInvites, usageAlerts, insertAiPromptSchema, workdayBreakLogs, aiInsightReads, recoveryModePeriods, physiologicalSnapshots, cycleSettings, cycleLogs } from "@workspace/db";
 
@@ -8731,21 +8732,23 @@ Rules:
         return res.status(404).json({ message: "Programme not found" });
       }
 
-      // Get flagging rules
-      const flaggingPatterns = outcome.flaggingMovementPatterns || [];
-      const flaggingEquipment = outcome.flaggingEquipment || [];
-      const flaggingLevel = outcome.flaggingLevel || [];
-
-      // Get substitution pool
-      const poolData = outcome.substitutionRules as any;
-      const substitutionPool = Array.isArray(poolData) ? poolData[0] : poolData;
-      const substituteExerciseIds: number[] = substitutionPool?.substituteExerciseIds || [];
+      // Flagging rules and substitution pool, read through the shared engine so
+      // /preview and /accept can never disagree about what is flagged or what may
+      // replace it. They previously kept separate copies that used opposite
+      // boolean logic (AND here, OR there) and read different columns.
+      const rules = rulesFromOutcome(outcome);
+      const pool = poolFromOutcome(outcome);
+      const flaggingPatterns = rules.movementPatterns;
+      const flaggingEquipment = rules.equipment;
+      const flaggingLevel = rules.levels;
+      const substituteExerciseIds: number[] = pool.substituteExerciseIds;
 
       // Get all exercises
       const allExercises = await storage.getExercises();
       const exerciseMap = new Map(allExercises.map(e => [e.id, e]));
 
-      // Build substitute options (curated list in coach order)
+      // Curated list in coach order. Kept as a top-level field for older app
+      // builds; the real per-exercise rankings live on each flagged group.
       const substituteOptions = substituteExerciseIds
         .map(id => exerciseMap.get(id))
         .filter((e): e is NonNullable<typeof e> => e !== undefined)
@@ -8803,69 +8806,30 @@ Rules:
         weekNumber: number;
         dayNumber: number;
         reason: string;
-        reasonType: 'movement_pattern' | 'equipment' | 'level';
+        // Widened: muscles and mechanics are real flagging categories that the
+        // preview never used to read, so its type could not express them.
+        reasonType: 'movement_pattern' | 'muscle' | 'equipment' | 'level' | 'mechanics';
       }> = [];
 
-      // Flagging logic: all configured criteria must match (AND across categories).
-      // Within a single category (e.g. movement) any of the listed values matching
-      // the exercise counts as a hit. Empty categories impose no constraint.
-      // If no category is configured, nothing is flagged.
-      const hasAnyCriteria =
-        flaggingPatterns.length > 0 ||
-        flaggingEquipment.length > 0 ||
-        flaggingLevel.length > 0;
-
-      // Process each Week 1 workout to find flagged exercises
-      if (hasAnyCriteria) for (const workout of week1Workouts) {
+      // Flagging now runs through evaluateFlag() in ../programmeSubstitution, so
+      // the rule semantics live in exactly one place.
+      if (hasAnyCriteria(rules)) for (const workout of week1Workouts) {
         const blocks = await storage.getProgrammeWorkoutBlocks(workout.id);
         for (const block of blocks) {
-          const blockExercises = block.exercises || [];
-          
-          for (const blockExercise of blockExercises) {
+          for (const blockExercise of (block.exercises || [])) {
             if (!blockExercise.exerciseLibraryId) continue;
 
             const templateExercise = exerciseMap.get(blockExercise.exerciseLibraryId);
             if (!templateExercise) continue;
 
-            // If this slot has an active substitution, evaluate against the substitute.
+            // Evaluate the exercise the user actually has: if this slot already
+            // carries an accepted substitution, judge that, not the original.
             const activeSub = activeSubstitutionMap.get(blockExercise.id);
-            const exercise = activeSub
-              ? exerciseMap.get(activeSub.substitutedExerciseId)
-              : templateExercise;
+            const exercise = activeSub ? exerciseMap.get(activeSub.substitutedExerciseId) : templateExercise;
             if (!exercise) continue;
 
-            // Movement category: matched if any listed pattern is present on the exercise.
-            let movementMatch: string | null = null;
-            if (flaggingPatterns.length > 0) {
-              if (!exercise.movement || exercise.movement.length === 0) continue;
-              movementMatch = exercise.movement.find((m: string) => flaggingPatterns.includes(m)) || null;
-              if (!movementMatch) continue;
-            }
-
-            // Equipment category: matched if any listed equipment is present on the exercise.
-            let equipmentMatch: string | null = null;
-            if (flaggingEquipment.length > 0) {
-              if (!exercise.equipment || exercise.equipment.length === 0) continue;
-              equipmentMatch = exercise.equipment.find((e: string) => flaggingEquipment.includes(e)) || null;
-              if (!equipmentMatch) continue;
-            }
-
-            // Level category: matched if the exercise's level is in the listed levels.
-            let levelMatch: string | null = null;
-            if (flaggingLevel.length > 0) {
-              if (!exercise.level) continue;
-              if (!flaggingLevel.includes(exercise.level)) continue;
-              levelMatch = exercise.level;
-            }
-
-            // All configured categories matched. Build a composite reason and pick a
-            // primary reasonType (movement > equipment > level) for backwards compat.
-            const parts: string[] = [];
-            if (movementMatch) parts.push(`Movement pattern: ${movementMatch}`);
-            if (equipmentMatch) parts.push(`Equipment: ${equipmentMatch}`);
-            if (levelMatch) parts.push(`Difficulty level: ${levelMatch}`);
-            const reasonType: 'movement_pattern' | 'equipment' | 'level' =
-              movementMatch ? 'movement_pattern' : equipmentMatch ? 'equipment' : 'level';
+            const flag = evaluateFlag(exercise as any, rules);
+            if (!flag.flagged) continue;
 
             flaggedExercises.push({
               exerciseInstanceId: blockExercise.id,
@@ -8875,21 +8839,71 @@ Rules:
               workoutName: workout.name || `Week ${workout.weekNumber} Day ${workout.dayNumber}`,
               weekNumber: workout.weekNumber,
               dayNumber: workout.dayNumber,
-              reason: parts.join(' + '),
-              reasonType,
+              reason: flag.reason,
+              reasonType: flag.reasonType,
             });
           }
         }
       }
 
+      // Group by exercise. The user is answering one question per exercise —
+      // "what do I do instead of this?" — and the answer holds everywhere it
+      // appears. Listing the same movement once per workout asked it four times
+      // and invited four different answers.
+      const groupMap = new Map<number, any>();
+      for (const f of flaggedExercises) {
+        let g = groupMap.get(f.exerciseId);
+        if (!g) {
+          g = {
+            exerciseId: f.exerciseId,
+            exerciseName: f.exerciseName,
+            exerciseImageUrl: f.exerciseImageUrl,
+            reason: f.reason,
+            reasonType: f.reasonType,
+            instances: [] as any[],
+            substitutes: [] as any[],
+          };
+          groupMap.set(f.exerciseId, g);
+        }
+        g.instances.push({
+          exerciseInstanceId: f.exerciseInstanceId,
+          workoutName: f.workoutName,
+          weekNumber: f.weekNumber,
+          dayNumber: f.dayNumber,
+        });
+      }
+
+      // Rank replacements per exercise, not one global list for the whole
+      // outcome. A pulldown and a shoulder press should never be offered the
+      // same alternatives.
+      const flaggedGroups = Array.from(groupMap.values()).map((g: any) => {
+        const original = exerciseMap.get(g.exerciseId);
+        const substitutes = original
+          ? rankSubstitutes({ original: original as any, rules, pool, allExercises: allExercises as any[] })
+          : [];
+        return {
+          ...g,
+          instanceCount: g.instances.length,
+          workoutNames: Array.from(new Set(g.instances.map((i: any) => i.workoutName))),
+          substitutes,
+        };
+      });
+
       return res.json({
+        // Per-instance rows, unchanged shape, so an older app build keeps working.
         flaggedExercises,
+        // One row per exercise with its own ranked substitutes. What the app uses now.
+        flaggedGroups,
+        // Curated pool only. Older builds read this; newer ones read group.substitutes.
         substituteOptions,
+        coachingNote: pool.coachingNote ?? null,
         enrollmentId: targetEnrollment.id,
         flaggingCriteria: {
           movementPatterns: flaggingPatterns,
           equipment: flaggingEquipment,
           levels: flaggingLevel,
+          muscles: rules.muscles,
+          mechanics: rules.mechanics,
         },
       });
     } catch (error) {
@@ -8985,39 +8999,22 @@ Rules:
         return res.status(404).json({ message: "Programme not found" });
       }
 
-      // Get flagging rules from outcome
-      const flaggingPatterns = outcome.flaggingMovementPatterns || [];
-      const flaggingMuscles = outcome.flaggingMuscles || [];
-      const flaggingEquipment = outcome.flaggingEquipment || [];
-      const flaggingLevel = outcome.flaggingLevel || [];
-      const flaggingMechanics = outcome.flaggingMechanics || [];
+      // Flagging rules and substitution pool via the shared engine. This block
+      // used to re-derive both by hand with OR semantics (any one category match
+      // flags), while /preview used AND (every configured category must match).
+      // A rule meaning "barbell horizontal pushes" was therefore read here as
+      // "every horizontal push, and separately every barbell exercise" — which
+      // flags the dumbbell press we want to substitute IN.
+      //
+      // It also computed `curatedSubstitutes` and `patternMatchedSubstitutes`,
+      // the derive-a-replacement fallback, and then never read either variable.
+      // That logic now lives in rankSubstitutes() and is actually used.
+      const rules = rulesFromOutcome(outcome);
+      const pool = poolFromOutcome(outcome);
+      const substituteExerciseIds: number[] = pool.substituteExerciseIds;
 
-      // Get substitution pool
-      const poolData = outcome.substitutionRules as any;
-      const substitutionPool = Array.isArray(poolData) ? poolData[0] : poolData;
-      const allowedPatterns = substitutionPool?.allowedPatterns || [];
-      // substituteExerciseIds is already in coach-defined order (array order = priority)
-      const substituteExerciseIds: number[] = substitutionPool?.substituteExerciseIds || [];
-
-      // Get all exercises for pattern matching
       const allExercises = await storage.getExercises();
       const exerciseMap = new Map(allExercises.map(e => [e.id, e]));
-
-      // FIX 1: Option 1B - Coach-ordered substitute selection
-      // Build curated substitutes in coach order (array order = priority)
-      const curatedSubstitutes = substituteExerciseIds
-        .map(id => exerciseMap.get(id))
-        .filter((e): e is NonNullable<typeof e> => e !== undefined);
-      
-      // Pattern-matched substitutes as fallback (only if not in curated list)
-      const patternMatchedSubstitutes = allExercises.filter(e => {
-        if (substituteExerciseIds.includes(e.id)) return false; // Skip if already in curated
-        if (allowedPatterns.length > 0) {
-          const exercisePatterns = e.movement || [];
-          return exercisePatterns.some(p => allowedPatterns.includes(p));
-        }
-        return false;
-      });
 
       // Gather the authored template workouts across all weeks (see below). Exercise
       // instance IDs are the template block-exercise IDs the enrolment snapshot references.
@@ -9084,47 +9081,9 @@ Rules:
               : templateExercise;
             if (!evalExercise) continue;
 
-            let isFlagged = false;
-            let flagReason = '';
-
-            if (flaggingPatterns.length > 0 && evalExercise.movement && evalExercise.movement.length > 0) {
-              const matchingPattern = evalExercise.movement.find((m: string) => flaggingPatterns.includes(m));
-              if (matchingPattern) {
-                isFlagged = true;
-                flagReason = `Movement pattern: ${matchingPattern}`;
-              }
-            }
-
-            if (!isFlagged && flaggingMuscles.length > 0 && evalExercise.mainMuscle && evalExercise.mainMuscle.length > 0) {
-              const matchingMuscle = evalExercise.mainMuscle.find((m: string) => flaggingMuscles.includes(m));
-              if (matchingMuscle) {
-                isFlagged = true;
-                flagReason = `Muscle: ${matchingMuscle}`;
-              }
-            }
-
-            if (!isFlagged && flaggingEquipment.length > 0 && evalExercise.equipment && evalExercise.equipment.length > 0) {
-              const matchingEquipment = evalExercise.equipment.find((e: string) => flaggingEquipment.includes(e));
-              if (matchingEquipment) {
-                isFlagged = true;
-                flagReason = `Equipment: ${matchingEquipment}`;
-              }
-            }
-
-            if (!isFlagged && flaggingLevel.length > 0 && evalExercise.level) {
-              if (flaggingLevel.includes(evalExercise.level)) {
-                isFlagged = true;
-                flagReason = `Level: ${evalExercise.level}`;
-              }
-            }
-
-            if (!isFlagged && flaggingMechanics.length > 0 && evalExercise.mechanics && evalExercise.mechanics.length > 0) {
-              const matchingMechanics = evalExercise.mechanics.find((m: string) => flaggingMechanics.includes(m));
-              if (matchingMechanics) {
-                isFlagged = true;
-                flagReason = `Mechanics: ${matchingMechanics}`;
-              }
-            }
+            const flag = evaluateFlag(evalExercise as any, rules);
+            const isFlagged = flag.flagged;
+            const flagReason = flag.reason;
 
             slotMap.set(blockExercise.id, {
               originalExerciseId: templateExercise.id,
@@ -9171,10 +9130,29 @@ Rules:
           continue;
         }
 
+        // Validate the chosen substitute server-side. This used to accept ONLY
+        // members of the curated pool, which meant every derived suggestion the
+        // preview offered would be silently rejected here — the two halves have
+        // to agree or the feature fails at the last step.
+        //
+        // A choice is valid if the coach curated it, or if the same ranking
+        // engine that produced the suggestions would have offered it for this
+        // exercise. The client is never trusted: the ranking is recomputed here.
         if (!substituteExerciseIds.includes(chosenId)) {
-          // Chosen substitute is not in the curated pool for this outcome.
-          substitutionsFailed++;
-          continue;
+          const originalExercise = exerciseMap.get(slotInfo.originalExerciseId);
+          const allowed = originalExercise
+            ? rankSubstitutes({
+                original: originalExercise as any,
+                rules,
+                pool,
+                allExercises: allExercises as any[],
+                limit: 50,
+              }).some((c) => c.id === chosenId)
+            : false;
+          if (!allowed) {
+            substitutionsFailed++;
+            continue;
+          }
         }
 
         if (chosenId === slotInfo.originalExerciseId) {

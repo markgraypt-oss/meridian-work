@@ -38,7 +38,7 @@ export function renderBrandedEmail(opts: BrandedEmailOptions): string {
 
   const ctaHtml = cta
     ? `<table role="presentation" cellpadding="0" cellspacing="0" style="margin:6px 0 20px;"><tr>
-         <td style="border-radius:10px;background:#d4a574;">
+         <td bgcolor="#d4a574" style="border-radius:10px;background-color:#d4a574;">
            <a href="${cta.url}" style="display:inline-block;padding:14px 30px;font-family:Arial,Helvetica,sans-serif;font-size:16px;font-weight:bold;color:#0a1628;text-decoration:none;border-radius:10px;">${cta.label}</a>
          </td>
        </tr></table>`
@@ -60,25 +60,25 @@ export function renderBrandedEmail(opts: BrandedEmailOptions): string {
     : "";
 
   return `
-  <div style="margin:0;padding:0;background:#eef1f5;">
+  <div style="margin:0;padding:0;background-color:#eef1f5;">
     ${preheaderHtml}
-    <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#eef1f5;padding:24px 12px;">
-      <tr><td align="center">
-        <table role="presentation" width="600" cellpadding="0" cellspacing="0" style="max-width:600px;width:100%;background:#ffffff;border-radius:12px;overflow:hidden;border:1px solid #e6e9ee;">
-          <tr><td style="background:#0a1628;padding:22px 24px;text-align:center;">
+    <table role="presentation" width="100%" cellpadding="0" cellspacing="0" bgcolor="#eef1f5" style="background-color:#eef1f5;">
+      <tr><td align="center" style="padding:24px 12px;">
+        <table role="presentation" width="600" cellpadding="0" cellspacing="0" bgcolor="#ffffff" style="max-width:600px;width:100%;background-color:#ffffff;border-radius:12px;overflow:hidden;border:1px solid #e6e9ee;">
+          <tr><td bgcolor="#0a1628" style="background-color:#0a1628;padding:22px 24px;text-align:center;">
             <div style="font-family:Arial,Helvetica,sans-serif;font-size:22px;font-weight:bold;letter-spacing:-0.3px;">
               <span style="color:#ffffff;">meridian</span><span style="color:#d4a574;">work</span>
             </div>
-            <div style="width:34px;height:3px;background:#d4a574;border-radius:2px;margin:9px auto 0;line-height:3px;font-size:0;">&nbsp;</div>
+            <table role="presentation" cellpadding="0" cellspacing="0" align="center" style="margin:10px auto 0;"><tr><td bgcolor="#d4a574" width="34" height="3" style="background-color:#d4a574;width:34px;height:3px;line-height:3px;font-size:0;border-radius:2px;">&nbsp;</td></tr></table>
           </td></tr>
-          <tr><td style="padding:28px 26px 8px;background:#ffffff;">
+          <tr><td bgcolor="#ffffff" style="background-color:#ffffff;padding:28px 26px 8px;">
             ${eyebrowHtml}
             ${headingHtml}
             ${bodyHtml}
             ${ctaHtml}
             ${signatureHtml}
           </td></tr>
-          <tr><td style="background:#f4f6f9;padding:18px 24px;text-align:center;">
+          <tr><td bgcolor="#f4f6f9" style="background-color:#f4f6f9;padding:18px 24px;text-align:center;">
             ${footerNoteHtml}
             <p style="margin:0;color:#8a94a6;font-size:12px;line-height:1.5;font-family:Arial,Helvetica,sans-serif;">
               MeridianWork &middot; <a href="https://meridian.work" style="color:#a9743f;text-decoration:none;font-weight:bold;">meridian.work</a> &middot; <a href="mailto:support@meridian.work" style="color:#a9743f;text-decoration:none;font-weight:bold;">support@meridian.work</a>

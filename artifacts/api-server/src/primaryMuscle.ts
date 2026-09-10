@@ -29,6 +29,37 @@ export const MAIN_MUSCLE_OPTIONS = [
 type Muscle = (typeof MAIN_MUSCLE_OPTIONS)[number];
 
 const RULES: Array<[RegExp, Muscle]> = [
+  // ── Mobility, release and rehab drills, named by the tissue they target.
+  //    First, because these names are specific enough not to collide with any
+  //    strength movement, and every one of them fell straight through before.
+  [/\bheel\s*cord\b.*\banterior\b/, 'Ankle & Foot'],  // tibialis bias
+  [/\bheel\s*cord\b/, 'Calves'],                       // achilles bias
+  [/\bplantar\b/, 'Ankle & Foot'],
+  [/\b(foam\s*roller|lacrosse\s*ball)\b.*\bshin\b/, 'Ankle & Foot'],
+  [/\b(foam\s*roller|lacrosse\s*ball)\b.*\b(vastus|quad|rectus\s*femoris)\b/, 'Quads'],
+  [/\b(foam\s*roller|lacrosse\s*ball)\b.*\b(lateral\s*hip|it\s*band|itb|glute|piriformis)\b/, 'Glutes'],
+  [/\b(hip\s*opener|hip\s*flexor|psoas|tfl|tensor\s*fasciae?\s*latae)\b/, 'Hip Flexor'],
+  [/\b(foam\s*roller|lacrosse\s*ball)\b.*\bhip\b/, 'Glutes'],  // generic hip = glutes/lateral
+  [/\blevator\s*scapulae\b/, 'Neck'],
+  [/\bjaw\b/, 'Neck & Jaw'],
+  [/\bhead\s*mobili[sz]/, 'Neck'],
+  [/\bserratus\b/, 'Shoulders'],
+  [/\belbow\s*flexion\b/, 'Biceps'],
+  [/\belbow\s*extension\b/, 'Triceps'],
+  [/\btowel\s*squeeze/, 'Wrist & Hands'],   // grip drill
+  [/\btowel\s*curl/, 'Ankle & Foot'],       // toe-scrunch, plantar rehab
+
+  // ── Bottoms-up / upside-down pressing is overhead by definition. Specific,
+  //    so it cannot hijack a kettlebell FLOOR press, which is a chest movement.
+  [/\b(upside[\s-]?down|bottoms?[\s-]?up)\b.*\bpress\b/, 'Shoulders'],
+
+  // ── Plyometric lower-leg work: the calves absorb and return it.
+  [/\bpogo\s*(hop|jump)/, 'Calves'],
+  [/\bsingle[-\s]?leg\s*hop\b/, 'Calves'],
+
+  // ── Hip extension by any name.
+  [/\bhip\s*(raise|thrust|bridge)\b/, 'Glutes'],
+
   // ── Rotator cuff and rear shoulder. Before every other shoulder rule,
   //    because "external rotation" and "face pull" would otherwise be caught by
   //    the generic shoulder/pull rules.
@@ -126,6 +157,26 @@ const RULES: Array<[RegExp, Muscle]> = [
 ];
 
 /**
+ * Things that genuinely have no single primary muscle.
+ *
+ * A composite warm-up, a yoga flow or a conditioning piece trains everything and
+ * nothing in particular. Guessing one — "Ski Erg is Lats" — would be worse than
+ * leaving it blank, because the substitution engine scores a shared primary
+ * muscle heavily and would start offering an Assault Bike in place of a squat.
+ *
+ * So these resolve to null ON PURPOSE, and the backfill reports them separately
+ * from the ones it simply could not work out. Only the second list is a job.
+ */
+const NO_SINGLE_PRIMARY: RegExp[] = [
+  /\bwarm\s*up\b/,
+  /\bcool\s*down\b/,
+  /\bsun\s*salutation/,
+  /\b(assault|air|echo|fan)\s*bike\b/,
+  /\b(ski|row(ing)?)\s*erg\b/,
+  /\b(treadmill|deadmill)\s*sprints?\b/,
+];
+
+/**
  * When the name says nothing, fall back to the tag set — but pick by a fixed
  * preference rather than array position, so the answer is at least consistent.
  * Ordered by how likely a muscle is to be the POINT of an exercise rather than
@@ -143,11 +194,16 @@ const FALLBACK_PREFERENCE: Muscle[] = [
 export interface PrimaryMuscleResult {
   muscle: Muscle | null;
   /** How we got there — worth logging so a bad rule can be found later. */
-  source: 'name' | 'single-tag' | 'tag-preference' | 'none';
+  source: 'name' | 'single-tag' | 'tag-preference' | 'not-applicable' | 'none';
 }
 
 export function derivePrimaryMuscle(name: string, mainMuscle?: string[] | null): PrimaryMuscleResult {
   const n = (name || '').toLowerCase();
+
+  // Deliberately blank beats a bad guess.
+  for (const re of NO_SINGLE_PRIMARY) {
+    if (re.test(n)) return { muscle: null, source: 'not-applicable' };
+  }
 
   for (const [re, muscle] of RULES) {
     if (re.test(n)) return { muscle, source: 'name' };
@@ -181,9 +237,9 @@ const FLAG = "primary_muscle_backfill_v1";
  * short list is the manual job, instead of all of it.
  */
 export async function backfillPrimaryMuscleOnce(force = false): Promise<{
-  updated: number; byName: number; byTag: number; unresolved: string[];
+  updated: number; byName: number; byTag: number; unresolved: string[]; notApplicable: string[];
 }> {
-  const empty = { updated: 0, byName: 0, byTag: 0, unresolved: [] as string[] };
+  const empty = { updated: 0, byName: 0, byTag: 0, unresolved: [] as string[], notApplicable: [] as string[] };
   if (hasRun && !force) return empty;
   hasRun = true;
 
@@ -200,10 +256,14 @@ export async function backfillPrimaryMuscleOnce(force = false): Promise<{
 
     let byName = 0, byTag = 0, updated = 0;
     const unresolved: string[] = [];
+    const notApplicable: string[] = [];
 
     for (const row of rows) {
       const { muscle, source } = derivePrimaryMuscle(row.name, row.main_muscle);
-      if (!muscle) { unresolved.push(row.name); continue; }
+      if (!muscle) {
+        (source === 'not-applicable' ? notApplicable : unresolved).push(row.name);
+        continue;
+      }
       await pool.query(`UPDATE exercise_library SET primary_muscle = $1 WHERE id = $2`, [muscle, row.id]);
       updated++;
       if (source === 'name') byName++; else byTag++;
@@ -211,12 +271,14 @@ export async function backfillPrimaryMuscleOnce(force = false): Promise<{
 
     console.log(
       `[startup-migration] primary muscle backfill: ${updated} tagged ` +
-      `(${byName} from the name, ${byTag} from tags), ${unresolved.length} unresolved` +
+      `(${byName} from the name, ${byTag} from tags), ` +
+      `${notApplicable.length} no single primary (by design), ` +
+      `${unresolved.length} unresolved` +
       (unresolved.length ? ` -> ${unresolved.slice(0, 40).join(', ')}` : ''),
     );
 
     await pool.query(`INSERT INTO system_flags (key) VALUES ($1) ON CONFLICT (key) DO NOTHING`, [FLAG]);
-    return { updated, byName, byTag, unresolved };
+    return { updated, byName, byTag, unresolved, notApplicable };
   } catch (e: any) {
     console.error("[startup-migration] primary muscle backfill failed:", e?.message || e);
     return empty;

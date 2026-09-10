@@ -13,6 +13,15 @@ const TICK_INTERVAL_MS = 30 * 60 * 1000; // 30 minutes
 const BRIEFING_HOUR_START = 7; // 07:00 local
 const BRIEFING_HOUR_END = 9;   // before 09:00 local
 
+// Background coach-briefing generation is only worth paying for when the
+// person is likely to open the app and read it. A user with no app open
+// (GET /api/auth/user stamps users.lastActiveAt) in this many days is skipped
+// by the sweep; the on-demand path (GET /api/coach/briefing, check-in POST)
+// still generates their briefing the moment they return, and lastActiveAt is
+// re-stamped on that open so the sweep picks them up again from the next tick.
+// Mark, 10 Sep 2026: 7 days, not 14 - keep AI cost per user as low as possible.
+const BRIEFING_SWEEP_MAX_INACTIVE_DAYS = 7;
+
 const APP_BASE_URL =
   process.env.APP_BASE_URL || "https://meridian.work";
 
@@ -176,9 +185,21 @@ async function dispatchForUser(u: BriefingUser, tz: string | null): Promise<void
  * and evening briefings (20:00+ local) determined against each user's local time.
  */
 async function sweepCoachBriefings(
-  userRows: Array<{ id: string; timezone: string | null }>,
+  userRows: Array<{ id: string; timezone: string | null; lastActiveAt: Date | null }>,
 ): Promise<void> {
   if (userRows.length === 0) return;
+
+  // Cost gate: only pre-generate for recently active users. Everyone else
+  // gets an on-demand briefing when (if) they open the app.
+  const activeCutoff = Date.now() - BRIEFING_SWEEP_MAX_INACTIVE_DAYS * 86_400_000;
+  const totalRows = userRows.length;
+  userRows = userRows.filter(
+    (r) => r.lastActiveAt && new Date(r.lastActiveAt).getTime() >= activeCutoff,
+  );
+  if (userRows.length === 0) {
+    return;
+  }
+  const skippedInactive = totalRows - userRows.length;
 
   let mod: typeof import("./coach/briefings");
   try {
@@ -218,10 +239,10 @@ async function sweepCoachBriefings(
     }
   }
   if (generatedMorning > 0) {
-    console.log(`[coach-briefings-sweep] generated ${generatedMorning} morning briefing(s)`);
+    console.log(`[coach-briefings-sweep] generated ${generatedMorning} morning briefing(s) (${skippedInactive} inactive user(s) skipped)`);
   }
   if (generatedEvening > 0) {
-    console.log(`[coach-briefings-sweep] generated ${generatedEvening} evening briefing(s)`);
+    console.log(`[coach-briefings-sweep] generated ${generatedEvening} evening briefing(s) (${skippedInactive} inactive user(s) skipped)`);
   }
 }
 
@@ -232,6 +253,7 @@ async function tick(): Promise<void> {
         id: users.id,
         firstName: users.firstName,
         timezone: users.timezone,
+        lastActiveAt: users.lastActiveAt,
         inAppTraining: notificationPreferences.inAppTraining,
         emailTraining: notificationPreferences.emailTraining,
         pushTraining: notificationPreferences.pushTraining,
@@ -254,7 +276,7 @@ async function tick(): Promise<void> {
     }
 
     await sweepCoachBriefings(
-      rows.map((r) => ({ id: r.id, timezone: r.timezone })),
+      rows.map((r) => ({ id: r.id, timezone: r.timezone, lastActiveAt: r.lastActiveAt ?? null })),
     );
 
     await maybeRunNightlyReadiness();

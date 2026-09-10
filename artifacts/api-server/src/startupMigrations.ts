@@ -468,6 +468,18 @@ export const SELF_HEAL_DDL: string[] = [
   `ALTER TABLE companies ADD COLUMN IF NOT EXISTS wellbeing_contact_enabled boolean NOT NULL DEFAULT true`,
   `ALTER TABLE companies ADD COLUMN IF NOT EXISTS wellbeing_button_label varchar`,
   `ALTER TABLE companies ADD COLUMN IF NOT EXISTS wellbeing_intro_text text`,
+
+  // ── Volume reduction as a third outcome for a flagged exercise.
+  // Reductions live alongside substitutions rather than in their own table, so
+  // one row still answers "what happened to this slot" and the reassessment
+  // restore path (is_restored) covers them without any new code.
+  `ALTER TABLE exercise_substitution_mappings ADD COLUMN IF NOT EXISTS action text NOT NULL DEFAULT 'swap'`,
+  `ALTER TABLE exercise_substitution_mappings ADD COLUMN IF NOT EXISTS reduced_sets jsonb`,
+  `ALTER TABLE exercise_substitution_mappings ADD COLUMN IF NOT EXISTS original_sets jsonb`,
+  `ALTER TABLE exercise_substitution_mappings ADD COLUMN IF NOT EXISTS reduction_tier text`,
+  // A reduction keeps the original exercise, so this column has nothing to hold.
+  // Relaxing a constraint, not dropping anything: existing rows are untouched.
+  `ALTER TABLE exercise_substitution_mappings ALTER COLUMN substituted_exercise_id DROP NOT NULL`,
 ];
 
 export async function runSchemaSelfHealOnce(): Promise<void> {

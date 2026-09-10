@@ -999,7 +999,12 @@ export const exerciseSubstitutionMappings = pgTable("exercise_substitution_mappi
   workoutId: integer("workout_id").notNull().references(() => programmeWorkouts.id, { onDelete: "cascade" }),
   exerciseInstanceId: integer("exercise_instance_id").notNull(), // References programme_block_exercises.id (the slot)
   originalExerciseId: integer("original_exercise_id").notNull().references(() => exerciseLibrary.id, { onDelete: "cascade" }),
-  substitutedExerciseId: integer("substituted_exercise_id").notNull().references(() => exerciseLibrary.id, { onDelete: "cascade" }),
+  // Null when action = 'reduce' — a reduction keeps the original exercise.
+  substitutedExerciseId: integer("substituted_exercise_id").references(() => exerciseLibrary.id, { onDelete: "cascade" }),
+  action: text("action").notNull().default("swap"), // 'swap' | 'reduce'
+  reducedSets: jsonb("reduced_sets"),   // replacement sets array, applied at read time
+  originalSets: jsonb("original_sets"), // snapshot of what it was, for display and restore
+  reductionTier: text("reduction_tier"), // 'mild' | 'moderate' | 'high'
   matchedOutcomeId: integer("matched_outcome_id").notNull(), // References body_map_outcomes.id
   flaggingReason: text("flagging_reason"), // Why this exercise was flagged (movement pattern, muscle, etc.)
   isRestored: boolean("is_restored").notNull().default(false), // For Step 5 reassessment restore

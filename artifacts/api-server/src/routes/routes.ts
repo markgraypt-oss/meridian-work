@@ -440,6 +440,7 @@ import { computeBurnoutScore } from '../burnoutEngine';
 import { computeCyclePhase } from '../cyclePhase';
 import { normalizeSex } from '../coach/lifeStage';
 import { rulesFromOutcome, poolFromOutcome, hasAnyCriteria, evaluateFlag, rankSubstitutes } from '../programmeSubstitution';
+import { buildReduction } from '../programmeReduction';
 import { trackCalibrationEvent, trackRecoveryModeActivation, generateCalibrationReport, getLevel as getBurnoutLevel, writePhysiologicalSnapshot } from '../burnoutCalibration';
 import { burnoutScores, insertCompanySchema, insertCompanyBenefitSchema, insertCompanyWellbeingContactSchema, checkIns, bodyMapLogs, departments, companyInvites, usageAlerts, insertAiPromptSchema, workdayBreakLogs, aiInsightReads, recoveryModePeriods, physiologicalSnapshots, cycleSettings, cycleLogs } from "@workspace/db";
 
@@ -8849,6 +8850,23 @@ Rules:
         }
       }
 
+      // How bad it is decides how hard the reduction pulls back. The client only
+      // sends an outcome id, and the severity that matched it is already on the
+      // assessment, so read it there rather than trusting a number over the wire.
+      // Falls back to 5 (moderate) when there is no log to read.
+      let severity = 5;
+      try {
+        const sev = await pool.query(
+          `SELECT severity FROM body_map_logs
+            WHERE user_id = $1 AND matched_outcome_id = $2
+            ORDER BY created_at DESC LIMIT 1`,
+          [userId, outcomeId],
+        );
+        if (sev.rows[0]?.severity != null) severity = Number(sev.rows[0].severity);
+      } catch (e: any) {
+        console.error('[programme-modifications/preview] severity lookup failed:', e?.message || e);
+      }
+
       // Apply any active accepted substitutions for this enrolment so the preview
       // evaluates the exercise the user actually has (not the original template).
       // Uses the same helper that workout rendering uses, so behaviour is consistent
@@ -8899,6 +8917,7 @@ Rules:
               dayNumber: workout.dayNumber,
               reason: flag.reason,
               reasonType: flag.reasonType,
+              sets: blockExercise.sets,
             });
           }
         }
@@ -8928,6 +8947,7 @@ Rules:
           workoutName: f.workoutName,
           weekNumber: f.weekNumber,
           dayNumber: f.dayNumber,
+          sets: f.sets,
         });
       }
 
@@ -8939,11 +8959,36 @@ Rules:
         const substitutes = original
           ? rankSubstitutes({ original: original as any, rules, pool, allExercises: allExercises as any[] })
           : [];
+        // The third option: keep the movement, do less of it. Built per
+        // instance, because the same lift can be prescribed differently in
+        // week 1 and week 6, and a single summary would be a lie for one of
+        // them. Offered only when every instance can actually be reduced.
+        const perInstance = g.instances.map((i: any) => ({
+          exerciseInstanceId: i.exerciseInstanceId,
+          reduction: buildReduction(i.sets, severity),
+        }));
+        const reducible = perInstance.filter((r: any) => r.reduction);
+        const summaries = Array.from(new Set(reducible.map((r: any) => r.reduction.summary)));
+
+        const reduction = reducible.length === 0 ? null : {
+          tier: reducible[0].reduction.tier,
+          // One prescription: show it. Several: say so rather than pick one.
+          summary: summaries.length === 1
+            ? summaries[0]
+            : `Fewer sets and reps across ${reducible.length} sessions`,
+          detail: summaries.length === 1
+            ? reducible[0].reduction.detail
+            : `Keep the movement and pull the volume back everywhere it appears (${summaries.join('; ')}).`,
+          appliesTo: reducible.length,
+          instances: perInstance,
+        };
+
         return {
           ...g,
           instanceCount: g.instances.length,
           workoutNames: Array.from(new Set(g.instances.map((i: any) => i.workoutName))),
           substitutes,
+          reduction,
         };
       });
 
@@ -9142,6 +9187,28 @@ Rules:
         }
       }
 
+      // Severity decides how hard a reduction pulls back. Read from the assessment
+      // (preferring the exact log the client is accepting against) rather than
+      // taken from the request, so the numbers written can never be dictated by
+      // the client. Falls back to 5 (moderate).
+      let severity = 5;
+      try {
+        const sev = bodyMapLogId
+          ? await pool.query(
+              `SELECT severity FROM body_map_logs WHERE id = $1 AND user_id = $2`,
+              [bodyMapLogId, userId],
+            )
+          : await pool.query(
+              `SELECT severity FROM body_map_logs
+                WHERE user_id = $1 AND matched_outcome_id = $2
+                ORDER BY created_at DESC LIMIT 1`,
+              [userId, outcomeId],
+            );
+        if (sev.rows[0]?.severity != null) severity = Number(sev.rows[0].severity);
+      } catch (e: any) {
+        console.error('[programme-modifications/accept] severity lookup failed:', e?.message || e);
+      }
+
       // Apply any active accepted substitutions for this enrolment so the re-flag
       // check evaluates the exercise the user actually has (mirrors /preview behaviour
       // and prevents re-flagging an already-substituted slot via its old original).
@@ -9157,6 +9224,8 @@ Rules:
         workoutId: number;
         isFlagged: boolean;
         flagReason: string;
+        /** The slot's prescription, so a reduction is recomputed here, never trusted from the client. */
+        sets: unknown;
       };
       const slotMap = new Map<number, SlotInfo>();
 
@@ -9185,6 +9254,7 @@ Rules:
               workoutId: workout.id,
               isFlagged,
               flagReason,
+              sets: blockExercise.sets,
             });
           }
         }
@@ -9206,8 +9276,10 @@ Rules:
       for (const selection of selectionList) {
         const slotId = selection?.exerciseInstanceId;
         const chosenId = selection?.chosenSubstituteExerciseId;
+        const action = selection?.action === 'reduce' ? 'reduce' : 'swap';
 
-        if (!slotId || !chosenId) {
+        // A reduction needs no substitute, so only a swap requires a chosen id.
+        if (!slotId || (action === 'swap' && !chosenId)) {
           substitutionsFailed++;
           continue;
         }
@@ -9222,6 +9294,48 @@ Rules:
         if (!slotInfo.isFlagged) {
           // Slot exists but is not flag-eligible for this outcome.
           substitutionsFailed++;
+          continue;
+        }
+
+        // ── Keep the movement, do less of it.
+        // The reduced prescription is RECOMPUTED here from the slot's own sets
+        // and the severity on the assessment. Nothing about the numbers comes
+        // from the client, so a tampered request cannot write an arbitrary
+        // prescription — the worst it can do is ask for a reduction the engine
+        // was going to offer anyway.
+        if (action === 'reduce') {
+          if (seenSlotIds.has(slotId)) {
+            substitutionsFailed++;
+            continue;
+          }
+
+          const reduction = buildReduction(slotInfo.sets, severity);
+          if (!reduction) {
+            // Nothing sensible to reduce (no sets recorded, or a single set of
+            // open-ended work). Better to fail this one than write a no-op the
+            // user thinks did something.
+            substitutionsFailed++;
+            continue;
+          }
+
+          seenSlotIds.add(slotId);
+
+          await db.insert(exerciseSubstitutionMappings).values({
+            modificationRecordId: recordId,
+            mainProgrammeEnrollmentId: targetEnrollment.id,
+            workoutId: slotInfo.workoutId,
+            exerciseInstanceId: slotId,
+            originalExerciseId: slotInfo.originalExerciseId,
+            substitutedExerciseId: null, // the exercise itself does not change
+            action: 'reduce',
+            reducedSets: reduction.sets,
+            originalSets: reduction.originalSets,
+            reductionTier: reduction.tier,
+            matchedOutcomeId: outcomeId,
+            flaggingReason: slotInfo.flagReason,
+          });
+
+          substitutionsApplied++;
           continue;
         }
 
@@ -9271,6 +9385,7 @@ Rules:
           exerciseInstanceId: slotId,
           originalExerciseId: slotInfo.originalExerciseId,
           substitutedExerciseId: chosenId,
+          action: 'swap',
           matchedOutcomeId: outcomeId,
           flaggingReason: slotInfo.flagReason,
         });

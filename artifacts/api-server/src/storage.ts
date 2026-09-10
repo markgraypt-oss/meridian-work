@@ -420,6 +420,7 @@ import {
   type UserPhysiologicalBaselines,
 } from "@workspace/db";
 import { db, pool } from "./db";
+import { describeSets } from "./programmeReduction";
 import { eq, ne, desc, and, ilike, or, gte, lte, inArray, lt, asc, sql, isNull, isNotNull, aliasedTable, type SQL } from "drizzle-orm";
 
 // One row of the Burnout Index "Monthly Trend Log": a whole month, not a sample
@@ -628,6 +629,8 @@ export interface IStorage {
   getProgrammeWorkoutBlocksForEnrollment(workoutId: number, enrollmentId: number): Promise<any[]>;
   getActiveSubstitutionMappings(enrollmentId: number): Promise<Map<number, {substitutedExerciseId: number, exerciseName: string, imageUrl: string | null, muxPlaybackId: string | null}>>;
   
+  getActiveVolumeReductions(enrollmentId: number): Promise<Map<number, { reducedSets: any; originalSets: any; tier: string | null; reason: string | null }>>;
+
   // Step 5: Restorable substitutions for cleared body map issues
   getRestorableSubstitutions(userId: string, bodyAreaName: string): Promise<{
     modificationRecordId: number;
@@ -638,10 +641,12 @@ export interface IStorage {
       originalExerciseId: number;
       originalExerciseName: string;
       originalImageUrl: string | null;
-      substitutedExerciseId: number;
+      substitutedExerciseId: number | null; // null for a reduction — same exercise
       substitutedExerciseName: string;
       substitutedImageUrl: string | null;
       workoutName: string;
+      action: 'swap' | 'reduce';
+      changeSummary: string | null;
     }>;
   } | null>;
   restoreSubstitutionsByOutcome(userId: string, matchedOutcomeId: number, bodyMapLogId: number, mappingIdsToRestore?: number[], modificationRecordId?: number): Promise<{ restoredCount: number; keptCount: number }>;
@@ -3226,8 +3231,9 @@ export class DatabaseStorage implements IStorage {
 
   // Read enrolled program details from enrollment-specific snapshot tables
   private async getEnrolledProgramDetailsFromSnapshot(enrollment: any, enrollmentId: number): Promise<any> {
-    // Get active substitutions for this enrollment
+    // Get active substitutions and reductions for this enrollment
     const substitutions = await this.getActiveSubstitutionMappings(enrollmentId);
+    const reductions = await this.getActiveVolumeReductions(enrollmentId);
     
     // Get all enrollment workouts for this enrollment, joined with template for imageUrl
     const enrolledWorkoutsList = await db
@@ -3290,6 +3296,27 @@ export class DatabaseStorage implements IStorage {
         }));
       }
       
+      // Apply any accepted volume reductions. The exercise itself is untouched —
+      // only the prescription changes — so this runs after substitutions and can
+      // sit on top of one: a swapped exercise can also be reduced.
+      if (reductions.size > 0) {
+        blocks = blocks.map(block => ({
+          ...block,
+          exercises: (block.exercises || []).map((exercise: any) => {
+            const red = reductions.get(exercise.templateExerciseId || exercise.id);
+            if (!red) return exercise;
+            return {
+              ...exercise,
+              sets: red.reducedSets,
+              isReduced: true,
+              reductionTier: red.tier,
+              reductionReason: red.reason,
+              originalSets: red.originalSets ?? exercise.sets,
+            };
+          }),
+        }));
+      }
+
       // Flatten exercises from blocks for backward compatibility
       let exercises: any[] = [];
       for (const block of blocks) {
@@ -8634,13 +8661,22 @@ export class DatabaseStorage implements IStorage {
       .leftJoin(exerciseLibrary, eq(exerciseSubstitutionMappings.substitutedExerciseId, exerciseLibrary.id))
       .where(and(
         inArray(exerciseSubstitutionMappings.modificationRecordId, recordIds),
-        eq(exerciseSubstitutionMappings.isRestored, false) // Exclude restored substitutions
+        eq(exerciseSubstitutionMappings.isRestored, false), // Exclude restored substitutions
+        // Swaps only. A reduction shares this table but leaves the exercise
+        // alone, and every caller here is asking "which exercise is in this
+        // slot?" — including a reduce row would answer that with null and the
+        // slot would silently vanish from the preview. Reductions come from
+        // getActiveVolumeReductions instead.
+        eq(exerciseSubstitutionMappings.action, 'swap')
       ))
       .orderBy(desc(exerciseSubstitutionMappings.createdAt));
     
     // Use Map to keep only the most recent substitution per exercise instance
     const result = new Map<number, {substitutedExerciseId: number, exerciseName: string, imageUrl: string | null, muxPlaybackId: string | null}>();
     for (const m of mappings) {
+      // substituted_exercise_id is nullable now that reductions share this table.
+      // The query above is already filtered to swaps, so this is belt and braces.
+      if (m.substitutedExerciseId == null) continue;
       // Only set if not already in map (first occurrence is most recent due to desc ordering)
       if (!result.has(m.exerciseInstanceId)) {
         result.set(m.exerciseInstanceId, {
@@ -8648,6 +8684,61 @@ export class DatabaseStorage implements IStorage {
           exerciseName: m.exerciseName || '',
           imageUrl: m.imageUrl,
           muxPlaybackId: m.muxPlaybackId,
+        });
+      }
+    }
+    return result;
+  }
+
+  /**
+   * Active volume reductions for an enrollment, keyed by slot.
+   *
+   * Deliberately a read-time overlay, exactly like a substitution. The older
+   * `applyAcceptedModifications` wrote reduced sets straight onto
+   * `programme_block_exercises` — the SHARED programme template — so one user's
+   * sore shoulder would have rewritten the programme for everyone on it, with no
+   * original kept to undo it. Nothing calls that code, which is the only reason
+   * it never did any damage.
+   */
+  async getActiveVolumeReductions(enrollmentId: number): Promise<Map<number, {
+    reducedSets: any; originalSets: any; tier: string | null; reason: string | null;
+  }>> {
+    const acceptedRecords = await db
+      .select({ id: programmeModificationRecords.id })
+      .from(programmeModificationRecords)
+      .where(and(
+        eq(programmeModificationRecords.mainProgrammeEnrollmentId, enrollmentId),
+        eq(programmeModificationRecords.status, 'accepted'),
+        isNull(programmeModificationRecords.clearedAt)
+      ));
+
+    if (acceptedRecords.length === 0) return new Map();
+
+    const mappings = await db
+      .select({
+        exerciseInstanceId: exerciseSubstitutionMappings.exerciseInstanceId,
+        reducedSets: exerciseSubstitutionMappings.reducedSets,
+        originalSets: exerciseSubstitutionMappings.originalSets,
+        tier: exerciseSubstitutionMappings.reductionTier,
+        reason: exerciseSubstitutionMappings.flaggingReason,
+      })
+      .from(exerciseSubstitutionMappings)
+      .where(and(
+        inArray(exerciseSubstitutionMappings.modificationRecordId, acceptedRecords.map(r => r.id)),
+        eq(exerciseSubstitutionMappings.isRestored, false),
+        eq(exerciseSubstitutionMappings.action, 'reduce')
+      ))
+      .orderBy(desc(exerciseSubstitutionMappings.createdAt));
+
+    const result = new Map<number, { reducedSets: any; originalSets: any; tier: string | null; reason: string | null }>();
+    for (const m of mappings) {
+      // Most recent wins, same as substitutions.
+      if (!result.has(m.exerciseInstanceId) && Array.isArray(m.reducedSets)) {
+        result.set(m.exerciseInstanceId, {
+          reducedSets: m.reducedSets,
+          originalSets: m.originalSets,
+          tier: m.tier,
+          reason: m.reason,
         });
       }
     }
@@ -8666,10 +8757,13 @@ export class DatabaseStorage implements IStorage {
       originalExerciseId: number;
       originalExerciseName: string;
       originalImageUrl: string | null;
-      substitutedExerciseId: number;
+      substitutedExerciseId: number | null; // null for a reduction — same exercise
       substitutedExerciseName: string;
       substitutedImageUrl: string | null;
       workoutName: string;
+      action: 'swap' | 'reduce';
+      /** For a reduction: "3×7 → 4×10", i.e. what restoring puts back. */
+      changeSummary: string | null;
     }>;
   } | null> {
     // Find body area by name
@@ -8725,6 +8819,9 @@ export class DatabaseStorage implements IStorage {
         substitutedMuxPlaybackId: substitutedExerciseAlias.muxPlaybackId,
         workoutId: exerciseSubstitutionMappings.workoutId,
         workoutName: enrollmentWorkouts.name,
+        action: exerciseSubstitutionMappings.action,
+        reducedSets: exerciseSubstitutionMappings.reducedSets,
+        originalSets: exerciseSubstitutionMappings.originalSets,
       })
       .from(exerciseSubstitutionMappings)
       .innerJoin(enrollmentWorkouts, and(
@@ -8758,9 +8855,19 @@ export class DatabaseStorage implements IStorage {
         originalExerciseName: m.originalExerciseName || 'Unknown',
         originalImageUrl: getThumbnailUrl(m.originalImageUrl, m.originalMuxPlaybackId),
         substitutedExerciseId: m.substitutedExerciseId,
-        substitutedExerciseName: m.substitutedExerciseName || 'Unknown',
-        substitutedImageUrl: getThumbnailUrl(m.substitutedImageUrl, m.substitutedMuxPlaybackId),
+        // A reduction keeps the exercise, so the "after" side is the same
+        // movement — showing "Unknown" there would be nonsense.
+        substitutedExerciseName: m.action === 'reduce'
+          ? (m.originalExerciseName || 'Unknown')
+          : (m.substitutedExerciseName || 'Unknown'),
+        substitutedImageUrl: m.action === 'reduce'
+          ? getThumbnailUrl(m.originalImageUrl, m.originalMuxPlaybackId)
+          : getThumbnailUrl(m.substitutedImageUrl, m.substitutedMuxPlaybackId),
         workoutName: m.workoutName || 'Unknown Workout',
+        action: (m.action === 'reduce' ? 'reduce' : 'swap') as 'swap' | 'reduce',
+        changeSummary: m.action === 'reduce'
+          ? `${describeSets(m.reducedSets)} → ${describeSets(m.originalSets)}`
+          : null,
       })),
     };
   }

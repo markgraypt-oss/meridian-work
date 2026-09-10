@@ -806,7 +806,6 @@ export interface IStorage {
   getProgramModificationById(id: number): Promise<ProgramModificationSuggestion | undefined>;
   updateProgramModificationStatus(id: number, status: string): Promise<ProgramModificationSuggestion>;
   updateAllModificationStatuses(recoveryPlanId: number, status: string): Promise<void>;
-  applyAcceptedModifications(userId: string, recoveryPlanId: number): Promise<void>;
 
   // Body Map Configuration operations
   getBodyMapAreas(): Promise<BodyMapArea[]>;
@@ -5592,57 +5591,12 @@ export class DatabaseStorage implements IStorage {
       .where(eq(programModificationSuggestions.recoveryPlanId, recoveryPlanId));
   }
 
-  async applyAcceptedModifications(userId: string, recoveryPlanId: number): Promise<void> {
-    // Get all accepted modifications for this recovery plan
-    const modifications = await db.select().from(programModificationSuggestions)
-      .where(
-        and(
-          eq(programModificationSuggestions.recoveryPlanId, recoveryPlanId),
-          eq(programModificationSuggestions.status, 'accepted')
-        )
-      );
-
-    // Apply each modification to the block exercises
-    for (const mod of modifications) {
-      const blockExerciseId = mod.blockExerciseId;
-      if (blockExerciseId) {
-        const updates: any = {};
-        
-        // For block exercises, sets are stored as JSON array
-        if (mod.suggestedSets || mod.suggestedReps || mod.suggestedRest) {
-          const [exercise] = await db.select().from(programmeBlockExercises)
-            .where(eq(programmeBlockExercises.id, blockExerciseId));
-          
-          if (exercise) {
-            const currentSets = Array.isArray(exercise.sets) ? exercise.sets : [];
-            const updatedSets = currentSets.map((set: any) => ({
-              ...set,
-              reps: mod.suggestedReps || set.reps,
-              rest: mod.suggestedRest || set.rest,
-            }));
-            
-            const suggestedSetCount = mod.suggestedSets ? Number(mod.suggestedSets) : 0;
-            if (suggestedSetCount && suggestedSetCount !== currentSets.length) {
-              while (updatedSets.length < suggestedSetCount) {
-                updatedSets.push({ reps: mod.suggestedReps || '10', rest: mod.suggestedRest || 'No Rest' });
-              }
-              while (updatedSets.length > suggestedSetCount) {
-                updatedSets.pop();
-              }
-            }
-            
-            const modNote = `Modified due to ${mod.reason}`;
-            updates.sets = updatedSets;
-            updates.notes = exercise.notes ? `${exercise.notes}\n${modNote}` : modNote;
-            
-            await db.update(programmeBlockExercises)
-              .set(updates)
-              .where(eq(programmeBlockExercises.id, blockExerciseId));
-          }
-        }
-      }
-    }
-  }
+  // applyAcceptedModifications was removed here. It wrote modified `sets` onto
+  // programme_block_exercises — the SHARED programme template — so one user's
+  // reported pain would have rewritten the programme for every other user on it,
+  // permanently, with no original kept. The original programme is never edited.
+  // Volume changes are per-slot overlays applied at read time; see
+  // getActiveVolumeReductions.
 
   // Body Map Configuration operations
   async getBodyMapAreas(): Promise<BodyMapArea[]> {

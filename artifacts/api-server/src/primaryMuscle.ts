@@ -108,6 +108,10 @@ const RULES: Array<[RegExp, Muscle]> = [
   // every shoulder press rule sits above, and Leg Press / Pallof Press carry no
   // bench angle.
   [/\b(incline|decline|flat)\b.*\bpress\b/, 'Chest'],
+  // A dumbbell press is a chest press unless it says otherwise. Every vertical
+  // pressing name — overhead, shoulder, military, Arnold, push, landmine, bottoms-up —
+  // is matched above, so "Dumbbell Shoulder Press" still resolves to Shoulders.
+  [/\b(dumbbell|db)\s*press\b/, 'Chest'],
   [/\b(pec\s*deck|pec\s*fly|chest\s*fly|cable\s*crossover|crossover)\b/, 'Chest'],
   [/\b(push[\s-]?up|pushup|press[\s-]?up)\b/, 'Chest'],
   [/\bbench\b/, 'Chest'],

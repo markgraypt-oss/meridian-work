@@ -506,97 +506,10 @@ import {
 } from "@workspace/db";
 import { z } from 'zod';
 
-async function generateProgramModifications(
-  userId: string,
-  bodyPart: string,
-  severity: number,
-  recoveryPlanId: number,
-  flaggingMovementPatterns: string[]
-) {
-  console.log('generateProgramModifications called with patterns:', flaggingMovementPatterns);
-  
-  // Get user's active program
-  const timeline = await storage.getUserProgramTimeline(userId);
-  if (!timeline.current) {
-    console.log('No active program found');
-    return [];
-  }
-
-  const enrollment = timeline.current;
-  console.log('Enrollment found:', enrollment.id, 'programId:', enrollment.programId);
-  
-  const programExercises = await storage.getAllProgramExercises(enrollment.programId);
-  console.log('Program exercises count:', programExercises.length);
-
-  const modifications = [];
-
-  for (const exercise of programExercises) {
-    const exerciseDetails = await storage.getExerciseById(exercise.exerciseLibraryId);
-    if (!exerciseDetails) continue;
-
-    // Check if exercise's movement patterns intersect with flagging patterns
-    const exerciseMovements = exerciseDetails.movement || [];
-    const isAffected = flaggingMovementPatterns.some(pattern => 
-      exerciseMovements.includes(pattern)
-    );
-    
-    // Log for debugging
-    if (exerciseDetails.name === 'Plate Push Up') {
-      console.log('Plate Push Up check:', {
-        exerciseMovements,
-        flaggingMovementPatterns,
-        isAffected
-      });
-    }
-
-    if (isAffected) {
-      let modificationType = "reduce_intensity";
-      let reason = `${bodyPart} discomfort`;
-      let suggestedSets = exercise.sets;
-      let suggestedReps = exercise.reps;
-      let suggestedRest = exercise.rest;
-
-      // Determine modification based on severity
-      if (severity >= 7) {
-        modificationType = "skip";
-        reason = `High severity ${bodyPart} pain - temporary rest recommended`;
-      } else if (severity >= 5) {
-        // Reduce by 50%
-        modificationType = "reduce_intensity";
-        reason = `Moderate ${bodyPart} discomfort - reducing volume`;
-        const currentSets = parseInt(exercise.sets) || 3;
-        const currentReps = parseInt(exercise.reps) || 10;
-        suggestedSets = Math.max(1, Math.floor(currentSets * 0.5)).toString();
-        suggestedReps = Math.max(5, Math.floor(currentReps * 0.5)).toString();
-      } else {
-        // Reduce by 25%
-        modificationType = "modify_reps";
-        reason = `Minor ${bodyPart} discomfort - slight reduction`;
-        const currentReps = parseInt(exercise.reps) || 10;
-        suggestedReps = Math.max(5, Math.floor(currentReps * 0.75)).toString();
-      }
-
-      modifications.push({
-        recoveryPlanId,
-        userId,
-        enrollmentId: enrollment.id,
-        blockExerciseId: exercise.id,
-        modificationType,
-        originalExerciseName: exerciseDetails.name,
-        suggestedExerciseName: null,
-        suggestedSets,
-        suggestedReps,
-        suggestedRest,
-        reason,
-        status: "pending",
-        week: exercise.week,
-        day: exercise.day
-      });
-    }
-  }
-
-  return modifications;
-}
+// generateProgramModifications was removed here. It flagged on movement pattern
+// alone — disagreeing with the AND semantics evaluateFlag uses — and wrote rows
+// to program_modification_suggestions that no route read. Volume changes are now
+// action:'reduce' on /api/programme-modifications, stored per slot.
 
 const MOVEMENT_SCREENING_FLAG_MAP: Record<string, { movementPatterns: string[]; equipment: string[]; levels: string[] }> = {
   squatPain: { movementPatterns: ['Squat'], equipment: ['Barbell'], levels: ['Advanced'] },
@@ -8366,19 +8279,11 @@ Rules:
         status: "pending"
       });
 
-      // Generate program modifications if user has an active program and outcome has flagging patterns
-      const modifications = await generateProgramModifications(
-        userId,
-        log.bodyPart,
-        log.severity,
-        recoveryPlanSuggestion.id,
-        flaggingMovementPatterns
-      );
-
-      // Save modifications
-      for (const mod of modifications) {
-        await storage.createProgramModificationSuggestion(mod);
-      }
+      // NOTE: generateProgramModifications used to run here, writing rows to
+      // program_modification_suggestions that no route has ever read. Volume
+      // changes now go through /api/programme-modifications (action:'reduce'),
+      // which stores them per slot and applies them at read time. Removed rather
+      // than left writing into the dark.
 
       // Step: Handle reassessment reminders
       // Use normalized body area name (ID format) for consistent matching
@@ -8532,31 +8437,6 @@ Rules:
     }
   });
 
-  app.post('/api/recovery-plans/:id/accept-all', isAuthenticated, async (req: any, res) => {
-    try {
-      const userId = req.user.claims.sub;
-      const { id } = req.params;
-      
-      const plan = await storage.getRecoveryPlanById(parseInt(id));
-      if (!plan || plan.userId !== userId) {
-        return res.status(404).json({ message: "Recovery plan not found" });
-      }
-
-      // Update plan status to accepted
-      await storage.updateRecoveryPlanStatus(plan.id, 'accepted');
-
-      // Update all modifications to accepted
-      await storage.updateAllModificationStatuses(plan.id, 'accepted');
-
-      // Apply the accepted modifications
-      await storage.applyAcceptedModifications(userId, plan.id);
-
-      res.json({ message: "Recovery plan and all modifications accepted and applied" });
-    } catch (error) {
-      console.error("Error accepting recovery plan:", error);
-      res.status(500).json({ message: "Failed to accept recovery plan" });
-    }
-  });
 
   app.post('/api/recovery-plans/:id/reject-all', isAuthenticated, async (req: any, res) => {
     try {
@@ -8618,28 +8498,6 @@ Rules:
     }
   });
 
-  app.post('/api/recovery-plans/:id/apply', isAuthenticated, async (req: any, res) => {
-    try {
-      const userId = req.user.claims.sub;
-      const { id } = req.params;
-      
-      const plan = await storage.getRecoveryPlanById(parseInt(id));
-      if (!plan || plan.userId !== userId) {
-        return res.status(404).json({ message: "Recovery plan not found" });
-      }
-
-      // Apply accepted modifications
-      await storage.applyAcceptedModifications(userId, plan.id);
-
-      // Update plan status
-      await storage.updateRecoveryPlanStatus(plan.id, 'accepted');
-
-      res.json({ message: "Accepted modifications applied successfully" });
-    } catch (error) {
-      console.error("Error applying modifications:", error);
-      res.status(500).json({ message: "Failed to apply modifications" });
-    }
-  });
 
   // Accept or decline a recovery plan (separate from programme modifications)
   // This only updates the recovery plan status and optionally enrolls in recovery programme

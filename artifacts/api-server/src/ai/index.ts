@@ -7,6 +7,10 @@ export type ValidationOutcome = "valid" | "repaired" | "invalid" | "no_schema" |
 export interface AiCallParams<T> {
   feature: string;
   prompt: string;
+  // Stable prefix blocks (system prompt) that are cached provider-side. Put
+  // everything identical across calls here (voice, rules, output shape) and
+  // per-call data in `prompt`. See TextAnalysisRequest.system in aiProvider.
+  system?: string[];
   inputs?: Record<string, any>;
   schema?: z.ZodType<T>;
   userId?: string | null;
@@ -32,12 +36,39 @@ export interface AiCallResult<T> {
   validationOutcome: ValidationOutcome;
   safetyFlags: string[];
   latencyMs: number;
-  tokens: { prompt?: number; completion?: number; total?: number };
+  tokens: { prompt?: number; completion?: number; total?: number; cacheRead?: number; cacheWrite?: number };
   promptHash: string;
   logId?: number;
   provider?: string;
   model?: string;
   error?: string;
+}
+
+// Features whose output is short, structured, or classification-shaped and
+// does not need the flagship model. When the resolved config is Anthropic's
+// default Sonnet, these run on Haiku 4.5 (~1/3 the price) instead. An explicit
+// per-feature row in ai_coaching_settings (admin AI Coaching page) still wins,
+// so any of these can be pinned back to Sonnet without a deploy. If the
+// upstream does not know the cheaper model, aiCall falls back to the original
+// model once and logs it.
+const CHEAP_TIER_FEATURES = new Set<string>([
+  "proactive_greeting",      // one-line greeting
+  "coach_content_search",    // chat intent extraction (JSON)
+  "coach_memory_extraction", // durable-fact extraction (JSON)
+  "content_tagging",         // classification
+  "workout_categorize",      // classification
+]);
+const CHEAP_TIER_MODEL: Record<string, string> = {
+  anthropic: "claude-haiku-4-5",
+};
+const DEFAULT_FLAGSHIP: Record<string, string> = {
+  anthropic: "claude-sonnet-4-5",
+};
+
+function looksLikeUnknownModel(err: any): boolean {
+  const status = err?.status ?? err?.statusCode;
+  const msg = String(err?.message || err || "").toLowerCase();
+  return (status === 404 || status === 400) && msg.includes("model");
 }
 
 const DEFAULT_TIMEOUT_MS = 30_000;
@@ -140,19 +171,49 @@ function withTimeout<T>(promise: Promise<T>, ms: number): Promise<T> {
   });
 }
 
-async function resolveConfig(feature: string, override?: { provider?: string; model?: string }): Promise<AIProviderConfig> {
-  if (override?.provider && override?.model) {
-    return { provider: override.provider, model: override.model };
-  }
+async function resolveConfig(feature: string, override?: { provider?: string; model?: string }): Promise<AiCallConfig> {
+  // Precedence: explicit per-feature admin row > caller override > global row
+  // > default. Most callers pass the shared `recovery_coach` config as the
+  // override, so the per-feature row is how an individual feature is pinned
+  // to a different model from the admin AI Coaching page.
+  let base: AIProviderConfig | null = null;
+  let pinnedByAdmin = false;
   try {
     const { storage } = await import("../storage");
     const settings = await storage.getAllAiCoachingSettings();
-    const featureSetting = settings.find((s: any) => s.feature === feature && s.isActive);
-    if (featureSetting) return getProviderConfig(featureSetting);
-    const globalSetting = settings.find((s: any) => (s.feature === "global" || s.feature === "general") && s.isActive);
-    if (globalSetting) return getProviderConfig(globalSetting);
-  } catch {}
-  return getDefaultConfig();
+    const featureSetting = settings.find((s: any) => s.feature === feature && s.isActive && s.provider && s.model);
+    if (featureSetting) {
+      base = getProviderConfig(featureSetting);
+      pinnedByAdmin = true;
+    } else if (override?.provider && override?.model) {
+      base = { provider: override.provider, model: override.model };
+    } else {
+      const globalSetting = settings.find((s: any) => (s.feature === "global" || s.feature === "general") && s.isActive);
+      if (globalSetting) base = getProviderConfig(globalSetting);
+    }
+  } catch {
+    if (override?.provider && override?.model) base = { provider: override.provider, model: override.model };
+  }
+  if (!base) base = getDefaultConfig();
+
+  // Cheap tier: only when nobody pinned the feature and the base is the
+  // provider's flagship default (so a deliberate choice of another model is
+  // never overridden).
+  if (
+    !pinnedByAdmin &&
+    CHEAP_TIER_FEATURES.has(feature) &&
+    CHEAP_TIER_MODEL[base.provider] &&
+    base.model === DEFAULT_FLAGSHIP[base.provider]
+  ) {
+    return { provider: base.provider, model: CHEAP_TIER_MODEL[base.provider], fallbackModel: base.model };
+  }
+  return base;
+}
+
+interface AiCallConfig extends AIProviderConfig {
+  // Set when the cheap tier substituted the model; used for a one-shot
+  // fallback if the upstream rejects the cheaper model.
+  fallbackModel?: string;
 }
 
 async function persistLog(entry: {
@@ -163,6 +224,8 @@ async function persistLog(entry: {
   promptTokens?: number;
   completionTokens?: number;
   totalTokens?: number;
+  cachedPromptTokens?: number;
+  cacheWriteTokens?: number;
   latencyMs: number;
   validationOutcome: ValidationOutcome;
   safetyFlags: string[];
@@ -182,6 +245,8 @@ async function persistLog(entry: {
         promptTokens: entry.promptTokens,
         completionTokens: entry.completionTokens,
         totalTokens: entry.totalTokens,
+        cachedPromptTokens: entry.cachedPromptTokens ?? 0,
+        cacheWriteTokens: entry.cacheWriteTokens ?? 0,
         latencyMs: entry.latencyMs,
         validationOutcome: entry.validationOutcome,
         safetyFlags: entry.safetyFlags.length ? entry.safetyFlags : null,
@@ -206,8 +271,12 @@ export async function aiCall<T = unknown>(params: AiCallParams<T>): Promise<AiCa
   const safeMaxTokens = Math.min(params.maxTokens ?? DEFAULT_MAX_TOKENS, HARD_TOKEN_CAP);
   const timeoutMs = params.timeoutMs ?? DEFAULT_TIMEOUT_MS;
 
-  const redactedPrompt = redactPII(params.prompt).slice(0, HARD_PROMPT_CHAR_CAP);
-  const promptHash = hashPrompt(redactedPrompt);
+  // The system blocks are the stable, cached prefix; the char cap applies to
+  // the combined text so the total request size stays bounded as before.
+  const systemBlocks = (params.system || []).map((b) => redactPII(b));
+  const systemChars = systemBlocks.reduce((n, b) => n + b.length, 0);
+  const redactedPrompt = redactPII(params.prompt).slice(0, Math.max(1000, HARD_PROMPT_CHAR_CAP - systemChars));
+  const promptHash = hashPrompt(systemBlocks.join("\n") + "\n" + redactedPrompt);
 
   const config = await resolveConfig(params.feature, { provider: params.provider, model: params.model });
 
@@ -218,23 +287,57 @@ export async function aiCall<T = unknown>(params: AiCallParams<T>): Promise<AiCa
   let errorMessage: string | undefined;
   // Track per-leg usage so we can estimate any missing leg independently
   // (avoids undercount when only one of first/repair returns provider usage).
-  type Leg = { promptTokens?: number; completionTokens?: number; promptText: string; completionText: string };
+  type Leg = {
+    promptTokens?: number;
+    completionTokens?: number;
+    cacheRead?: number;
+    cacheWrite?: number;
+    promptText: string;
+    completionText: string;
+  };
   const legs: Leg[] = [];
+  const systemText = systemBlocks.join("\n");
+
+  // One call to the provider with the cheap-tier fallback: if the substituted
+  // cheaper model is unknown upstream, retry once on the original model and
+  // keep using it for the rest of this aiCall.
+  const callProvider = async (prompt: string, temperature: number | undefined) => {
+    try {
+      return await withTimeout(
+        analyzeText(
+          { prompt, system: systemBlocks.length ? systemBlocks : undefined, maxTokens: safeMaxTokens, temperature },
+          config.provider,
+          config.model,
+        ),
+        timeoutMs,
+      );
+    } catch (err: any) {
+      if (config.fallbackModel && looksLikeUnknownModel(err)) {
+        console.warn(`[aiCall] ${params.feature}: model ${config.model} rejected upstream, falling back to ${config.fallbackModel}:`, err?.message);
+        config.model = config.fallbackModel;
+        config.fallbackModel = undefined;
+        return await withTimeout(
+          analyzeText(
+            { prompt, system: systemBlocks.length ? systemBlocks : undefined, maxTokens: safeMaxTokens, temperature },
+            config.provider,
+            config.model,
+          ),
+          timeoutMs,
+        );
+      }
+      throw err;
+    }
+  };
 
   try {
-    const first = await withTimeout(
-      analyzeText(
-        { prompt: redactedPrompt, maxTokens: safeMaxTokens, temperature: params.temperature },
-        config.provider,
-        config.model,
-      ),
-      timeoutMs,
-    );
+    const first = await callProvider(redactedPrompt, params.temperature);
     rawText = first.text || "";
     legs.push({
       promptTokens: first.usage?.promptTokens,
       completionTokens: first.usage?.completionTokens,
-      promptText: redactedPrompt,
+      cacheRead: first.usage?.cacheReadTokens,
+      cacheWrite: first.usage?.cacheWriteTokens,
+      promptText: systemText + redactedPrompt,
       completionText: rawText,
     });
 
@@ -259,22 +362,19 @@ export async function aiCall<T = unknown>(params: AiCallParams<T>): Promise<AiCa
       if (!parsed) {
         // One repair retry: ask the model to return only valid JSON matching the
         // schema. Keep the retry tight to avoid runaway cost.
+        // The repair leg re-sends the same system blocks, so with caching on
+        // it pays the cached rate for the prefix rather than the full price.
         const repairPrompt = `${redactedPrompt}\n\nIMPORTANT: Your previous response did not return valid JSON. Respond ONLY with raw JSON. No prose, no code fences.`;
         try {
-          const second = await withTimeout(
-            analyzeText(
-              { prompt: repairPrompt, maxTokens: safeMaxTokens, temperature: 0 },
-              config.provider,
-              config.model,
-            ),
-            timeoutMs,
-          );
+          const second = await callProvider(repairPrompt, 0);
           const secondText = second.text || "";
           rawText = secondText || rawText;
           legs.push({
             promptTokens: second.usage?.promptTokens,
             completionTokens: second.usage?.completionTokens,
-            promptText: repairPrompt,
+            cacheRead: second.usage?.cacheReadTokens,
+            cacheWrite: second.usage?.cacheWriteTokens,
+            promptText: systemText + repairPrompt,
             completionText: secondText,
           });
           const jsonStr2 = extractJson(rawText);
@@ -317,13 +417,17 @@ export async function aiCall<T = unknown>(params: AiCallParams<T>): Promise<AiCa
   // undercount when only one of first/repair returned usage.
   let promptTokens = 0;
   let completionTokens = 0;
+  let cacheReadTokens = 0;
+  let cacheWriteTokens = 0;
   if (legs.length === 0) {
-    promptTokens = estimateTokens(redactedPrompt);
+    promptTokens = estimateTokens(systemText + redactedPrompt);
     completionTokens = estimateTokens(rawText);
   } else {
     for (const leg of legs) {
       promptTokens += leg.promptTokens ?? estimateTokens(leg.promptText);
       completionTokens += leg.completionTokens ?? estimateTokens(leg.completionText);
+      cacheReadTokens += leg.cacheRead ?? 0;
+      cacheWriteTokens += leg.cacheWrite ?? 0;
     }
   }
   const totalTokens = promptTokens + completionTokens;
@@ -338,6 +442,8 @@ export async function aiCall<T = unknown>(params: AiCallParams<T>): Promise<AiCa
       promptTokens,
       completionTokens,
       totalTokens,
+      cachedPromptTokens: cacheReadTokens,
+      cacheWriteTokens,
       latencyMs,
       validationOutcome,
       safetyFlags,
@@ -351,7 +457,7 @@ export async function aiCall<T = unknown>(params: AiCallParams<T>): Promise<AiCa
     validationOutcome,
     safetyFlags,
     latencyMs,
-    tokens: { prompt: promptTokens, completion: completionTokens, total: totalTokens },
+    tokens: { prompt: promptTokens, completion: completionTokens, total: totalTokens, cacheRead: cacheReadTokens, cacheWrite: cacheWriteTokens },
     promptHash,
     logId,
     provider: config.provider,

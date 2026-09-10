@@ -12,9 +12,15 @@ export interface VisionAnalysisRequest {
 export interface VisionAnalysisResponse {
   text: string;
   usage?: {
+    // promptTokens is the TOTAL input the model saw (uncached + cache reads +
+    // cache writes) so token totals stay comparable before/after caching.
     promptTokens?: number;
     completionTokens?: number;
     totalTokens?: number;
+    // Prompt-caching breakdown (Anthropic cache_read/cache_creation, OpenAI
+    // cached_tokens). Undefined when the provider reports nothing.
+    cacheReadTokens?: number;
+    cacheWriteTokens?: number;
   };
 }
 
@@ -26,6 +32,7 @@ export interface AIProviderConfig {
 const PROVIDER_MODELS: Record<string, string[]> = {
   anthropic: [
     "claude-sonnet-4-5",
+    "claude-haiku-4-5",
     "claude-haiku-35",
   ],
   openai: [
@@ -178,57 +185,137 @@ async function analyzeWithOpenAI(
 
 export interface TextAnalysisRequest {
   prompt: string;
+  // Optional STABLE prefix blocks sent as the system prompt. Each block is
+  // marked for provider-side prompt caching (Anthropic cache_control; OpenAI
+  // caches long identical prefixes automatically). Put content that is the
+  // same across many calls here (coach voice, rules, output shape, a per-user
+  // context that repeats across a conversation) and keep everything that
+  // changes per call in `prompt`. Blocks must be ordered most-stable first:
+  // a change in block N invalidates the cache for N and everything after it.
+  system?: string[];
   maxTokens?: number;
   temperature?: number;
 }
 
-async function textWithAnthropic(prompt: string, model: string, maxTokens: number, temperature?: number): Promise<VisionAnalysisResponse> {
+// Set to false once the upstream (e.g. a proxy) rejects cache_control, so we
+// stop paying a failed round-trip on every call. Caching is only an
+// optimisation; the plain request is always the fallback.
+let anthropicCacheControlSupported = true;
+
+export function isAnthropicCacheControlSupported(): boolean {
+  return anthropicCacheControlSupported;
+}
+
+function looksLikeCacheControlRejection(err: any): boolean {
+  const status = err?.status ?? err?.statusCode;
+  const msg = String(err?.message || err || "").toLowerCase();
+  return (status === 400 || status === 422) && (msg.includes("cache_control") || msg.includes("cache control"));
+}
+
+async function textWithAnthropic(
+  prompt: string,
+  model: string,
+  maxTokens: number,
+  temperature?: number,
+  system?: string[],
+): Promise<VisionAnalysisResponse> {
   const Anthropic = (await import("@anthropic-ai/sdk")).default;
   const anthropic = new Anthropic({
     apiKey: process.env.AI_INTEGRATIONS_ANTHROPIC_API_KEY,
     baseURL: process.env.AI_INTEGRATIONS_ANTHROPIC_BASE_URL,
   });
 
-  const message = await anthropic.messages.create({
-    model,
-    max_tokens: maxTokens,
-    temperature: temperature ?? undefined,
-    messages: [{ role: "user", content: prompt }],
-  });
+  const systemBlocks = (system || []).map((t) => t.trim()).filter(Boolean);
 
-  const responseText = message.content[0].type === "text" ? message.content[0].text : "";
+  const buildSystem = (withCache: boolean): any => {
+    if (systemBlocks.length === 0) return undefined;
+    if (!withCache) return systemBlocks.join("\n\n");
+    return systemBlocks.map((text) => ({
+      type: "text",
+      text,
+      cache_control: { type: "ephemeral" },
+    }));
+  };
+
+  const send = (withCache: boolean) =>
+    anthropic.messages.create({
+      model,
+      max_tokens: maxTokens,
+      temperature: temperature ?? undefined,
+      ...(systemBlocks.length > 0 ? { system: buildSystem(withCache) } : {}),
+      messages: [{ role: "user", content: prompt }],
+    });
+
+  let message: any;
+  const tryCache = systemBlocks.length > 0 && anthropicCacheControlSupported;
+  try {
+    message = await send(tryCache);
+  } catch (err: any) {
+    if (tryCache && looksLikeCacheControlRejection(err)) {
+      anthropicCacheControlSupported = false;
+      console.warn(
+        "[aiProvider] upstream rejected cache_control; prompt caching disabled for this process. Error:",
+        err?.message,
+      );
+      message = await send(false);
+    } else {
+      throw err;
+    }
+  }
+
+  const responseText = message.content?.[0]?.type === "text" ? message.content[0].text : "";
+  const uncached = message.usage?.input_tokens ?? 0;
+  const cacheRead = message.usage?.cache_read_input_tokens ?? 0;
+  const cacheWrite = message.usage?.cache_creation_input_tokens ?? 0;
+  const promptTokens = message.usage ? uncached + cacheRead + cacheWrite : undefined;
+  const completionTokens = message.usage?.output_tokens;
   return {
     text: responseText,
     usage: {
-      promptTokens: message.usage?.input_tokens,
-      completionTokens: message.usage?.output_tokens,
-      totalTokens:
-        (message.usage?.input_tokens ?? 0) + (message.usage?.output_tokens ?? 0),
+      promptTokens,
+      completionTokens,
+      totalTokens: (promptTokens ?? 0) + (completionTokens ?? 0),
+      cacheReadTokens: message.usage ? cacheRead : undefined,
+      cacheWriteTokens: message.usage ? cacheWrite : undefined,
     },
   };
 }
 
-async function textWithOpenAI(prompt: string, model: string, maxTokens: number, temperature?: number): Promise<VisionAnalysisResponse> {
+async function textWithOpenAI(
+  prompt: string,
+  model: string,
+  maxTokens: number,
+  temperature?: number,
+  system?: string[],
+): Promise<VisionAnalysisResponse> {
   const OpenAI = (await import("openai")).default;
   const openai = new OpenAI({
     apiKey: process.env.AI_INTEGRATIONS_OPENAI_API_KEY,
     baseURL: process.env.AI_INTEGRATIONS_OPENAI_BASE_URL,
   });
 
+  const systemText = (system || []).map((t) => t.trim()).filter(Boolean).join("\n\n");
+  const messages: any[] = [];
+  if (systemText) messages.push({ role: "system", content: systemText });
+  messages.push({ role: "user", content: prompt });
+
   const response = await openai.chat.completions.create({
     model,
     max_tokens: maxTokens,
     temperature: temperature ?? undefined,
-    messages: [{ role: "user", content: prompt }],
+    messages,
   });
 
   const responseText = response.choices[0]?.message?.content || "";
+  const cached = (response.usage as any)?.prompt_tokens_details?.cached_tokens;
   return {
     text: responseText,
     usage: {
       promptTokens: response.usage?.prompt_tokens,
       completionTokens: response.usage?.completion_tokens,
       totalTokens: response.usage?.total_tokens,
+      cacheReadTokens: typeof cached === "number" ? cached : undefined,
+      cacheWriteTokens: undefined,
     },
   };
 }
@@ -242,9 +329,9 @@ export async function analyzeText(
   const temperature = request.temperature;
   switch (provider) {
     case "anthropic":
-      return textWithAnthropic(request.prompt, model, maxTokens, temperature);
+      return textWithAnthropic(request.prompt, model, maxTokens, temperature, request.system);
     case "openai":
-      return textWithOpenAI(request.prompt, model, maxTokens, temperature);
+      return textWithOpenAI(request.prompt, model, maxTokens, temperature, request.system);
     default:
       throw new Error(`Unsupported AI provider: ${provider}`);
   }

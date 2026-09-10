@@ -21626,7 +21626,12 @@ Keep your response concise, practical, and evidence-based. This is general guida
         ).join('\n');
       }
 
-      const systemPrompt = `You are a digital performance coach built into an executive health and wellness platform called MeridianWork. You provide personalised guidance based on the user's actual health data, training history, and goals. Platform content relevant to each message (programmes, workouts, exercises, recipes, videos, learning paths, desk-health content, meditations, breathwork, habits) is retrieved for you automatically and appears in the IN-APP RECOMMENDATIONS section when applicable.
+      // PROMPT CACHING (10 Sep 2026): the rules block is identical for every
+      // user and message, and the per-user context block repeats across the
+      // turns of one conversation, so both go in cached `system` blocks
+      // (most-stable first). Only what changes per message stays in the
+      // user prompt. Never put user-specific text in the first block.
+      const chatSystemRules = `You are a digital performance coach built into an executive health and wellness platform called MeridianWork. You provide personalised guidance based on the user's actual health data, training history, and goals. Platform content relevant to each message (programmes, workouts, exercises, recipes, videos, learning paths, desk-health content, meditations, breathwork, habits) is retrieved for you automatically and appears in the IN-APP RECOMMENDATIONS section when applicable.
 
 CORE COACHING RULES (always follow):
 - Never give medical advice or diagnose conditions. Recommend seeing a professional when appropriate.
@@ -21662,9 +21667,13 @@ PLATFORM KNOWLEDGE RULES:
 - If nothing retrieved for this message fits what the user asked for, say so honestly, suggest the closest retrieved alternative if one exists, and invite them to browse that section of the app
 - Consider the user's equipment access, experience level, time availability, and any movement screening flags when recommending programmes or workouts
 - Recommendation markers ([[REC ...]]) may ONLY use refs from the IN-APP RECOMMENDATIONS section when it is present; its rules take precedence
-${coachingContext}${userDataContext}${onboardingContext}${crossCoachContext}${memoryContext}${userStateContext}${recContext}
+${coachingContext}`;
 
-The user's name is ${userName}.${historyText}
+      const chatUserContext = `${userDataContext}${onboardingContext}${crossCoachContext}${memoryContext}
+
+The user's name is ${userName}.`;
+
+      const systemPrompt = `${userStateContext}${recContext}${historyText}
 
 User: ${message}
 
@@ -21673,6 +21682,7 @@ Respond as the coach. Be personalised, reference their actual data and specific 
       const response = await aiCall({
         feature: 'coach_chat',
         userId,
+        system: [chatSystemRules, chatUserContext],
         prompt: systemPrompt,
         maxTokens: 800,
         provider: config.provider,
@@ -24242,26 +24252,36 @@ RULES:
           promptTokens: aiCallLogs.promptTokens,
           completionTokens: aiCallLogs.completionTokens,
           totalTokens: aiCallLogs.totalTokens,
+          cachedPromptTokens: aiCallLogs.cachedPromptTokens,
+          cacheWriteTokens: aiCallLogs.cacheWriteTokens,
           latencyMs: aiCallLogs.latencyMs,
           safetyFlags: aiCallLogs.safetyFlags,
         })
         .from(aiCallLogs)
         .where(and(...conditions));
 
-      const { calcCostUsd } = await import('../aiPricing');
+      const { calcCostUsd, calcUncachedCostUsd } = await import('../aiPricing');
 
       const byFeatureMap = new Map<string, { count: number; tokens: number; costUsd: number }>();
       const byModelMap = new Map<string, { count: number; tokens: number; costUsd: number }>();
       const byOutcome: Record<string, number> = {};
       let totalTokens = 0;
+      let totalPromptTokens = 0;
+      let totalCachedTokens = 0;
       let totalLatency = 0;
       let safetyFlagCount = 0;
       let estimatedCostUsd = 0;
+      let uncachedCostUsd = 0;
       for (const r of aggRowsDetailed) {
         const promptT = r.promptTokens || 0;
         const compT = r.completionTokens || 0;
         const totalT = r.totalTokens || promptT + compT;
-        const rowCost = calcCostUsd(r.model, promptT, compT);
+        const cachedT = r.cachedPromptTokens || 0;
+        const cacheWriteT = r.cacheWriteTokens || 0;
+        const rowCost = calcCostUsd(r.model, promptT, compT, cachedT, cacheWriteT);
+        uncachedCostUsd += calcUncachedCostUsd(r.model, promptT, compT);
+        totalPromptTokens += promptT;
+        totalCachedTokens += cachedT;
 
         const cur = byFeatureMap.get(r.feature) || { count: 0, tokens: 0, costUsd: 0 };
         cur.count += 1;
@@ -24297,6 +24317,12 @@ RULES:
           totalCalls,
           totalTokens,
           estimatedCostUsd,
+          // Prompt caching: share of input tokens served from cache in this
+          // window, and what the window would have cost with no caching.
+          totalPromptTokens,
+          totalCachedTokens,
+          cacheHitRate: totalPromptTokens > 0 ? totalCachedTokens / totalPromptTokens : 0,
+          cacheSavingsUsd: Math.max(0, uncachedCostUsd - estimatedCostUsd),
           avgLatencyMs: totalCalls > 0 ? totalLatency / totalCalls : 0,
           byOutcome,
           byFeature,

@@ -3461,9 +3461,11 @@ export const aiCallLogs = pgTable("ai_call_logs", {
   provider: text("provider"),
   model: text("model"),
   promptHash: varchar("prompt_hash"),
-  promptTokens: integer("prompt_tokens"),
+  promptTokens: integer("prompt_tokens"), // TOTAL input incl. cached reads + cache writes
   completionTokens: integer("completion_tokens"),
   totalTokens: integer("total_tokens"),
+  cachedPromptTokens: integer("cached_prompt_tokens").default(0), // prompt-cache reads (billed ~0.1x)
+  cacheWriteTokens: integer("cache_write_tokens").default(0), // prompt-cache writes (billed 1.25x on Anthropic)
   latencyMs: integer("latency_ms"),
   validationOutcome: text("validation_outcome"), // 'valid', 'repaired', 'invalid', 'no_schema', 'error', 'timeout'
   safetyFlags: text("safety_flags").array(),

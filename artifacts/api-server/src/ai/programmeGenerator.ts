@@ -351,9 +351,14 @@ function buildProgrammePrompt(inputs: ProgrammeInputs, catalogueText: string, we
   ].filter(Boolean).join("\n");
 }
 
-function buildWorkoutPrompt(inputs: WorkoutInputs, catalogueText: string, retryHint?: string, coachingContext?: string): string {
-  const hints = buildContextHints(inputs);
-  return [
+// PROMPT CACHING (10 Sep 2026): the rules + coaching method and the exercise
+// catalogue are the expensive, stable part of this prompt (tens of thousands
+// of tokens). They go in cached `system` blocks so the JSON-repair leg and
+// the bad-ID retry re-read them at ~10% of the input price instead of paying
+// full price again. The catalogue is ranked per request, so cross-user hits
+// are rare; the within-request re-reads are the win.
+function buildWorkoutSystemBlocks(catalogueText: string, coachingContext?: string): string[] {
+  const rules = [
     "You are an evidence-based S&C coach designing one training session for one user today.",
     "Pick exercises ONLY from the catalogue below by their numeric `exerciseLibraryId`. Never invent IDs.",
     "If the user names specific exercises or movements (e.g. deadlift, pull ups, squat, bench), you MUST include matching catalogue exercises — honouring the named movements takes priority over your default picks.",
@@ -364,14 +369,23 @@ function buildWorkoutPrompt(inputs: WorkoutInputs, catalogueText: string, retryH
     "Build a COMPLETE session that follows the COACHING METHOD below — its canonical structure (straight-set primary, then antagonist supersets, then accessory pairs, then a short core/finisher), its pairing rules, its rest hierarchy and its difficulty tiers. A typical full session is about 6 to 9 exercises; do not return a thin 4 to 5 exercise session for a full-body request.",
     "Keep the JSON itself compact so it returns fast: set \"tempo\" and \"notes\" to null unless truly essential, keep \"description\" to one short sentence, and add no commentary anywhere (cueing lives on each exercise's own video, not in the JSON).",
     coachingContext ? coachingContext : "",
+  ].filter(Boolean).join("\n");
+  const catalogue = [
+    `Exercise catalogue (${catalogueText.split("\n").length} entries shown):`,
+    catalogueText,
+  ].join("\n");
+  return [rules, catalogue];
+}
+
+function buildWorkoutPrompt(inputs: WorkoutInputs, retryHint?: string): string {
+  const hints = buildContextHints(inputs);
+  return [
+    "Design the session from the coaching method and the exercise catalogue given in the system prompt.",
     hints,
     retryHint || "",
     "",
     "Inputs:",
     JSON.stringify(inputs, null, 2),
-    "",
-    `Exercise catalogue (${catalogueText.split("\n").length} entries shown):`,
-    catalogueText,
     "",
     "OUTPUT SHAPE — this governs the JSON structure ONLY; it does NOT change the exercise selection, difficulty, or session structure described above. Return ONLY a raw JSON object: no markdown, no code fences, no prose before or after.",
     "Use EXACTLY these top-level keys and no others: name, description, category, difficulty, duration, blocks.",
@@ -731,9 +745,12 @@ export async function generateWorkoutWithAI(inputs: WorkoutInputs, userId: strin
     coachingContext = await getCoachingContext("workout_generator");
   } catch {}
 
+  const workoutSystem = buildWorkoutSystemBlocks(catalogueText, coachingContext);
+
   let result = await aiCall<GeneratedWorkout>({
     feature: "workout_generator",
-    prompt: buildWorkoutPrompt(inputs, catalogueText, undefined, coachingContext),
+    system: workoutSystem,
+    prompt: buildWorkoutPrompt(inputs, undefined),
     userId,
     schema: workoutSchema,
     preValidate: (obj: any) => normalizeWorkoutObject(obj, inputs),
@@ -749,7 +766,8 @@ export async function generateWorkoutWithAI(inputs: WorkoutInputs, userId: strin
       const retryHint = `Your previous response used exerciseLibraryId values not in the catalogue: ${bad.join(", ")}. Use only valid catalogue IDs.`;
       result = await aiCall<GeneratedWorkout>({
         feature: "workout_generator",
-        prompt: buildWorkoutPrompt(inputs, catalogueText, retryHint, coachingContext),
+        system: workoutSystem,
+        prompt: buildWorkoutPrompt(inputs, retryHint),
         userId,
         schema: workoutSchema,
         preValidate: (obj: any) => normalizeWorkoutObject(obj, inputs),

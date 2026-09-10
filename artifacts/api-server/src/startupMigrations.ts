@@ -66,6 +66,9 @@ export const SELF_HEAL_DDL: string[] = [
   `ALTER TABLE workday_user_profiles ADD COLUMN IF NOT EXISTS active_positions text[]`,
   `ALTER TABLE habits ADD COLUMN IF NOT EXISTS reminder_timezone_offset integer`,
   `ALTER TABLE coach_briefings ADD COLUMN IF NOT EXISTS conversation_id integer`,
+  // AI prompt caching (10 Sep 2026): cache read/write token split for cost.
+  `ALTER TABLE ai_call_logs ADD COLUMN IF NOT EXISTS cached_prompt_tokens integer DEFAULT 0`,
+  `ALTER TABLE ai_call_logs ADD COLUMN IF NOT EXISTS cache_write_tokens integer DEFAULT 0`,
   `ALTER TABLE meditations ADD COLUMN IF NOT EXISTS cover_image_url text`,
   `ALTER TABLE users ADD COLUMN IF NOT EXISTS welcome_seen_at timestamp`,
 

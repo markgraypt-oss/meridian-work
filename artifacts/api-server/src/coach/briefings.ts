@@ -757,18 +757,24 @@ If a workout was scheduled but not completed, do NOT scold. Acknowledge neutrall
       // today was actually Sunday.
       const dayName = new Date(dateKey + 'T12:00:00').toLocaleDateString('en-US', { weekday: 'long' });
 
-      const prompt = `${COACH_VOICE}
-
-The briefing below is you, Mark, speaking to ${userName}. Write it in your voice. Produce a rich ${type} briefing as JSON only.
+      // PROMPT CACHING (10 Sep 2026): everything that is identical across
+      // users and days lives in `system` blocks (cached provider-side at
+      // ~10% of the input price); only the per-user, per-day material goes in
+      // the user message. Keep it that way: any user-specific token in the
+      // system blocks silently breaks the cache for every other user.
+      // Block order is most-stable first: voice, then rules (2 variants:
+      // morning/evening via ${type}), then intent (2 variants).
+      const systemVoice = COACH_VOICE;
+      const systemRules = `The briefing below is you, Mark, speaking to the user. Their first name is given as USER NAME at the top of the user message; wherever {name} appears in the examples below, use that name. Write it in your voice. Produce a rich ${type} briefing as JSON only.
 
 OUTPUT JSON SHAPE (strict):
 {
-  "opener": string (greeting + THE NUMBERS, nothing else. Morning: "Morning ${userName}." then the overnight figures as a scannable line, e.g. "Readiness 66. Sleep 6h50m, HRV 50ms (below your usual), resting HR 58." Do NOT interpret them here, that is what deepDive is for, and do NOT repeat them there. No weather. Evening: greeting + the day's headline figures the same way. MAX 180 CHARS. No emojis.),
+  "opener": string (greeting + THE NUMBERS, nothing else. Morning: "Morning {name}." then the overnight figures as a scannable line, e.g. "Readiness 66. Sleep 6h50m, HRV 50ms (below your usual), resting HR 58." Do NOT interpret them here, that is what deepDive is for, and do NOT repeat them there. No weather. Evening: greeting + the day's headline figures the same way. MAX 180 CHARS. No emojis.),
   "notificationTeaser": string (THE LOCK-SCREEN LINE. This is the only thing the user sees before deciding whether to open the app, so it must sound like a person, not a readout. Greeting by name, then THE ONE THING that actually matters today, in plain words. MAX 110 CHARS. NO stat lists - no "Readiness 75. Sleep 7h12m, HRV 66ms". A number is allowed only if it IS the point and it is the only one. Do not restate this line anywhere else in the briefing.
-    RIGHT: "Morning ${userName}. Slept well and you're clear for the session today."
-    RIGHT: "Morning ${userName}. Third hard day running - worth taking this one easy."
-    RIGHT: "Morning ${userName}. Best sleep you've had in a fortnight."
-    WRONG: "Morning ${userName}. Readiness 75. Sleep 7h12m, HRV 66ms, resting HR 57."
+    RIGHT: "Morning {name}. Slept well and you're clear for the session today."
+    RIGHT: "Morning {name}. Third hard day running - worth taking this one easy."
+    RIGHT: "Morning {name}. Best sleep you've had in a fortnight."
+    WRONG: "Morning {name}. Readiness 75. Sleep 7h12m, HRV 66ms, resting HR 57."
     WRONG: "Your recovery markers are looking favourable today."),
   "deepDive": [
     { "title": string (4-8 words, plain English, e.g. "Still carrying this week's load", "Neck holding at 6/10"), "body": string (1-2 short sentences, MAX 180 CHARS. Say the thing and stop. Do not restate a number already in the opener.) }
@@ -823,7 +829,7 @@ ABSOLUTELY FORBIDDEN (THIS IS THE MOST IMPORTANT RULE):
 - Do NOT mention what the user "hasn't" done. No "you haven't", no "still no", no "missed", no "gap". Only describe what IS there.
 
 RULES:
-- TODAY is ${dayName}, ${dateKey}. YESTERDAY was the calendar day before TODAY. The wearable snapshot below has one row per date. The row whose "date" equals TODAY is today's data, which may be partial in the morning. The row immediately before TODAY is YESTERDAY. NEVER call today's partial numbers "yesterday". NEVER call yesterday's numbers "today".
+- TODAY's weekday and date are given at the top of the user message. YESTERDAY was the calendar day before TODAY. The wearable snapshot below has one row per date. The row whose "date" equals TODAY is today's data, which may be partial in the morning. The row immediately before TODAY is YESTERDAY. NEVER call today's partial numbers "yesterday". NEVER call yesterday's numbers "today".
 - Reference the user's actual numbers when they appear. Quote durations exactly (e.g. "7h 19m", "14,873 steps"). Never convert sleep to decimal hours.
 - Check-in scores (mood, energy, stress, clarity, and the check-in sleep score) are on a 1-5 scale. ALWAYS reference them with the "/5" suffix to make the scale unambiguous. Examples: "stress is averaging 2.1/5", "your mood was 3/5 yesterday", "clarity dropped to 2.4/5 this week". Apply to averages, single values, and ranges. Do NOT add "/5" to wearable metrics with their own scales: HRV in ms, VO2 Max in ml/kg/min, Whoop strain on 0-21, Whoop recovery as a percentage, RHR in bpm, sleep duration in hours and minutes, steps as raw numbers. Body map severity stays "x/10". Daily Readiness Score stays "x/100".
 - If data is missing, do not pretend you have it. Do not invent.
@@ -836,7 +842,10 @@ RULES:
 - Do not include any prose outside the JSON.
 
 INTENT:
-${intent}
+${intent}`;
+
+      const prompt = `USER NAME: ${userName}
+TODAY is ${dayName}, ${dateKey}.
 ${memoryText ? `\nUSER MEMORY (durable facts about this user, use to personalise):\n${memoryText}` : ""}${recentText}
 ${readinessText}
 ${weatherText}
@@ -848,6 +857,7 @@ Return only the JSON object now.`;
       const result = await aiCall({
         feature: "coach_briefing",
         userId,
+        system: [systemVoice, systemRules],
         prompt,
         maxTokens: 400,
         provider: config.provider,

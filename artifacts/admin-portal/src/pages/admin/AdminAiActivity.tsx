@@ -19,6 +19,8 @@ interface AiCallLog {
   promptTokens: number | null;
   completionTokens: number | null;
   totalTokens: number | null;
+  cachedPromptTokens?: number | null;
+  cacheWriteTokens?: number | null;
   latencyMs: number | null;
   validationOutcome: string | null;
   safetyFlags: string[] | null;
@@ -32,6 +34,10 @@ interface AiCallLogsResponse {
     totalCalls: number;
     totalTokens: number;
     estimatedCostUsd: number;
+    totalPromptTokens?: number;
+    totalCachedTokens?: number;
+    cacheHitRate?: number;
+    cacheSavingsUsd?: number;
     avgLatencyMs: number;
     byOutcome: Record<string, number>;
     byFeature: { feature: string; count: number; tokens: number; costUsd: number }[];
@@ -123,6 +129,12 @@ export default function AdminAiActivity() {
             <CardContent>
               <p className="text-3xl font-bold">${(aggregates?.estimatedCostUsd ?? 0).toFixed(2)}</p>
               <p className="text-xs text-muted-foreground mt-1">Per-model input/output rates from public pricing</p>
+              {(aggregates?.totalPromptTokens ?? 0) > 0 && (
+                <p className="text-xs text-muted-foreground mt-1" data-testid="text-cache-stats">
+                  Prompt cache: {Math.round((aggregates?.cacheHitRate ?? 0) * 100)}% of input served from cache
+                  {(aggregates?.cacheSavingsUsd ?? 0) > 0 ? ` · saved $${(aggregates?.cacheSavingsUsd ?? 0).toFixed(2)}` : ""}
+                </p>
+              )}
             </CardContent>
           </Card>
           <Card data-testid="card-latency">
@@ -230,6 +242,7 @@ export default function AdminAiActivity() {
                     <th className="p-2">Model</th>
                     <th className="p-2">Outcome</th>
                     <th className="p-2 text-right">Tokens</th>
+                    <th className="p-2 text-right" title="Input tokens read from the prompt cache (billed at ~10%)">Cached</th>
                     <th className="p-2 text-right">Latency</th>
                     <th className="p-2">Flags</th>
                   </tr>
@@ -246,6 +259,11 @@ export default function AdminAiActivity() {
                         </Badge>
                       </td>
                       <td className="p-2 text-right">{log.totalTokens ?? 0}</td>
+                      <td className="p-2 text-right text-muted-foreground">
+                        {(log.cachedPromptTokens ?? 0) > 0
+                          ? `${log.cachedPromptTokens} (${Math.round(((log.cachedPromptTokens ?? 0) / Math.max(1, log.promptTokens ?? 0)) * 100)}%)`
+                          : "-"}
+                      </td>
                       <td className="p-2 text-right">{log.latencyMs ?? 0}ms</td>
                       <td className="p-2">
                         {log.safetyFlags && log.safetyFlags.length > 0 ? (

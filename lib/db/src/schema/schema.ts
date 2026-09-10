@@ -3838,6 +3838,31 @@ export type WorkdayDeskSetup = typeof workdayDeskSetups.$inferSelect;
 export type InsertWorkdayDeskSetup = typeof workdayDeskSetups.$inferInsert;
 export const insertWorkdayDeskSetupSchema = createInsertSchema(workdayDeskSetups).omit({ id: true, createdAt: true, updatedAt: true });
 
+// Coach-voice lines for exercise swaps.
+//
+// The substitution engine already writes a true, factual reason ("Same movement,
+// works your chest - dumbbell instead of barbell"). This holds the version
+// written in Mark's voice, which is the bit a person actually reads.
+//
+// Keyed on (outcome, original, substitute) and NOT on the user, because the line
+// depends only on those three things. That makes the cache shared across every
+// user in the app: the library is finite, so the same swap is written once ever
+// and every later assessment reads it for free. It is what keeps this feature
+// from being a per-user AI cost.
+export const exerciseSwapLines = pgTable("exercise_swap_lines", {
+  id: serial("id").primaryKey(),
+  outcomeId: integer("outcome_id").notNull(),
+  originalExerciseId: integer("original_exercise_id").notNull(),
+  substituteExerciseId: integer("substitute_exercise_id").notNull(),
+  line: text("line").notNull(),
+  createdAt: timestamp("created_at").defaultNow(),
+}, (t) => ({
+  uniquePair: uniqueIndex("exercise_swap_lines_pair_uq")
+    .on(t.outcomeId, t.originalExerciseId, t.substituteExerciseId),
+}));
+
+export type ExerciseSwapLine = typeof exerciseSwapLines.$inferSelect;
+
 export const legacyProgramExercises = pgTable("program_exercises", {
   id: serial("id").primaryKey(),
   programId: integer("program_id").notNull(),

@@ -8947,6 +8947,43 @@ Rules:
         };
       });
 
+      // Coach voice on the reason lines. The engine's line is already true and
+      // stays as the fallback — this only replaces the wording, never the
+      // shortlist, the order, or which exercises were offered. Shared cache, so
+      // a swap that has been described once anywhere in the app is free after.
+      try {
+        const { getSwapLines, swapLineKey } = await import('../coach/swapVoice');
+        const pairs = flaggedGroups.flatMap((g: any) =>
+          (g.substitutes || []).map((sub: any) => ({
+            outcomeId,
+            originalExerciseId: g.exerciseId,
+            originalName: g.exerciseName,
+            substituteExerciseId: sub.id,
+            substituteName: sub.name,
+            factualReason: sub.reason,
+            flagReason: g.reason,
+            bodyArea: (outcome as any).bodyArea ?? null,
+          })));
+        const voiced = await getSwapLines(pairs);
+        for (const g of flaggedGroups) {
+          for (const sub of (g.substitutes || [])) {
+            const line = voiced.get(swapLineKey({
+              outcomeId,
+              originalExerciseId: g.exerciseId,
+              substituteExerciseId: sub.id,
+            }));
+            if (line) {
+              // Keep the factual line too — it is the audit trail for what the
+              // engine actually decided, separate from how it was phrased.
+              sub.factualReason = sub.reason;
+              sub.reason = line;
+            }
+          }
+        }
+      } catch (e: any) {
+        console.error('[preview] swap voice skipped:', e?.message || e);
+      }
+
       return res.json({
         // Per-instance rows, unchanged shape, so an older app build keeps working.
         flaggedExercises,

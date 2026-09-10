@@ -34,6 +34,10 @@ export interface ExerciseLike {
   name: string;
   imageUrl?: string | null;
   muxPlaybackId?: string | null;
+  /** The one muscle the exercise is FOR. Far stronger evidence than mainMuscle,
+   *  which lists everything involved — a bench press carries Triceps and
+   *  Shoulders too, and matching on those offers a pushdown as a substitute. */
+  primaryMuscle?: string | null;
   mainMuscle?: string[] | null;
   equipment?: string[] | null;
   movement?: string[] | null;
@@ -241,7 +245,13 @@ function describeSubstitute(original: ExerciseLike, candidate: ExerciseLike, fla
 
   const kept: string[] = [];
   if (keptPatterns.length > 0) kept.push('the same movement');
-  if (keptMuscles.length > 0) kept.push(keptMuscles.length === 1 ? `works your ${keptMuscles[0].toLowerCase()}` : 'works the same muscles');
+  // Name the primary when both agree on it — "works your chest" is worth more
+  // than "works the same muscles", and it is the actual reason this is a swap.
+  if (original.primaryMuscle && candidate.primaryMuscle === original.primaryMuscle) {
+    kept.push(`works your ${String(original.primaryMuscle).toLowerCase()}`);
+  } else if (keptMuscles.length > 0) {
+    kept.push(keptMuscles.length === 1 ? `works your ${keptMuscles[0].toLowerCase()}` : 'works the same muscles');
+  }
 
   const changed: string[] = [];
   if (flag.matched.equipment) {
@@ -322,6 +332,22 @@ export function rankSubstitutes(opts: {
     const sharedMuscles = overlap(original.mainMuscle, candidate.mainMuscle);
     const sharedPatterns = overlap(original.movement, candidate.movement);
 
+    // Primary muscle is the strongest signal there is, and it is the one that
+    // stops nonsense. Bench press lists Chest, Triceps and Shoulders in
+    // mainMuscle, so scoring on that overlap alone put a tricep pushdown and a
+    // lateral raise on the shortlist — both share exactly one ASSISTANCE muscle
+    // with the bench and neither is remotely a substitute for it.
+    const oPrimary = original.primaryMuscle || null;
+    const cPrimary = candidate.primaryMuscle || null;
+    const bothTagged = !!oPrimary && !!cPrimary;
+    const samePrimary = bothTagged && oPrimary === cPrimary;
+    // The candidate's primary is only an assisting muscle of the original (or
+    // vice versa). Related, but not the same job.
+    const assistOnly = bothTagged && !samePrimary && (
+      (original.mainMuscle || []).includes(cPrimary as string) ||
+      (candidate.mainMuscle || []).includes(oPrimary as string)
+    );
+
     // When the movement pattern ITSELF is what hurts, "same pattern, same
     // muscle" is not available by definition — every close relative of the
     // original is flagged too. This is precisely the case allowedPatterns
@@ -333,9 +359,19 @@ export function rankSubstitutes(opts: {
 
     // Preserving the training stimulus is the point, so muscle and pattern
     // dominate the score.
-    if (sharedMuscles.length > 0) score += 45 + Math.min(sharedMuscles.length - 1, 3) * 10;
-    else if (!coachAllowed) score -= 60; // trains something else entirely
-    // else: a coach-nominated pattern is MEANT to train something else.
+    if (bothTagged) {
+      if (samePrimary) score += 80;
+      else if (assistOnly) score += 10;   // related, but a different job
+      else if (!coachAllowed) score -= 60; // trains something else entirely
+      // A shared assisting muscle is worth a nudge and nothing more.
+      if (!samePrimary && sharedMuscles.length > 0) score += 5;
+    } else {
+      // One side is untagged. Fall back to the old mainMuscle overlap so the
+      // engine still works while the library is being tagged, but score it below
+      // a real primary match so a tagged candidate always wins.
+      if (sharedMuscles.length > 0) score += 40 + Math.min(sharedMuscles.length - 1, 3) * 8;
+      else if (!coachAllowed) score -= 60;
+    }
 
     if (sharedPatterns.length > 0) score += 35;
     else if (coachAllowed) score += 30;
@@ -356,14 +392,22 @@ export function rankSubstitutes(opts: {
       score -= 4;                     // untagged: usable, but not preferred
     }
 
-    // Nothing in common, not curated, and not a pattern the coach nominated:
-    // that is not a substitute, just another exercise in the library.
+    // Is this a substitute at all, or just another exercise in the library?
+    //
+    // With both sides tagged the test is strict: it has to train the same thing
+    // (same primary) or be the same movement. Sharing an assisting muscle is not
+    // enough — that is exactly how a tricep pushdown got onto a bench press
+    // shortlist. Untagged exercises fall back to the looser mainMuscle test so
+    // the engine keeps working while the library is being tagged.
     //
     // `coachAllowed` has to be in this test, not only in the scoring. Without it
     // the guard threw away every candidate on the allowedPatterns path — the one
     // route that cannot share a muscle or a pattern with the original — so an
     // outcome that banned a whole movement offered nothing at all.
-    if (!isCurated && !coachAllowed && sharedMuscles.length === 0 && sharedPatterns.length === 0) continue;
+    const relevant = bothTagged
+      ? (samePrimary || sharedPatterns.length > 0)
+      : (sharedMuscles.length > 0 || sharedPatterns.length > 0);
+    if (!isCurated && !coachAllowed && !relevant) continue;
 
     scored.push({
       id: candidate.id,

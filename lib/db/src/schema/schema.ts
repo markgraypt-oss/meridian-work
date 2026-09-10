@@ -48,6 +48,10 @@ export const users = pgTable("users", {
   currentStreak: integer("current_streak").default(0),
   longestStreak: integer("longest_streak").default(0),
   lastStreakActivityDate: varchar("last_streak_activity_date"),
+  // Highest day-streak milestone already celebrated. Without this the streak is
+  // recalculated on every dashboard read, so the same moment would fire on a
+  // loop. Cleared back down if a streak breaks, so rebuilding earns it again.
+  lastCelebratedStreakMilestone: integer("last_celebrated_streak_milestone").default(0),
   lastActiveAt: timestamp("last_active_at"), // updated on every app open via GET /api/auth/user
   weightUnit: varchar("weight_unit").default("kg"),
   distanceUnit: varchar("distance_unit").default("km"),

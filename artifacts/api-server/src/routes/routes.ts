@@ -4168,10 +4168,62 @@ export async function registerRoutes(app: Express): Promise<Server> {
     try {
       const userId = req.user.claims.sub;
       const streak = await storage.getUserStreak(userId);
-      res.json(streak);
+
+      // Milestones. The streak number has always been here; what was missing was
+      // any sense of arriving somewhere with it.
+      const { milestoneStateFor, milestoneToCelebrate, normaliseCelebratedMark } =
+        await import('../streakMilestones');
+
+      const [row] = await db
+        .select({ mark: users.lastCelebratedStreakMilestone })
+        .from(users)
+        .where(eq(users.id, userId))
+        .limit(1);
+
+      // A broken streak drops the mark back, so rebuilding earns the moment again.
+      const normalised = normaliseCelebratedMark(streak.currentStreak, row?.mark);
+      if (normalised !== (row?.mark ?? 0)) {
+        await db.update(users)
+          .set({ lastCelebratedStreakMilestone: normalised })
+          .where(eq(users.id, userId));
+      }
+
+      res.json({
+        ...streak,
+        milestone: milestoneStateFor(streak.currentStreak),
+        // Non-null only when a milestone has been reached that has not been
+        // shown. The client shows it, then POSTs to milestone-seen.
+        celebrate: milestoneToCelebrate(streak.currentStreak, normalised),
+      });
     } catch (error) {
       console.error("Get streak error:", error);
       res.status(500).json({ message: "Failed to get streak" });
+    }
+  });
+
+  // Mark the celebration as shown so it never fires twice for the same milestone.
+  app.post('/api/user/streak/milestone-seen', isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = req.user.claims.sub;
+      const milestone = parseInt(String(req.body?.milestone), 10);
+      if (!Number.isFinite(milestone) || milestone <= 0) {
+        return res.status(400).json({ message: "milestone is required" });
+      }
+      const [row] = await db
+        .select({ mark: users.lastCelebratedStreakMilestone })
+        .from(users)
+        .where(eq(users.id, userId))
+        .limit(1);
+      // Only ever move forward here; normalising downward is the GET's job.
+      if (milestone > (row?.mark ?? 0)) {
+        await db.update(users)
+          .set({ lastCelebratedStreakMilestone: milestone })
+          .where(eq(users.id, userId));
+      }
+      res.json({ ok: true });
+    } catch (error) {
+      console.error("Mark streak milestone seen error:", error);
+      res.status(500).json({ message: "Failed to record milestone" });
     }
   });
 

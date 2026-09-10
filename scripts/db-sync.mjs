@@ -20,15 +20,51 @@
  *
  *   pnpm db:sync
  */
-import pg from "pg";
 import { readFileSync } from "node:fs";
-import { fileURLToPath } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
+import { createRequire } from "node:module";
 import path from "node:path";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
+
+/**
+ * pnpm does not hoist dependencies to the workspace root, so a bare
+ * `import pg from "pg"` in a root-level script fails with ERR_MODULE_NOT_FOUND
+ * even though the driver is installed — it lives inside the workspace packages
+ * that actually declare it.
+ *
+ * Resolving it from those packages keeps this script dependency-free: nothing
+ * to add to the root package.json, nothing to reinstall, and no chance of the
+ * script pulling a different pg version than the server runs.
+ */
+function loadPg() {
+  const candidates = [
+    path.join(here, "..", "artifacts", "api-server", "package.json"),
+    path.join(here, "..", "lib", "db", "package.json"),
+    path.join(here, "package.json"),
+  ];
+  for (const candidate of candidates) {
+    try {
+      return createRequire(pathToFileURL(candidate))("pg");
+    } catch {
+      // try the next workspace package
+    }
+  }
+  console.error(
+    "Could not resolve the 'pg' package from any workspace package.\n" +
+      "Run `pnpm install` at the repo root first.",
+  );
+  process.exit(1);
+}
+
+const pg = loadPg();
 const source = path.join(here, "..", "artifacts", "api-server", "src", "startupMigrations.ts");
 
-if (!process.env.DATABASE_URL) {
+// `--dry-run` parses and classifies every statement without touching a
+// database, so the script can be checked anywhere — no DATABASE_URL required.
+const dryRun = process.argv.includes("--dry-run");
+
+if (!dryRun && !process.env.DATABASE_URL) {
   console.error("DATABASE_URL is not set. Run this in the Repl Shell.");
   process.exit(1);
 }
@@ -55,8 +91,8 @@ if (statements.length === 0) {
   process.exit(1);
 }
 
-const client = new pg.Client({ connectionString: process.env.DATABASE_URL });
-await client.connect();
+const client = dryRun ? null : new pg.Client({ connectionString: process.env.DATABASE_URL });
+if (client) await client.connect();
 
 let ok = 0;
 let skipped = 0;
@@ -84,6 +120,11 @@ for (const sql of statements) {
     skipped++;
     continue;
   }
+  if (dryRun) {
+    ok++;
+    continue;
+  }
+
   try {
     await client.query(sql);
     ok++;
@@ -92,8 +133,12 @@ for (const sql of statements) {
   }
 }
 
-await client.end();
+if (client) await client.end();
 
-console.log(`\ndb:sync complete — ${ok} applied, ${skipped} skipped, ${failures.length} failed`);
+console.log(
+  dryRun
+    ? `\ndb:sync dry run — ${statements.length} parsed, ${ok} would apply, ${skipped} skipped`
+    : `\ndb:sync complete — ${ok} applied, ${skipped} skipped, ${failures.length} failed`,
+);
 for (const f of failures) console.error(`  FAILED: ${f.sql}\n          ${f.message}`);
 process.exit(failures.length > 0 ? 1 : 0);

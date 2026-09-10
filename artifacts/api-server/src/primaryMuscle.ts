@@ -230,7 +230,24 @@ export function derivePrimaryMuscle(name: string, mainMuscle?: string[] | null):
 import { pool } from "./db";
 
 let hasRun = false;
-const FLAG = "primary_muscle_backfill_v1";
+/**
+ * Bump this when the rules change.
+ *
+ * v1 tagged 983 and left 31, because the rules had no idea what a heel cord or a
+ * levator scapulae was. v2 adds those, plus the ruling that a dumbbell press is
+ * a chest press, plus the eight composite/conditioning entries that resolve to
+ * null on purpose.
+ *
+ * A new flag rather than a manual re-run: this is how every other migration in
+ * the codebase works, and it matters more than convention here — the Repl has a
+ * dev database AND a prod database. A one-off call would only ever fix whichever
+ * one the deployed server happens to talk to. A version bump fixes both, on
+ * their next boot, without anyone remembering to do anything.
+ *
+ * Safe to bump repeatedly: the backfill only ever fills rows where
+ * primary_muscle IS NULL, so a hand correction in the admin is never overwritten.
+ */
+const FLAG = "primary_muscle_backfill_v2";
 
 /**
  * Tag the whole library.

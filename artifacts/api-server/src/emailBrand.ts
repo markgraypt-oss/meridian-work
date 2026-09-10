@@ -5,10 +5,10 @@
 
 type Cta = { label: string; url: string };
 
-// The real hosted MeridianWork email banner (the logo). api.meridian.work
-// serves it; the marketing domain's copy 404s, so default to the API host and
-// allow an env override.
-const LOGO_URL = process.env.EMAIL_BANNER_URL || "https://api.meridian.work/email-banner.png";
+// The MeridianWork logo, served from the API host's public dir
+// (artifacts/meridian/public/mw-email-logo.png -> api.meridian.work/...).
+// Env-overridable so the URL can move without a code change.
+const LOGO_URL = process.env.EMAIL_LOGO_URL || "https://api.meridian.work/mw-email-logo.png";
 
 export interface BrandedEmailOptions {
   eyebrow?: string;        // small gold label above the heading
@@ -70,8 +70,8 @@ export function renderBrandedEmail(opts: BrandedEmailOptions): string {
     <table role="presentation" width="100%" cellpadding="0" cellspacing="0" bgcolor="#eef1f5" style="background-color:#eef1f5;">
       <tr><td align="center" style="padding:24px 12px;">
         <table role="presentation" width="600" cellpadding="0" cellspacing="0" bgcolor="#ffffff" style="max-width:600px;width:100%;background-color:#ffffff;border-radius:12px;overflow:hidden;border:1px solid #e6e9ee;">
-          <tr><td bgcolor="#ffffff" style="background-color:#ffffff;padding:0;font-size:0;line-height:0;text-align:center;">
-            <img src="${LOGO_URL}" alt="MeridianWork" width="600" style="display:block;width:100%;max-width:600px;height:auto;border:0;margin:0;" />
+          <tr><td bgcolor="#ffffff" style="background-color:#ffffff;padding:26px 24px 20px;text-align:center;">
+            <img src="${LOGO_URL}" alt="MeridianWork" width="300" style="display:inline-block;width:300px;max-width:70%;height:auto;border:0;" />
           </td></tr>
           <tr><td bgcolor="#ffffff" style="background-color:#ffffff;padding:28px 26px 8px;">
             ${eyebrowHtml}

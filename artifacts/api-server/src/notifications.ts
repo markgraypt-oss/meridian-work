@@ -3,6 +3,7 @@ import { Resend } from "resend";
 import { and, eq, gte, sql } from "drizzle-orm";
 import { db } from "./db";
 import { storage } from "./storage";
+import { renderBrandedEmail, emailParagraph } from "./emailBrand";
 import {
   notifications,
   pushSubscriptions,
@@ -333,19 +334,16 @@ async function sendCategoryEmail(
       from: "MeridianWork <no-reply@meridian.work>",
       to,
       subject: `${label}: ${title}`,
-      html: `
-        <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; background:#fff;">
-          <div style="padding: 24px; color: #222;">
-            <p style="font-size:14px; color:#888; text-transform:uppercase; letter-spacing:.05em; margin:0 0 8px;">${label}</p>
-            <h2 style="font-size:24px; margin:0 0 12px;">${escapeHtml(title)}</h2>
-            <p style="font-size:16px; line-height:1.5; color:#444; white-space:pre-wrap;">${greeting}\n\n${escapeHtml(body)}</p>
-            <p style="margin-top:24px;">
-              <a href="${ctaUrl}" style="display:inline-block; background:#09b5f9; color:#fff !important; padding:12px 22px; border-radius:6px; text-decoration:none; font-weight:600;">Open MeridianWork</a>
-            </p>
-            <p style="margin-top:32px; color:#999; font-size:12px;">You can change which notifications you get in Profile → Notifications.</p>
-          </div>
-        </div>
-      `,
+      html: renderBrandedEmail({
+        eyebrow: label,
+        heading: escapeHtml(title),
+        bodyHtml:
+          emailParagraph(escapeHtml(greeting)) +
+          emailParagraph(escapeHtml(body).replace(/\n/g, "<br/>")),
+        cta: { label: "Open MeridianWork", url: ctaUrl },
+        footerNote: "You can change which notifications you get in Profile &rarr; Notifications.",
+        preheader: escapeHtml(title),
+      }),
     });
     if (error) {
       console.error("[notify] email error:", error);
@@ -385,28 +383,16 @@ export interface WellbeingContactEmailInput {
   companyName?: string | null;
 }
 
-// Same banner as the sign-up / password-reset emails. Served by the API host —
-// note that https://meridian.work/email-banner.png 404s, so don't reuse
-// APP_BASE_URL here (that points at the marketing/app domain for CTA links).
-const EMAIL_BANNER_URL = process.env.EMAIL_BANNER_URL || "https://api.meridian.work/email-banner.png";
-
 const WELLBEING_FOOTER =
   "Sent at the employee's request through MeridianWork. No health data, scores or app activity have been shared with you.";
 
+// Deliberately no eyebrow, heading, CTA or signature: this reads like a person
+// asking, not a product ping. It only picks up the shared header and footer.
 function wellbeingEmailHtml(paragraphs: string[], footer: string): string {
-  const body = paragraphs
-    .map(p => `<p style="font-size:16px; line-height:1.6; color:#222; margin:0 0 16px;">${p}</p>`)
-    .join("\n");
-  return `
-    <div style="font-family: Arial, Helvetica, sans-serif; max-width: 600px; margin: 0 auto; background:#fff;">
-      <img src="${EMAIL_BANNER_URL}" alt="MeridianWork" style="width: 100%; max-width: 600px; height: auto; display: block; border: 0;" />
-      <div style="padding: 28px 24px; color:#222;">
-        ${body}
-        <hr style="border:none; border-top:1px solid #e5e5e5; margin:28px 0 14px;" />
-        <p style="color:#888; font-size:12px; line-height:1.5; margin:0;">${footer}</p>
-      </div>
-    </div>
-  `;
+  return renderBrandedEmail({
+    bodyHtml: paragraphs.map(p => emailParagraph(p)).join(""),
+    footerNote: footer,
+  });
 }
 
 /** Email the nominated company contact. Returns false if it did not send. */

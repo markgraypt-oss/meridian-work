@@ -6,6 +6,7 @@ import bcrypt from "bcryptjs";
 import crypto from "crypto";
 import { Resend } from "resend";
 import { storage } from "./storage";
+import { renderBrandedEmail, emailParagraph, emailNote } from "./emailBrand";
 
 const resend = process.env.RESEND_API_KEY ? new Resend(process.env.RESEND_API_KEY) : null;
 
@@ -30,21 +31,16 @@ async function sendPasswordResetEmail(email: string, token: string, baseUrl: str
       from: "MeridianWork <no-reply@meridian.work>",
       to: email,
       subject: "Reset Your Password",
-      html: `
-        <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; background-color: #ffffff;">
-          <img src="${baseUrl}/email-banner.png" alt="MeridianWork" style="width: 100%; max-width: 600px; height: auto; display: block; border: 0;" />
-          <div style="padding: 20px;">
-            <h2 style="color: #333; font-size: 28px; margin: 0 0 16px 0;">Password Reset Request</h2>
-            <p style="font-size: 18px; line-height: 1.6; color: #333; margin-bottom: 16px;">You requested to reset your password for the MeridianWork Platform.</p>
-            <p style="font-size: 18px; line-height: 1.6; color: #333; margin-bottom: 24px;">Click the button below to set a new password:</p>
-            <a href="${resetUrl}" style="display: inline-block; background-color: #09b5f9; color: #ffffff !important; padding: 14px 28px; text-decoration: none; border-radius: 6px; margin: 16px 0; font-size: 18px; font-weight: 600;">Reset Password</a>
-            <p style="color: #666; font-size: 15px; margin-top: 24px;">This link will expire in 1 hour.</p>
-            <p style="color: #666; font-size: 15px;">If you didn't request this, you can safely ignore this email.</p>
-            <p style="font-size: 15px; line-height: 1.6; color: #333; margin-top: 28px; margin-bottom: 0;">Best regards,</p>
-            <p style="font-size: 15px; line-height: 1.4; color: #333; margin: 4px 0 0 0;"><strong>Mark Gray</strong><br/>Owner, MeridianWork</p>
-          </div>
-        </div>
-      `,
+      html: renderBrandedEmail({
+        eyebrow: "Security",
+        heading: "Reset your password",
+        bodyHtml:
+          emailParagraph("You asked to reset the password on your MeridianWork account. Set a new one here:") +
+          emailNote("This link expires in 1 hour. If you didn't request this, you can safely ignore this email and nothing will change."),
+        cta: { label: "Reset password", url: resetUrl },
+        signature: true,
+        preheader: "Reset your MeridianWork password",
+      }),
     });
 
     if (error) {
@@ -72,22 +68,17 @@ export async function sendUserInviteEmail(email: string, token: string, baseUrl:
       from: "MeridianWork <no-reply@meridian.work>",
       to: email,
       subject: "Welcome to MeridianWork - Set Up Your Account",
-      html: `
-        <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; background-color: #ffffff;">
-          <img src="${baseUrl}/email-banner.png" alt="MeridianWork" style="width: 100%; max-width: 600px; height: auto; display: block; border: 0;" />
-          <div style="padding: 20px;">
-            <h2 style="color: #333; font-size: 28px; margin: 0 0 16px 0;">Welcome to MeridianWork - Peak performance at work!</h2>
-            <p style="font-size: 18px; line-height: 1.6; color: #333; margin-bottom: 16px;">${greeting}</p>
-            <p style="font-size: 18px; line-height: 1.6; color: #333; margin-bottom: 16px;">You've been invited to join the MeridianWork platform.</p>
-            <p style="font-size: 18px; line-height: 1.6; color: #333; margin-bottom: 24px;">Click the button below to set up your password and get started:</p>
-            <a href="${setupUrl}" style="display: inline-block; background-color: #09b5f9; color: #ffffff !important; padding: 14px 28px; text-decoration: none; border-radius: 6px; margin: 16px 0; font-size: 18px; font-weight: 600;">Set Up Your Account</a>
-            <p style="color: #666; font-size: 15px; margin-top: 24px;">This link will expire in 24 hours.</p>
-            <p style="color: #666; font-size: 15px;">If you have any questions, please contact your administrator.</p>
-            <p style="font-size: 15px; line-height: 1.6; color: #333; margin-top: 28px; margin-bottom: 0;">Best regards,</p>
-            <p style="font-size: 15px; line-height: 1.4; color: #333; margin: 4px 0 0 0;"><strong>Mark Gray</strong><br/>Owner, MeridianWork</p>
-          </div>
-        </div>
-      `,
+      html: renderBrandedEmail({
+        eyebrow: "Welcome",
+        heading: "Peak performance at work starts here",
+        bodyHtml:
+          emailParagraph(greeting) +
+          emailParagraph("You've been invited to join MeridianWork. Set up your password and you're in, with movement, nutrition, recovery and your AI coach all in one place.") +
+          emailNote("This link expires in 24 hours. Any questions, just contact your administrator."),
+        cta: { label: "Set up your account", url: setupUrl },
+        signature: true,
+        preheader: "Set up your MeridianWork account",
+      }),
     });
 
     if (error) {
@@ -142,19 +133,19 @@ async function sendFirstLoginNotification(user: { id: string; email?: string | n
       from: "MeridianWork <no-reply@meridian.work>",
       to: ADMIN_NOTIFICATION_EMAIL,
       subject: `New User Login: ${name}`,
-      html: `
-        <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; background-color: #ffffff; padding: 32px;">
-          <h2 style="color: #1a1a2e; margin-bottom: 24px;">New User First Login</h2>
-          <p style="color: #333; font-size: 16px; margin-bottom: 16px;">A new user has successfully logged in for the first time:</p>
-          <table style="width: 100%; border-collapse: collapse; margin-bottom: 24px;">
-            <tr><td style="padding: 8px 12px; color: #666; font-weight: bold;">Name</td><td style="padding: 8px 12px; color: #333;">${name}</td></tr>
-            <tr style="background-color: #f9f9f9;"><td style="padding: 8px 12px; color: #666; font-weight: bold;">Email</td><td style="padding: 8px 12px; color: #333;">${email}</td></tr>
-            <tr><td style="padding: 8px 12px; color: #666; font-weight: bold;">Company</td><td style="padding: 8px 12px; color: #333;">${company}</td></tr>
-            <tr style="background-color: #f9f9f9;"><td style="padding: 8px 12px; color: #666; font-weight: bold;">Time</td><td style="padding: 8px 12px; color: #333;">${new Date().toLocaleString("en-GB", { timeZone: "Europe/Madrid", timeZoneName: "short" })}</td></tr>
-          </table>
-          <p style="color: #999; font-size: 12px;">This is an automated notification from MeridianWork.</p>
-        </div>
-      `,
+      html: renderBrandedEmail({
+        eyebrow: "Internal",
+        heading: "New user first login",
+        bodyHtml:
+          emailParagraph("A new user has successfully logged in for the first time:") +
+          `<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="border-collapse:collapse;margin:4px 0 8px;font-family:Arial,Helvetica,sans-serif;">
+             <tr><td style="padding:8px 0;color:#5a6478;font-size:13px;width:120px;">Name</td><td style="padding:8px 0;color:#1a2233;font-size:14px;font-weight:bold;">${name}</td></tr>
+             <tr><td style="padding:8px 0;color:#5a6478;font-size:13px;border-top:1px solid #e6e9ee;">Email</td><td style="padding:8px 0;color:#1a2233;font-size:14px;border-top:1px solid #e6e9ee;">${email}</td></tr>
+             <tr><td style="padding:8px 0;color:#5a6478;font-size:13px;border-top:1px solid #e6e9ee;">Company</td><td style="padding:8px 0;color:#1a2233;font-size:14px;border-top:1px solid #e6e9ee;">${company}</td></tr>
+             <tr><td style="padding:8px 0;color:#5a6478;font-size:13px;border-top:1px solid #e6e9ee;">Time</td><td style="padding:8px 0;color:#1a2233;font-size:14px;border-top:1px solid #e6e9ee;">${new Date().toLocaleString("en-GB", { timeZone: "Europe/Madrid", timeZoneName: "short" })}</td></tr>
+           </table>`,
+        footerNote: "Automated notification from MeridianWork.",
+      }),
     });
 
     if (error) {

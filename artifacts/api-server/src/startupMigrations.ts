@@ -19,7 +19,7 @@ let hasRunLabPathCovers = false;
  * have been applied to production yet via the Publish-time schema diff.
  * Each statement uses IF NOT EXISTS so it's safe to run on every boot.
  */
-const SELF_HEAL_DDL: string[] = [
+export const SELF_HEAL_DDL: string[] = [
   // Admin report settings: table + anonymity-floor columns. This table was
   // never added to the self-heal, so create-if-missing here, then ensure the
   // min_active_users column exists on already-created tables.

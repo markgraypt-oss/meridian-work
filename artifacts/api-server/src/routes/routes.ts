@@ -6140,11 +6140,16 @@ export async function registerRoutes(app: Express): Promise<Server> {
           }
         }
         
-        // Add muxPlaybackId to each exercise
+        // Add muxPlaybackId to each exercise, plus the library tags the active
+        // workout screen needs to label what each exercise is actually for.
+        // The library entry is already loaded here, so this costs nothing.
         for (const ex of exercisesWithSets) {
           if (ex.exerciseLibraryId && libraryMap.has(ex.exerciseLibraryId)) {
             const libEntry = libraryMap.get(ex.exerciseLibraryId);
             (ex as any).muxPlaybackId = libEntry.muxPlaybackId || null;
+            (ex as any).mainMuscle = libEntry.mainMuscle || [];
+            (ex as any).movement = libEntry.movement || [];
+            (ex as any).equipment = libEntry.equipment || [];
             if (!ex.imageUrl && libEntry.imageUrl) {
               (ex as any).imageUrl = libEntry.imageUrl;
             }

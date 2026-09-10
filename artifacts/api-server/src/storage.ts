@@ -4665,7 +4665,7 @@ export class DatabaseStorage implements IStorage {
           eq(reassessmentReminders.userId, userId),
           isNull(reassessmentReminders.dismissedAt),
           or(
-            // Reminders that are due on this specific date
+            // Due on this specific date
             and(
               or(
                 eq(reassessmentReminders.status, 'scheduled'),
@@ -4674,7 +4674,7 @@ export class DatabaseStorage implements IStorage {
               gte(reassessmentReminders.dueAt, startOfDay),
               lte(reassessmentReminders.dueAt, endOfDay)
             ),
-            // If viewing today or past, also include overdue reminders
+            // Viewing today or a past day: also include anything overdue
             and(
               sql`${startOfDay} <= ${now}`,
               or(
@@ -4684,6 +4684,16 @@ export class DatabaseStorage implements IStorage {
                   lte(reassessmentReminders.dueAt, now)
                 )
               )
+            ),
+            // COMPLETED ON THIS DAY. A reassessment that has been done used to
+            // vanish from the dashboard the moment it was finished, so the day's
+            // record showed no trace of it — unlike a workout, which stays put
+            // and turns green. Doing the thing should look like an achievement,
+            // not like the card was never there.
+            and(
+              eq(reassessmentReminders.status, 'completed'),
+              gte(reassessmentReminders.completedAt, startOfDay),
+              lte(reassessmentReminders.completedAt, endOfDay)
             )
           )
         )

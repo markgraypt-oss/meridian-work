@@ -5,6 +5,11 @@
 
 type Cta = { label: string; url: string };
 
+// The real hosted MeridianWork email banner (the logo). api.meridian.work
+// serves it; the marketing domain's copy 404s, so default to the API host and
+// allow an env override.
+const LOGO_URL = process.env.EMAIL_BANNER_URL || "https://api.meridian.work/email-banner.png";
+
 export interface BrandedEmailOptions {
   eyebrow?: string;        // small gold label above the heading
   heading?: string;        // main heading (already HTML-safe)
@@ -65,11 +70,8 @@ export function renderBrandedEmail(opts: BrandedEmailOptions): string {
     <table role="presentation" width="100%" cellpadding="0" cellspacing="0" bgcolor="#eef1f5" style="background-color:#eef1f5;">
       <tr><td align="center" style="padding:24px 12px;">
         <table role="presentation" width="600" cellpadding="0" cellspacing="0" bgcolor="#ffffff" style="max-width:600px;width:100%;background-color:#ffffff;border-radius:12px;overflow:hidden;border:1px solid #e6e9ee;">
-          <tr><td bgcolor="#0a1628" style="background-color:#0a1628;padding:22px 24px;text-align:center;">
-            <div style="font-family:Arial,Helvetica,sans-serif;font-size:22px;font-weight:bold;letter-spacing:-0.3px;">
-              <span style="color:#ffffff;">meridian</span><span style="color:#d4a574;">work</span>
-            </div>
-            <table role="presentation" cellpadding="0" cellspacing="0" align="center" style="margin:10px auto 0;"><tr><td bgcolor="#d4a574" width="34" height="3" style="background-color:#d4a574;width:34px;height:3px;line-height:3px;font-size:0;border-radius:2px;">&nbsp;</td></tr></table>
+          <tr><td bgcolor="#ffffff" style="background-color:#ffffff;padding:0;font-size:0;line-height:0;text-align:center;">
+            <img src="${LOGO_URL}" alt="MeridianWork" width="600" style="display:block;width:100%;max-width:600px;height:auto;border:0;margin:0;" />
           </td></tr>
           <tr><td bgcolor="#ffffff" style="background-color:#ffffff;padding:28px 26px 8px;">
             ${eyebrowHtml}

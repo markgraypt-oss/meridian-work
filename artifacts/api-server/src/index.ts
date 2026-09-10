@@ -9,6 +9,25 @@ process.on("uncaughtException", (err) => {
   logger.error({ err }, "[process] Uncaught exception (kept alive)");
 });
 
+/**
+ * Cold-start instrumentation.
+ *
+ * A republish failed on 10 Sep because the platform killed the new container
+ * 4.9s after starting it, while this process takes ~21s from start to serving
+ * its first request. Two republishes either side of it succeeded, so it is a
+ * race we win most of the time and lose occasionally.
+ *
+ * This line runs AFTER every static import at the top of this file has been
+ * resolved and executed, so process.uptime() here is exactly the cost of
+ * loading the module graph — routes.ts alone is ~24,800 lines. That is the
+ * number worth knowing before anyone tries to make startup faster, and until
+ * now nobody has measured it.
+ */
+logger.info(
+  { seconds: Number(process.uptime().toFixed(2)) },
+  "[boot] module graph loaded",
+);
+
 const rawPort = process.env["PORT"];
 
 if (!rawPort) {
@@ -22,10 +41,18 @@ if (Number.isNaN(port) || port <= 0) {
 }
 
 (async () => {
+  const routesStartedAt = Date.now();
   const server = await registerRoutes(app);
+  logger.info(
+    { seconds: Number(((Date.now() - routesStartedAt) / 1000).toFixed(2)) },
+    "[boot] routes registered",
+  );
 
   server.listen({ port, host: "0.0.0.0", reusePort: true }, () => {
-    logger.info({ port }, "Server listening");
+    logger.info(
+      { port, totalSeconds: Number(process.uptime().toFixed(2)) },
+      "Server listening",
+    );
 
     import("./startupMigrations").then(({ runSchemaSelfHealOnce, runProfileImageMigrationOnce, seedMeditationsOnce, seedAiPromptsOnce, repairBodyweightGoalUnitsOnce, normalizeRecipeMacrosOnce, seedBadgesV2Once, retireDroppedDeskBadgesOnce, fixHabitTemplateDescriptionsOnce, seedReadinessBadgesOnce, dedupeCheckInsOnce, backfillContentTagsOnce, revokeEmptyBurnoutBadgesOnce, revokeEmptyAiBadgesOnce, revokeInvalidPerfectRecordOnce, seedLabTopicCoversOnce, seedLabPathCoversOnce, seedLabLifeStageOnce, stripEmDashesFromDescriptionsOnce, restoreRecipeImagesFromUploadsOnce, reconcileBreathworkDurationsOnce, seedBreathworkTechniquesV2Once, backfillBriefingConversationsOnce }) => {
       runSchemaSelfHealOnce()

@@ -56,6 +56,14 @@ if (Number.isNaN(port) || port <= 0) {
         });
     }).catch((e: any) => logger.error({ e }, "[startup-migration] startup migrations import failed"));
 
+    // Primary-muscle backfill: give every exercise one designated muscle, derived
+    // from its name. Once per database, only fills NULLs.
+    import("./primaryMuscle").then(({ backfillPrimaryMuscleOnce }) => {
+      backfillPrimaryMuscleOnce().catch((e) => {
+        console.error("[startup-migration] primary muscle backfill failed:", e);
+      });
+    }).catch((e) => console.error("[startup-migration] primary muscle import failed:", e));
+
     // Reassessment reminder backfill: give assessments already taken the follow-up
     // row they should have had, so the Home card and the push have something to
     // fire on. Once per database, idempotent.

@@ -6199,6 +6199,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
           if (ex.exerciseLibraryId && libraryMap.has(ex.exerciseLibraryId)) {
             const libEntry = libraryMap.get(ex.exerciseLibraryId);
             (ex as any).muxPlaybackId = libEntry.muxPlaybackId || null;
+            (ex as any).primaryMuscle = libEntry.primaryMuscle || null;
             (ex as any).mainMuscle = libEntry.mainMuscle || [];
             (ex as any).movement = libEntry.movement || [];
             (ex as any).equipment = libEntry.equipment || [];
@@ -19547,6 +19548,18 @@ Keep your response concise, practical, and evidence-based. This is general guida
   });
 
   // Workday Micro-Resets - Admin CRUD
+  // Re-run the primary-muscle tagger. Only fills exercises with no primary set,
+  // so hand corrections in the library survive and this is safe to hit twice.
+  app.post('/api/admin/exercises/backfill-primary-muscle', isAuthenticated, requireAdmin, async (req: any, res) => {
+    try {
+      const { backfillPrimaryMuscleOnce } = await import('../primaryMuscle');
+      res.json(await backfillPrimaryMuscleOnce(true));
+    } catch (error) {
+      console.error("Primary muscle backfill error:", error);
+      res.status(500).json({ message: "Failed to backfill primary muscle" });
+    }
+  });
+
   app.get('/api/admin/workday/desk-setups', isAuthenticated, requireAdmin, async (req: any, res) => {
     try {
       res.json(await storage.getAllWorkdayDeskSetups());

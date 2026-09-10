@@ -328,6 +328,32 @@ export function ExerciseLibraryForm({ open, onClose, exercise }: ExerciseLibrary
 
             <FormField
               control={form.control}
+              name={"primaryMuscle" as any}
+              render={({ field }) => (
+                <FormItem>
+                  <FormLabel>Primary Muscle</FormLabel>
+                  <p className="text-xs text-muted-foreground">
+                    The one muscle this exercise is FOR — bench press is Chest, a row is Lats,
+                    a squat is Quads. This is what the app shows above the exercise name during
+                    a workout. Main Muscle below stays a multi-select for filtering.
+                  </p>
+                  <Select value={(field.value as string) || ""} onValueChange={field.onChange}>
+                    <SelectTrigger data-testid="select-primary-muscle">
+                      <SelectValue placeholder="Select the primary muscle" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {MAIN_MUSCLE_OPTIONS.map((m) => (
+                        <SelectItem key={m} value={m}>{m}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                  <FormMessage />
+                </FormItem>
+              )}
+            />
+
+            <FormField
+              control={form.control}
               name="mainMuscle"
               render={({ field }) => {
                 const existingTags = field.value || [];

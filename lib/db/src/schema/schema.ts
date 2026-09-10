@@ -182,7 +182,12 @@ export const exerciseLibrary = pgTable("exercise_library", {
   muxPlaybackId: text("mux_playback_id"), // Mux video playback ID
   imageUrl: text("image_url"),
   // Tag categories for filtering
-  mainMuscle: text("main_muscle").array(), // Primary muscles targeted
+  mainMuscle: text("main_muscle").array(), // All muscles involved (multi-select)
+  // The ONE muscle this exercise is for. mainMuscle is a multi-select whose
+  // array order is just the order the checkboxes are listed in, so it can never
+  // answer "what is this exercise FOR" — bench press is chest, a row is lats,
+  // a squat is quads. Backfilled from the exercise name by primaryMuscle.ts.
+  primaryMuscle: text("primary_muscle"),
   equipment: text("equipment").array(), // Equipment needed
   movement: text("movement").array(), // Movement patterns
   mechanics: text("mechanics").array(), // Exercise mechanics (compound/isolation)

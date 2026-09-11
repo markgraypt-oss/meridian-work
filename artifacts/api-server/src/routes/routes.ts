@@ -8330,7 +8330,12 @@ Rules:
       res.json({
         ...log,
         recoveryPlanId: recoveryPlanSuggestion.id,
-        hasModifications: modifications.length > 0,
+        // Whether this outcome touches the programme is decided by its own
+        // flagging rules, not by rows written ahead of time. Nothing in the
+        // app reads this; it is kept so the response shape does not change.
+        hasModifications: !!(matchedOutcome?.flaggingMovementPatterns as string[] | null)?.length
+          || !!(matchedOutcome?.flaggingMuscles as string[] | null)?.length
+          || !!(matchedOutcome?.flaggingEquipment as string[] | null)?.length,
         matchedOutcomeId: matchedOutcome?.id || null,
         reminderCreated,
         reminderDueAt: new Date(Date.now() + reassessmentDays * 24 * 60 * 60 * 1000)

@@ -73,8 +73,9 @@ export function ExerciseLibraryForm({ open, onClose, exercise }: ExerciseLibrary
       level: "Beginner",
       exerciseType: "strength",
       muxPlaybackId: "",
+      primaryMuscle: null,
       imageUrl: null,
-    },
+    } as any,
   });
 
   const EXERCISE_TYPE_OPTIONS = [
@@ -100,8 +101,12 @@ export function ExerciseLibraryForm({ open, onClose, exercise }: ExerciseLibrary
           level: exercise.level || "Beginner",
           exerciseType: exercise.exerciseType || "strength",
           muxPlaybackId: exercise.muxPlaybackId || "",
+          // Without this the dropdown renders empty no matter what is stored,
+          // and saving the form writes that empty value back — one visit to
+          // this dialog would silently untag the exercise.
+          primaryMuscle: (exercise as any).primaryMuscle ?? null,
           imageUrl: null,
-        });
+        } as any);
       } else {
         form.reset({
           name: "",

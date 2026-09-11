@@ -27,10 +27,11 @@ import { aiCall } from "./index";
 // exerciseLibrary rows.
 // ---------------------------------------------------------------------------
 
-interface CatalogueEntry {
+export interface CatalogueEntry {
   id: number;
   name: string;
   mainMuscle?: string[] | null;
+  primaryMuscle?: string | null;
   equipment?: string[] | null;
   movement?: string[] | null;
   level?: string | null;
@@ -42,6 +43,7 @@ export async function loadExerciseCatalogue(): Promise<CatalogueEntry[]> {
     id: exerciseLibrary.id,
     name: exerciseLibrary.name,
     mainMuscle: exerciseLibrary.mainMuscle,
+    primaryMuscle: exerciseLibrary.primaryMuscle,
     equipment: exerciseLibrary.equipment,
     movement: exerciseLibrary.movement,
     level: exerciseLibrary.level,
@@ -82,48 +84,6 @@ export function filterCatalogueByContraindications(
     const muscles = (e.mainMuscle || []).map(m => m.toLowerCase());
     return !muscles.some(m => avoidSet.has(m));
   });
-}
-
-// Order the catalogue so exercises the user actually asked for (words in their
-// prompt / focus / goal) rank first, before it is sliced to the prompt limit.
-// Otherwise a requested move like "deadlift" or "pull up" can fall outside the
-// slice and the model never sees it.
-const RANK_STOPWORDS = new Set([
-  "functional", "strength", "workout", "moderate", "intensity", "include", "heavy",
-  "light", "full", "body", "access", "with", "that", "this", "gym", "session",
-  "training", "exercise", "minute", "minutes", "focus", "level", "want", "need",
-  "some", "more", "less", "into", "from", "your", "their", "today", "please",
-  "build", "give", "make", "based", "using", "around", "work",
-]);
-function rankStem(w: string): string {
-  return w.replace(/(ings|ing|ies|es|s)$/, "");
-}
-function rankCatalogueForPrompt(
-  catalogue: CatalogueEntry[],
-  hints: { notes?: string; focus?: string; goal?: string },
-): CatalogueEntry[] {
-  const text = `${hints.notes || ""} ${hints.focus || ""} ${hints.goal || ""}`.toLowerCase();
-  const stems = Array.from(new Set(
-    text.split(/[^a-z]+/)
-      .filter(w => w.length >= 4)
-      .map(rankStem)
-      .filter(w => w.length >= 3 && !RANK_STOPWORDS.has(w)),
-  ));
-  if (stems.length === 0) return catalogue;
-  const scoreOf = (e: CatalogueEntry) => {
-    const name = (e.name || "").toLowerCase();
-    const tags = `${(e.mainMuscle || []).join(" ")} ${(e.movement || []).join(" ")}`.toLowerCase();
-    let s = 0;
-    for (const w of stems) {
-      if (name.includes(w)) s += 3;      // requested movement in the exercise name
-      else if (tags.includes(w)) s += 1; // matches a muscle / movement tag
-    }
-    return s;
-  };
-  return catalogue
-    .map((e, i) => ({ e, s: scoreOf(e), i }))
-    .sort((a, b) => (b.s - a.s) || (a.i - b.i)) // stable within equal scores
-    .map(x => x.e);
 }
 
 function compactCatalogueForPrompt(catalogue: CatalogueEntry[], limit = 250): string {
@@ -255,7 +215,7 @@ export interface WorkoutInputs {
   };
 }
 
-function buildContextHints(opts: {
+export function buildContextHints(opts: {
   contraindications?: string[];
   avoidExerciseIds?: number[];
   burnoutScore?: number;
@@ -348,69 +308,6 @@ function buildProgrammePrompt(inputs: ProgrammeInputs, catalogueText: string, we
 }`,
     `Each week must contain exactly ${inputs.daysPerWeek} day entries (no rest days). Keep each workout near ${inputs.sessionDuration} minutes total. Across weeks, vary load/reps to drive progression.`,
     `Within each workout, list ALL warm-up blocks (section: "warmup") FIRST, before any main blocks (section: "main"). Do not interleave warm-up and main blocks.`,
-  ].filter(Boolean).join("\n");
-}
-
-// PROMPT CACHING (10 Sep 2026): the rules + coaching method and the exercise
-// catalogue are the expensive, stable part of this prompt (tens of thousands
-// of tokens). They go in cached `system` blocks so the JSON-repair leg and
-// the bad-ID retry re-read them at ~10% of the input price instead of paying
-// full price again. The catalogue is ranked per request, so cross-user hits
-// are rare; the within-request re-reads are the win.
-function buildWorkoutSystemBlocks(catalogueText: string, coachingContext?: string): string[] {
-  const rules = [
-    "You are an evidence-based S&C coach designing one training session for one user today.",
-    "Pick exercises ONLY from the catalogue below by their numeric `exerciseLibraryId`. Never invent IDs.",
-    "If the user names specific exercises or movements (e.g. deadlift, pull ups, squat, bench), you MUST include matching catalogue exercises — honouring the named movements takes priority over your default picks.",
-    "Match the requested difficulty exactly. For intermediate or advanced, pick standard or loaded variants, NOT assisted, banded-assist, or rehab/regression versions — e.g. a strict or weighted Pull Up, never a Band Assisted Pull Up; assisted and rehab variants are only for beginners.",
-    "Avoid medical claims. Do not diagnose, prescribe, or describe injuries.",
-    `Do NOT generate any warm-up blocks. Every block's "section" must be "main". The user will add their own warm-up.`,
-    `Default to traditional sets. Use blockType "single" for standalone lifts, "superset" for two paired exercises, "triset" for three. ONLY use blockType "circuit" when the user explicitly asks for a circuit, HIIT, conditioning, or "as a circuit" style session. A plain request like "full body workout" must NOT be returned as circuits.`,
-    "Build a COMPLETE session that follows the COACHING METHOD below — its canonical structure (straight-set primary, then antagonist supersets, then accessory pairs, then a short core/finisher), its pairing rules, its rest hierarchy and its difficulty tiers. A typical full session is about 6 to 9 exercises; do not return a thin 4 to 5 exercise session for a full-body request.",
-    "Keep the JSON itself compact so it returns fast: set \"tempo\" and \"notes\" to null unless truly essential, keep \"description\" to one short sentence, and add no commentary anywhere (cueing lives on each exercise's own video, not in the JSON).",
-    coachingContext ? coachingContext : "",
-  ].filter(Boolean).join("\n");
-  const catalogue = [
-    `Exercise catalogue (${catalogueText.split("\n").length} entries shown):`,
-    catalogueText,
-  ].join("\n");
-  return [rules, catalogue];
-}
-
-function buildWorkoutPrompt(inputs: WorkoutInputs, retryHint?: string): string {
-  const hints = buildContextHints(inputs);
-  return [
-    "Design the session from the coaching method and the exercise catalogue given in the system prompt.",
-    hints,
-    retryHint || "",
-    "",
-    "Inputs:",
-    JSON.stringify(inputs, null, 2),
-    "",
-    "OUTPUT SHAPE — this governs the JSON structure ONLY; it does NOT change the exercise selection, difficulty, or session structure described above. Return ONLY a raw JSON object: no markdown, no code fences, no prose before or after.",
-    "Use EXACTLY these top-level keys and no others: name, description, category, difficulty, duration, blocks.",
-    'Do NOT use keys such as "sessionName", "sessionDescription", "rir", "week", or "day". The description is a short plain string, not coaching commentary.',
-    'Every exercise goes inside blocks[].exercises[] and MUST use: "exerciseLibraryId" (a number from the catalogue) and "sets" (an ARRAY, one object per set), plus optional "load", "tempo", "notes".',
-    '"sets" MUST be an array like [{"reps":"8","rest":"90 sec"}] — one object per working set. NEVER a plain number. "reps" and "rest" live INSIDE each set object, never directly on the exercise.',
-    "Follow this exact structure (use real exerciseLibraryId values from the catalogue):",
-    `{
-  "name": "Full Body Strength",
-  "description": "Heavy compound focus with accessory work.",
-  "category": "strength",
-  "difficulty": "intermediate",
-  "duration": ${inputs.duration || 45},
-  "blocks": [
-    {
-      "section": "main",
-      "blockType": "single",
-      "rest": "120 sec",
-      "exercises": [
-        { "exerciseLibraryId": 101, "sets": [{"reps":"5","rest":"120 sec"},{"reps":"5","rest":"120 sec"},{"reps":"5","rest":"120 sec"}], "load": "heavy", "tempo": null, "notes": null }
-      ]
-    }
-  ]
-}`,
-    `Total duration must be near ${inputs.duration} minutes. Output the JSON object now, and nothing else.`,
   ].filter(Boolean).join("\n");
 }
 
@@ -605,233 +502,10 @@ export async function generateProgrammeWithAI(inputs: ProgrammeInputs, userId: s
   };
 }
 
-// Best-effort recovery when the model returns valid JSON in a slightly wrong
-// shape (its own key names, "sets" as a number, "rest" as a number, exercises
-// flattened). We coerce the common variants back to the schema shape so a
-// near-miss doesn't fail the whole generation. Returns null if nothing usable.
-function toRestString(r: any): string | undefined {
-  if (r == null) return undefined;
-  if (typeof r === "number") return `${r} sec`;
-  const s = String(r).trim();
-  return s || undefined;
-}
-
-function extractJsonLoose(text: string): any | null {
-  if (!text) return null;
-  let s = text.trim();
-  const fence = s.match(/```(?:json)?\s*([\s\S]*?)```/i);
-  if (fence) s = fence[1].trim();
-  else {
-    const m = s.match(/\{[\s\S]*\}/);
-    if (m) s = m[0];
-  }
-  try { return JSON.parse(s); } catch { return null; }
-}
-
-function coerceSets(ex: any): any[] {
-  if (Array.isArray(ex?.sets) && ex.sets.length > 0) {
-    return ex.sets.slice(0, 8).map((st: any) =>
-      st && typeof st === "object"
-        ? { reps: st.reps ?? st.rep, duration: st.duration, rest: toRestString(st.rest ?? st.restPeriod) }
-        : { reps: st }
-    );
-  }
-  const n = Number.parseInt(String(ex?.sets ?? ex?.setsCount ?? ""), 10);
-  const count = Number.isFinite(n) && n > 0 ? Math.min(8, n) : 1;
-  const one = { reps: ex?.reps, duration: ex?.duration, rest: toRestString(ex?.rest ?? ex?.restPeriod) };
-  return Array.from({ length: count }, () => ({ ...one }));
-}
-
-// Coerce a parsed model object into the schema shape. Idempotent on already-
-// correct objects. Returns the original object if it can't build any block, so
-// nothing is lost. Used both as a pre-validation transform (to save a repair
-// leg) and as a last-ditch salvage. Never throws.
-function normalizeWorkoutObject(obj: any, inputs: WorkoutInputs): any {
-  try {
-    if (!obj || typeof obj !== "object") return obj;
-    const blocksRaw = Array.isArray(obj.blocks)
-      ? obj.blocks
-      : Array.isArray(obj.exercises)
-        ? [{ section: "main", blockType: "single", exercises: obj.exercises }]
-        : [];
-    const blocks = blocksRaw
-      .map((b: any) => ({
-        section: b?.section === "warmup" ? "warmup" : "main",
-        blockType: ["single", "superset", "triset", "circuit"].includes(b?.blockType) ? b.blockType : "single",
-        rest: b?.rest == null ? null : String(b.rest),
-        exercises: (Array.isArray(b?.exercises) ? b.exercises : [])
-          .map((ex: any) => ({
-            exerciseLibraryId: Number.parseInt(String(ex?.exerciseLibraryId ?? ex?.id ?? ex?.exerciseId ?? ""), 10),
-            sets: coerceSets(ex),
-            load: ex?.load != null ? String(ex.load) : null,
-            tempo: ex?.tempo != null ? String(ex.tempo) : null,
-            notes: ex?.notes != null ? String(ex.notes) : null,
-          }))
-          .filter((e: any) => Number.isFinite(e.exerciseLibraryId) && e.exerciseLibraryId > 0),
-      }))
-      .filter((b: any) => b.exercises.length > 0);
-    if (blocks.length === 0) return obj;
-    const rawDur = Number.parseInt(String(obj.duration ?? inputs.duration ?? 45), 10);
-    return {
-      name: String(obj.name ?? obj.sessionName ?? obj.title ?? "Workout").slice(0, 80),
-      description: (obj.description ?? obj.sessionDescription) != null
-        ? String(obj.description ?? obj.sessionDescription).slice(0, 400)
-        : null,
-      category: ["strength", "cardio", "hiit", "mobility", "recovery"].includes(obj.category) ? obj.category : "strength",
-      difficulty: ["beginner", "intermediate", "advanced"].includes(obj.difficulty) ? obj.difficulty : (inputs.difficulty || "intermediate"),
-      duration: Number.isFinite(rawDur) ? Math.max(5, Math.min(180, rawDur)) : 45,
-      blocks,
-    };
-  } catch {
-    return obj;
-  }
-}
-
-function salvageWorkoutJson(text: string, inputs: WorkoutInputs): any | null {
-  const obj = extractJsonLoose(text);
-  if (!obj || typeof obj !== "object") return null;
-  const norm = normalizeWorkoutObject(obj, inputs);
-  return norm && Array.isArray(norm.blocks) && norm.blocks.length > 0 ? norm : null;
-}
-
-// Every set needs a rest so the session shows real recovery times, not "none".
-// Fill from the block's rest, else a sensible default keyed to the rep range.
-function normRestVal(r: any): string {
-  if (r == null) return "";
-  const s = String(r).trim();
-  if (!s || /^(none|n\/?a|0)$/i.test(s)) return "";
-  return s;
-}
-function defaultRestForReps(reps: any): string {
-  const n = Number.parseInt(String(reps ?? ""), 10);
-  if (!Number.isFinite(n)) return "90 sec"; // AMRAP / MAX / "per side"
-  if (n <= 6) return "150 sec";
-  if (n <= 12) return "90 sec";
-  return "60 sec";
-}
-function applyDefaultRest<T extends { blocks?: any[] }>(w: T): T {
-  for (const b of (w?.blocks || [])) {
-    let br = normRestVal(b?.rest);
-    if (!br) br = defaultRestForReps(b?.exercises?.[0]?.sets?.[0]?.reps);
-    b.rest = br;
-    for (const ex of (b?.exercises || [])) {
-      for (const st of (ex?.sets || [])) {
-        if (!normRestVal(st?.rest)) st.rest = br;
-      }
-    }
-  }
-  return w;
-}
-
-export async function generateWorkoutWithAI(inputs: WorkoutInputs, userId: string) {
-  const fullCatalogue = await loadExerciseCatalogue();
-  const equipFiltered = filterCatalogueByEquipment(fullCatalogue, inputs.equipment);
-  const filtered = filterCatalogueByContraindications(
-    equipFiltered,
-    inputs.contraindications || [],
-    inputs.avoidExerciseIds || [],
-  );
-  const validIds = new Set(filtered.map(c => c.id));
-  const ranked = rankCatalogueForPrompt(filtered, { notes: inputs.notes, focus: inputs.focus, goal: inputs.goal });
-  const catalogueText = compactCatalogueForPrompt(ranked);
-
-  const workoutSchema = generatedWorkoutSchema as unknown as z.ZodType<GeneratedWorkout>;
-
-  // Pull admin-tunable coaching expertise (philosophy, prompt interpretation,
-  // selection rules, boundaries) for the one-off Workout Generator.
-  let coachingContext = "";
-  try {
-    const { getCoachingContext } = await import("../aiProvider");
-    coachingContext = await getCoachingContext("workout_generator");
-  } catch {}
-
-  const workoutSystem = buildWorkoutSystemBlocks(catalogueText, coachingContext);
-
-  let result = await aiCall<GeneratedWorkout>({
-    feature: "workout_generator",
-    system: workoutSystem,
-    prompt: buildWorkoutPrompt(inputs, undefined),
-    userId,
-    schema: workoutSchema,
-    preValidate: (obj: any) => normalizeWorkoutObject(obj, inputs),
-    maxTokens: 3000,
-    temperature: 0.5,
-    timeoutMs: 55_000,
-  });
-
-  if (result.data) {
-    const ids = result.data.blocks.flatMap(b => b.exercises.map(e => e.exerciseLibraryId));
-    const bad = unknownIds(ids, validIds);
-    if (bad.length > 0) {
-      const retryHint = `Your previous response used exerciseLibraryId values not in the catalogue: ${bad.join(", ")}. Use only valid catalogue IDs.`;
-      result = await aiCall<GeneratedWorkout>({
-        feature: "workout_generator",
-        system: workoutSystem,
-        prompt: buildWorkoutPrompt(inputs, retryHint),
-        userId,
-        schema: workoutSchema,
-        preValidate: (obj: any) => normalizeWorkoutObject(obj, inputs),
-        maxTokens: 3000,
-        temperature: 0.3,
-        timeoutMs: 55_000,
-      });
-      if (result.data) {
-        const stillBadIds = result.data.blocks.flatMap(b => b.exercises.map(e => e.exerciseLibraryId));
-        const stillBad = unknownIds(stillBadIds, validIds);
-        if (stillBad.length > 0) {
-          return {
-            ok: false as const,
-            error: `Generator returned exerciseLibraryId values not in the catalogue after one repair attempt: ${stillBad.join(", ")}`,
-            logId: result.logId,
-            validationOutcome: result.validationOutcome,
-          };
-        }
-      }
-    }
-  }
-
-  // If the model returned JSON in a near-miss shape, coerce and re-validate
-  // before giving up.
-  if (!result.data && result.text) {
-    const salvaged = salvageWorkoutJson(result.text, inputs);
-    if (salvaged) {
-      const reparse = generatedWorkoutSchema.safeParse(salvaged);
-      if (reparse.success) {
-        result = { ...result, data: reparse.data as GeneratedWorkout, validationOutcome: "repaired" };
-      }
-    }
-  }
-
-  if (!result.data) {
-    // Surface a short window of the model's actual output (start + end) so a
-    // parse failure can be diagnosed from the client instead of guessed at.
-    const raw = (result.text || "").replace(/\s+/g, " ").trim();
-    const snippet = raw.length > 320 ? `${raw.slice(0, 200)} … ${raw.slice(-120)}` : raw;
-    return {
-      ok: false as const,
-      error: result.error
-        || `Workout generator failed to return valid JSON [${result.validationOutcome}] :: ${snippet || "(empty response)"}`,
-      logId: result.logId,
-      validationOutcome: result.validationOutcome,
-    };
-  }
-  const pruned = pruneWorkout(result.data, filtered);
-  if (pruned.blocks.length === 0) {
-    return {
-      ok: false as const,
-      error: "Generated workout contained no usable exercises after catalogue check",
-      logId: result.logId,
-      validationOutcome: result.validationOutcome,
-    };
-  }
-  return {
-    ok: true as const,
-    data: applyDefaultRest(pruned),
-    logId: result.logId,
-    validationOutcome: result.validationOutcome,
-    safetyFlags: result.safetyFlags,
-  };
-}
+// The one-off workout generator lives in ./workoutGenerator.ts (rebuilt
+// 11 Sep 2026: deterministic shortlist + compact model output + server-side
+// expansion). This file keeps the multi-week programme generator and the
+// catalogue / schema helpers both share.
 
 // ---------------------------------------------------------------------------
 // Section regeneration — regenerate a single day or workout in an existing

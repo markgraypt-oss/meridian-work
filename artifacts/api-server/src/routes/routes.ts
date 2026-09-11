@@ -10694,7 +10694,7 @@ Rules:
   app.post('/api/ai/workouts/generate', isAuthenticated, async (req: any, res) => {
     try {
       const userId = req.user.claims.sub;
-      const { generateWorkoutWithAI } = await import('../ai/programmeGenerator');
+      const { generateWorkoutWithAI } = await import('../ai/workoutGenerator');
 
       // Pull current burnout score and active body-map issues so the model
       // can adapt today's session. Both are best-effort: we never block the

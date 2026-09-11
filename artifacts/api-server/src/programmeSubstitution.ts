@@ -196,6 +196,45 @@ export interface SubstituteCandidate {
   score: number;
 }
 
+/**
+ * `movement` is not a list of movement patterns. It is a mixed bag.
+ *
+ * Counted over the live library: "Bilateral (2 Arms and/or 2 Legs)" appears on
+ * 372 exercises and "Unilateral (Single Arm or Leg)" on 324 — roughly seven in
+ * ten. They describe how many limbs are involved, not what the movement IS, so
+ * treating them as patterns made almost any two exercises look like they shared
+ * one. That single mistake is how a Barbell Rack Pull scored as "same movement"
+ * as a Band Straight Arm Pulldown: they share nothing but the word Bilateral.
+ */
+const LATERALITY_TAGS = new Set([
+  'Bilateral (2 Arms and/or 2 Legs)',
+  'Unilateral (Single Arm or Leg)',
+  'Alternating',
+  'Contralateral (Opposite Side Arm & Leg)',
+  'Ipsilateral (Same Side Arm & Leg)',
+]);
+
+/**
+ * Work that is not training, and can never replace training.
+ *
+ * A mobility drill or a static stretch is something you do TO a muscle, not
+ * something you train it with. Offering a Kneeling Thoracic Extension in place
+ * of a pulldown is not a lighter option, it is a different activity — and it
+ * only ever got offered because the auto-tagger correctly gave it a primary
+ * muscle of Lats, which the old relevance test accepted on its own.
+ */
+const NON_TRAINING_PATTERNS = new Set(['Mobility', 'Static Stretches', 'Dynamic Stretches']);
+
+/** The patterns that actually say what a movement is. */
+function realPatterns(e: ExerciseLike): string[] {
+  return (e.movement || []).filter((m) => m && !LATERALITY_TAGS.has(m));
+}
+
+function isNonTraining(e: ExerciseLike): boolean {
+  const real = realPatterns(e);
+  return real.length > 0 && real.every((m) => NON_TRAINING_PATTERNS.has(m));
+}
+
 const LEVEL_ORDER = ['beginner', 'intermediate', 'advanced'];
 
 /**
@@ -320,6 +359,10 @@ export function rankSubstitutes(opts: {
     const candidateLevel = candidate.level ? String(candidate.level).toLowerCase() : null;
     if (candidateLevel === NEVER_OFFER_LEVEL) continue;
 
+    // A stretch or mobility drill is not a substitute for a training exercise.
+    // Only allowed when the original was that kind of work too.
+    if (isNonTraining(candidate) && !isNonTraining(original)) continue;
+
     const isCurated = curatedOrder.has(candidate.id);
     let score = 0;
 
@@ -330,7 +373,7 @@ export function rankSubstitutes(opts: {
     }
 
     const sharedMuscles = overlap(original.mainMuscle, candidate.mainMuscle);
-    const sharedPatterns = overlap(original.movement, candidate.movement);
+    const sharedPatterns = overlap(realPatterns(original), realPatterns(candidate));
 
     // Primary muscle is the strongest signal there is, and it is the one that
     // stops nonsense. Bench press lists Chest, Triceps and Shoulders in
@@ -355,7 +398,7 @@ export function rankSubstitutes(opts: {
     const patternIsFlagged = !!originalFlag.matched.movementPattern;
     const coachAllowed = patternIsFlagged
       && pool.allowedPatterns.length > 0
-      && overlap(candidate.movement, pool.allowedPatterns).length > 0;
+      && overlap(realPatterns(candidate), pool.allowedPatterns).length > 0;
 
     // Preserving the training stimulus is the point, so muscle and pattern
     // dominate the score.
@@ -404,9 +447,29 @@ export function rankSubstitutes(opts: {
     // the guard threw away every candidate on the allowedPatterns path — the one
     // route that cannot share a muscle or a pattern with the original — so an
     // outcome that banned a whole movement offered nothing at all.
-    const relevant = bothTagged
-      ? (samePrimary || sharedPatterns.length > 0)
-      : (sharedMuscles.length > 0 || sharedPatterns.length > 0);
+    //
+    // The old test accepted `samePrimary` on its own, and that is what produced
+    // the nonsense. When an outcome bans a movement pattern, every genuine
+    // relative of the original is flagged and filtered out — so "same primary
+    // muscle" is left selecting from whatever ELSE happens to train that muscle,
+    // which is how a hip hinge and a thoracic mobility drill ended up offered in
+    // place of a straight-arm pulldown. They do share a primary muscle. They are
+    // not substitutes.
+    //
+    // A substitute now has to be the same KIND of movement — a real shared
+    // pattern — or be named by the coach, either in the curated list or through
+    // allowedPatterns. Sharing a muscle alone never qualifies.
+    //
+    // This will empty the list for some outcomes, and that is the honest
+    // result: a shoulder outcome banning vertical push, vertical pull,
+    // horizontal push, horizontal pull and carry has excluded every upper-body
+    // substitute there is. Offering rubbish is worse than offering nothing —
+    // Reduce and Keep are the real answers there, and the review screen already
+    // says so plainly.
+    const relevant = sharedPatterns.length > 0 && (
+      bothTagged ? (samePrimary || assistOnly || sharedMuscles.length > 0)
+                 : sharedMuscles.length > 0
+    );
     if (!isCurated && !coachAllowed && !relevant) continue;
 
     scored.push({

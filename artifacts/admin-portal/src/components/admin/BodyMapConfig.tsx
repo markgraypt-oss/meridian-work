@@ -14,6 +14,7 @@ import { Plus, Edit, Trash2, Target, Settings } from "lucide-react";
 import { apiRequest } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 import type { BodyMapArea, BodyMapOutcome, BodyMapMovementOption } from "@shared/schema";
+import { MovementChecksEditor } from "@/components/admin/MovementChecksEditor";
 
 export function BodyMapConfig() {
   const { toast } = useToast();
@@ -297,7 +298,7 @@ export function BodyMapConfig() {
       </CardHeader>
       <CardContent>
         <Tabs value={activeTab} onValueChange={setActiveTab}>
-          <TabsList className="grid w-full grid-cols-2">
+          <TabsList className="grid w-full grid-cols-3">
             <TabsTrigger value="areas" data-testid="tab-areas">
               <Settings className="h-4 w-4 mr-2" />
               Areas
@@ -306,7 +307,18 @@ export function BodyMapConfig() {
               <Target className="h-4 w-4 mr-2" />
               Outcomes
             </TabsTrigger>
+            <TabsTrigger value="checks" data-testid="tab-checks" disabled={!selectedAreaId}>
+              <Target className="h-4 w-4 mr-2" />
+              Movement Checks
+            </TabsTrigger>
           </TabsList>
+
+          {/* Movement Checks Tab: the per-movement questions asked in the assessment */}
+          <TabsContent value="checks" className="space-y-4">
+            {selectedArea ? <MovementChecksEditor area={selectedArea} /> : (
+              <p className="text-center text-muted-foreground py-8">Select an area first.</p>
+            )}
+          </TabsContent>
 
           {/* Areas Tab */}
           <TabsContent value="areas" className="space-y-4">

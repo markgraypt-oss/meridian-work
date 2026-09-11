@@ -630,7 +630,6 @@ export interface IStorage {
   getActiveSubstitutionMappings(enrollmentId: number): Promise<Map<number, {substitutedExerciseId: number, exerciseName: string, imageUrl: string | null, muxPlaybackId: string | null}>>;
   
   getActiveVolumeReductions(enrollmentId: number): Promise<Map<number, { reducedSets: any; originalSets: any; tier: string | null; reason: string | null }>>;
-  getActiveRestedSlots(enrollmentId: number): Promise<Set<number>>;
 
   // Step 5: Restorable substitutions for cleared body map issues
   getRestorableSubstitutions(userId: string, bodyAreaName: string): Promise<{
@@ -646,7 +645,7 @@ export interface IStorage {
       substitutedExerciseName: string;
       substitutedImageUrl: string | null;
       workoutName: string;
-      action: 'swap' | 'reduce' | 'rest';
+      action: 'swap' | 'reduce';
       changeSummary: string | null;
     }>;
   } | null>;
@@ -3234,7 +3233,6 @@ export class DatabaseStorage implements IStorage {
     // Get active substitutions and reductions for this enrollment
     const substitutions = await this.getActiveSubstitutionMappings(enrollmentId);
     const reductions = await this.getActiveVolumeReductions(enrollmentId);
-    const rested = await this.getActiveRestedSlots(enrollmentId);
     
     // Get all enrollment workouts for this enrollment, joined with template for imageUrl
     const enrolledWorkoutsList = await db
@@ -3297,16 +3295,6 @@ export class DatabaseStorage implements IStorage {
         }));
       }
       
-      // Rested slots: the movement was stopped after an assessment and nothing
-      // replaces it, so it is simply not in the workout until restored. Read-time
-      // only — the template is untouched.
-      if (rested.size > 0) {
-        blocks = blocks.map(block => ({
-          ...block,
-          exercises: (block.exercises || []).filter((exercise: any) => !rested.has(exercise.templateExerciseId || exercise.id)),
-        }));
-      }
-
       // Apply any accepted volume reductions. The exercise itself is untouched —
       // only the prescription changes — so this runs after substitutions and can
       // sit on top of one: a swapped exercise can also be reduced.
@@ -8711,32 +8699,6 @@ export class DatabaseStorage implements IStorage {
     return result;
   }
 
-  /**
-   * Slots the athlete chose to rest after an assessment: the movement is
-   * stopped and nothing replaces it. Hidden from workouts until restored.
-   */
-  async getActiveRestedSlots(enrollmentId: number): Promise<Set<number>> {
-    const acceptedRecords = await db
-      .select({ id: programmeModificationRecords.id })
-      .from(programmeModificationRecords)
-      .where(and(
-        eq(programmeModificationRecords.mainProgrammeEnrollmentId, enrollmentId),
-        eq(programmeModificationRecords.status, 'accepted'),
-        isNull(programmeModificationRecords.clearedAt)
-      ));
-    if (acceptedRecords.length === 0) return new Set();
-
-    const rows = await db
-      .select({ exerciseInstanceId: exerciseSubstitutionMappings.exerciseInstanceId })
-      .from(exerciseSubstitutionMappings)
-      .where(and(
-        inArray(exerciseSubstitutionMappings.modificationRecordId, acceptedRecords.map(r => r.id)),
-        eq(exerciseSubstitutionMappings.isRestored, false),
-        eq(exerciseSubstitutionMappings.action, 'rest')
-      ));
-    return new Set(rows.map(r => r.exerciseInstanceId));
-  }
-
   // Step 5: Get restorable substitutions for a user based on body area
   // Returns substitutions that were applied due to a body map outcome for this body area
   // and are not yet restored
@@ -8753,7 +8715,7 @@ export class DatabaseStorage implements IStorage {
       substitutedExerciseName: string;
       substitutedImageUrl: string | null;
       workoutName: string;
-      action: 'swap' | 'reduce' | 'rest';
+      action: 'swap' | 'reduce';
       /** For a reduction: "3×7 → 4×10", i.e. what restoring puts back. */
       changeSummary: string | null;
     }>;
@@ -8849,17 +8811,17 @@ export class DatabaseStorage implements IStorage {
         substitutedExerciseId: m.substitutedExerciseId,
         // A reduction keeps the exercise, so the "after" side is the same
         // movement — showing "Unknown" there would be nonsense.
-        substitutedExerciseName: m.action === 'reduce' ? (m.originalExerciseName || 'Unknown')
-          : m.action === 'rest' ? 'Rested'
+        substitutedExerciseName: m.action === 'reduce'
+          ? (m.originalExerciseName || 'Unknown')
           : (m.substitutedExerciseName || 'Unknown'),
-        substitutedImageUrl: (m.action === 'reduce' || m.action === 'rest')
+        substitutedImageUrl: m.action === 'reduce'
           ? getThumbnailUrl(m.originalImageUrl, m.originalMuxPlaybackId)
           : getThumbnailUrl(m.substitutedImageUrl, m.substitutedMuxPlaybackId),
         workoutName: m.workoutName || 'Unknown Workout',
-        action: (m.action === 'reduce' ? 'reduce' : m.action === 'rest' ? 'rest' : 'swap') as 'swap' | 'reduce' | 'rest',
+        action: (m.action === 'reduce' ? 'reduce' : 'swap') as 'swap' | 'reduce',
         changeSummary: m.action === 'reduce'
           ? `${describeSets(m.reducedSets)} → ${describeSets(m.originalSets)}`
-          : m.action === 'rest' ? 'Back in the programme' : null,
+          : null,
       })),
     };
   }
@@ -9078,13 +9040,6 @@ export class DatabaseStorage implements IStorage {
     
     // Get active substitutions for this enrollment
     const substitutions = await this.getActiveSubstitutionMappings(enrollmentId);
-    const rested = await this.getActiveRestedSlots(enrollmentId);
-    if (rested.size > 0) {
-      blocks = blocks.map(block => ({
-        ...block,
-        exercises: (block.exercises || []).filter((exercise: any) => !rested.has(exercise.templateExerciseId || exercise.id)),
-      }));
-    }
     
     if (substitutions.size === 0) {
       return blocks;

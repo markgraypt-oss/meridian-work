@@ -79,6 +79,7 @@ export default function AdminOutcomeEditor() {
   const [formShowProgrammeImpact, setFormShowProgrammeImpact] = useState(false);
   const [formProgrammeImpactSummary, setFormProgrammeImpactSummary] = useState("");
   const [formFlaggingMovementPatterns, setFormFlaggingMovementPatterns] = useState<string[]>([]);
+  const [formCautionMovementPatterns, setFormCautionMovementPatterns] = useState<string[]>([]);
   const [formFlaggingEquipment, setFormFlaggingEquipment] = useState<string[]>([]);
   const [formFlaggingLevel, setFormFlaggingLevel] = useState<string[]>([]);
   const [formFlaggingMechanics, setFormFlaggingMechanics] = useState<string[]>([]);
@@ -184,6 +185,7 @@ export default function AdminOutcomeEditor() {
       setFormShowProgrammeImpact(outcome.showProgrammeImpact || false);
       setFormProgrammeImpactSummary(outcome.programmeImpactSummary || "");
       setFormFlaggingMovementPatterns(outcome.flaggingMovementPatterns || []);
+      setFormCautionMovementPatterns((outcome as any).cautionMovementPatterns || []);
       setFormFlaggingEquipment(outcome.flaggingEquipment || []);
       setFormFlaggingLevel(outcome.flaggingLevel || []);
       setFormFlaggingMechanics(outcome.flaggingMechanics || []);
@@ -283,6 +285,7 @@ export default function AdminOutcomeEditor() {
       showProgrammeImpact: formShowProgrammeImpact,
       programmeImpactSummary: formShowProgrammeImpact ? formProgrammeImpactSummary : null,
       flaggingMovementPatterns: formShowProgrammeImpact ? formFlaggingMovementPatterns : null,
+      cautionMovementPatterns: formShowProgrammeImpact ? formCautionMovementPatterns : null,
       flaggingEquipment: formShowProgrammeImpact ? formFlaggingEquipment : null,
       flaggingLevel: formShowProgrammeImpact ? formFlaggingLevel : null,
       flaggingMechanics: formShowProgrammeImpact ? formFlaggingMechanics : null,
@@ -757,8 +760,34 @@ export default function AdminOutcomeEditor() {
 
                     {/* Flagging Rules */}
                     <div className="space-y-4">
-                      <h4 className="font-medium border-b pb-2">Flagging Rules</h4>
-                      <p className="text-sm text-muted-foreground">Define what exercises should be flagged for potential substitution</p>
+                      <h4 className="font-medium border-b pb-2">Flagging Rules (fallback)</h4>
+                      <p className="text-sm text-muted-foreground">
+                        Only used when the athlete has not answered the per-movement questions — an area with
+                        Movement Checks set up uses their own answers instead (painful = stop, sore but manageable = go easier).
+                      </p>
+
+                      {/* Go easier: keep the pattern, offer a gentler version */}
+                      <div>
+                        <Label>Go easier on</Label>
+                        <p className="text-xs text-muted-foreground mb-2">Keep the movement; the app offers the same pattern, same muscle, one step easier (or fewer sets).</p>
+                        <div className="flex flex-wrap gap-2">
+                          {MOVEMENT_PATTERN_OPTIONS.map((pattern) => (
+                            <label key={pattern} className="flex items-center gap-2 bg-muted rounded px-2 py-1 cursor-pointer hover:bg-muted/80">
+                              <Checkbox
+                                checked={formCautionMovementPatterns.includes(pattern)}
+                                onCheckedChange={(checked) => {
+                                  if (checked) setFormCautionMovementPatterns([...formCautionMovementPatterns, pattern]);
+                                  else setFormCautionMovementPatterns(formCautionMovementPatterns.filter(p => p !== pattern));
+                                }}
+                              />
+                              <span className="text-sm">{pattern}</span>
+                            </label>
+                          ))}
+                        </div>
+                      </div>
+
+                      <p className="text-sm font-medium">Stop</p>
+                      <p className="text-xs text-muted-foreground -mt-2">Nothing in these patterns this week. Filled by the recovery exercises below, or rested.</p>
                       
                       <Accordion type="multiple" className="w-full">
                         {/* Movement Patterns */}
@@ -1009,44 +1038,20 @@ export default function AdminOutcomeEditor() {
                     {/* Substitution Pool */}
                     <div className="space-y-4">
                       <div className="border-b pb-2">
-                        <h4 className="font-medium">Substitution Pool</h4>
-                        <p className="text-sm text-muted-foreground">Define allowed replacement movement patterns and curated substitute exercises</p>
-                      </div>
-
-                      {/* Allowed Replacement Movement Patterns */}
-                      <div>
-                        <Label>Allowed replacement movement patterns</Label>
-                        <p className="text-xs text-muted-foreground mb-2">Select movement patterns that can be used as alternatives when exercises are flagged</p>
-                        <div className="flex flex-wrap gap-2">
-                          {MOVEMENT_PATTERN_OPTIONS.map((pattern) => (
-                            <label key={pattern} className="flex items-center gap-2 bg-muted rounded px-2 py-1 cursor-pointer hover:bg-muted/80">
-                              <Checkbox
-                                checked={formSubstitutionAllowedPatterns.includes(pattern)}
-                                onCheckedChange={(checked) => {
-                                  if (checked) {
-                                    setFormSubstitutionAllowedPatterns([...formSubstitutionAllowedPatterns, pattern]);
-                                  } else {
-                                    setFormSubstitutionAllowedPatterns(formSubstitutionAllowedPatterns.filter(p => p !== pattern));
-                                  }
-                                }}
-                              />
-                              <span className="text-sm">{pattern}</span>
-                            </label>
-                          ))}
-                        </div>
-                        {formSubstitutionAllowedPatterns.length > 0 && (
-                          <p className="text-xs text-muted-foreground mt-2">
-                            {formSubstitutionAllowedPatterns.length} pattern{formSubstitutionAllowedPatterns.length !== 1 ? 's' : ''} selected
-                          </p>
-                        )}
+                        <h4 className="font-medium">Recovery Exercises</h4>
+                        <p className="text-sm text-muted-foreground">
+                          Fill the slot when a movement is stopped: rehab or recovery work for this area, in the order you
+                          want it offered. Leave empty and a stopped exercise is simply rested until the reassessment.
+                          (The old "allowed replacement patterns" are no longer used — a bench press is not replaced by a squat.)
+                        </p>
                       </div>
 
                       {/* Substitute Exercises Picker */}
                       <div className="space-y-3">
                         <div className="flex items-center justify-between">
                           <div>
-                            <Label>Substitute exercises</Label>
-                            <p className="text-xs text-muted-foreground">Select specific exercises that can be used as substitutes</p>
+                            <Label>Recovery exercises</Label>
+                            <p className="text-xs text-muted-foreground">Offered, in this order, in place of a stopped exercise</p>
                           </div>
                           <Button 
                             type="button" 

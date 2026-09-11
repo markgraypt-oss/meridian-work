@@ -440,7 +440,6 @@ import { computeBurnoutScore } from '../burnoutEngine';
 import { computeCyclePhase } from '../cyclePhase';
 import { normalizeSex } from '../coach/lifeStage';
 import { rulesFromOutcome, poolFromOutcome, hasAnyCriteria, evaluateFlag, rankSubstitutes } from '../programmeSubstitution';
-import { assessmentContextFor, resolveChecksForUser, RED_FLAGS, MOVEMENT_RESPONSES } from '../bodyMapChecks';
 import { buildReduction } from '../programmeReduction';
 import { trackCalibrationEvent, trackRecoveryModeActivation, generateCalibrationReport, getLevel as getBurnoutLevel, writePhysiologicalSnapshot } from '../burnoutCalibration';
 import { burnoutScores, insertCompanySchema, insertCompanyBenefitSchema, insertCompanyWellbeingContactSchema, checkIns, bodyMapLogs, departments, companyInvites, usageAlerts, insertAiPromptSchema, workdayBreakLogs, aiInsightReads, recoveryModePeriods, physiologicalSnapshots, cycleSettings, cycleLogs } from "@workspace/db";
@@ -8147,9 +8146,7 @@ Rules:
       const hasFlaggingRules = flaggingPatterns.length > 0 || flaggingEquipment.length > 0 || flaggingLevel.length > 0;
       const hasSubstituteExercises = substituteExerciseIds.length > 0;
       
-      const hasOwnAnswers = !!(latestLog as any).movementResponses
-        && Object.keys((latestLog as any).movementResponses || {}).length > 0;
-      const hasProgrammeImpact = hasFlag && (hasFlaggingRules || hasSubstituteExercises || hasOwnAnswers);
+      const hasProgrammeImpact = hasFlag && (hasFlaggingRules || hasSubstituteExercises);
       
       if (!hasProgrammeImpact) {
         return res.json({ active: false });
@@ -8307,19 +8304,6 @@ Rules:
         });
       }
       
-      // What the answers come to, now the log carries its outcome. Read back
-      // through the same helper the programme routes use, so the number the
-      // app shows and the changes it later offers can never disagree.
-      let assessmentTiers: { stop: string[]; easier: string[]; source: string } | null = null;
-      if (matchedOutcome) {
-        try {
-          const ctx = await assessmentContextFor(userId, matchedOutcome.id, matchedOutcome);
-          assessmentTiers = ctx.tiers;
-        } catch (e: any) {
-          console.error('[body-map] tiers failed:', e?.message || e);
-        }
-      }
-
       // 1. Complete any existing reminders for this body area (new assessment = reminder completed)
       await storage.completeReassessmentReminders(userId, normalizedAreaName, log.id);
       
@@ -8349,9 +8333,9 @@ Rules:
         // Whether this outcome touches the programme is decided by its own
         // flagging rules, not by rows written ahead of time. Nothing in the
         // app reads this; it is kept so the response shape does not change.
-        hasModifications: !!(assessmentTiers && (assessmentTiers.stop.length || assessmentTiers.easier.length)),
-        // What the athlete's answers came to: patterns to stop and to go easier on.
-        tiers: assessmentTiers,
+        hasModifications: !!(matchedOutcome?.flaggingMovementPatterns as string[] | null)?.length
+          || !!(matchedOutcome?.flaggingMuscles as string[] | null)?.length
+          || !!(matchedOutcome?.flaggingEquipment as string[] | null)?.length,
         matchedOutcomeId: matchedOutcome?.id || null,
         reminderCreated,
         reminderDueAt: new Date(Date.now() + reassessmentDays * 24 * 60 * 60 * 1000)
@@ -8674,13 +8658,8 @@ Rules:
       // /preview and /accept can never disagree about what is flagged or what may
       // replace it. They previously kept separate copies that used opposite
       // boolean logic (AND here, OR there) and read different columns.
-      // What to stop and what to go easier on comes from the athlete's own
-      // answers on the assessment (per movement), with the outcome's lists as
-      // the fallback. Severity is read from the same place.
-      const ctx = await assessmentContextFor(userId, outcomeId, outcome);
-      const rules = ctx.rules;
-      const pool = ctx.pool;
-      const severity = ctx.severity;
+      const rules = rulesFromOutcome(outcome);
+      const pool = poolFromOutcome(outcome);
       const flaggingPatterns = rules.movementPatterns;
       const flaggingEquipment = rules.equipment;
       const flaggingLevel = rules.levels;
@@ -8734,6 +8713,23 @@ Rules:
         }
       }
 
+      // How bad it is decides how hard the reduction pulls back. The client only
+      // sends an outcome id, and the severity that matched it is already on the
+      // assessment, so read it there rather than trusting a number over the wire.
+      // Falls back to 5 (moderate) when there is no log to read.
+      let severity = 5;
+      try {
+        const sev = await pool.query(
+          `SELECT severity FROM body_map_logs
+            WHERE user_id = $1 AND matched_outcome_id = $2
+            ORDER BY created_at DESC LIMIT 1`,
+          [userId, outcomeId],
+        );
+        if (sev.rows[0]?.severity != null) severity = Number(sev.rows[0].severity);
+      } catch (e: any) {
+        console.error('[programme-modifications/preview] severity lookup failed:', e?.message || e);
+      }
+
       // Apply any active accepted substitutions for this enrolment so the preview
       // evaluates the exercise the user actually has (not the original template).
       // Uses the same helper that workout rendering uses, so behaviour is consistent
@@ -8752,8 +8748,6 @@ Rules:
         // Widened: muscles and mechanics are real flagging categories that the
         // preview never used to read, so its type could not express them.
         reasonType: 'movement_pattern' | 'muscle' | 'equipment' | 'level' | 'mechanics';
-        tier: 'stop' | 'easier' | null;
-        sets?: any;
       }> = [];
 
       // Flagging now runs through evaluateFlag() in ../programmeSubstitution, so
@@ -8786,7 +8780,6 @@ Rules:
               dayNumber: workout.dayNumber,
               reason: flag.reason,
               reasonType: flag.reasonType,
-              tier: flag.tier,
               sets: blockExercise.sets,
             });
           }
@@ -8807,7 +8800,6 @@ Rules:
             exerciseImageUrl: f.exerciseImageUrl,
             reason: f.reason,
             reasonType: f.reasonType,
-            tier: f.tier,
             instances: [] as any[],
             substitutes: [] as any[],
           };
@@ -8854,21 +8846,12 @@ Rules:
           instances: perInstance,
         };
 
-        // What the app should put first. STOP: a recovery exercise if the coach
-        // picked one, otherwise rest the slot. GO EASIER: the easier version if
-        // the library has one, otherwise reduce the volume.
-        const recommended: 'swap' | 'reduce' | 'rest' =
-          g.tier === 'stop' ? (substitutes.length ? 'swap' : 'rest')
-          : (substitutes.length ? 'swap' : (reduction ? 'reduce' : 'rest'));
-
         return {
           ...g,
           instanceCount: g.instances.length,
           workoutNames: Array.from(new Set(g.instances.map((i: any) => i.workoutName))),
           substitutes,
-          // A stopped movement is not reduced — it is stopped.
-          reduction: g.tier === 'stop' ? null : reduction,
-          recommended,
+          reduction,
         };
       });
 
@@ -8918,13 +8901,8 @@ Rules:
         substituteOptions,
         coachingNote: pool.coachingNote ?? null,
         enrollmentId: targetEnrollment.id,
-        // Where the stop / go-easier lists came from, so the app can say
-        // "based on your answers" honestly.
-        tiers: ctx.tiers,
-        severity,
         flaggingCriteria: {
           movementPatterns: flaggingPatterns,
-          cautionPatterns: rules.cautionPatterns,
           equipment: flaggingEquipment,
           levels: flaggingLevel,
           muscles: rules.muscles,
@@ -9034,12 +9012,8 @@ Rules:
       // It also computed `curatedSubstitutes` and `patternMatchedSubstitutes`,
       // the derive-a-replacement fallback, and then never read either variable.
       // That logic now lives in rankSubstitutes() and is actually used.
-      // Same source of truth as /preview: the athlete's own per-movement
-      // answers, with the outcome's lists as the fallback.
-      const ctx = await assessmentContextFor(userId, outcomeId, outcome);
-      const rules = ctx.rules;
-      const pool = ctx.pool;
-      const severity = ctx.severity;
+      const rules = rulesFromOutcome(outcome);
+      const pool = poolFromOutcome(outcome);
       const substituteExerciseIds: number[] = pool.substituteExerciseIds;
 
       const allExercises = await storage.getExercises();
@@ -9076,6 +9050,28 @@ Rules:
         }
       }
 
+      // Severity decides how hard a reduction pulls back. Read from the assessment
+      // (preferring the exact log the client is accepting against) rather than
+      // taken from the request, so the numbers written can never be dictated by
+      // the client. Falls back to 5 (moderate).
+      let severity = 5;
+      try {
+        const sev = bodyMapLogId
+          ? await pool.query(
+              `SELECT severity FROM body_map_logs WHERE id = $1 AND user_id = $2`,
+              [bodyMapLogId, userId],
+            )
+          : await pool.query(
+              `SELECT severity FROM body_map_logs
+                WHERE user_id = $1 AND matched_outcome_id = $2
+                ORDER BY created_at DESC LIMIT 1`,
+              [userId, outcomeId],
+            );
+        if (sev.rows[0]?.severity != null) severity = Number(sev.rows[0].severity);
+      } catch (e: any) {
+        console.error('[programme-modifications/accept] severity lookup failed:', e?.message || e);
+      }
+
       // Apply any active accepted substitutions for this enrolment so the re-flag
       // check evaluates the exercise the user actually has (mirrors /preview behaviour
       // and prevents re-flagging an already-substituted slot via its old original).
@@ -9091,7 +9087,6 @@ Rules:
         workoutId: number;
         isFlagged: boolean;
         flagReason: string;
-        tier: 'stop' | 'easier' | null;
         /** The slot's prescription, so a reduction is recomputed here, never trusted from the client. */
         sets: unknown;
       };
@@ -9122,7 +9117,6 @@ Rules:
               workoutId: workout.id,
               isFlagged,
               flagReason,
-              tier: flag.tier,
               sets: blockExercise.sets,
             });
           }
@@ -9145,12 +9139,9 @@ Rules:
       for (const selection of selectionList) {
         const slotId = selection?.exerciseInstanceId;
         const chosenId = selection?.chosenSubstituteExerciseId;
-        const action: 'swap' | 'reduce' | 'rest' =
-          selection?.action === 'reduce' ? 'reduce'
-          : (selection?.action === 'rest' || selection?.action === 'remove') ? 'rest'
-          : 'swap';
+        const action = selection?.action === 'reduce' ? 'reduce' : 'swap';
 
-        // A reduction or a rest needs no substitute, so only a swap requires a chosen id.
+        // A reduction needs no substitute, so only a swap requires a chosen id.
         if (!slotId || (action === 'swap' && !chosenId)) {
           substitutionsFailed++;
           continue;
@@ -9169,30 +9160,6 @@ Rules:
           continue;
         }
 
-        // ── Rest this one: the movement is stopped and nothing replaces it.
-        // The exercise is hidden from the athlete's workouts until the
-        // reassessment restores it. Nothing in the template changes.
-        if (action === 'rest') {
-          if (seenSlotIds.has(slotId)) {
-            substitutionsFailed++;
-            continue;
-          }
-          seenSlotIds.add(slotId);
-          await db.insert(exerciseSubstitutionMappings).values({
-            modificationRecordId: recordId,
-            mainProgrammeEnrollmentId: targetEnrollment.id,
-            workoutId: slotInfo.workoutId,
-            exerciseInstanceId: slotId,
-            originalExerciseId: slotInfo.originalExerciseId,
-            substitutedExerciseId: null,
-            action: 'rest',
-            matchedOutcomeId: outcomeId,
-            flaggingReason: slotInfo.flagReason,
-          });
-          substitutionsApplied++;
-          continue;
-        }
-
         // ── Keep the movement, do less of it.
         // The reduced prescription is RECOMPUTED here from the slot's own sets
         // and the severity on the assessment. Nothing about the numbers comes
@@ -9200,8 +9167,7 @@ Rules:
         // prescription — the worst it can do is ask for a reduction the engine
         // was going to offer anyway.
         if (action === 'reduce') {
-          if (seenSlotIds.has(slotId) || slotInfo.tier === 'stop') {
-            // A stopped movement is not reduced — it is stopped.
+          if (seenSlotIds.has(slotId)) {
             substitutionsFailed++;
             continue;
           }
@@ -9448,20 +9414,6 @@ Rules:
   // Body Map Configuration Routes - Admin only
 
   // Body areas
-  // The movement questions for an area, with the picture to show for each —
-  // the athlete's own programme exercise where there is one. Also the red
-  // flags and the answer options, so the app never hard-codes the wording.
-  app.get('/api/body-map-config/areas/:areaName/movement-checks', isAuthenticated, async (req: any, res) => {
-    try {
-      const userId = req.user?.claims?.sub || null;
-      const checks = await resolveChecksForUser(String(req.params.areaName), userId);
-      res.json({ checks, redFlags: RED_FLAGS, responses: MOVEMENT_RESPONSES });
-    } catch (error) {
-      console.error("Error fetching movement checks:", error);
-      res.status(500).json({ message: "Failed to fetch movement checks" });
-    }
-  });
-
   app.get('/api/body-map-config/areas', async (req, res) => {
     try {
       const areas = await storage.getBodyMapAreas();

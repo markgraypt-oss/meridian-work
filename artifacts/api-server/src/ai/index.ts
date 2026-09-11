@@ -74,7 +74,13 @@ function looksLikeUnknownModel(err: any): boolean {
 const DEFAULT_TIMEOUT_MS = 30_000;
 const DEFAULT_MAX_TOKENS = 1500;
 const HARD_TOKEN_CAP = 4000;
+// Cap on the per-call user prompt. The system blocks (stable, cached prefix)
+// are capped separately and generously: the exercise catalogue alone is
+// ~90k chars, and slicing it (or letting it eat the user prompt's budget, as
+// an earlier version did) silently removed the output-shape instructions and
+// produced invalid JSON on every workout generation (8 Sep 2026 storm).
 const HARD_PROMPT_CHAR_CAP = 60_000;
+const HARD_SYSTEM_CHAR_CAP = 400_000;
 
 // Patterns the safety post-filter scans for. We strip / replace rather than
 // rejecting: these heuristics catch the most common medical-claim and
@@ -266,6 +272,18 @@ function estimateTokens(text: string): number {
   return Math.ceil(text.length / 4);
 }
 
+// One line per provider leg in the Repl logs, so cache behaviour can be read
+// without opening the admin page: `in` is uncached input, `read`/`write` the
+// prompt-cache split. A second leg showing `write` instead of `read` means
+// the cached prefix did not match the first leg.
+function logLegUsage(feature: string, leg: number, usage?: { promptTokens?: number; completionTokens?: number; cacheReadTokens?: number; cacheWriteTokens?: number }): void {
+  if (!usage) return;
+  const read = usage.cacheReadTokens ?? 0;
+  const write = usage.cacheWriteTokens ?? 0;
+  const uncached = Math.max(0, (usage.promptTokens ?? 0) - read - write);
+  console.log(`[aiCall] ${feature} leg=${leg} in=${uncached} cache_read=${read} cache_write=${write} out=${usage.completionTokens ?? 0}`);
+}
+
 export async function aiCall<T = unknown>(params: AiCallParams<T>): Promise<AiCallResult<T>> {
   const startedAt = Date.now();
   const safeMaxTokens = Math.min(params.maxTokens ?? DEFAULT_MAX_TOKENS, HARD_TOKEN_CAP);
@@ -275,7 +293,16 @@ export async function aiCall<T = unknown>(params: AiCallParams<T>): Promise<AiCa
   // the combined text so the total request size stays bounded as before.
   const systemBlocks = (params.system || []).map((b) => redactPII(b));
   const systemChars = systemBlocks.reduce((n, b) => n + b.length, 0);
-  const redactedPrompt = redactPII(params.prompt).slice(0, Math.max(1000, HARD_PROMPT_CHAR_CAP - systemChars));
+  if (systemChars > HARD_SYSTEM_CHAR_CAP) {
+    console.warn(`[aiCall] ${params.feature}: system blocks are ${systemChars} chars (> ${HARD_SYSTEM_CHAR_CAP}); trimming the LAST block. Reduce what the caller puts in system.`);
+    const over = systemChars - HARD_SYSTEM_CHAR_CAP;
+    const last = systemBlocks.length - 1;
+    systemBlocks[last] = systemBlocks[last].slice(0, Math.max(0, systemBlocks[last].length - over));
+  }
+  if (params.prompt.length > HARD_PROMPT_CHAR_CAP) {
+    console.warn(`[aiCall] ${params.feature}: prompt is ${params.prompt.length} chars (> ${HARD_PROMPT_CHAR_CAP}); truncating. Move stable content into system blocks.`);
+  }
+  const redactedPrompt = redactPII(params.prompt).slice(0, HARD_PROMPT_CHAR_CAP);
   const promptHash = hashPrompt(systemBlocks.join("\n") + "\n" + redactedPrompt);
 
   const config = await resolveConfig(params.feature, { provider: params.provider, model: params.model });
@@ -332,6 +359,7 @@ export async function aiCall<T = unknown>(params: AiCallParams<T>): Promise<AiCa
   try {
     const first = await callProvider(redactedPrompt, params.temperature);
     rawText = first.text || "";
+    logLegUsage(params.feature, 1, first.usage);
     legs.push({
       promptTokens: first.usage?.promptTokens,
       completionTokens: first.usage?.completionTokens,
@@ -368,6 +396,7 @@ export async function aiCall<T = unknown>(params: AiCallParams<T>): Promise<AiCa
         try {
           const second = await callProvider(repairPrompt, 0);
           const secondText = second.text || "";
+          logLegUsage(params.feature, 2, second.usage);
           rawText = secondText || rawText;
           legs.push({
             promptTokens: second.usage?.promptTokens,
@@ -412,6 +441,13 @@ export async function aiCall<T = unknown>(params: AiCallParams<T>): Promise<AiCa
   }
 
   const latencyMs = Date.now() - startedAt;
+  // On a schema failure keep a short preview of what the model actually sent,
+  // so the admin AI Activity page shows WHY instead of a bare "invalid".
+  if (params.schema && parsed === null && !errorMessage && rawText) {
+    const flat = rawText.replace(/\s+/g, " ").trim();
+    const preview = flat.length > 300 ? `${flat.slice(0, 180)} … ${flat.slice(-100)}` : flat;
+    errorMessage = `invalid_json_preview: ${preview}`;
+  }
   // Prefer real provider usage per leg; fall back to ~chars/4 estimate
   // for whichever leg the provider didn't report. Ensures totals don't
   // undercount when only one of first/repair returned usage.

@@ -319,9 +319,14 @@ export function expandCompactWorkout(c: CompactWorkout, inputs: WorkoutInputs): 
   const difficulty = (["beginner", "intermediate", "advanced"].includes(inputs.difficulty) ? inputs.difficulty : "intermediate") as GeneratedWorkout["difficulty"];
   const blocks = c.blocks.map((b) => {
     const blockRest = normaliseRest(b.rest) ?? restForReps(String(b.exercises[0]?.reps ?? ""));
+    // Block type must agree with the exercise count (seen live: a lone row
+    // labelled "superset"). Circuits keep their label at any size.
+    const n = b.exercises.length;
+    const blockType: "single" | "superset" | "triset" | "circuit" =
+      b.type === "circuit" ? "circuit" : n === 1 ? "single" : n === 2 ? "superset" : "triset";
     return {
       section: "main" as const,
-      blockType: b.type,
+      blockType,
       rest: blockRest,
       exercises: b.exercises.map((ex) => {
         const reps = String(ex.reps).trim();

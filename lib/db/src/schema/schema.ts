@@ -509,6 +509,10 @@ export const bodyMapLogs = pgTable("body_map_logs", {
   duration: text("duration_category"), // 'today', 'few_days', 'one_two_weeks', 'more_than_two_weeks'
   matchedOutcomeId: integer("matched_outcome_id"), // ID of the matched outcome at assessment time
   reassessmentDays: integer("reassessment_days"), // Number of days until reassessment (stored at creation time)
+  // Per-movement answers: { [checkKey]: 'fine' | 'manageable' | 'painful' }. Drives the stop / go-easier tiers.
+  movementResponses: jsonb("movement_responses"),
+  // Red flags ticked before the movement questions (trauma, numbness, night pain...). Any -> seek assessment.
+  redFlags: text("red_flags").array(),
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow(),
 });
@@ -1033,6 +1037,9 @@ export const bodyMapAreas = pgTable("body_map_areas", {
   isActive: boolean("is_active").notNull().default(true),
   movementQuestion: text("movement_question"), // Configurable Question 2 text, e.g., "Does this limit how you move?"
   movementOptions: jsonb("movement_options"), // Array of {id, label, orderIndex} for Question 2 answers
+  // The movements this area is involved in, asked one at a time in the assessment:
+  // [{ key, label, patterns: string[], cueExerciseId?: number }]
+  movementChecks: jsonb("movement_checks"),
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow(),
 });
@@ -1153,7 +1160,8 @@ export const bodyMapOutcomes = pgTable("body_map_outcomes", {
   programmeImpactSummary: text("programme_impact_summary"), // Coach-written summary line
   
   // Flagging rules - define what exercises should be flagged for substitution
-  flaggingMovementPatterns: text("flagging_movement_patterns").array(), // Movement patterns to flag
+  flaggingMovementPatterns: text("flagging_movement_patterns").array(), // STOP: movement patterns to flag
+  cautionMovementPatterns: text("caution_movement_patterns").array(), // GO EASIER: keep the pattern, offer a gentler version
   flaggingEquipment: text("flagging_equipment").array(), // Equipment types to flag
   flaggingLevel: text("flagging_level").array(), // Difficulty levels to flag
   flaggingMechanics: text("flagging_mechanics").array(), // Mechanics to flag

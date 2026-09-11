@@ -483,6 +483,14 @@ export const SELF_HEAL_DDL: string[] = [
   // A reduction keeps the original exercise, so this column has nothing to hold.
   // Relaxing a constraint, not dropping anything: existing rows are untouched.
   `ALTER TABLE exercise_substitution_mappings ALTER COLUMN substituted_exercise_id DROP NOT NULL`,
+
+  // ── Body map: ask about every movement the area is involved in.
+  // Per-area list of movement checks; per-assessment answers and red flags.
+  // A "go easier" tier on outcomes, as the fallback when there are no answers.
+  `ALTER TABLE body_map_areas ADD COLUMN IF NOT EXISTS movement_checks jsonb`,
+  `ALTER TABLE body_map_logs ADD COLUMN IF NOT EXISTS movement_responses jsonb`,
+  `ALTER TABLE body_map_logs ADD COLUMN IF NOT EXISTS red_flags text[]`,
+  `ALTER TABLE body_map_outcomes ADD COLUMN IF NOT EXISTS caution_movement_patterns text[]`,
 ];
 
 export async function runSchemaSelfHealOnce(): Promise<void> {

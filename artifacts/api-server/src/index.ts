@@ -91,6 +91,14 @@ if (Number.isNaN(port) || port <= 0) {
       });
     }).catch((e) => console.error("[startup-migration] primary muscle import failed:", e));
 
+    // Body map movement checks: the shoulder's first set of per-movement
+    // questions. Once per database; edited in the admin after that.
+    import("./bodyMapChecks").then(({ seedShoulderMovementChecksOnce }) => {
+      seedShoulderMovementChecksOnce().catch((e) => {
+        console.error("[startup-migration] shoulder movement checks seed failed:", e);
+      });
+    }).catch((e) => console.error("[startup-migration] body map checks import failed:", e));
+
     // Reassessment reminder backfill: give assessments already taken the follow-up
     // row they should have had, so the Home card and the push have something to
     // fire on. Once per database, idempotent.

@@ -80,6 +80,13 @@ if (Number.isNaN(port) || port <= 0) {
           reconcileBreathworkDurationsOnce().catch((e: any) => logger.error({ e }, "[startup-migration] breathwork-durations failed"));
           seedBreathworkTechniquesV2Once().catch((e: any) => logger.error({ e }, "[startup-migration] breathwork-techniques-v2 failed"));
           backfillBriefingConversationsOnce().catch((e: any) => logger.error({ e }, "[startup-migration] briefing-conversation-backfill failed"));
+          // Body map movement checks: the shoulder's first set of per-movement
+          // questions. Runs here, AFTER the self-heal, because it writes a
+          // column the self-heal creates — on its first deploy it ran in
+          // parallel, lost the race, and seeded nothing.
+          import("./bodyMapChecks").then(({ seedShoulderMovementChecksOnce }) =>
+            seedShoulderMovementChecksOnce(),
+          ).catch((e: any) => logger.error({ e }, "[startup-migration] shoulder movement checks seed failed"));
         });
     }).catch((e: any) => logger.error({ e }, "[startup-migration] startup migrations import failed"));
 
@@ -90,14 +97,6 @@ if (Number.isNaN(port) || port <= 0) {
         console.error("[startup-migration] primary muscle backfill failed:", e);
       });
     }).catch((e) => console.error("[startup-migration] primary muscle import failed:", e));
-
-    // Body map movement checks: the shoulder's first set of per-movement
-    // questions. Once per database; edited in the admin after that.
-    import("./bodyMapChecks").then(({ seedShoulderMovementChecksOnce }) => {
-      seedShoulderMovementChecksOnce().catch((e) => {
-        console.error("[startup-migration] shoulder movement checks seed failed:", e);
-      });
-    }).catch((e) => console.error("[startup-migration] body map checks import failed:", e));
 
     // Reassessment reminder backfill: give assessments already taken the follow-up
     // row they should have had, so the Home card and the push have something to

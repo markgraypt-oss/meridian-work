@@ -1,32 +1,23 @@
 /**
  * Body-map programme substitution: what to flag, and what to offer instead.
  *
- * THE COACHING INTENT this implements, in one line: keep training, work around
- * the sore thing rather than stopping. Anterior shoulder pain at 6/10 should
- * take the barbell bench press out and put a dumbbell chest press in — the same
- * movement, the same muscles, without the part that hurts. Strengthen through
- * pain, within reason.
+ * THE COACHING INTENT, in one line: keep people training, safely, out of pain.
  *
- * That single sentence dictates the whole design:
+ * An assessment produces two lists of movement patterns for the sore area:
  *
- *   - The outcome's flagging rules say what to AVOID.
- *   - The exercise being replaced says what to PRESERVE.
+ *   STOP       — nothing in this pattern this week. The slot is filled with a
+ *                recovery exercise the coach picked for the area, or rested.
+ *   GO EASIER  — same movement, same side, same muscle, one step easier.
+ *                If the library has no easier version, the exercise is
+ *                reduced (fewer sets/reps) rather than swapped for something
+ *                that is not really the same exercise.
  *
- * A substitute is therefore not "any exercise from a list". It is the closest
- * thing to what the athlete was already doing that does not trip the same rules.
- *
- * This module exists because the two endpoints that needed this logic had each
- * grown their own copy, and the copies disagreed:
- *
- *   - /preview read patterns, equipment and level, and required ALL configured
- *     categories to match (AND).
- *   - /accept read patterns, muscles, equipment, level and mechanics, and
- *     flagged on the FIRST category that matched (OR).
- *
- * So a rule meaning "barbell horizontal pushes" was read by accept as "every
- * horizontal push, and separately every barbell exercise" — which would flag the
- * dumbbell press we wanted to substitute IN. AND is the semantics that makes the
- * coaching example above expressible at all, so AND is what this module uses.
+ * A substitute is therefore never "any exercise from a list". For GO EASIER it
+ * is the closest thing to what the athlete was already doing, one notch down.
+ * For STOP it is only ever the coach's own recovery work. There is no third
+ * source: "allowed patterns" (train legs instead of pressing) is gone, because
+ * a programme already has leg work and nobody with a sore shoulder needs a
+ * fourth squat variation in place of their bench press.
  */
 
 export interface ExerciseLike {
@@ -34,9 +25,7 @@ export interface ExerciseLike {
   name: string;
   imageUrl?: string | null;
   muxPlaybackId?: string | null;
-  /** The one muscle the exercise is FOR. Far stronger evidence than mainMuscle,
-   *  which lists everything involved — a bench press carries Triceps and
-   *  Shoulders too, and matching on those offers a pushdown as a substitute. */
+  /** The one muscle the exercise is FOR. */
   primaryMuscle?: string | null;
   mainMuscle?: string[] | null;
   equipment?: string[] | null;
@@ -47,29 +36,34 @@ export interface ExerciseLike {
   laterality?: string | null;
 }
 
+export type FlagTier = 'stop' | 'easier';
+
 export interface FlaggingRules {
+  /** STOP: no version of these patterns may be offered. */
   movementPatterns: string[];
+  /** GO EASIER: keep the pattern, offer a gentler version. */
+  cautionPatterns: string[];
+  /** Legacy AND-refinements on the STOP rule (outcome-level config). */
   muscles: string[];
   equipment: string[];
   levels: string[];
   mechanics: string[];
 }
 
-/** What the coach configured on the outcome's substitution pool. */
+/** What the coach configured on the outcome. */
 export interface SubstitutionPool {
-  /** Movement patterns that are acceptable replacements. Used when the flag is
-   *  ON the movement pattern, so "same pattern" is not an option. */
+  /** Kept for old rows; no longer used to derive swaps. */
   allowedPatterns: string[];
-  /** Hand-picked substitutes, in coach priority order. Always ranked first. */
+  /** Recovery exercises for the area, in coach priority order. Fill STOP slots. */
   substituteExerciseIds: number[];
   coachingNote?: string;
 }
 
 export interface FlagMatch {
   flagged: boolean;
-  /** Human-readable, e.g. "Movement pattern: Horizontal Push + Equipment: Barbell". */
+  tier: FlagTier | null;
+  /** Human-readable, e.g. "Stop: Horizontal Push" / "Go easier: Horizontal Pull". */
   reason: string;
-  /** Which category drove it, kept for the existing reasonType field. */
   reasonType: 'movement_pattern' | 'muscle' | 'equipment' | 'level' | 'mechanics';
   matched: {
     movementPattern: string | null;
@@ -83,6 +77,7 @@ export interface FlagMatch {
 export function rulesFromOutcome(outcome: any): FlaggingRules {
   return {
     movementPatterns: outcome?.flaggingMovementPatterns || [],
+    cautionPatterns: outcome?.cautionMovementPatterns || [],
     muscles: outcome?.flaggingMuscles || [],
     equipment: outcome?.flaggingEquipment || [],
     levels: outcome?.flaggingLevel || [],
@@ -102,126 +97,107 @@ export function poolFromOutcome(outcome: any): SubstitutionPool {
 
 export function hasAnyCriteria(rules: FlaggingRules): boolean {
   return rules.movementPatterns.length > 0
+    || rules.cautionPatterns.length > 0
     || rules.muscles.length > 0
     || rules.equipment.length > 0
     || rules.levels.length > 0
     || rules.mechanics.length > 0;
 }
 
+// ── Library tag hygiene ──────────────────────────────────────────────────────
+
 /**
- * Does this exercise trip the outcome's rules?
- *
- * AND across configured categories, ANY within a category, and a category with
- * nothing configured imposes no constraint. So:
- *
- *   patterns:[Horizontal Push] + equipment:[Barbell]  ->  barbell bench: FLAGGED
- *                                                          dumbbell press: not flagged
- *   patterns:[Vertical Push]                          ->  every overhead press, any kit
- *
- * That second form is how a coach says "no overhead work at all this week", and
- * it still works: one category configured means only that category must match.
+ * `movement` is not a list of movement patterns. It is a mixed bag: seven in
+ * ten exercises carry "Bilateral"/"Unilateral" there, which say how many limbs
+ * are involved, not what the movement IS.
  */
-export function evaluateFlag(exercise: ExerciseLike, rules: FlaggingRules): FlagMatch {
-  const none: FlagMatch = {
-    flagged: false,
-    reason: '',
-    reasonType: 'movement_pattern',
-    matched: { movementPattern: null, muscle: null, equipment: null, level: null, mechanics: null },
-  };
-  if (!hasAnyCriteria(rules)) return none;
+const LATERALITY_TAGS = new Set([
+  'Bilateral (2 Arms and/or 2 Legs)',
+  'Unilateral (Single Arm or Leg)',
+  'Alternating',
+  'Contralateral (Opposite Side Arm & Leg)',
+  'Ipsilateral (Same Side Arm & Leg)',
+]);
 
-  const firstOverlap = (values: string[] | null | undefined, wanted: string[]): string | null | undefined => {
-    // undefined = this category is not configured, so it does not constrain.
-    if (wanted.length === 0) return undefined;
-    if (!values || values.length === 0) return null;
-    return values.find((v) => wanted.includes(v)) ?? null;
-  };
+/** Work that is not training and can never replace training. */
+const NON_TRAINING_PATTERNS = new Set(['Mobility', 'Static Stretches', 'Dynamic Stretches']);
 
-  const movementPattern = firstOverlap(exercise.movement, rules.movementPatterns);
-  if (movementPattern === null) return none;
-
-  const muscle = firstOverlap(exercise.mainMuscle, rules.muscles);
-  if (muscle === null) return none;
-
-  const equipment = firstOverlap(exercise.equipment, rules.equipment);
-  if (equipment === null) return none;
-
-  const mechanics = firstOverlap(exercise.mechanics, rules.mechanics);
-  if (mechanics === null) return none;
-
-  let level: string | null | undefined = undefined;
-  if (rules.levels.length > 0) {
-    if (!exercise.level || !rules.levels.includes(exercise.level)) return none;
-    level = exercise.level;
-  }
-
-  const parts: string[] = [];
-  if (movementPattern) parts.push(`Movement pattern: ${movementPattern}`);
-  if (muscle) parts.push(`Muscle: ${muscle}`);
-  if (equipment) parts.push(`Equipment: ${equipment}`);
-  if (mechanics) parts.push(`Mechanics: ${mechanics}`);
-  if (level) parts.push(`Difficulty level: ${level}`);
-
-  const reasonType: FlagMatch['reasonType'] =
-    movementPattern ? 'movement_pattern'
-    : muscle ? 'muscle'
-    : equipment ? 'equipment'
-    : mechanics ? 'mechanics'
-    : 'level';
-
-  return {
-    flagged: true,
-    reason: parts.join(' + '),
-    reasonType,
-    matched: {
-      movementPattern: movementPattern ?? null,
-      muscle: muscle ?? null,
-      equipment: equipment ?? null,
-      level: level ?? null,
-      mechanics: mechanics ?? null,
-    },
-  };
+export function realPatterns(e: ExerciseLike): string[] {
+  return (e.movement || []).filter((m) => m && !LATERALITY_TAGS.has(m));
 }
 
-export interface SubstituteCandidate {
-  id: number;
-  name: string;
-  imageUrl: string | null;
-  movementPatterns: string[];
-  equipment: string[];
-  /** 'curated' = hand-picked by the coach for this outcome. 'derived' = matched. */
-  source: 'curated' | 'derived';
-  /** One short line saying why this is a sensible swap. */
-  reason: string;
-  score: number;
+function isNonTraining(e: ExerciseLike): boolean {
+  const real = realPatterns(e);
+  return real.length > 0 && real.every((m) => NON_TRAINING_PATTERNS.has(m));
 }
+
+/** Single-arm/leg or both — read from the column, falling back to the tags. */
+function lateralityOf(e: ExerciseLike): 'unilateral' | 'bilateral' | null {
+  const col = e.laterality ? String(e.laterality).toLowerCase() : '';
+  if (col === 'unilateral' || col === 'bilateral') return col;
+  const tags = e.movement || [];
+  if (tags.some((t) => /^Unilateral|^Alternating|^Contralateral|^Ipsilateral/.test(t))) return 'unilateral';
+  if (tags.some((t) => /^Bilateral/.test(t))) return 'bilateral';
+  return null;
+}
+
+// ── Difficulty ladder ────────────────────────────────────────────────────────
 
 const LEVEL_ORDER = ['beginner', 'intermediate', 'advanced'];
-
-/**
- * A level a substitute may never be offered at.
- *
- * This engine only ever runs because someone has reported pain, so the question
- * "is an advanced exercise appropriate here?" already has an answer: no. It is a
- * HARD filter, not a scoring penalty, and it does not wait for an outcome to
- * configure flaggingLevel — an admin forgetting to tick a box is not a reason to
- * hand a sore shoulder a barbell exercise rated advanced.
- *
- * Deliberately not blocked: a candidate merely HARDER than the original but
- * still under advanced. That is a scoring penalty below instead, because
- * blocking it would empty the list whenever the athlete was already working at
- * beginner level, and an intermediate machine press is a safer object than
- * nothing at all.
- */
 const NEVER_OFFER_LEVEL = 'advanced';
 
-function levelDistance(a?: string | null, b?: string | null): number | null {
-  if (!a || !b) return null;
-  const ia = LEVEL_ORDER.indexOf(String(a).toLowerCase());
-  const ib = LEVEL_ORDER.indexOf(String(b).toLowerCase());
-  if (ia === -1 || ib === -1) return null;
-  return Math.abs(ia - ib);
+function levelIndex(e: ExerciseLike): number | null {
+  if (!e.level) return null;
+  const i = LEVEL_ORDER.indexOf(String(e.level).toLowerCase());
+  return i === -1 ? null : i;
 }
+
+/**
+ * How demanding the kit is. Barbell is the most demanding thing to hold with a
+ * sore joint (fixed path, two hands locked together); bands and bodyweight the
+ * least. Accessories (bench, box, ball) say nothing about load and are ignored.
+ */
+const KIT_RANK: Record<string, number> = {
+  'Barbell': 5, 'EZ Bar': 5, 'Landmine': 5,
+  'Dumbbell': 4, 'Kettlebell': 4, 'Plate': 4, 'Medicine Ball': 4,
+  'Cable': 3, 'Cable Machine': 3, 'Machine': 3, 'TRX': 3,
+  'Long Band': 2, 'Short Band': 2, 'Band': 2,
+  'Bodyweight': 1,
+};
+
+/**
+ * Pulling your own bodyweight (chin-up, pull-up, inverted row) is the HARDEST
+ * version of a pull, not the easiest, so bodyweight ranks with the barbell
+ * for those patterns. For a push, a squat or a lunge it stays the easiest.
+ */
+const BODYWEIGHT_IS_HEAVY = new Set(['Vertical Pull', 'Horizontal Pull']);
+
+function kitRank(e: ExerciseLike): number | null {
+  const heavyBodyweight = realPatterns(e).some((p) => BODYWEIGHT_IS_HEAVY.has(p));
+  const ranks = (e.equipment || [])
+    .map((k) => (k === 'Bodyweight' && heavyBodyweight ? 5 : KIT_RANK[k]))
+    .filter((r): r is number => r != null);
+  return ranks.length ? Math.max(...ranks) : null;
+}
+
+/** Chest-supported, seated, kneeling: the body is braced, the sore joint has less to stabilise. */
+function isSupported(e: ExerciseLike): boolean {
+  if ((e.equipment || []).includes('Bench')) return true;
+  return /\b(chest[- ]supported|supported|seated|half[- ]kneeling|kneeling|tall[- ]kneeling|incline|lying|prone|floor)\b/i.test(e.name);
+}
+
+/**
+ * One number, higher = harder. Level dominates, then kit, then support.
+ * Unknown level is treated as intermediate so an untagged exercise is neither
+ * an automatic "easier" nor automatically excluded.
+ */
+function difficulty(e: ExerciseLike): number {
+  const lvl = levelIndex(e) ?? 1;
+  const kit = kitRank(e) ?? 3;
+  return lvl * 100 + kit * 10 - (isSupported(e) ? 5 : 0);
+}
+
+// ── Flagging ─────────────────────────────────────────────────────────────────
 
 function overlap(a?: string[] | null, b?: string[] | null): string[] {
   if (!a || !b) return [];
@@ -229,64 +205,146 @@ function overlap(a?: string[] | null, b?: string[] | null): string[] {
   return a.filter((x) => setB.has(x));
 }
 
+const NONE: FlagMatch = {
+  flagged: false,
+  tier: null,
+  reason: '',
+  reasonType: 'movement_pattern',
+  matched: { movementPattern: null, muscle: null, equipment: null, level: null, mechanics: null },
+};
+
+/**
+ * Does this exercise trip the rules, and at which tier?
+ *
+ * STOP is checked first: AND across the configured categories, ANY within a
+ * category, unconfigured categories impose nothing. Then GO EASIER: a shared
+ * real pattern is enough.
+ */
+export function evaluateFlag(exercise: ExerciseLike, rules: FlaggingRules): FlagMatch {
+  if (!hasAnyCriteria(rules)) return NONE;
+
+  const firstOverlap = (values: string[] | null | undefined, wanted: string[]): string | null | undefined => {
+    if (wanted.length === 0) return undefined;   // not configured: no constraint
+    if (!values || values.length === 0) return null;
+    return values.find((v) => wanted.includes(v)) ?? null;
+  };
+
+  const stopConfigured = rules.movementPatterns.length > 0 || rules.muscles.length > 0
+    || rules.equipment.length > 0 || rules.mechanics.length > 0 || rules.levels.length > 0;
+
+  if (stopConfigured) {
+    const movementPattern = firstOverlap(realPatterns(exercise), rules.movementPatterns);
+    const muscle = movementPattern === null ? null : firstOverlap(exercise.mainMuscle, rules.muscles);
+    const equipment = muscle === null ? null : firstOverlap(exercise.equipment, rules.equipment);
+    const mechanics = equipment === null ? null : firstOverlap(exercise.mechanics, rules.mechanics);
+    let level: string | null | undefined = undefined;
+    let ok = movementPattern !== null && muscle !== null && equipment !== null && mechanics !== null;
+    if (ok && rules.levels.length > 0) {
+      if (!exercise.level || !rules.levels.includes(exercise.level)) ok = false;
+      else level = exercise.level;
+    }
+    if (ok) {
+      const parts: string[] = [];
+      if (movementPattern) parts.push(movementPattern);
+      if (muscle) parts.push(`muscle: ${muscle}`);
+      if (equipment) parts.push(`equipment: ${equipment}`);
+      if (mechanics) parts.push(`mechanics: ${mechanics}`);
+      if (level) parts.push(`level: ${level}`);
+      return {
+        flagged: true,
+        tier: 'stop',
+        reason: `Stop: ${parts.join(' + ')}`,
+        reasonType: movementPattern ? 'movement_pattern' : muscle ? 'muscle' : equipment ? 'equipment' : mechanics ? 'mechanics' : 'level',
+        matched: {
+          movementPattern: movementPattern ?? null,
+          muscle: muscle ?? null,
+          equipment: equipment ?? null,
+          level: level ?? null,
+          mechanics: mechanics ?? null,
+        },
+      };
+    }
+  }
+
+  if (rules.cautionPatterns.length > 0) {
+    const hit = realPatterns(exercise).find((p) => rules.cautionPatterns.includes(p));
+    if (hit) {
+      return {
+        flagged: true,
+        tier: 'easier',
+        reason: `Go easier: ${hit}`,
+        reasonType: 'movement_pattern',
+        matched: { movementPattern: hit, muscle: null, equipment: null, level: null, mechanics: null },
+      };
+    }
+  }
+
+  return NONE;
+}
+
+// ── Ranking ──────────────────────────────────────────────────────────────────
+
+export interface SubstituteCandidate {
+  id: number;
+  name: string;
+  imageUrl: string | null;
+  movementPatterns: string[];
+  equipment: string[];
+  /** 'curated' = the coach's recovery work. 'derived' = same movement, one step easier. */
+  source: 'curated' | 'derived';
+  reason: string;
+  score: number;
+}
+
 function thumb(e: ExerciseLike): string | null {
   return e.imageUrl
     || (e.muxPlaybackId ? `https://image.mux.com/${e.muxPlaybackId}/thumbnail.png?width=200` : null);
 }
 
-/**
- * Say, in one line, why this swap makes sense — built from what actually stayed
- * the same and what changed, never from a template. "Same movement, dumbbells
- * instead of barbell" tells an athlete something. "Suggested alternative" does not.
- */
-function describeSubstitute(original: ExerciseLike, candidate: ExerciseLike, flag: FlagMatch): string {
-  const keptPatterns = overlap(original.movement, candidate.movement);
-  const keptMuscles = overlap(original.mainMuscle, candidate.mainMuscle);
+/** Words that say what an exercise IS, once kit and filler are stripped: "bench press", "row", "pulldown". */
+const NOISE_WORDS = new Set(['a','an','the','and','or','with','on','of','to','in','from','grip','position','single','dual','double',
+  'barbell','dumbbell','dumbbells','db','kettlebell','kb','cable','machine','band','bands','trx','bodyweight','plate','landmine','ez','bar',
+  'seated','standing','kneeling','half','tall','prone','supine','lying','incline','decline','flat','floor','chest','supported','bench',
+  'alternating','unilateral','bilateral','arm','leg','arms','legs','one','two','left','right','neutral','pronated','supinated','wide','close','narrow','reverse']);
+function nameWords(e: ExerciseLike): Set<string> {
+  return new Set(e.name.toLowerCase().replace(/[^a-z\s-]/g, ' ').split(/[\s-]+/).filter((w) => w && !NOISE_WORDS.has(w)));
+}
+function sharedNameWords(a: ExerciseLike, b: ExerciseLike): number {
+  const wb = nameWords(b);
+  let n = 0;
+  for (const w of nameWords(a)) if (wb.has(w)) n++;
+  return n;
+}
 
-  const kept: string[] = [];
-  if (keptPatterns.length > 0) kept.push('the same movement');
-  // Name the primary when both agree on it — "works your chest" is worth more
-  // than "works the same muscles", and it is the actual reason this is a swap.
-  if (original.primaryMuscle && candidate.primaryMuscle === original.primaryMuscle) {
-    kept.push(`works your ${String(original.primaryMuscle).toLowerCase()}`);
-  } else if (keptMuscles.length > 0) {
-    kept.push(keptMuscles.length === 1 ? `works your ${keptMuscles[0].toLowerCase()}` : 'works the same muscles');
-  }
+const KIT_WORD: Record<number, string> = { 5: 'barbell', 4: 'dumbbells', 3: 'cable or machine', 2: 'a band', 1: 'bodyweight' };
 
+/** "Same movement — dumbbells instead of barbell, chest-supported." Built from what changed. */
+function describeEasier(original: ExerciseLike, candidate: ExerciseLike): string {
   const changed: string[] = [];
-  if (flag.matched.equipment) {
-    const newKit = (candidate.equipment || []).filter((e) => e !== flag.matched.equipment);
-    changed.push(newKit.length ? `${newKit[0].toLowerCase()} instead of ${flag.matched.equipment.toLowerCase()}` : `without the ${flag.matched.equipment.toLowerCase()}`);
-  }
-  if (flag.matched.level && candidate.level && candidate.level !== flag.matched.level) {
-    changed.push(`${String(candidate.level).toLowerCase()} rather than ${String(flag.matched.level).toLowerCase()}`);
-  }
-  if (flag.matched.movementPattern && keptPatterns.length === 0) {
-    changed.push(`avoids ${flag.matched.movementPattern.toLowerCase()}`);
-  }
-  if (flag.matched.mechanics && changed.length === 0) {
-    changed.push(`not ${String(flag.matched.mechanics).toLowerCase()}`);
-  }
-
-  if (kept.length && changed.length) {
-    const keptText = kept[0] === 'the same movement' && kept[1] ? `Same movement, ${kept[1]}` : `Keeps ${kept.join(' and ')}`;
-    return `${keptText} — ${changed.join(', ')}.`;
-  }
-  if (kept.length) return `Keeps ${kept.join(' and ')}.`;
-  if (changed.length) return `A safer option — ${changed.join(', ')}.`;
-  return 'A suitable alternative for this area.';
+  const ok = kitRank(original), ck = kitRank(candidate);
+  if (ok != null && ck != null && ck < ok) changed.push(`${KIT_WORD[ck]} instead of ${KIT_WORD[ok]}`);
+  const ol = levelIndex(original), cl = levelIndex(candidate);
+  if (ol != null && cl != null && cl < ol) changed.push(`${LEVEL_ORDER[cl]} rather than ${LEVEL_ORDER[ol]}`);
+  if (!isSupported(original) && isSupported(candidate)) changed.push('more supported');
+  const muscle = original.primaryMuscle && candidate.primaryMuscle === original.primaryMuscle
+    ? `, still works your ${String(original.primaryMuscle).toLowerCase()}` : '';
+  return changed.length
+    ? `Same movement, one step easier — ${changed.join(', ')}${muscle}.`
+    : `Same movement, a gentler version${muscle}.`;
 }
 
 /**
  * Rank replacements for one flagged exercise.
  *
- * Hard filters first (a candidate that would itself be flagged is not a
- * substitute, it is the same problem with a different name), then score by how
- * much of the original stimulus survives.
+ * GO EASIER: hard requirements first — same real pattern (the flagged one),
+ * same primary muscle, strictly easier on the ladder, not a stretch, not
+ * advanced. Then rank by closeness: the smallest step down wins, same side
+ * (single/double arm) strongly preferred, same mechanics and type a nudge.
+ * An empty result is meaningful: the library has no easier version, so the
+ * caller offers Reduce.
  *
- * The coach's curated list always sits on top, in the order they wrote it — the
- * scoring exists to make the feature work when nobody has curated anything,
- * which today is the normal case.
+ * STOP: the coach's recovery exercises only, in the order they wrote them,
+ * minus any that would themselves be stopped. An empty result means rest.
  */
 export function rankSubstitutes(opts: {
   original: ExerciseLike;
@@ -297,117 +355,77 @@ export function rankSubstitutes(opts: {
 }): SubstituteCandidate[] {
   const { original, rules, pool, allExercises } = opts;
   const limit = opts.limit ?? 6;
+  const byId = new Map(allExercises.map((e) => [e.id, e]));
 
   const originalFlag = evaluateFlag(original, rules);
-  const curatedOrder = new Map<number, number>();
-  pool.substituteExerciseIds.forEach((id, i) => curatedOrder.set(id, i));
+  if (!originalFlag.flagged) return [];
+
+  if (originalFlag.tier === 'stop') {
+    const out: SubstituteCandidate[] = [];
+    pool.substituteExerciseIds.forEach((id, i) => {
+      const e = byId.get(id);
+      if (!e || e.id === original.id) return;
+      if (evaluateFlag(e, rules).tier === 'stop') return;
+      out.push({
+        id: e.id,
+        name: e.name,
+        imageUrl: thumb(e),
+        movementPatterns: e.movement || [],
+        equipment: e.equipment || [],
+        source: 'curated',
+        reason: pool.coachingNote || 'Recovery work for this area while the movement is paused.',
+        score: 10_000 - i,
+      });
+    });
+    return out.slice(0, limit);
+  }
+
+  // ── GO EASIER ──
+  const flaggedPattern = originalFlag.matched.movementPattern as string;
+  const oDiff = difficulty(original);
+  const oLat = lateralityOf(original);
+  const oPrimary = original.primaryMuscle || null;
 
   const scored: SubstituteCandidate[] = [];
-
   for (const candidate of allExercises) {
     if (candidate.id === original.id) continue;
+    if (isNonTraining(candidate)) continue;
+    const cLevel = candidate.level ? String(candidate.level).toLowerCase() : null;
+    if (cLevel === NEVER_OFFER_LEVEL) continue;
+    if (evaluateFlag(candidate, rules).tier === 'stop') continue;
+    if (candidate.exerciseType && original.exerciseType && candidate.exerciseType !== original.exerciseType
+        && (candidate.exerciseType === 'general' || original.exerciseType === 'general')) continue;
 
-    // A substitute must not trip the same rules. This is the one filter that
-    // cannot be traded away: without it the engine happily offers the barbell
-    // incline press to someone who cannot press a barbell.
-    if (evaluateFlag(candidate, rules).flagged) continue;
+    // Same movement: the flagged pattern must survive.
+    if (!realPatterns(candidate).includes(flaggedPattern)) continue;
 
-    // Never offer an advanced exercise to someone who has just reported pain,
-    // whatever the outcome's rules say and whatever the original was. An
-    // exercise with no level recorded is allowed through rather than blocked —
-    // a gap in the library's tagging should not silently empty the list — but it
-    // is scored below anything properly tagged.
-    const candidateLevel = candidate.level ? String(candidate.level).toLowerCase() : null;
-    if (candidateLevel === NEVER_OFFER_LEVEL) continue;
+    // Same kind of exercise: an isolation move is not replaced by a compound one.
+    if (original.mechanics?.length && candidate.mechanics?.length
+        && overlap(original.mechanics, candidate.mechanics).length === 0) continue;
 
-    const isCurated = curatedOrder.has(candidate.id);
-    let score = 0;
-
-    if (isCurated) {
-      // Coach order is law. Big constant, minus position, so the curated list
-      // keeps its exact sequence above everything derived.
-      score += 10_000 - (curatedOrder.get(candidate.id) as number);
-    }
-
-    const sharedMuscles = overlap(original.mainMuscle, candidate.mainMuscle);
-    const sharedPatterns = overlap(original.movement, candidate.movement);
-
-    // Primary muscle is the strongest signal there is, and it is the one that
-    // stops nonsense. Bench press lists Chest, Triceps and Shoulders in
-    // mainMuscle, so scoring on that overlap alone put a tricep pushdown and a
-    // lateral raise on the shortlist — both share exactly one ASSISTANCE muscle
-    // with the bench and neither is remotely a substitute for it.
-    const oPrimary = original.primaryMuscle || null;
+    // Same job: primary muscle when both are tagged, else a shared main muscle.
     const cPrimary = candidate.primaryMuscle || null;
-    const bothTagged = !!oPrimary && !!cPrimary;
-    const samePrimary = bothTagged && oPrimary === cPrimary;
-    // The candidate's primary is only an assisting muscle of the original (or
-    // vice versa). Related, but not the same job.
-    const assistOnly = bothTagged && !samePrimary && (
-      (original.mainMuscle || []).includes(cPrimary as string) ||
-      (candidate.mainMuscle || []).includes(oPrimary as string)
-    );
-
-    // When the movement pattern ITSELF is what hurts, "same pattern, same
-    // muscle" is not available by definition — every close relative of the
-    // original is flagged too. This is precisely the case allowedPatterns
-    // exists for: the coach naming what to train instead.
-    const patternIsFlagged = !!originalFlag.matched.movementPattern;
-    const coachAllowed = patternIsFlagged
-      && pool.allowedPatterns.length > 0
-      && overlap(candidate.movement, pool.allowedPatterns).length > 0;
-
-    // Preserving the training stimulus is the point, so muscle and pattern
-    // dominate the score.
-    if (bothTagged) {
-      if (samePrimary) score += 80;
-      else if (assistOnly) score += 10;   // related, but a different job
-      else if (!coachAllowed) score -= 60; // trains something else entirely
-      // A shared assisting muscle is worth a nudge and nothing more.
-      if (!samePrimary && sharedMuscles.length > 0) score += 5;
-    } else {
-      // One side is untagged. Fall back to the old mainMuscle overlap so the
-      // engine still works while the library is being tagged, but score it below
-      // a real primary match so a tagged candidate always wins.
-      if (sharedMuscles.length > 0) score += 40 + Math.min(sharedMuscles.length - 1, 3) * 8;
-      else if (!coachAllowed) score -= 60;
+    if (oPrimary && cPrimary) {
+      if (oPrimary !== cPrimary) continue;
+    } else if (overlap(original.mainMuscle, candidate.mainMuscle).length === 0) {
+      continue;
     }
 
-    if (sharedPatterns.length > 0) score += 35;
-    else if (coachAllowed) score += 30;
+    // One step easier: strictly lower on the ladder.
+    const cDiff = difficulty(candidate);
+    if (cDiff >= oDiff) continue;
 
-    if (overlap(original.mechanics, candidate.mechanics).length > 0) score += 12;
+    const isCurated = pool.substituteExerciseIds.includes(candidate.id);
+    let score = 0;
+    // Closest step down first. Gap is at most ~250; keep it dominant but bounded.
+    score -= (oDiff - cDiff);
+    const cLat = lateralityOf(candidate);
+    if (oLat && cLat) score += oLat === cLat ? 40 : -40;
     if (original.exerciseType && candidate.exerciseType === original.exerciseType) score += 8;
-    if (original.laterality && candidate.laterality === original.laterality) score += 3;
-
-    // Level. Same as the original is ideal; easier is fine; harder while sore is
-    // a step in the wrong direction, so it costs.
-    const oi = original.level ? LEVEL_ORDER.indexOf(String(original.level).toLowerCase()) : -1;
-    const ci = candidateLevel ? LEVEL_ORDER.indexOf(candidateLevel) : -1;
-    if (oi !== -1 && ci !== -1) {
-      if (ci === oi) score += 8;
-      else if (ci < oi) score += 5;   // easier: appropriate while managing pain
-      else score -= 12;               // harder than what they were already doing
-    } else if (ci === -1) {
-      score -= 4;                     // untagged: usable, but not preferred
-    }
-
-    // Is this a substitute at all, or just another exercise in the library?
-    //
-    // With both sides tagged the test is strict: it has to train the same thing
-    // (same primary) or be the same movement. Sharing an assisting muscle is not
-    // enough — that is exactly how a tricep pushdown got onto a bench press
-    // shortlist. Untagged exercises fall back to the looser mainMuscle test so
-    // the engine keeps working while the library is being tagged.
-    //
-    // `coachAllowed` has to be in this test, not only in the scoring. Without it
-    // the guard threw away every candidate on the allowedPatterns path — the one
-    // route that cannot share a muscle or a pattern with the original — so an
-    // outcome that banned a whole movement offered nothing at all.
-    const relevant = bothTagged
-      ? (samePrimary || sharedPatterns.length > 0)
-      : (sharedMuscles.length > 0 || sharedPatterns.length > 0);
-    if (!isCurated && !coachAllowed && !relevant) continue;
+    // "Dumbbell Bench Press" for "Barbell Bench Press": the name says it is the same exercise.
+    score += Math.min(sharedNameWords(original, candidate), 3) * 8;
+    if (cLevel == null) score -= 6;
+    if (isCurated) score += 25;
 
     scored.push({
       id: candidate.id,
@@ -416,11 +434,94 @@ export function rankSubstitutes(opts: {
       movementPatterns: candidate.movement || [],
       equipment: candidate.equipment || [],
       source: isCurated ? 'curated' : 'derived',
-      reason: describeSubstitute(original, candidate, originalFlag),
+      reason: describeEasier(original, candidate),
       score,
     });
   }
 
   scored.sort((a, b) => b.score - a.score || a.name.localeCompare(b.name));
   return scored.slice(0, limit);
+}
+
+// ── Tiers from an assessment ─────────────────────────────────────────────────
+
+export type MovementResponse = 'fine' | 'manageable' | 'painful';
+
+export interface MovementCheck {
+  key: string;
+  label: string;
+  patterns: string[];
+  /** Library exercise shown as the picture when the athlete has no programme exercise for it. */
+  cueExerciseId?: number | null;
+}
+
+/**
+ * Turn what the athlete told us into STOP / GO EASIER lists.
+ *
+ *   painful     -> stop
+ *   manageable  -> go easier
+ *   fine        -> nothing at 1-6; go easier at 7-8 (an 8/10 shoulder does not
+ *                  get heavy rows because rows did not hurt at that moment)
+ *   9-10, or any red flag -> stop everything the area is involved in
+ *
+ * With no responses (older app build, or an area with no checks configured)
+ * the outcome's own flag lists are used unchanged.
+ */
+export function tiersFromAssessment(opts: {
+  severity: number;
+  redFlags?: string[] | null;
+  responses?: Record<string, MovementResponse> | null;
+  checks?: MovementCheck[] | null;
+  outcome?: any;
+}): { stop: string[]; easier: string[]; source: 'responses' | 'ceiling' | 'outcome' } {
+  const { severity, outcome } = opts;
+  const checks = opts.checks || [];
+  const responses = opts.responses || {};
+  const allPatterns = Array.from(new Set(checks.flatMap((c) => c.patterns || [])));
+  const redFlagged = (opts.redFlags || []).some((f) => f && f !== 'none');
+
+  if (checks.length > 0 && (severity >= 9 || redFlagged)) {
+    return { stop: allPatterns, easier: [], source: 'ceiling' };
+  }
+
+  const answered = checks.filter((c) => responses[c.key]);
+  if (answered.length > 0) {
+    const stop = new Set<string>();
+    const easier = new Set<string>();
+    for (const c of checks) {
+      const r = responses[c.key];
+      const eff: MovementResponse | null =
+        r === 'painful' ? 'painful'
+        : r === 'manageable' ? 'manageable'
+        : r === 'fine' ? (severity >= 7 ? 'manageable' : 'fine')
+        : (severity >= 7 ? 'manageable' : null);   // unanswered at high severity: caution
+      if (eff === 'painful') c.patterns.forEach((p) => stop.add(p));
+      else if (eff === 'manageable') c.patterns.forEach((p) => easier.add(p));
+    }
+    for (const p of stop) easier.delete(p);
+    return { stop: Array.from(stop), easier: Array.from(easier), source: 'responses' };
+  }
+
+  return {
+    stop: outcome?.flaggingMovementPatterns || [],
+    easier: outcome?.cautionMovementPatterns || [],
+    source: 'outcome',
+  };
+}
+
+/** Rules for the engine, from an assessment: per-person tiers replace the outcome's pattern lists. */
+export function rulesForAssessment(
+  outcome: any,
+  tiers: { stop: string[]; easier: string[]; source?: 'responses' | 'ceiling' | 'outcome' },
+): FlaggingRules {
+  const base = rulesFromOutcome(outcome);
+  if (tiers.source === 'outcome') return base;
+  return {
+    ...base,
+    movementPatterns: tiers.stop,
+    cautionPatterns: tiers.easier,
+    // The coach's refinements (barbell only, advanced only) belong to the
+    // coach's own lists. Per-person tiers are whole patterns.
+    muscles: [], equipment: [], levels: [], mechanics: [],
+  };
 }

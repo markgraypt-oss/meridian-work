@@ -8753,6 +8753,7 @@ Rules:
         // preview never used to read, so its type could not express them.
         reasonType: 'movement_pattern' | 'muscle' | 'equipment' | 'level' | 'mechanics';
         tier: 'stop' | 'easier' | null;
+        pattern?: string | null;
         sets?: any;
       }> = [];
 
@@ -8787,6 +8788,7 @@ Rules:
               reason: flag.reason,
               reasonType: flag.reasonType,
               tier: flag.tier,
+              pattern: flag.matched.movementPattern,
               sets: blockExercise.sets,
             });
           }
@@ -8808,6 +8810,7 @@ Rules:
             reason: f.reason,
             reasonType: f.reasonType,
             tier: f.tier,
+            pattern: f.pattern ?? null,
             instances: [] as any[],
             substitutes: [] as any[],
           };
@@ -8909,9 +8912,25 @@ Rules:
         console.error('[preview] swap voice skipped:', e?.message || e);
       }
 
+      // "Vertical Push" means nothing to most people. Say it the way the
+      // assessment asked it ("Pushing overhead") and name the exercises in
+      // THEIR programme it is about.
+      const labelFor = new Map<string, string>();
+      for (const c of ctx.checks) for (const pat of c.patterns) if (!labelFor.has(pat)) labelFor.set(pat, c.label);
+      const patternExplain = ([] as Array<{ pattern: string; label: string; tier: 'stop' | 'easier'; examples: string[] }>).concat(
+        ctx.tiers.stop.map((pat) => ({ pattern: pat, tier: 'stop' as const, label: labelFor.get(pat) || pat, examples: [] as string[] })),
+        ctx.tiers.easier.map((pat) => ({ pattern: pat, tier: 'easier' as const, label: labelFor.get(pat) || pat, examples: [] as string[] })),
+      );
+      for (const pe of patternExplain) {
+        pe.examples = Array.from(new Set(
+          flaggedGroups.filter((g: any) => g.pattern === pe.pattern).map((g: any) => g.exerciseName as string),
+        )).slice(0, 3);
+      }
+
       return res.json({
         // Per-instance rows, unchanged shape, so an older app build keeps working.
         flaggedExercises,
+        patternExplain,
         // One row per exercise with its own ranked substitutes. What the app uses now.
         flaggedGroups,
         // Curated pool only. Older builds read this; newer ones read group.substitutes.

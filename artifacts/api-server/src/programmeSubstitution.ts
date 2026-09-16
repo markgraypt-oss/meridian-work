@@ -316,13 +316,34 @@ function sharedNameWords(a: ExerciseLike, b: ExerciseLike): number {
   return n;
 }
 
+/** Tags that describe what any exercise also does, not a separate movement. */
+const GENERIC_PATTERNS = new Set(['Core', 'General Conditioning']);
+
 const KIT_WORD: Record<number, string> = { 5: 'barbell', 4: 'dumbbells', 3: 'cable or machine', 2: 'a band', 1: 'bodyweight' };
+
+/** The kit that sets the exercise's load, named as the library names it: "TRX", "a band", "dumbbells". */
+function kitName(e: ExerciseLike): string | null {
+  const heavy = realPatterns(e).some((p) => BODYWEIGHT_IS_HEAVY.has(p));
+  const ranked = (e.equipment || [])
+    .map((k) => ({ k, r: k === 'Bodyweight' && heavy ? 5 : KIT_RANK[k] }))
+    .filter((x): x is { k: string; r: number } => x.r != null)
+    .sort((a, b) => b.r - a.r);
+  const k = ranked[0]?.k;
+  if (!k) return null;
+  const pretty: Record<string, string> = {
+    'Barbell': 'a barbell', 'EZ Bar': 'an EZ bar', 'Landmine': 'a landmine', 'Dumbbell': 'dumbbells',
+    'Kettlebell': 'a kettlebell', 'Plate': 'a plate', 'Medicine Ball': 'a medicine ball', 'Cable': 'a cable',
+    'Cable Machine': 'a cable', 'Machine': 'a machine', 'TRX': 'a TRX', 'Long Band': 'a band', 'Short Band': 'a band',
+    'Band': 'a band', 'Bodyweight': 'bodyweight',
+  };
+  return pretty[k] || k.toLowerCase();
+}
 
 /** "Same movement — dumbbells instead of barbell, chest-supported." Built from what changed. */
 function describeEasier(original: ExerciseLike, candidate: ExerciseLike): string {
   const changed: string[] = [];
   const ok = kitRank(original), ck = kitRank(candidate);
-  if (ok != null && ck != null && ck < ok) changed.push(`${KIT_WORD[ck]} instead of ${KIT_WORD[ok]}`);
+  if (ok != null && ck != null && ck < ok) changed.push(`${kitName(candidate) || KIT_WORD[ck]} instead of ${kitName(original) || KIT_WORD[ok]}`);
   const ol = levelIndex(original), cl = levelIndex(candidate);
   if (ol != null && cl != null && cl < ol) changed.push(`${LEVEL_ORDER[cl]} rather than ${LEVEL_ORDER[ol]}`);
   if (!isSupported(original) && isSupported(candidate)) changed.push('more supported');
@@ -396,8 +417,14 @@ export function rankSubstitutes(opts: {
     if (candidate.exerciseType && original.exerciseType && candidate.exerciseType !== original.exerciseType
         && (candidate.exerciseType === 'general' || original.exerciseType === 'general')) continue;
 
-    // Same movement: the flagged pattern must survive.
-    if (!realPatterns(candidate).includes(flaggedPattern)) continue;
+    // Same movement: the flagged pattern must survive...
+    const cPatterns = realPatterns(candidate);
+    if (!cPatterns.includes(flaggedPattern)) continue;
+    // ...and nothing gets ADDED. A TRX atomic push-up is a push plus a knee
+    // tuck; lighter kit than a dumbbell press, but a combination move is
+    // never "the same exercise, one step easier".
+    const oPatterns = new Set(realPatterns(original));
+    if (cPatterns.some((p) => !oPatterns.has(p) && !GENERIC_PATTERNS.has(p))) continue;
 
     // Same kind of exercise: an isolation move is not replaced by a compound one.
     if (original.mechanics?.length && candidate.mechanics?.length

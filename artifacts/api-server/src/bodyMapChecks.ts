@@ -54,9 +54,54 @@ export const SHOULDER_CHECKS_V1: MovementCheck[] = [
   { key: 'pull', label: 'Pulling towards you', patterns: ['Horizontal Pull'], cueExerciseId: 707 },
 ];
 
-let hasSeeded = false;
-const SEED_FLAG = 'shoulder_movement_checks_v1';
+/**
+ * First-pass questions for every other area, agreed with the coach. Seeded
+ * once, only where the area has none; edited in the admin after that.
+ *
+ * "Carrying" and "Calf raises" do nothing until the carry and calf raise
+ * exercises carry those patterns — the library had neither tagged.
+ */
+const Q = {
+  overhead_push: { key: 'overhead_push', label: 'Pushing overhead', patterns: ['Vertical Push'], cueExerciseId: 767 },
+  push:          { key: 'push', label: 'Pushing away from you', patterns: ['Horizontal Push'], cueExerciseId: 632 },
+  overhead_pull: { key: 'overhead_pull', label: 'Pulling down from overhead', patterns: ['Vertical Pull'], cueExerciseId: 453 },
+  pull:          { key: 'pull', label: 'Pulling towards you', patterns: ['Horizontal Pull'], cueExerciseId: 707 },
+  grip_pull:     { key: 'pull', label: 'Pulling and gripping', patterns: ['Horizontal Pull', 'Vertical Pull'], cueExerciseId: 707 },
+  carry:         { key: 'carry', label: 'Carrying', patterns: ['Carry'], cueExerciseId: 917 },
+  hinge:         { key: 'hinge', label: 'Hinging and deadlifting', patterns: ['Hip Hinge'], cueExerciseId: 187 },
+  squat:         { key: 'squat', label: 'Squatting', patterns: ['Squat'], cueExerciseId: 345 },
+  lunge:         { key: 'lunge', label: 'Lunging and stepping', patterns: ['Lunge'], cueExerciseId: 28 },
+  jump_run:      { key: 'jump_run', label: 'Jumping and running', patterns: ['Plyometrics', 'Cardio'], cueExerciseId: 243 },
+  sprint_jump:   { key: 'jump_run', label: 'Sprinting and jumping', patterns: ['Plyometrics', 'Cardio'], cueExerciseId: 243 },
+  arms:          { key: 'arms', label: 'Curls and tricep work', patterns: ['Elbow Flexion', 'Elbow Extension'], cueExerciseId: 894 },
+  curls:         { key: 'curls', label: 'Curls', patterns: ['Elbow Flexion'], cueExerciseId: 894 },
+  core:          { key: 'core', label: 'Bracing and core work', patterns: ['Core Anti-Extension', 'Core Anti-Rotation', 'Core Anti-Lateral Flexion', 'Core Flexion'], cueExerciseId: 1203 },
+  hip_flex:      { key: 'hip_flex', label: 'Hip flexor drills', patterns: ['Hip Flexion'], cueExerciseId: 769 },
+  leg_ext:       { key: 'leg_ext', label: 'Leg extensions', patterns: ['Knee Extension'], cueExerciseId: 1189 },
+  leg_curl:      { key: 'leg_curl', label: 'Leg curls', patterns: ['Knee Flexion'], cueExerciseId: 99 },
+  knee_iso:      { key: 'knee_iso', label: 'Leg curls and extensions', patterns: ['Knee Flexion', 'Knee Extension'], cueExerciseId: 99 },
+  calf:          { key: 'calf', label: 'Calf raises', patterns: ['Calf Raise'], cueExerciseId: 481 },
+} satisfies Record<string, MovementCheck>;
 
+export const AREA_CHECKS_V1: Record<string, MovementCheck[]> = {
+  shoulder:   SHOULDER_CHECKS_V1,
+  neck:       [Q.overhead_push, Q.overhead_pull, Q.pull, Q.hinge, Q.carry],
+  elbow:      [Q.push, Q.overhead_push, Q.pull, Q.overhead_pull, Q.arms],
+  wrist_hand: [Q.push, Q.overhead_push, Q.grip_pull, Q.curls, Q.carry],
+  upper_back: [Q.pull, Q.overhead_pull, Q.overhead_push, Q.push, Q.hinge],
+  lower_back: [Q.hinge, Q.squat, Q.lunge, Q.core, Q.jump_run],
+  hip:        [Q.squat, Q.hinge, Q.lunge, Q.jump_run, Q.hip_flex],
+  quadriceps: [Q.squat, Q.lunge, Q.jump_run, Q.leg_ext],
+  hamstrings: [Q.hinge, Q.leg_curl, Q.lunge, Q.sprint_jump],
+  knee:       [Q.squat, Q.lunge, Q.jump_run, Q.hinge, Q.knee_iso],
+  calf:       [Q.calf, Q.jump_run, Q.lunge, Q.squat],
+  ankle_foot: [Q.jump_run, Q.lunge, Q.squat, Q.calf, Q.hinge],
+};
+
+let hasSeeded = false;
+const SEED_FLAG = 'movement_checks_seed_v2';
+
+/** Give every area its first questions, once. Never overwrites an area that already has some. */
 export async function seedShoulderMovementChecksOnce(): Promise<void> {
   if (hasSeeded) return;
   hasSeeded = true;
@@ -64,14 +109,18 @@ export async function seedShoulderMovementChecksOnce(): Promise<void> {
     await pool.query(`CREATE TABLE IF NOT EXISTS system_flags (key text PRIMARY KEY, created_at timestamp DEFAULT now())`);
     const seen = await pool.query(`SELECT 1 FROM system_flags WHERE key = $1 LIMIT 1`, [SEED_FLAG]);
     if ((seen.rowCount ?? 0) > 0) return;
-    const r = await pool.query(
-      `UPDATE body_map_areas SET movement_checks = $1::jsonb WHERE name = 'shoulder' AND movement_checks IS NULL`,
-      [JSON.stringify(SHOULDER_CHECKS_V1)],
-    );
-    console.log(`[startup-migration] shoulder movement checks seeded (${r.rowCount} row)`);
+    let seeded = 0;
+    for (const [name, checks] of Object.entries(AREA_CHECKS_V1)) {
+      const r = await pool.query(
+        `UPDATE body_map_areas SET movement_checks = $1::jsonb WHERE name = $2 AND movement_checks IS NULL`,
+        [JSON.stringify(checks), name],
+      );
+      seeded += r.rowCount ?? 0;
+    }
+    console.log(`[startup-migration] movement checks seeded for ${seeded} area(s)`);
     await pool.query(`INSERT INTO system_flags (key) VALUES ($1) ON CONFLICT (key) DO NOTHING`, [SEED_FLAG]);
   } catch (e: any) {
-    console.error('[startup-migration] shoulder movement checks seed failed:', e?.message || e);
+    console.error('[startup-migration] movement checks seed failed:', e?.message || e);
   }
 }
 

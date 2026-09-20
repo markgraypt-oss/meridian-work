@@ -14,7 +14,7 @@ export const EQUIPMENT_OPTIONS = [
 // Movement Pattern - core movement patterns for exercises
 export const MOVEMENT_PATTERN_OPTIONS = [
   "Squat", "Hip Hinge", "Lunge", "Horizontal Push", "Vertical Push",
-  "Horizontal Pull", "Vertical Pull", "Carry", "Core Anti-Extension",
+  "Horizontal Pull", "Vertical Pull", "Carry", "Calf Raise", "Core Anti-Extension",
   "Core Anti-Flexion", "Core Anti-Rotation", "Core Anti-Lateral Flexion",
   "Core Rotation", "Core Flexion", "Core Extension",
   "Elbow Flexion", "Elbow Extension", "Hip Extension", "Hip Flexion", "Knee Flexion", "Knee Extension"

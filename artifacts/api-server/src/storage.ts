@@ -853,7 +853,7 @@ export interface IStorage {
   createBodyMapOutcome(outcome: InsertBodyMapOutcome): Promise<BodyMapOutcome>;
   updateBodyMapOutcome(id: number, outcome: Partial<InsertBodyMapOutcome>): Promise<BodyMapOutcome>;
   deleteBodyMapOutcome(id: number): Promise<void>;
-  findMatchingOutcome(bodyAreaId: number, severity: number, trainingImpact: string | null, movementImpact: string | null): Promise<BodyMapOutcome | null>;
+  findMatchingOutcome(bodyAreaId: number, severity: number, trainingImpact: string | null, movementImpact: string | null, flaggedPatterns?: string[] | null): Promise<BodyMapOutcome | null>;
 
   // Recovery plan generation from configuration
   findMatchingRecoveryTemplate(bodyPart: string, severity: number, answers: Record<number, string>): Promise<BodyMapRecoveryTemplate | null>;
@@ -5844,13 +5844,25 @@ export class DatabaseStorage implements IStorage {
     await db.delete(bodyMapOutcomes).where(eq(bodyMapOutcomes.id, id));
   }
 
+  /**
+   * Which outcome (guidance text + fallback rules) fits this assessment.
+   *
+   * Severity is a hard filter. After that, when the athlete has answered the
+   * per-movement questions, the outcome whose pattern lists best match what
+   * they said hurts wins: three shoulder outcomes at 4-6 — overhead-only,
+   * push-sensitive, broad — used to be told apart by nothing at all (same
+   * conditions, highest priority always won), so push-sensitive never fired.
+   * Now "overhead hurts, pushing hurts, pulling is fine" lands on the one
+   * written for exactly that. Training/movement impact answers break ties.
+   * With no answers, the old conditions apply unchanged.
+   */
   async findMatchingOutcome(
     bodyAreaId: number,
     severity: number,
     trainingImpact: string | null,
-    movementImpact: string | null
+    movementImpact: string | null,
+    flaggedPatterns?: string[] | null,
   ): Promise<BodyMapOutcome | null> {
-    // Get all active outcomes for this body area, ordered by priority
     const outcomes = await db.select().from(bodyMapOutcomes)
       .where(and(
         eq(bodyMapOutcomes.bodyAreaId, bodyAreaId),
@@ -5858,34 +5870,47 @@ export class DatabaseStorage implements IStorage {
       ))
       .orderBy(desc(bodyMapOutcomes.priority));
 
-    // Find the first matching outcome based on conditions (AND logic)
-    for (const outcome of outcomes) {
-      let matches = true;
+    const inSeverity = outcomes.filter((o) =>
+      !(o.severityMin !== null && severity < o.severityMin) &&
+      !(o.severityMax !== null && severity > o.severityMax));
 
-      // Check severity range
-      if (outcome.severityMin !== null && severity < outcome.severityMin) {
-        matches = false;
-      }
-      if (outcome.severityMax !== null && severity > outcome.severityMax) {
-        matches = false;
-      }
+    const impactsMatch = (o: BodyMapOutcome) =>
+      !(o.trainingImpact !== null && trainingImpact !== null && o.trainingImpact !== trainingImpact) &&
+      !(o.movementImpact !== null && movementImpact !== null && o.movementImpact !== movementImpact);
 
-      // Check training impact (null in outcome means "any")
-      if (outcome.trainingImpact !== null && trainingImpact !== null && outcome.trainingImpact !== trainingImpact) {
-        matches = false;
-      }
+    const flagged = new Set((flaggedPatterns || []).filter(Boolean));
+    const describable = inSeverity.filter((o) =>
+      ((o.flaggingMovementPatterns as string[] | null)?.length || (o as any).cautionMovementPatterns?.length));
 
-      // Check movement impact (null in outcome means "any")
-      if (outcome.movementImpact !== null && movementImpact !== null && outcome.movementImpact !== movementImpact) {
-        matches = false;
+    if (flagged.size > 0 && describable.length > 1) {
+      let best: { o: BodyMapOutcome; score: number; impacts: boolean } | null = null;
+      for (const o of describable) {
+        const own = new Set<string>([
+          ...((o.flaggingMovementPatterns as string[] | null) || []),
+          ...(((o as any).cautionMovementPatterns as string[] | null) || []),
+        ]);
+        let inter = 0;
+        for (const p of flagged) if (own.has(p)) inter++;
+        const union = new Set([...own, ...flagged]).size;
+        const score = union ? inter / union : 0;
+        const impacts = impactsMatch(o);
+        if (!best
+          || score > best.score
+          || (score === best.score && impacts && !best.impacts)
+          || (score === best.score && impacts === best.impacts && (o.priority ?? 0) > (best.o.priority ?? 0))) {
+          best = { o, score, impacts };
+        }
       }
-
-      if (matches) {
-        return outcome;
-      }
+      if (best && best.score > 0) return best.o;
     }
 
-    return null;
+    // No answers to go on (older app, or an area without questions): the
+    // original AND-conditions, highest priority first.
+    for (const outcome of inSeverity) {
+      if (impactsMatch(outcome)) return outcome;
+    }
+    // Answers given but nothing matched the impact conditions: severity alone.
+    return inSeverity[0] ?? null;
   }
 
   async findMatchingRecoveryTemplate(

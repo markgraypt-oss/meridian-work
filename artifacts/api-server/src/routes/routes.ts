@@ -8122,8 +8122,11 @@ Rules:
         return res.json({ active: false });
       }
       
-      // Find the matching outcome for this body map state
-      const matchedOutcome = await storage.findMatchingOutcome(
+      // The outcome chosen at assessment time is on the log; re-matching
+      // here could pick a different one now that answers drive the choice.
+      const matchedOutcome = (latestLog.matchedOutcomeId
+        ? await storage.getBodyMapOutcomeById(latestLog.matchedOutcomeId)
+        : null) || await storage.findMatchingOutcome(
         bodyArea.id,
         latestLog.severity,
         latestLog.trainingImpact || null,
@@ -8190,12 +8193,29 @@ Rules:
       let matchedOutcome = null;
       let flaggingMovementPatterns: string[] = [];
       
+      // What the athlete's own answers come to, before any outcome is chosen:
+      // the outcome is then picked to FIT those answers, not the other way round.
+      let answerTiers: { stop: string[]; easier: string[]; source: string } | null = null;
       if (bodyArea) {
+        try {
+          const { getAreaChecks } = await import('../bodyMapChecks');
+          const { tiersFromAssessment } = await import('../programmeSubstitution');
+          const area = await getAreaChecks(log.bodyPart);
+          const responses = (log as any).movementResponses;
+          const redFlags = (log as any).redFlags;
+          if (area && area.checks.length && responses && typeof responses === 'object') {
+            answerTiers = tiersFromAssessment({ severity: log.severity, redFlags, responses, checks: area.checks });
+          }
+        } catch (e: any) {
+          console.error('[body-map] answer tiers failed:', e?.message || e);
+        }
+
         matchedOutcome = await storage.findMatchingOutcome(
           bodyArea.id,
           log.severity,
           log.trainingImpact || null,
-          log.movementImpact || null
+          log.movementImpact || null,
+          answerTiers ? [...answerTiers.stop, ...answerTiers.easier] : null,
         );
 
         // Get flagging movement patterns from matched outcome
@@ -8552,7 +8572,9 @@ Rules:
           if (bodyMapLog) {
             const bodyArea = await storage.getBodyMapAreaByName(bodyMapLog.bodyPart);
             if (bodyArea) {
-              const matchedOutcome = await storage.findMatchingOutcome(
+              const matchedOutcome = (bodyMapLog.matchedOutcomeId
+                ? await storage.getBodyMapOutcomeById(bodyMapLog.matchedOutcomeId)
+                : null) || await storage.findMatchingOutcome(
                 bodyArea.id,
                 bodyMapLog.severity,
                 bodyMapLog.trainingImpact || null,

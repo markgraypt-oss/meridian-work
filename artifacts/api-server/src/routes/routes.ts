@@ -8319,7 +8319,13 @@ Rules:
       // had not filled that field in on, and silently never follow up. Silence is
       // not a safe default for a pain flag, so it now falls back to severity.
       const { defaultReassessInDays } = await import('../bodyMapReassessment');
-      const reassessmentDays = matchedOutcome?.reassessInDays || defaultReassessInDays(log.severity);
+      // A follow-up is owed when the outcome asks for one, or when it hurts
+      // enough to matter (4+). A 2/10 "keep moving" does not need a card on
+      // the dashboard a fortnight later — that is noise, not coaching.
+      const needsFollowUp = !!matchedOutcome?.reassessInDays || log.severity >= 4;
+      const reassessmentDays: number | null = needsFollowUp
+        ? (matchedOutcome?.reassessInDays || defaultReassessInDays(log.severity))
+        : null;
       if (matchedOutcome || reassessmentDays) {
         await storage.updateBodyMapLog(log.id, {
           matchedOutcomeId: matchedOutcome?.id || null,
@@ -8347,7 +8353,7 @@ Rules:
       //    outcome carrying reassessInDays, which is why an assessment could
       //    finish with nothing scheduled behind it.
       let reminderCreated = false;
-      {
+      if (reassessmentDays) {
         const dueAt = new Date();
         dueAt.setDate(dueAt.getDate() + reassessmentDays);
 
@@ -8374,7 +8380,7 @@ Rules:
         tiers: assessmentTiers,
         matchedOutcomeId: matchedOutcome?.id || null,
         reminderCreated,
-        reminderDueAt: new Date(Date.now() + reassessmentDays * 24 * 60 * 60 * 1000)
+        reminderDueAt: reassessmentDays ? new Date(Date.now() + reassessmentDays * 24 * 60 * 60 * 1000) : null
       });
     } catch (error) {
       console.error("Error creating body map log:", error);

@@ -4694,6 +4694,7 @@ export class DatabaseStorage implements IStorage {
     const endOfDay = new Date(date);
     endOfDay.setHours(23, 59, 59, 999);
     const now = new Date();
+    const overdueCutoff = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
 
     return await db
       .select()
@@ -4712,16 +4713,18 @@ export class DatabaseStorage implements IStorage {
               gte(reassessmentReminders.dueAt, startOfDay),
               lte(reassessmentReminders.dueAt, endOfDay)
             ),
-            // Viewing today or a past day: also include anything overdue
+            // Viewing today or a past day: also include anything overdue —
+            // but only for a week. A reminder nobody acted on for seven days
+            // is not going to be acted on; leaving it on the dashboard for
+            // ever just buries the things that matter today.
             and(
               sql`${startOfDay} <= ${now}`,
               or(
                 eq(reassessmentReminders.status, 'due'),
-                and(
-                  eq(reassessmentReminders.status, 'scheduled'),
-                  lte(reassessmentReminders.dueAt, now)
-                )
-              )
+                eq(reassessmentReminders.status, 'scheduled')
+              ),
+              lte(reassessmentReminders.dueAt, now),
+              gte(reassessmentReminders.dueAt, overdueCutoff)
             ),
             // COMPLETED ON THIS DAY. A reassessment that has been done used to
             // vanish from the dashboard the moment it was finished, so the day's

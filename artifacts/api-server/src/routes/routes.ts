@@ -8750,15 +8750,49 @@ Rules:
         const wb = weekNumberByWeekId.get(b.weekId) || 0;
         return wa - wb || (a.position - b.position);
       });
+      // One query for every workout, one for every block, one for every
+      // exercise — not one per day and one per workout. This route used to
+      // take ~30 seconds on a 6-week programme; that was 250 round trips.
       const week1Workouts: any[] = [];
       const seenScanWorkoutIds = new Set<number>();
-      for (const day of sortedScanDays) {
-        const wn = weekNumberByWeekId.get(day.weekId) || 1;
-        const dayWorkouts = await db.select().from(programmeWorkouts).where(eq(programmeWorkouts.dayId, day.id));
-        for (const w of dayWorkouts) {
-          if (seenScanWorkoutIds.has(w.id)) continue;
-          seenScanWorkoutIds.add(w.id);
-          week1Workouts.push({ ...w, weekNumber: wn, dayNumber: day.position + 1 });
+      const blocksByWorkoutId = new Map<number, any[]>();
+      {
+        const dayIds = sortedScanDays.map(d => d.id);
+        const allWorkouts = dayIds.length
+          ? await db.select().from(programmeWorkouts).where(inArray(programmeWorkouts.dayId, dayIds))
+          : [];
+        const workoutsByDay = new Map<number, any[]>();
+        for (const w of allWorkouts) {
+          const list = workoutsByDay.get(w.dayId) || [];
+          list.push(w);
+          workoutsByDay.set(w.dayId, list);
+        }
+        for (const day of sortedScanDays) {
+          const wn = weekNumberByWeekId.get(day.weekId) || 1;
+          for (const w of (workoutsByDay.get(day.id) || []).sort((a: any, b: any) => a.position - b.position)) {
+            if (seenScanWorkoutIds.has(w.id)) continue;
+            seenScanWorkoutIds.add(w.id);
+            week1Workouts.push({ ...w, weekNumber: wn, dayNumber: day.position + 1 });
+          }
+        }
+        const workoutIds = week1Workouts.map(w => w.id);
+        const allBlocks = workoutIds.length
+          ? await db.select().from(programmeWorkoutBlocks).where(inArray(programmeWorkoutBlocks.workoutId, workoutIds)).orderBy(asc(programmeWorkoutBlocks.position))
+          : [];
+        const blockIds = allBlocks.map(b => b.id);
+        const allBlockExercises = blockIds.length
+          ? await db.select().from(programmeBlockExercises).where(inArray(programmeBlockExercises.blockId, blockIds)).orderBy(asc(programmeBlockExercises.position))
+          : [];
+        const exByBlock = new Map<number, any[]>();
+        for (const be of allBlockExercises) {
+          const list = exByBlock.get(be.blockId) || [];
+          list.push(be);
+          exByBlock.set(be.blockId, list);
+        }
+        for (const b of allBlocks) {
+          const list = blocksByWorkoutId.get(b.workoutId) || [];
+          list.push({ ...b, exercises: exByBlock.get(b.id) || [] });
+          blocksByWorkoutId.set(b.workoutId, list);
         }
       }
 
@@ -8788,7 +8822,7 @@ Rules:
       // Flagging now runs through evaluateFlag() in ../programmeSubstitution, so
       // the rule semantics live in exactly one place.
       if (hasAnyCriteria(rules)) for (const workout of week1Workouts) {
-        const blocks = await storage.getProgrammeWorkoutBlocks(workout.id);
+        const blocks = blocksByWorkoutId.get(workout.id) || [];
         for (const block of blocks) {
           for (const blockExercise of (block.exercises || [])) {
             if (!blockExercise.exerciseLibraryId) continue;
@@ -9116,15 +9150,49 @@ Rules:
         const wb = weekNumberByWeekId.get(b.weekId) || 0;
         return wa - wb || (a.position - b.position);
       });
+      // One query for every workout, one for every block, one for every
+      // exercise — not one per day and one per workout. This route used to
+      // take ~30 seconds on a 6-week programme; that was 250 round trips.
       const week1Workouts: any[] = [];
       const seenScanWorkoutIds = new Set<number>();
-      for (const day of sortedScanDays) {
-        const wn = weekNumberByWeekId.get(day.weekId) || 1;
-        const dayWorkouts = await db.select().from(programmeWorkouts).where(eq(programmeWorkouts.dayId, day.id));
-        for (const w of dayWorkouts) {
-          if (seenScanWorkoutIds.has(w.id)) continue;
-          seenScanWorkoutIds.add(w.id);
-          week1Workouts.push({ ...w, weekNumber: wn, dayNumber: day.position + 1 });
+      const blocksByWorkoutId = new Map<number, any[]>();
+      {
+        const dayIds = sortedScanDays.map(d => d.id);
+        const allWorkouts = dayIds.length
+          ? await db.select().from(programmeWorkouts).where(inArray(programmeWorkouts.dayId, dayIds))
+          : [];
+        const workoutsByDay = new Map<number, any[]>();
+        for (const w of allWorkouts) {
+          const list = workoutsByDay.get(w.dayId) || [];
+          list.push(w);
+          workoutsByDay.set(w.dayId, list);
+        }
+        for (const day of sortedScanDays) {
+          const wn = weekNumberByWeekId.get(day.weekId) || 1;
+          for (const w of (workoutsByDay.get(day.id) || []).sort((a: any, b: any) => a.position - b.position)) {
+            if (seenScanWorkoutIds.has(w.id)) continue;
+            seenScanWorkoutIds.add(w.id);
+            week1Workouts.push({ ...w, weekNumber: wn, dayNumber: day.position + 1 });
+          }
+        }
+        const workoutIds = week1Workouts.map(w => w.id);
+        const allBlocks = workoutIds.length
+          ? await db.select().from(programmeWorkoutBlocks).where(inArray(programmeWorkoutBlocks.workoutId, workoutIds)).orderBy(asc(programmeWorkoutBlocks.position))
+          : [];
+        const blockIds = allBlocks.map(b => b.id);
+        const allBlockExercises = blockIds.length
+          ? await db.select().from(programmeBlockExercises).where(inArray(programmeBlockExercises.blockId, blockIds)).orderBy(asc(programmeBlockExercises.position))
+          : [];
+        const exByBlock = new Map<number, any[]>();
+        for (const be of allBlockExercises) {
+          const list = exByBlock.get(be.blockId) || [];
+          list.push(be);
+          exByBlock.set(be.blockId, list);
+        }
+        for (const b of allBlocks) {
+          const list = blocksByWorkoutId.get(b.workoutId) || [];
+          list.push({ ...b, exercises: exByBlock.get(b.id) || [] });
+          blocksByWorkoutId.set(b.workoutId, list);
         }
       }
 
@@ -9150,7 +9218,7 @@ Rules:
       const slotMap = new Map<number, SlotInfo>();
 
       for (const workout of week1Workouts) {
-        const blocks = await storage.getProgrammeWorkoutBlocks(workout.id);
+        const blocks = blocksByWorkoutId.get(workout.id) || [];
         for (const block of blocks) {
           const blockExercises = block.exercises || [];
           for (const blockExercise of blockExercises) {
@@ -9193,6 +9261,10 @@ Rules:
       // subsequent entry for the same slot is rejected so we never create more than
       // one mapping per slot in a single accept call.
       const seenSlotIds = new Set<number>();
+      const allowedByOriginal = new Map<number, Set<number>>();
+      // Collected here and written in ONE insert below — sixty single-row
+      // inserts to a remote database is most of what made this slow.
+      const pendingRows: any[] = [];
 
       for (const selection of selectionList) {
         const slotId = selection?.exerciseInstanceId;
@@ -9230,7 +9302,7 @@ Rules:
             continue;
           }
           seenSlotIds.add(slotId);
-          await db.insert(exerciseSubstitutionMappings).values({
+          pendingRows.push({
             modificationRecordId: recordId,
             mainProgrammeEnrollmentId: targetEnrollment.id,
             workoutId: slotInfo.workoutId,
@@ -9269,7 +9341,7 @@ Rules:
 
           seenSlotIds.add(slotId);
 
-          await db.insert(exerciseSubstitutionMappings).values({
+          pendingRows.push({
             modificationRecordId: recordId,
             mainProgrammeEnrollmentId: targetEnrollment.id,
             workoutId: slotInfo.workoutId,
@@ -9298,15 +9370,15 @@ Rules:
         // exercise. The client is never trusted: the ranking is recomputed here.
         if (!substituteExerciseIds.includes(chosenId)) {
           const originalExercise = exerciseMap.get(slotInfo.originalExerciseId);
-          const allowed = originalExercise
-            ? rankSubstitutes({
-                original: originalExercise as any,
-                rules,
-                pool,
-                allExercises: allExercises as any[],
-                limit: 50,
-              }).some((c) => c.id === chosenId)
-            : false;
+          // The same exercise appears in many slots; rank it once, not once per slot.
+          let allowedIds = allowedByOriginal.get(slotInfo.originalExerciseId);
+          if (!allowedIds) {
+            allowedIds = new Set(originalExercise
+              ? rankSubstitutes({ original: originalExercise as any, rules, pool, allExercises: allExercises as any[], limit: 50 }).map((c) => c.id)
+              : []);
+            allowedByOriginal.set(slotInfo.originalExerciseId, allowedIds);
+          }
+          const allowed = allowedIds.has(chosenId);
           if (!allowed) {
             substitutionsFailed++;
             continue;
@@ -9327,7 +9399,7 @@ Rules:
         }
         seenSlotIds.add(slotId);
 
-        await db.insert(exerciseSubstitutionMappings).values({
+        pendingRows.push({
           modificationRecordId: recordId,
           mainProgrammeEnrollmentId: targetEnrollment.id,
           workoutId: slotInfo.workoutId,
@@ -9340,6 +9412,10 @@ Rules:
         });
 
         substitutionsApplied++;
+      }
+
+      if (pendingRows.length > 0) {
+        await db.insert(exerciseSubstitutionMappings).values(pendingRows);
       }
 
       // Update the modification record with counts

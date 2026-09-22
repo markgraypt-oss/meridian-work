@@ -8917,15 +8917,20 @@ Rules:
       // THEIR programme it is about.
       const labelFor = new Map<string, string>();
       for (const c of ctx.checks) for (const pat of c.patterns) if (!labelFor.has(pat)) labelFor.set(pat, c.label);
-      const patternExplain = ([] as Array<{ pattern: string; label: string; tier: 'stop' | 'easier'; examples: string[] }>).concat(
-        ctx.tiers.stop.map((pat) => ({ pattern: pat, tier: 'stop' as const, label: labelFor.get(pat) || pat, examples: [] as string[] })),
-        ctx.tiers.easier.map((pat) => ({ pattern: pat, tier: 'easier' as const, label: labelFor.get(pat) || pat, examples: [] as string[] })),
-      );
-      for (const pe of patternExplain) {
-        pe.examples = Array.from(new Set(
-          flaggedGroups.filter((g: any) => g.pattern === pe.pattern).map((g: any) => g.exerciseName as string),
-        )).slice(0, 3);
-      }
+      // One line per QUESTION, not per pattern: "Jumping and running" covers
+      // two tags and should not appear twice.
+      const patternExplain: Array<{ pattern: string; label: string; tier: 'stop' | 'easier'; examples: string[] }> = [];
+      const addExplain = (pat: string, tier: 'stop' | 'easier') => {
+        const label = labelFor.get(pat) || pat;
+        let row = patternExplain.find((r) => r.label === label && r.tier === tier);
+        if (!row) { row = { pattern: pat, label, tier, examples: [] }; patternExplain.push(row); }
+        for (const g of flaggedGroups as any[]) {
+          if (g.pattern === pat && !row.examples.includes(g.exerciseName)) row.examples.push(g.exerciseName);
+        }
+      };
+      ctx.tiers.stop.forEach((p) => addExplain(p, 'stop'));
+      ctx.tiers.easier.forEach((p) => addExplain(p, 'easier'));
+      for (const r of patternExplain) r.examples = r.examples.slice(0, 3);
 
       return res.json({
         // Per-instance rows, unchanged shape, so an older app build keeps working.

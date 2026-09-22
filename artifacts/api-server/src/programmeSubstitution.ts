@@ -220,8 +220,19 @@ const NONE: FlagMatch = {
  * category, unconfigured categories impose nothing. Then GO EASIER: a shared
  * real pattern is enough.
  */
+/**
+ * Warm-up and mobility work is not loaded training. A World's Greatest
+ * Stretch is tagged as a hinge and a squat because that is what the body
+ * does in it, but "stop hinging" is about deadlifts, not about the warm-up.
+ */
+function isWarmUpOrMobility(e: ExerciseLike): boolean {
+  if ((e.movement || []).some((m) => NON_TRAINING_PATTERNS.has(m))) return true;
+  return String(e.exerciseType || '').toLowerCase() === 'general';
+}
+
 export function evaluateFlag(exercise: ExerciseLike, rules: FlaggingRules): FlagMatch {
   if (!hasAnyCriteria(rules)) return NONE;
+  if (isWarmUpOrMobility(exercise)) return NONE;
 
   const firstOverlap = (values: string[] | null | undefined, wanted: string[]): string | null | undefined => {
     if (wanted.length === 0) return undefined;   // not configured: no constraint
@@ -318,6 +329,8 @@ function sharedNameWords(a: ExerciseLike, b: ExerciseLike): number {
 
 /** Tags that describe what any exercise also does, not a separate movement. */
 const GENERIC_PATTERNS = new Set(['Core', 'General Conditioning']);
+/** Buckets with no shape to match a substitute on. Reduce, never swap. */
+const NO_SWAP_PATTERNS = new Set(['Cardio', 'General Conditioning']);
 
 const KIT_WORD: Record<number, string> = { 5: 'barbell', 4: 'dumbbells', 3: 'cable or machine', 2: 'a band', 1: 'bodyweight' };
 
@@ -403,6 +416,11 @@ export function rankSubstitutes(opts: {
 
   // ── GO EASIER ──
   const flaggedPattern = originalFlag.matched.movementPattern as string;
+  // "Cardio" is a bucket, not a movement: a wall ball and an elliptical share
+  // the tag and nothing else. There is no "same movement, one step easier"
+  // to find, so the honest offer is fewer rounds — the caller falls back to
+  // Reduce when this comes back empty.
+  if (NO_SWAP_PATTERNS.has(flaggedPattern)) return [];
   const oDiff = difficulty(original);
   const oLat = lateralityOf(original);
   const oPrimary = original.primaryMuscle || null;

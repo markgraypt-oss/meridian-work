@@ -167,11 +167,11 @@ export async function resolveChecksForUser(areaName: string, userId: string | nu
   if (!area || area.checks.length === 0) return [];
 
   // The athlete's own programme exercises, in programme order, with patterns.
-  let programmeRows: Array<{ id: number; name: string; image_url: string | null; mux_playback_id: string | null; movement: string[] | null }> = [];
+  let programmeRows: Array<{ id: number; name: string; image_url: string | null; mux_playback_id: string | null; movement: string[] | null; exercise_type: string | null }> = [];
   if (userId) {
     try {
       const r = await pool.query(
-        `SELECT DISTINCT ON (el.id) el.id, el.name, el.image_url, el.mux_playback_id, el.movement,
+        `SELECT DISTINCT ON (el.id) el.id, el.name, el.image_url, el.mux_playback_id, el.movement, el.exercise_type,
                 pw.week_number, pd.position AS day_pos, b.position AS block_pos, be.position AS ex_pos
            FROM user_program_enrollments e
            JOIN program_weeks pw ON pw.program_id = e.program_id
@@ -198,8 +198,22 @@ export async function resolveChecksForUser(areaName: string, userId: string | nu
     for (const row of r.rows) fallback.set(row.id, row);
   }
 
+  // A stretch or mobility drill is the wrong picture for "does deadlifting
+  // hurt?" even when it is tagged as a hinge. Prefer a real training exercise
+  // with a video; fall back to programme order after that.
+  const NON_TRAINING = new Set(['Mobility', 'Static Stretches', 'Dynamic Stretches']);
+  const isTraining = (row: { movement: string[] | null; exercise_type?: string | null }) => {
+    const real = realPatterns({ id: 0, name: '', movement: row.movement });
+    if (real.length > 0 && real.every((m) => NON_TRAINING.has(m))) return false;
+    if (row.exercise_type === 'general') return false;
+    return true;
+  };
   return area.checks.map((c) => {
-    const own = programmeRows.find((row) => realPatterns({ id: row.id, name: row.name, movement: row.movement }).some((p) => c.patterns.includes(p)));
+    const candidates = programmeRows.filter((row) => realPatterns({ id: row.id, name: row.name, movement: row.movement }).some((p) => c.patterns.includes(p)));
+    const own = candidates.find((row) => isTraining(row) && thumbOf(row))
+      || candidates.find((row) => isTraining(row))
+      || candidates.find((row) => thumbOf(row))
+      || candidates[0];
     if (own) {
       return { ...c, cue: { exerciseId: own.id, name: own.name, imageUrl: thumbOf(own), fromProgramme: true } };
     }

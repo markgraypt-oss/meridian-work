@@ -377,8 +377,8 @@ function describeEasier(original: ExerciseLike, candidate: ExerciseLike): string
  * An empty result is meaningful: the library has no easier version, so the
  * caller offers Reduce.
  *
- * STOP: the coach's recovery exercises only, in the order they wrote them,
- * minus any that would themselves be stopped. An empty result means rest.
+ * STOP: the coach's recovery exercises only, in the order they wrote them.
+ * An empty result means rest.
  */
 export function rankSubstitutes(opts: {
   original: ExerciseLike;
@@ -396,10 +396,13 @@ export function rankSubstitutes(opts: {
 
   if (originalFlag.tier === 'stop') {
     const out: SubstituteCandidate[] = [];
+    // The coach's list is the coach's call. A glute bridge is a hinge, and
+    // it is also exactly what a coach gives a back that cannot hinge under
+    // load — so a recovery exercise is never filtered by the rules that
+    // stopped the original. If it is on the list, it is offered.
     pool.substituteExerciseIds.forEach((id, i) => {
       const e = byId.get(id);
       if (!e || e.id === original.id) return;
-      if (evaluateFlag(e, rules).tier === 'stop') return;
       out.push({
         id: e.id,
         name: e.name,

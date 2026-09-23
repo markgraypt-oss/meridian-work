@@ -245,7 +245,7 @@ function parseIdParam(s: string | undefined): number | null {
   return Number.isFinite(n) && n > 0 ? n : null;
 }
 import { eq, and, like, inArray, desc, or, isNull, asc, gte, lte, lt, sql } from "drizzle-orm";
-import { users, userProgramEnrollments, programWeeks, programDays, programmeWorkouts, programmeWorkoutBlocks, pathContentItems, topicContentItems, learningPaths, programmeModificationRecords, exerciseSubstitutionMappings, programmeBlockExercises, enrollmentWorkouts, enrollmentWorkoutBlocks, enrollmentBlockExercises, programs, userExtraWorkoutSessions, scheduledWorkouts, workoutLogs, learnContentLibrary, exerciseLibrary, workoutExerciseLogs, workoutSetLogs, aiFeedback, workouts, workoutBlocks, blockExercises, stepEntries, sleepEntries, bodyweightEntries, bodyFatEntries, restingHREntries, caloricBurnEntries, exerciseMinutesEntries, bloodPressureEntries, leanBodyMassEntries, caloricIntakeEntries, hydrationLogs, habitCompletions, habits, wearableMetricsDaily, wearableConnections, progressPictures, bodyMeasurements, dailyReadinessHistory, checkIns, foodLogs, userPhysiologicalBaselines } from "@workspace/db";
+import { users, userProgramEnrollments, programWeeks, programDays, programmeWorkouts, programmeWorkoutBlocks, pathContentItems, topicContentItems, learningPaths, programmeModificationRecords, exerciseSubstitutionMappings, programmeBlockExercises, enrollmentWorkouts, enrollmentWorkoutBlocks, enrollmentBlockExercises, programs, userExtraWorkoutSessions, scheduledWorkouts, workoutLogs, learnContentLibrary, exerciseLibrary, workoutExerciseLogs, workoutSetLogs, aiFeedback, workouts, workoutBlocks, blockExercises, stepEntries, sleepEntries, bodyweightEntries, bodyFatEntries, restingHREntries, caloricBurnEntries, exerciseMinutesEntries, bloodPressureEntries, leanBodyMassEntries, caloricIntakeEntries, hydrationLogs, hydrationGoals, habitCompletions, habits, wearableMetricsDaily, wearableConnections, progressPictures, bodyMeasurements, dailyReadinessHistory, checkIns, foodLogs, userPhysiologicalBaselines } from "@workspace/db";
 import { calculateProgramEquipment, updateProgramEquipmentAuto } from "../equipmentDetection";
 import multer from "multer";
 import path from "path";
@@ -15374,24 +15374,42 @@ Rules:
         return new Date(now.getFullYear(), now.getMonth(), now.getDate());
       })();
 
-      const history: { date: string; totalMl: number; goalMl: number }[] = [];
+      // Two queries for the whole range, not two per day. At 90 days the old
+      // loop was 180 round-trips and 6-7 seconds on every Home open.
+      const first = new Date(todayLocal.getTime() - (days - 1) * 24 * 60 * 60 * 1000);
+      const rangeStart = new Date(first); rangeStart.setHours(0, 0, 0, 0);
+      const rangeEnd = new Date(todayLocal); rangeEnd.setHours(23, 59, 59, 999);
+      const [allLogs, allGoals] = await Promise.all([
+        storage.getHydrationLogsInRange(userId, rangeStart, rangeEnd),
+        db.select().from(hydrationGoals).where(and(
+          eq(hydrationGoals.userId, userId),
+          gte(hydrationGoals.date, rangeStart),
+          lte(hydrationGoals.date, rangeEnd),
+        )),
+      ]);
+      const dayKey = (d: Date) => {
+        const x = new Date(d); x.setHours(0, 0, 0, 0);
+        return x.getTime();
+      };
+      const totals = new Map<number, number>();
+      for (const log of allLogs) {
+        const k = dayKey(new Date(log.date as any));
+        totals.set(k, (totals.get(k) || 0) + (log.amountMl || 0));
+      }
+      const goals = new Map<number, number>();
+      for (const g of allGoals) goals.set(dayKey(new Date(g.date as any)), g.goalMl);
 
+      const history: { date: string; totalMl: number; goalMl: number }[] = [];
       for (let i = days - 1; i >= 0; i--) {
         const date = new Date(todayLocal.getTime() - i * 24 * 60 * 60 * 1000);
-
-        const logs = await storage.getHydrationLogs(userId, date);
-        const goal = await storage.getHydrationGoal(userId, date);
-        
-        const totalMl = logs.reduce((sum, log) => sum + log.amountMl, 0);
-        const goalMl = goal?.goalMl || 3000;
-        
+        const k = dayKey(date);
         history.push({
           date: date.toISOString().split('T')[0],
-          totalMl,
-          goalMl,
+          totalMl: totals.get(k) || 0,
+          goalMl: goals.get(k) || 3000,
         });
       }
-      
+
       res.json(history);
     } catch (error) {
       console.error("Error fetching hydration history:", error);

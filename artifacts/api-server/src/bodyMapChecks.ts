@@ -226,6 +226,7 @@ export interface AssessmentContext {
   severity: number;
   logId: number | null;
   bodyPart: string | null;
+  side: string | null;
   redFlags: string[];
   responses: Record<string, MovementResponse>;
   checks: MovementCheck[];
@@ -245,10 +246,11 @@ export async function assessmentContextFor(userId: string, outcomeId: number, ou
   let logId: number | null = null;
   let bodyPart: string | null = null;
   let redFlags: string[] = [];
+  let side: string | null = null;
   let responses: Record<string, MovementResponse> = {};
   try {
     const r = await pool.query(
-      `SELECT id, severity, body_part, red_flags, movement_responses FROM body_map_logs
+      `SELECT id, severity, body_part, side, red_flags, movement_responses FROM body_map_logs
         WHERE user_id = $1 AND matched_outcome_id = $2
         ORDER BY created_at DESC LIMIT 1`,
       [userId, outcomeId],
@@ -258,6 +260,7 @@ export async function assessmentContextFor(userId: string, outcomeId: number, ou
       logId = row.id;
       if (row.severity != null) severity = Number(row.severity);
       bodyPart = row.body_part || null;
+      side = row.side || null;
       redFlags = Array.isArray(row.red_flags) ? row.red_flags : [];
       responses = row.movement_responses && typeof row.movement_responses === 'object' ? row.movement_responses : {};
     }
@@ -273,7 +276,7 @@ export async function assessmentContextFor(userId: string, outcomeId: number, ou
 
   const tiers = tiersFromAssessment({ severity, redFlags, responses, checks, outcome });
   return {
-    severity, logId, bodyPart, redFlags, responses, checks, tiers,
+    severity, logId, bodyPart, side, redFlags, responses, checks, tiers,
     rules: rulesForAssessment(outcome, tiers),
     pool: poolFromOutcome(outcome),
   };

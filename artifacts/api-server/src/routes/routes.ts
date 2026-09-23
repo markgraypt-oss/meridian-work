@@ -8937,6 +8937,50 @@ Rules:
         };
       });
 
+      // Judgement on the shortlist. The engine's list is the ceiling: the
+      // judge can only reorder it and drop from it, using how THIS member said
+      // each movement felt. Any failure leaves the engine's order untouched.
+      try {
+        const { judgeSwaps } = await import('../coach/swapJudge');
+        const verdicts = await judgeSwaps(
+          flaggedGroups.map((g: any) => {
+            const o: any = exerciseMap.get(g.exerciseId) || null;
+            return {
+              exerciseId: g.exerciseId,
+              exerciseName: g.exerciseName,
+              tier: g.tier,
+              reason: g.reason,
+              original: o ? { movement: o.movement, equipment: o.equipment, mechanics: o.mechanics, primaryMuscle: o.primaryMuscle, level: o.level } : null,
+              candidates: (g.substitutes || []).map((sub: any) => ({
+                id: sub.id, name: sub.name, movementPatterns: sub.movementPatterns || [],
+                equipment: sub.equipment || [], source: sub.source, reason: sub.reason,
+              })),
+            };
+          }),
+          {
+            outcomeId, bodyPart: ctx.bodyPart, side: ctx.side, severity: ctx.severity,
+            redFlags: ctx.redFlags, responses: ctx.responses, checks: ctx.checks,
+          },
+        );
+        for (const g of flaggedGroups as any[]) {
+          const v = verdicts.get(g.exerciseId);
+          if (!v) continue;
+          const byId = new Map((g.substitutes || []).map((sub: any) => [sub.id, sub]));
+          const reordered = v.order.map((id) => byId.get(id)).filter(Boolean);
+          // Judge dropped everything: keep the engine's list rather than offer
+          // nothing — the rules cleared these, and a member can still choose.
+          if (reordered.length === 0) continue;
+          g.substitutes = reordered;
+          g.judged = true;
+          g.judgeDropped = v.dropped;
+          if (v.why) g.judgeWhy = v.why;
+          // No swap left for a go-easier whose reduction exists: recommend it.
+          if (g.tier !== 'stop' && g.substitutes.length === 0 && g.reduction) g.recommended = 'reduce';
+        }
+      } catch (e: any) {
+        console.error('[preview] swap judge skipped:', e?.message || e);
+      }
+
       // Coach voice on the reason lines. The engine's line is already true and
       // stays as the fallback — this only replaces the wording, never the
       // shortlist, the order, or which exercises were offered. Shared cache, so
@@ -8972,6 +9016,13 @@ Rules:
         }
       } catch (e: any) {
         console.error('[preview] swap voice skipped:', e?.message || e);
+      }
+      for (const g of flaggedGroups as any[]) {
+        if (g.judgeWhy && g.substitutes?.[0]) {
+          const first = g.substitutes[0];
+          first.factualReason = first.factualReason || first.reason;
+          first.reason = g.judgeWhy;
+        }
       }
 
       // "Vertical Push" means nothing to most people. Say it the way the

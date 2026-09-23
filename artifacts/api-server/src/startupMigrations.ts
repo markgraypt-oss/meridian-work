@@ -431,6 +431,17 @@ export const SELF_HEAL_DDL: string[] = [
    )`,
   `CREATE UNIQUE INDEX IF NOT EXISTS exercise_swap_lines_pair_uq
      ON exercise_swap_lines (outcome_id, original_exercise_id, substitute_exercise_id)`,
+  `CREATE TABLE IF NOT EXISTS exercise_swap_judgements (
+     id serial PRIMARY KEY,
+     outcome_id integer NOT NULL,
+     original_exercise_id integer NOT NULL,
+     answers_hash text NOT NULL,
+     candidates_hash text NOT NULL,
+     verdict jsonb NOT NULL,
+     created_at timestamp DEFAULT now()
+   )`,
+  `CREATE UNIQUE INDEX IF NOT EXISTS exercise_swap_judgements_uq
+     ON exercise_swap_judgements (outcome_id, original_exercise_id, answers_hash, candidates_hash)`,
   `ALTER TABLE users ADD COLUMN IF NOT EXISTS last_celebrated_streak_milestone integer DEFAULT 0`,
   `ALTER TABLE workday_desk_setups ADD COLUMN IF NOT EXISTS mux_playback_id text`,
   `ALTER TABLE workday_desk_setups ADD COLUMN IF NOT EXISTS aspect_ratio text DEFAULT '3:4'`,

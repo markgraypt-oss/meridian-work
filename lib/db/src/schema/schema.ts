@@ -3878,6 +3878,21 @@ export const exerciseSwapLines = pgTable("exercise_swap_lines", {
 
 export type ExerciseSwapLine = typeof exerciseSwapLines.$inferSelect;
 
+export const exerciseSwapJudgements = pgTable("exercise_swap_judgements", {
+  id: serial("id").primaryKey(),
+  outcomeId: integer("outcome_id").notNull(),
+  originalExerciseId: integer("original_exercise_id").notNull(),
+  answersHash: text("answers_hash").notNull(),
+  candidatesHash: text("candidates_hash").notNull(),
+  verdict: jsonb("verdict").notNull(),
+  createdAt: timestamp("created_at").defaultNow(),
+}, (t) => ({
+  uniqueKey: uniqueIndex("exercise_swap_judgements_uq")
+    .on(t.outcomeId, t.originalExerciseId, t.answersHash, t.candidatesHash),
+}));
+
+export type ExerciseSwapJudgement = typeof exerciseSwapJudgements.$inferSelect;
+
 export const legacyProgramExercises = pgTable("program_exercises", {
   id: serial("id").primaryKey(),
   programId: integer("program_id").notNull(),

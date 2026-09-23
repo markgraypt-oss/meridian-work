@@ -7262,6 +7262,76 @@ Return format: {"category": "strength|cardio|hiit|mobility|recovery", "difficult
     }
   });
 
+  // Exercise history: the last N completed sessions of one exercise, newest
+  // first, each with its logged sets. Powers the history button on every card
+  // in the active workout. Sets are the *actual* values; a set with nothing
+  // logged is left out so a session the user bailed on does not read as zeros.
+  app.get('/api/exercises/:exerciseId/history', isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = req.user.claims.sub;
+      const exerciseId = parseInt(req.params.exerciseId);
+      if (!Number.isFinite(exerciseId)) return res.status(400).json({ message: 'Bad exercise id' });
+      const limit = Math.min(30, Math.max(1, parseInt(String(req.query.limit ?? '12'), 10) || 12));
+
+      const rows = await pool.query(
+        `SELECT wl.id AS workout_log_id, wl.completed_at, wl.workout_name,
+                wel.id AS exercise_log_id,
+                ws.set_number, ws.actual_reps, ws.actual_weight,
+                ws.actual_duration_minutes, ws.actual_duration_seconds, ws.is_completed
+           FROM workout_exercise_logs wel
+           JOIN workout_logs wl ON wl.id = wel.workout_log_id
+           LEFT JOIN workout_set_logs ws ON ws.exercise_log_id = wel.id
+          WHERE wl.user_id = $1 AND wl.status = 'completed' AND wel.exercise_library_id = $2
+            AND wl.completed_at IS NOT NULL
+          ORDER BY wl.completed_at DESC, wel.id DESC, ws.set_number ASC`,
+        [userId, exerciseId],
+      );
+
+      type Set = { setNumber: number; reps: number | null; weight: number | null; durationMinutes: number | null; durationSeconds: number | null };
+      const sessions: { workoutLogId: number; exerciseLogId: number; completedAt: string; workoutName: string | null; sets: Set[] }[] = [];
+      const byLog = new Map<number, typeof sessions[number]>();
+      for (const r of rows.rows) {
+        let sess = byLog.get(r.exercise_log_id);
+        if (!sess) {
+          sess = { workoutLogId: r.workout_log_id, exerciseLogId: r.exercise_log_id, completedAt: new Date(r.completed_at).toISOString(), workoutName: r.workout_name ?? null, sets: [] };
+          byLog.set(r.exercise_log_id, sess);
+          sessions.push(sess);
+        }
+        if (r.set_number == null) continue;
+        const reps = r.actual_reps == null ? null : Number(r.actual_reps);
+        const weight = r.actual_weight == null ? null : Number(r.actual_weight);
+        const mins = r.actual_duration_minutes == null ? null : Number(r.actual_duration_minutes);
+        const secs = r.actual_duration_seconds == null ? null : Number(r.actual_duration_seconds);
+        if (reps == null && weight == null && mins == null && secs == null) continue;
+        sess.sets.push({ setNumber: Number(r.set_number), reps, weight, durationMinutes: mins, durationSeconds: secs });
+      }
+
+      // Drop sessions where nothing was logged, then cap.
+      const kept = sessions.filter(sx => sx.sets.length > 0).slice(0, limit);
+
+      // Best set ever (by weight, then reps) across the kept sessions, and the
+      // heaviest set per session so the list can show a headline number.
+      let best: { weight: number; reps: number | null; completedAt: string } | null = null;
+      const withSummary = kept.map(sx => {
+        let top: Set | null = null;
+        let volume = 0;
+        for (const st of sx.sets) {
+          if (st.weight != null && st.reps != null) volume += st.weight * st.reps;
+          if (st.weight != null && (top == null || top.weight == null || st.weight > top.weight || (st.weight === top.weight && (st.reps ?? 0) > (top.reps ?? 0)))) top = st;
+        }
+        if (top && top.weight != null && (best == null || top.weight > best.weight || (top.weight === best.weight && (top.reps ?? 0) > (best.reps ?? 0)))) {
+          best = { weight: top.weight, reps: top.reps, completedAt: sx.completedAt };
+        }
+        return { ...sx, topSet: top, volume: volume || null };
+      });
+
+      res.json({ exerciseId, sessions: withSummary, best });
+    } catch (error) {
+      console.error('Error fetching exercise history:', error);
+      res.status(500).json({ message: 'Failed to fetch exercise history' });
+    }
+  });
+
   // Video routes
   app.get('/api/videos', async (req, res) => {
     try {

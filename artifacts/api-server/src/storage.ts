@@ -421,7 +421,7 @@ import {
 } from "@workspace/db";
 import { db, pool } from "./db";
 import { describeSets } from "./programmeReduction";
-import { eq, ne, desc, and, ilike, or, gte, lte, inArray, lt, asc, sql, isNull, isNotNull, aliasedTable, type SQL } from "drizzle-orm";
+import { eq, ne, desc, and, ilike, or, gte, lte, inArray, lt, gt, asc, sql, isNull, isNotNull, aliasedTable, type SQL } from "drizzle-orm";
 
 // One row of the Burnout Index "Monthly Trend Log": a whole month, not a sample
 // day from it. `score` is the month's average and `trajectory` is that average
@@ -4647,24 +4647,28 @@ export class DatabaseStorage implements IStorage {
   }
 
   async completeReassessmentReminders(userId: string, bodyArea: string, completedByLogId: number): Promise<number> {
-    const result = await db.update(reassessmentReminders)
-      .set({
-        status: 'completed',
-        completedAt: new Date(),
-        completedByLogId: completedByLogId,
-      })
-      .where(
-        and(
-          eq(reassessmentReminders.userId, userId),
-          eq(reassessmentReminders.bodyArea, bodyArea),
-          or(
-            eq(reassessmentReminders.status, 'scheduled'),
-            eq(reassessmentReminders.status, 'due')
-          )
-        )
+    const now = new Date();
+    const open = and(
+      eq(reassessmentReminders.userId, userId),
+      eq(reassessmentReminders.bodyArea, bodyArea),
+      or(
+        eq(reassessmentReminders.status, 'scheduled'),
+        eq(reassessmentReminders.status, 'due')
       )
+    );
+    // A reminder that was actually due is COMPLETED by the new assessment: that
+    // is the reassessment happening, and the dashboard shows it done.
+    const completed = await db.update(reassessmentReminders)
+      .set({ status: 'completed', completedAt: now, completedByLogId })
+      .where(and(open, lte(reassessmentReminders.dueAt, now)))
       .returning();
-    return result.length;
+    // One that was not yet due is simply SUPERSEDED: the athlete re-assessed
+    // early (or ran it again the same day) and a new reminder replaces it.
+    // Nothing was "completed", so it never shows as an achievement.
+    await db.update(reassessmentReminders)
+      .set({ status: 'superseded', completedAt: now, completedByLogId })
+      .where(and(open, gt(reassessmentReminders.dueAt, now)));
+    return completed.length;
   }
 
   async getDueReassessmentReminders(userId: string): Promise<ReassessmentReminder[]> {
@@ -4696,7 +4700,7 @@ export class DatabaseStorage implements IStorage {
     const now = new Date();
     const overdueCutoff = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
 
-    return await db
+    const rows = await db
       .select()
       .from(reassessmentReminders)
       .where(
@@ -4734,12 +4738,28 @@ export class DatabaseStorage implements IStorage {
             and(
               eq(reassessmentReminders.status, 'completed'),
               gte(reassessmentReminders.completedAt, startOfDay),
-              lte(reassessmentReminders.completedAt, endOfDay)
+              lte(reassessmentReminders.completedAt, endOfDay),
+              // Only ones that were genuinely due when done. Re-running an
+              // assessment the same day used to leave a "completed" card per run.
+              lte(reassessmentReminders.dueAt, reassessmentReminders.completedAt)
             )
           )
         )
       )
       .orderBy(asc(reassessmentReminders.dueAt));
+
+    // One card per body area. An open reminder wins over a completed one;
+    // otherwise the most recent.
+    const byArea = new Map<string, ReassessmentReminder>();
+    for (const r of rows) {
+      const cur = byArea.get(r.bodyArea);
+      if (!cur) { byArea.set(r.bodyArea, r); continue; }
+      const curOpen = cur.status !== 'completed';
+      const rOpen = r.status !== 'completed';
+      if (rOpen && !curOpen) byArea.set(r.bodyArea, r);
+      else if (rOpen === curOpen && (r.completedAt ?? r.dueAt) > (cur.completedAt ?? cur.dueAt)) byArea.set(r.bodyArea, r);
+    }
+    return Array.from(byArea.values());
   }
 
   async getReassessmentRemindersByBodyArea(userId: string, bodyArea: string): Promise<ReassessmentReminder[]> {

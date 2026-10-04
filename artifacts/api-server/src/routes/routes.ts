@@ -3,7 +3,7 @@ import express from "express";
 import { createServer, type Server } from "http";
 import { storage } from "../storage";
 import { db, pool } from "../db";
-import { setupAuth, isAuthenticated, generateResetToken, hashToken, sendUserInviteEmail, sendPasswordResetEmail, sendTesterWelcomeEmail, sendTesterSignupNotification, TESTFLIGHT_URL, PLAY_TESTING_URL } from "../replitAuth";
+import { setupAuth, isAuthenticated, generateResetToken, hashToken, sendUserInviteEmail, sendPasswordResetEmail, sendTesterWelcomeEmail, sendTesterSignupNotification, addTesterToAudience, TESTFLIGHT_URL, PLAY_TESTING_URL } from "../replitAuth";
 import rateLimit, { ipKeyGenerator } from "express-rate-limit";
 import { registerNotificationRoutes } from "../notificationsRoutes";
 import { registerCommunityRoutes } from "../community";
@@ -2547,6 +2547,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
           await storage.createPasswordResetToken({ userId: existing.id, token: hashToken(token), expiresAt: new Date(Date.now() + 72 * 60 * 60 * 1000) });
           await sendTesterWelcomeEmail(email, token, baseUrl, existing.firstName || firstName, phone);
         }
+        addTesterToAudience(email, existing.firstName || firstName).catch(() => {});
         sendTesterSignupNotification({ firstName, email, phone, existing: true }).catch(() => {});
         return res.status(200).json({ ok: true, links });
       }
@@ -2571,6 +2572,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       });
       const emailSent = await sendTesterWelcomeEmail(email, token, baseUrl, firstName, phone);
       if (!emailSent) console.error(`[TESTER] Account created but welcome email failed for ${email}`);
+      addTesterToAudience(email, firstName).catch(() => {});
       sendTesterSignupNotification({ firstName, email, phone, existing: false }).catch(() => {});
 
       return res.status(201).json({ ok: true, emailSent, links });

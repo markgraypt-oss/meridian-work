@@ -157,6 +157,27 @@ export async function sendTesterWelcomeEmail(
   }
 }
 
+// Adds the tester to the Resend "Testers" list so broadcasts (day-7/21 nudges,
+// updates) go from the same place as the transactional mail. Resend has moved
+// from Audiences to Segments: set RESEND_TESTERS_SEGMENT_ID (new dashboards)
+// or RESEND_TESTERS_AUDIENCE_ID (older ones). Unset = skipped; never blocks sign-up.
+export async function addTesterToAudience(email: string, firstName?: string | null): Promise<void> {
+  const segmentId = process.env.RESEND_TESTERS_SEGMENT_ID;
+  const audienceId = process.env.RESEND_TESTERS_AUDIENCE_ID;
+  if (!resend || (!segmentId && !audienceId)) return;
+  try {
+    const payload: any = segmentId
+      ? { email, firstName: firstName || undefined, unsubscribed: false, segments: [{ id: segmentId }] }
+      : { audienceId, email, firstName: firstName || undefined, unsubscribed: false };
+    const { error } = await resend.contacts.create(payload);
+    if (error && !/already exists/i.test(String((error as any).message || ""))) {
+      console.error("[TESTER] Failed to add contact to Resend list:", error);
+    }
+  } catch (err) {
+    console.error("[TESTER] Error adding contact to Resend list:", err);
+  }
+}
+
 export async function sendTesterSignupNotification(input: { firstName: string; email: string; phone: string; existing: boolean }): Promise<void> {
   if (!resend) return;
   if (process.env.TESTER_ADMIN_PING === "off") return;

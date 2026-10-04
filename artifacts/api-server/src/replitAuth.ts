@@ -5,6 +5,7 @@ import connectPg from "connect-pg-simple";
 import bcrypt from "bcryptjs";
 import crypto from "crypto";
 import { Resend } from "resend";
+import rateLimit, { ipKeyGenerator } from "express-rate-limit";
 import { storage } from "./storage";
 import { renderBrandedEmail, emailParagraph, emailNote } from "./emailBrand";
 
@@ -348,13 +349,26 @@ export async function setupAuth(app: Express) {
     });
   });
 
-  app.post("/api/forgot-password", async (req, res) => {
+  // Rate-limited (4 Oct 2026): something was requesting resets for one address
+  // once a minute with no cap. Keyed by email so one address can't be spammed,
+  // falling back to IP when the body has no email.
+  const forgotPasswordLimit = rateLimit({
+    windowMs: 60 * 60 * 1000,
+    limit: 5,
+    standardHeaders: true,
+    legacyHeaders: false,
+    keyGenerator: (req: any) => String(req.body?.email || "").trim().toLowerCase() || ipKeyGenerator(req.ip),
+    message: { success: true, message: "If an account exists with this email, a reset link has been sent." },
+  });
+
+  app.post("/api/forgot-password", forgotPasswordLimit, async (req, res) => {
     try {
       const { email } = req.body;
 
       if (!email) {
         return res.status(400).json({ message: "Email is required" });
       }
+      console.log(`[FORGOT-PASSWORD] ${String(email).toLowerCase()} ip=${req.ip} ua=${req.headers["user-agent"] || "-"} ref=${req.headers["referer"] || "-"}`);
 
       const user = await storage.getUserByEmail(email);
 

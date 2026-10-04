@@ -502,6 +502,10 @@ export const SELF_HEAL_DDL: string[] = [
   `ALTER TABLE body_map_logs ADD COLUMN IF NOT EXISTS movement_responses jsonb`,
   `ALTER TABLE body_map_logs ADD COLUMN IF NOT EXISTS red_flags text[]`,
   `ALTER TABLE body_map_outcomes ADD COLUMN IF NOT EXISTS caution_movement_patterns text[]`,
+  // Public tester sign-up (website /test form), 4 Oct 2026.
+  `ALTER TABLE users ADD COLUMN IF NOT EXISTS tester_consent_at timestamp`,
+  `ALTER TABLE users ADD COLUMN IF NOT EXISTS tester_phone varchar`,
+  `ALTER TABLE users ADD COLUMN IF NOT EXISTS signup_source varchar`,
 ];
 
 export async function runSchemaSelfHealOnce(): Promise<void> {

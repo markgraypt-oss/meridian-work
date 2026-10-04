@@ -1418,7 +1418,7 @@ export class DatabaseStorage implements IStorage {
     return await db.select().from(users).orderBy(desc(users.createdAt));
   }
 
-  async createUser(userData: { email: string; password?: string; firstName?: string; lastName?: string; isAdmin?: boolean; role?: string; companyName?: string }): Promise<User> {
+  async createUser(userData: { email: string; password?: string; firstName?: string; lastName?: string; isAdmin?: boolean; role?: string; companyName?: string; companyId?: number; testerConsentAt?: Date; testerPhone?: string; signupSource?: string }): Promise<User> {
     const id = crypto.randomUUID();
     const [user] = await db
       .insert(users)
@@ -1430,6 +1430,11 @@ export class DatabaseStorage implements IStorage {
         lastName: userData.lastName || null,
         isAdmin: userData.isAdmin || false,
         role: userData.role || 'user',
+        ...(userData.companyId !== undefined ? { companyId: userData.companyId } : {}),
+        ...(userData.companyName !== undefined ? { companyName: userData.companyName } : {}),
+        ...(userData.testerConsentAt ? { testerConsentAt: userData.testerConsentAt } : {}),
+        ...(userData.testerPhone ? { testerPhone: userData.testerPhone } : {}),
+        ...(userData.signupSource ? { signupSource: userData.signupSource } : {}),
       })
       .returning();
     return user;

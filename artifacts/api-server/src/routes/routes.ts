@@ -3,7 +3,7 @@ import express from "express";
 import { createServer, type Server } from "http";
 import { storage } from "../storage";
 import { db, pool } from "../db";
-import { setupAuth, isAuthenticated, generateResetToken, hashToken, sendUserInviteEmail } from "../replitAuth";
+import { setupAuth, isAuthenticated, generateResetToken, hashToken, sendUserInviteEmail, sendPasswordResetEmail, sendTesterWelcomeEmail, sendTesterSignupNotification, TESTFLIGHT_URL, PLAY_TESTING_URL } from "../replitAuth";
 import rateLimit, { ipKeyGenerator } from "express-rate-limit";
 import { registerNotificationRoutes } from "../notificationsRoutes";
 import { registerCommunityRoutes } from "../community";
@@ -443,7 +443,7 @@ import { rulesFromOutcome, poolFromOutcome, hasAnyCriteria, evaluateFlag, rankSu
 import { assessmentContextFor, resolveChecksForUser, RED_FLAGS, MOVEMENT_RESPONSES } from '../bodyMapChecks';
 import { buildReduction } from '../programmeReduction';
 import { trackCalibrationEvent, trackRecoveryModeActivation, generateCalibrationReport, getLevel as getBurnoutLevel, writePhysiologicalSnapshot } from '../burnoutCalibration';
-import { burnoutScores, insertCompanySchema, insertCompanyBenefitSchema, insertCompanyWellbeingContactSchema, checkIns, bodyMapLogs, departments, companyInvites, usageAlerts, insertAiPromptSchema, workdayBreakLogs, aiInsightReads, recoveryModePeriods, physiologicalSnapshots, cycleSettings, cycleLogs } from "@workspace/db";
+import { companies, burnoutScores, insertCompanySchema, insertCompanyBenefitSchema, insertCompanyWellbeingContactSchema, checkIns, bodyMapLogs, departments, companyInvites, usageAlerts, insertAiPromptSchema, workdayBreakLogs, aiInsightReads, recoveryModePeriods, physiologicalSnapshots, cycleSettings, cycleLogs } from "@workspace/db";
 
 import {
   insertExerciseLibraryItemSchema,
@@ -2475,6 +2475,108 @@ export async function registerRoutes(app: Express): Promise<Server> {
     } catch (error: any) {
       console.error("Error backfilling readiness:", error?.message);
       res.status(500).json({ message: "Failed to backfill" });
+    }
+  });
+
+  // ---------------------------------------------------------------------------
+  // Public tester sign-up — the /test form on meridian.work posts here.
+  // Creates the account in the Testers company, records consent, sends the
+  // welcome email (set-password link + install links). No auth by design.
+  // Spec: claude/tester-signup-endpoint-spec-04oct.md
+  // ---------------------------------------------------------------------------
+  const testerSignupLimit = rateLimit({
+    windowMs: 60 * 60 * 1000,
+    limit: 5,
+    standardHeaders: true,
+    legacyHeaders: false,
+    keyGenerator: (req: any) => ipKeyGenerator(req.ip),
+    message: { ok: false, message: "Too many sign-ups from this connection. Try again in an hour." },
+  });
+
+  async function resolveTestersCompany(): Promise<{ id: number; name: string } | null> {
+    const envId = Number(process.env.TESTERS_COMPANY_ID);
+    if (Number.isFinite(envId) && envId > 0) {
+      const [c] = await db.select({ id: companies.id, name: companies.name }).from(companies).where(eq(companies.id, envId));
+      if (c) return c;
+    }
+    const [c] = await db
+      .select({ id: companies.id, name: companies.name })
+      .from(companies)
+      .where(sql`lower(${companies.name}) like '%tester%'`)
+      .orderBy(asc(companies.id))
+      .limit(1);
+    return c || null;
+  }
+
+  app.post('/api/public/tester-signup', testerSignupLimit, async (req: any, res) => {
+    try {
+      const body = req.body || {};
+      // Honeypot: bots fill every field. Humans never see this one.
+      if (typeof body.website === "string" && body.website.trim() !== "") {
+        return res.status(200).json({ ok: true, links: { ios: TESTFLIGHT_URL, android: PLAY_TESTING_URL || null } });
+      }
+
+      const firstName = String(body.firstName || "").trim().slice(0, 60);
+      const email = String(body.email || "").trim().toLowerCase();
+      const phone = String(body.phone || "").trim().toLowerCase();
+      const consent = body.consent === true || body.consent === "true" || body.consent === "on";
+
+      if (!firstName) return res.status(400).json({ ok: false, message: "First name is required" });
+      if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return res.status(400).json({ ok: false, message: "That email doesn't look right" });
+      if (phone !== "ios" && phone !== "android") return res.status(400).json({ ok: false, message: "Pick iPhone or Android" });
+      if (!consent) return res.status(400).json({ ok: false, message: "The consent box needs ticking to take part" });
+
+      const company = await resolveTestersCompany();
+      if (!company) {
+        console.error("[TESTER] No testers company found (set TESTERS_COMPANY_ID or create a company with 'tester' in the name)");
+        return res.status(503).json({ ok: false, message: "Sign-up isn't open yet. Try again shortly." });
+      }
+
+      const links = { ios: TESTFLIGHT_URL, android: PLAY_TESTING_URL || null };
+      const baseUrl = `https://${req.get("host")}`;
+      const existing = await storage.getUserByEmail(email);
+
+      if (existing) {
+        // Never reveal whether an email exists; never create a duplicate.
+        if (existing.password) {
+          const token = generateResetToken();
+          await storage.createPasswordResetToken({ userId: existing.id, token: hashToken(token), expiresAt: new Date(Date.now() + 60 * 60 * 1000) });
+          await sendPasswordResetEmail(email, token, baseUrl);
+        } else {
+          const token = generateResetToken();
+          await storage.createPasswordResetToken({ userId: existing.id, token: hashToken(token), expiresAt: new Date(Date.now() + 72 * 60 * 60 * 1000) });
+          await sendTesterWelcomeEmail(email, token, baseUrl, existing.firstName || firstName, phone);
+        }
+        sendTesterSignupNotification({ firstName, email, phone, existing: true }).catch(() => {});
+        return res.status(200).json({ ok: true, links });
+      }
+
+      const newUser = await storage.createUser({
+        email,
+        firstName,
+        companyId: company.id,
+        companyName: company.name,
+        isAdmin: false,
+        role: "user",
+        testerConsentAt: new Date(),
+        testerPhone: phone,
+        signupSource: "website-test",
+      });
+
+      const token = generateResetToken();
+      await storage.createPasswordResetToken({
+        userId: newUser.id,
+        token: hashToken(token),
+        expiresAt: new Date(Date.now() + 72 * 60 * 60 * 1000),
+      });
+      const emailSent = await sendTesterWelcomeEmail(email, token, baseUrl, firstName, phone);
+      if (!emailSent) console.error(`[TESTER] Account created but welcome email failed for ${email}`);
+      sendTesterSignupNotification({ firstName, email, phone, existing: false }).catch(() => {});
+
+      return res.status(201).json({ ok: true, emailSent, links });
+    } catch (error) {
+      console.error("[TESTER] sign-up error:", error);
+      return res.status(500).json({ ok: false, message: "Something went wrong on my side. Email me and I'll set you up by hand." });
     }
   });
 

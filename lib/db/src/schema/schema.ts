@@ -86,6 +86,11 @@ export const users = pgTable("users", {
   // Used by server-side schedulers to compute reminder windows and day boundaries
   // in the user's local time rather than the server's. Null = treat as UTC (legacy).
   timezone: varchar("timezone"),
+  // Public tester sign-up (website /test form). testerConsentAt is the legal
+  // basis for the anonymised testers aggregate: set once, server-side, never defaulted.
+  testerConsentAt: timestamp("tester_consent_at"),
+  testerPhone: varchar("tester_phone"),       // 'ios' | 'android'
+  signupSource: varchar("signup_source"),     // 'website-test'
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow(),
 });

@@ -18,7 +18,7 @@ export function hashToken(token: string): string {
   return crypto.createHash("sha256").update(token).digest("hex");
 }
 
-async function sendPasswordResetEmail(email: string, token: string, baseUrl: string): Promise<boolean> {
+export async function sendPasswordResetEmail(email: string, token: string, baseUrl: string): Promise<boolean> {
   if (!resend) {
     console.error("Resend not configured - RESEND_API_KEY missing");
     return false;
@@ -89,6 +89,94 @@ export async function sendUserInviteEmail(email: string, token: string, baseUrl:
   } catch (err) {
     console.error("Error sending invite email:", err);
     return false;
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Public tester sign-up (website /test form), 4 Oct 2026.
+// One email: set-password link + the install links. Reply-To is Mark so
+// "reply to this email" on the page is true.
+// ---------------------------------------------------------------------------
+export const TESTER_REPLY_TO = process.env.TESTER_REPLY_TO || "mark@meridian.work";
+export const TESTFLIGHT_URL = process.env.TESTFLIGHT_URL || "https://testflight.apple.com/join/awdTzCjX";
+export const PLAY_TESTING_URL = process.env.PLAY_TESTING_URL || "";
+
+function installLinksHtml(phone?: string | null): string {
+  const ios = `<strong>iPhone:</strong> <a href="${TESTFLIGHT_URL}" style="color:#a9743f;">${TESTFLIGHT_URL}</a>`;
+  const android = PLAY_TESTING_URL
+    ? `<strong>Android:</strong> <a href="${PLAY_TESTING_URL}" style="color:#a9743f;">${PLAY_TESTING_URL}</a>`
+    : `<strong>Android:</strong> the Google Play link is a few days away. I'll email it to you the moment it's live.`;
+  const lines = phone === "android" ? [android, ios] : [ios, android];
+  return lines.join("<br>");
+}
+
+export async function sendTesterWelcomeEmail(
+  email: string,
+  token: string,
+  baseUrl: string,
+  firstName?: string | null,
+  phone?: string | null,
+): Promise<boolean> {
+  if (!resend) {
+    console.error("Resend not configured - RESEND_API_KEY missing");
+    return false;
+  }
+  const setupUrl = `${baseUrl}/reset-password?token=${token}&invite=true`;
+  const greeting = firstName ? `Hi ${firstName},` : "Hi,";
+  try {
+    const { error } = await resend.emails.send({
+      from: "MeridianWork <no-reply@meridian.work>",
+      to: email,
+      replyTo: TESTER_REPLY_TO,
+      subject: "You're in. Here's your link.",
+      html: renderBrandedEmail({
+        eyebrow: "Testers",
+        heading: "Use it. Shape it. Keep it.",
+        preheader: "Set your password, install the app, do a check-in.",
+        bodyHtml:
+          emailParagraph(greeting) +
+          emailParagraph("Thanks for putting your hand up. Three things and you're in.") +
+          emailParagraph("<strong>1. Set your password</strong><br>Tap the button below. The link lasts 3 days.") +
+          emailParagraph(`<strong>2. Install the app</strong><br>${installLinksHtml(phone)}`) +
+          emailParagraph("<strong>3. Log in and do your first check-in</strong><br>Thirty seconds. Mood, energy, stress, sleep. The coach can't help until it knows something about you.") +
+          emailParagraph("<strong>What happens next</strong><br>Use it as you would any health app. Connect your watch or ring if you have one. At day 7 and day 21 the app will ask you two questions. Answer them honestly. If something breaks, confuses you or is missing, reply to this email. I read every one.") +
+          emailParagraph("Free until the end of January. Testers keep it free after that.") +
+          emailNote("If the set-up link has expired, reply to this email and I'll send another."),
+        cta: { label: "Set up your account", url: setupUrl },
+        signature: true,
+      }),
+    });
+    if (error) {
+      console.error("[TESTER] Failed to send welcome email:", error);
+      return false;
+    }
+    return true;
+  } catch (err) {
+    console.error("[TESTER] Error sending welcome email:", err);
+    return false;
+  }
+}
+
+export async function sendTesterSignupNotification(input: { firstName: string; email: string; phone: string; existing: boolean }): Promise<void> {
+  if (!resend) return;
+  if (process.env.TESTER_ADMIN_PING === "off") return;
+  try {
+    await resend.emails.send({
+      from: "MeridianWork <no-reply@meridian.work>",
+      to: ADMIN_NOTIFICATION_EMAIL,
+      subject: `New tester: ${input.firstName} (${input.phone === "ios" ? "iPhone" : "Android"})${input.existing ? " — existing account" : ""}`,
+      html: renderBrandedEmail({
+        eyebrow: "Internal",
+        heading: "New tester sign-up",
+        bodyHtml:
+          emailParagraph(`<strong>${input.firstName}</strong> &lt;${input.email}&gt; signed up on /test (${input.phone}).`) +
+          emailParagraph(input.existing ? "This email already had an account; a fresh set-up link was sent instead of creating a duplicate." : "Account created in the Testers company and the welcome email sent.") +
+          emailParagraph(new Date().toLocaleString("en-GB", { timeZone: "Europe/Madrid", timeZoneName: "short" })),
+        footerNote: "Set TESTER_ADMIN_PING=off in Secrets to stop these.",
+      }),
+    });
+  } catch (err) {
+    console.error("[TESTER] Error sending admin ping:", err);
   }
 }
 

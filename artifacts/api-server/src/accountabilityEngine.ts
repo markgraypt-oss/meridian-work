@@ -125,8 +125,12 @@ async function detectSignal(userId: string): Promise<Signal | null> {
     storage
       .getScheduledWorkoutsInRange(userId, new Date(now.getTime() - 8 * dayMs), now)
       .catch(() => []),
+    // Upper bound is TOMORROW, not now. A check-in is stored at noon UTC on its
+    // day, so until 1pm UK this morning's check-in sat in the future and the
+    // engine could not see it: it told Mark he had "gone quiet" four hours
+    // after he checked in.
     storage
-      .getCheckInsInRange(userId, new Date(now.getTime() - 21 * dayMs), now)
+      .getCheckInsInRange(userId, new Date(now.getTime() - 21 * dayMs), new Date(now.getTime() + dayMs))
       .catch(() => []),
   ]);
 
@@ -135,8 +139,9 @@ async function detectSignal(userId: string): Promise<Signal | null> {
     .map((c: any) => new Date(c.checkInDate ?? c.createdAt))
     .filter((d) => Number.isFinite(d.getTime()))
     .sort((a, b) => b.getTime() - a.getTime());
+  // A check-in dated later today counts as zero days ago, not a negative gap.
   const daysSinceCheckin = checkinDates.length
-    ? daysBetween(now, checkinDates[0])
+    ? Math.max(0, (now.getTime() - checkinDates[0].getTime()) / dayMs)
     : null;
   const checkinsInPriorFortnight = checkinDates.filter((d) => {
     const age = daysBetween(now, d);
@@ -378,7 +383,9 @@ export async function runAccountabilityForUser(
 async function hasActivitySince(userId: string, since: Date): Promise<boolean> {
   const [logs, checkins] = await Promise.all([
     storage.getUserWorkoutLogs(userId, 5).catch(() => []),
-    storage.getCheckInsInRange(userId, since, new Date()).catch(() => []),
+    // Same noon-UTC rule as detectSignal: today's check-in may be timestamped
+    // ahead of "now", so look a day ahead.
+    storage.getCheckInsInRange(userId, since, new Date(Date.now() + 86_400_000)).catch(() => []),
   ]);
   const workoutAfter = (logs || []).some((l: any) => {
     const d = new Date(l.completedAt ?? l.startedAt ?? l.createdAt);

@@ -32,7 +32,7 @@ export const PROMPTS = {
     key: "day7" as const,
     thresholdDays: 7,
     title: "One week in. Two questions.",
-    q1: { label: "How's it going so far?", options: ["Not for me", "Meh", "Fine", "Good", "Loving it"] },
+    q1: { label: "How's it going so far?", options: ["Badly", "Not great", "OK", "Good", "Very good"] },
     q2: { label: "What's broken, confusing or missing?", placeholder: "One thing is plenty." },
     submit: "Send to Mark",
     later: "Not now",
@@ -43,7 +43,7 @@ export const PROMPTS = {
     key: "day21" as const,
     thresholdDays: 21,
     title: "Three weeks in. Two questions.",
-    q1: { label: "Has it changed anything about how you work or feel?", options: ["No", "Not yet", "A bit", "Yes, clearly"] },
+    q1: { label: "Has it changed anything about how you work or feel?", options: ["No", "Not yet", "A little", "Yes, clearly"] },
     q2: { label: "What would make you recommend it, or what's stopping you?", placeholder: "" },
     submit: "Send to Mark",
     later: "Not now",
@@ -144,7 +144,7 @@ export function validateAnswers(key: PromptKey, body: any): { ok: true; answers:
   return { ok: true, answers: { text, jobTitle, consent: true } };
 }
 
-/** day21 q1 >= 3 ("A bit" / "Yes, clearly") earns the review ask. */
+/** day21 q1 >= 3 ("A little" / "Yes, clearly") earns the review ask. */
 export function wantsReview(key: PromptKey, answers: any): boolean {
   return key === "day21" && Number(answers?.q1) >= 3;
 }

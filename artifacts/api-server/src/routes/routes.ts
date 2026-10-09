@@ -444,7 +444,7 @@ import { rulesFromOutcome, poolFromOutcome, hasAnyCriteria, evaluateFlag, rankSu
 import { assessmentContextFor, resolveChecksForUser, RED_FLAGS, MOVEMENT_RESPONSES } from '../bodyMapChecks';
 import { buildReduction } from '../programmeReduction';
 import { trackCalibrationEvent, trackRecoveryModeActivation, generateCalibrationReport, getLevel as getBurnoutLevel, writePhysiologicalSnapshot } from '../burnoutCalibration';
-import { companies, burnoutScores, insertCompanySchema, insertCompanyBenefitSchema, insertCompanyWellbeingContactSchema, checkIns, bodyMapLogs, departments, companyInvites, usageAlerts, insertAiPromptSchema, workdayBreakLogs, aiInsightReads, recoveryModePeriods, physiologicalSnapshots, cycleSettings, cycleLogs } from "@workspace/db";
+import { companies, burnoutScores, insertCompanySchema, insertCompanyBenefitSchema, insertCompanyWellbeingContactSchema, checkIns, bodyMapLogs, departments, companyInvites, usageAlerts, insertAiPromptSchema, workdayBreakLogs, aiInsightReads, recoveryModePeriods, physiologicalSnapshots, cycleSettings, cycleLogs, testerPromptEvents } from "@workspace/db";
 
 import {
   insertExerciseLibraryItemSchema,
@@ -2557,6 +2557,27 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Manual trigger for the daily push sweep (admin), handy for verifying live.
+  // Test helper: age a tester account so the day-7/day-21 prompts become due (prod-safe: runs inside the deployed server)
+  app.post('/api/admin/tester-feedback/backdate', isAuthenticated, requireAdmin, async (req: any, res) => {
+    try {
+      const email = String(req.body?.email || '').trim().toLowerCase();
+      const days = Number(req.body?.days);
+      if (!email || !Number.isFinite(days) || days < 0 || days > 365) {
+        return res.status(400).json({ message: "email and days (0-365) required" });
+      }
+      const [user] = await db.select({ id: users.id, isAdmin: users.isAdmin }).from(users).where(eq(users.email, email));
+      if (!user) return res.status(404).json({ message: "No user with that email" });
+      if (user.isAdmin) return res.status(400).json({ message: "Refusing to backdate an admin" });
+      const createdAt = new Date(Date.now() - days * 86400000);
+      await db.update(users).set({ createdAt }).where(eq(users.id, user.id));
+      await db.delete(testerPromptEvents).where(eq(testerPromptEvents.userId, user.id));
+      return res.json({ ok: true, email, createdAt, promptEventsCleared: true });
+    } catch (error) {
+      console.error("[TESTER-PROMPT] backdate error:", error);
+      return res.status(500).json({ message: "Backdate failed" });
+    }
+  });
+
   app.post('/api/admin/tester-feedback/sweep', isAuthenticated, requireAdmin, async (_req: any, res) => {
     try {
       res.json(await runTesterPromptSweep());

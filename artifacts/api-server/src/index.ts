@@ -168,6 +168,10 @@ if (Number.isNaN(port) || port <= 0) {
       startWeeklyCheckinScheduler();
     }).catch((e: any) => logger.error({ e }, "[startup] weekly check-in scheduler failed"));
 
+    import("./testerPrompts").then(({ startTesterPromptScheduler }) => {
+      startTesterPromptScheduler();
+    }).catch((e: any) => logger.error({ e }, "[startup] tester prompt scheduler failed"));
+
     import("./pushNotificationScheduler").then(({ startPushNotificationScheduler }) => {
       startPushNotificationScheduler();
     }).catch((e: any) => logger.error({ e }, "[startup] push notification scheduler failed"));

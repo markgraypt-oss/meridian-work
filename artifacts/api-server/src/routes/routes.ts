@@ -4,6 +4,7 @@ import { createServer, type Server } from "http";
 import { storage } from "../storage";
 import { db, pool } from "../db";
 import { setupAuth, isAuthenticated, generateResetToken, hashToken, sendUserInviteEmail, sendPasswordResetEmail, sendTesterWelcomeEmail, sendTesterSignupNotification, addTesterToAudience, TESTFLIGHT_URL, PLAY_TESTING_URL } from "../replitAuth";
+import { getDuePrompt, recordPromptEvent, validateAnswers, wantsReview, emailMarkAboutAnswer, listTesterFeedback, runTesterPromptSweep, isTesterUser, type PromptKey } from "../testerPrompts";
 import rateLimit, { ipKeyGenerator } from "express-rate-limit";
 import { registerNotificationRoutes } from "../notificationsRoutes";
 import { registerCommunityRoutes } from "../community";
@@ -2507,6 +2508,63 @@ export async function registerRoutes(app: Express): Promise<Server> {
       .limit(1);
     return c || null;
   }
+
+  // ---------------------------------------------------------------------------
+  // Tester feedback prompts (day 7 / day 21 / review). Spec:
+  // claude/tester-feedback-prompts-spec-08oct.md
+  // ---------------------------------------------------------------------------
+  app.get('/api/tester/prompt', isAuthenticated, async (req: any, res) => {
+    try {
+      const out = await getDuePrompt(req.user.claims.sub);
+      res.json(out);
+    } catch (error) {
+      console.error("[TESTER-PROMPT] get error:", error);
+      res.status(500).json({ prompt: null, message: "Failed to load prompt" });
+    }
+  });
+
+  app.post('/api/tester/prompt/:key', isAuthenticated, async (req: any, res) => {
+    try {
+      const key = String(req.params.key) as PromptKey;
+      if (!["day7", "day21", "review"].includes(key)) return res.status(400).json({ ok: false, message: "Unknown prompt" });
+      const userId = req.user.claims.sub;
+      const user = await storage.getUser(userId);
+      if (!user || !(await isTesterUser(user as any))) return res.status(403).json({ ok: false, message: "Testers only" });
+
+      const action = req.body?.action === "dismissed" ? "dismissed" : "answered";
+      if (action === "dismissed") {
+        await recordPromptEvent(userId, key, "dismissed");
+        return res.json({ ok: true, next: null });
+      }
+      const v = validateAnswers(key, req.body);
+      if (!v.ok) return res.status(400).json({ ok: false, message: v.message });
+      await recordPromptEvent(userId, key, "answered", v.answers);
+      emailMarkAboutAnswer(user, key, v.answers).catch(() => {});
+      return res.json({ ok: true, next: wantsReview(key, v.answers) ? "review" : null });
+    } catch (error) {
+      console.error("[TESTER-PROMPT] post error:", error);
+      return res.status(500).json({ ok: false, message: "Something went wrong" });
+    }
+  });
+
+  app.get('/api/admin/tester-feedback', isAuthenticated, requireAdmin, async (_req: any, res) => {
+    try {
+      res.json(await listTesterFeedback());
+    } catch (error) {
+      console.error("[TESTER-PROMPT] admin list error:", error);
+      res.status(500).json({ message: "Failed to list tester feedback" });
+    }
+  });
+
+  // Manual trigger for the daily push sweep (admin), handy for verifying live.
+  app.post('/api/admin/tester-feedback/sweep', isAuthenticated, requireAdmin, async (_req: any, res) => {
+    try {
+      res.json(await runTesterPromptSweep());
+    } catch (error) {
+      console.error("[TESTER-PROMPT] sweep error:", error);
+      res.status(500).json({ message: "Sweep failed" });
+    }
+  });
 
   app.post('/api/public/tester-signup', testerSignupLimit, async (req: any, res) => {
     try {

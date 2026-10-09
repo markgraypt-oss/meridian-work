@@ -3205,6 +3205,19 @@ export const companyWellbeingContacts = pgTable("company_wellbeing_contacts", {
   updatedAt: timestamp("updated_at").defaultNow(),
 });
 
+// Tester feedback prompts (day 7 / day 21 / review) and their push nudges.
+// One row per event: 'notified' (push sent), 'dismissed', 'answered'.
+// Spec: claude/tester-feedback-prompts-spec-08oct.md
+export const testerPromptEvents = pgTable("tester_prompt_events", {
+  id: serial("id").primaryKey(),
+  userId: varchar("user_id").notNull(),
+  promptKey: varchar("prompt_key").notNull(),   // 'day7' | 'day21' | 'review'
+  action: varchar("action").notNull(),          // 'notified' | 'dismissed' | 'answered'
+  answers: jsonb("answers"),
+  createdAt: timestamp("created_at").defaultNow(),
+});
+export type TesterPromptEvent = typeof testerPromptEvents.$inferSelect;
+
 export const insertCompanyWellbeingContactSchema = createInsertSchema(companyWellbeingContacts)
   .omit({ id: true, createdAt: true, updatedAt: true });
 export type InsertCompanyWellbeingContact = z.infer<typeof insertCompanyWellbeingContactSchema>;

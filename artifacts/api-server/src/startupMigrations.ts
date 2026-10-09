@@ -506,6 +506,16 @@ export const SELF_HEAL_DDL: string[] = [
   `ALTER TABLE users ADD COLUMN IF NOT EXISTS tester_consent_at timestamp`,
   `ALTER TABLE users ADD COLUMN IF NOT EXISTS tester_phone varchar`,
   `ALTER TABLE users ADD COLUMN IF NOT EXISTS signup_source varchar`,
+  // Tester feedback prompts, 9 Oct 2026.
+  `CREATE TABLE IF NOT EXISTS tester_prompt_events (
+     id serial PRIMARY KEY,
+     user_id varchar NOT NULL,
+     prompt_key varchar NOT NULL,
+     action varchar NOT NULL,
+     answers jsonb,
+     created_at timestamp DEFAULT now()
+   )`,
+  `CREATE INDEX IF NOT EXISTS tester_prompt_events_user_idx ON tester_prompt_events (user_id, prompt_key)`,
 ];
 
 export async function runSchemaSelfHealOnce(): Promise<void> {

@@ -2558,10 +2558,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   // Manual trigger for the daily push sweep (admin), handy for verifying live.
   // Test helper: age a tester account so the day-7/day-21 prompts become due (prod-safe: runs inside the deployed server)
-  app.post('/api/admin/tester-feedback/backdate', isAuthenticated, requireAdmin, async (req: any, res) => {
+  const backdateTester = async (req: any, res: any) => {
     try {
-      const email = String(req.body?.email || '').trim().toLowerCase();
-      const days = Number(req.body?.days);
+      const src = req.method === 'GET' ? req.query : req.body;
+      const email = String(src?.email || '').trim().toLowerCase();
+      const days = Number(src?.days);
       if (!email || !Number.isFinite(days) || days < 0 || days > 365) {
         return res.status(400).json({ message: "email and days (0-365) required" });
       }
@@ -2576,7 +2577,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
       console.error("[TESTER-PROMPT] backdate error:", error);
       return res.status(500).json({ message: "Backdate failed" });
     }
-  });
+  };
+  // Admin-only test helper. GET so Mark can open it as a link while logged in: /api/admin/tester-feedback/backdate?email=...&days=8
+  app.get('/api/admin/tester-feedback/backdate', isAuthenticated, requireAdmin, backdateTester);
+  app.post('/api/admin/tester-feedback/backdate', isAuthenticated, requireAdmin, backdateTester);
 
   app.post('/api/admin/tester-feedback/sweep', isAuthenticated, requireAdmin, async (_req: any, res) => {
     try {

@@ -1502,6 +1502,55 @@ export async function revokeEmptyBurnoutBadgesOnce(): Promise<void> {
   }
 }
 
+let hasRunRevokeInflatedStretchingBadges = false;
+const REVOKE_INFLATED_STRETCHING_BADGES_FLAG = "revoke_inflated_stretching_badges_v1";
+
+// Corrective: the stretching_workouts stat had an unbracketed OR, so the
+// "mobility" half of the name match escaped the user and status filters and
+// every user's mobility sessions counted for everyone. A brand-new account was
+// awarded First Stretch on its first badge check. The stat is fixed; this
+// removes every stretching badge whose holder does not actually meet its
+// target. Once per database, idempotent, guarded by system_flags.
+export async function revokeInflatedStretchingBadgesOnce(): Promise<void> {
+  if (hasRunRevokeInflatedStretchingBadges) return;
+  hasRunRevokeInflatedStretchingBadges = true;
+
+  try {
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS system_flags (
+        key text PRIMARY KEY,
+        created_at timestamp DEFAULT now()
+      )
+    `);
+    const existing = await pool.query(
+      `SELECT 1 FROM system_flags WHERE key = $1 LIMIT 1`,
+      [REVOKE_INFLATED_STRETCHING_BADGES_FLAG],
+    );
+    if ((existing.rowCount ?? 0) > 0) return;
+
+    const result = await pool.query(`
+      DELETE FROM user_badges ub
+      USING badges b
+      WHERE ub.badge_id = b.id
+        AND b.name IN ('First Stretch', 'Flexibility Seeker', 'Limber Up', 'Flexible', 'Mobility Master')
+        AND (
+          SELECT count(*) FROM workout_logs wl
+          WHERE wl.user_id = ub.user_id
+            AND wl.status = 'completed'
+            AND (wl.workout_name ILIKE '%stretch%' OR wl.workout_name ILIKE '%mobility%')
+        ) < COALESCE((b.requirement::jsonb->>'target')::int, 1)
+    `);
+    console.log(`[startup-migration] revoke inflated stretching badges: removed ${result.rowCount} wrongful badge(s)`);
+
+    await pool.query(
+      `INSERT INTO system_flags (key) VALUES ($1) ON CONFLICT (key) DO NOTHING`,
+      [REVOKE_INFLATED_STRETCHING_BADGES_FLAG],
+    );
+  } catch (e: any) {
+    console.error("[startup-migration] revoke inflated stretching badges failed:", e?.message || e);
+  }
+}
+
 let hasRunRevokeEmptyAiBadges = false;
 const REVOKE_EMPTY_AI_BADGES_FLAG = "revoke_empty_ai_badges_v1";
 

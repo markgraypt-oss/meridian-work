@@ -13172,7 +13172,10 @@ export class DatabaseStorage implements IStorage {
 
     const [stretchingCount] = await db.select({ count: sql<number>`count(*)` }).from(workoutLogs)
       .where(and(eq(workoutLogs.userId, userId), eq(workoutLogs.status, 'completed'),
-        sql`${workoutLogs.workoutName} ILIKE '%stretch%' OR ${workoutLogs.workoutName} ILIKE '%mobility%'`));
+        // Bracketed: without the parentheses the OR escaped the user/status
+        // filter and counted every user's mobility sessions for everyone, so a
+        // brand-new account was awarded First Stretch on its first badge check.
+        sql`(${workoutLogs.workoutName} ILIKE '%stretch%' OR ${workoutLogs.workoutName} ILIKE '%mobility%')`));
     stats.stretching_workouts = Number(stretchingCount?.count || 0);
 
     const [yogaCount] = await db.select({ count: sql<number>`count(*)` }).from(workoutLogs)

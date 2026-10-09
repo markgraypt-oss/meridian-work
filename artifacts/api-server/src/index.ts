@@ -54,7 +54,7 @@ if (Number.isNaN(port) || port <= 0) {
       "Server listening",
     );
 
-    import("./startupMigrations").then(({ runSchemaSelfHealOnce, runProfileImageMigrationOnce, seedMeditationsOnce, seedAiPromptsOnce, repairBodyweightGoalUnitsOnce, normalizeRecipeMacrosOnce, seedBadgesV2Once, retireDroppedDeskBadgesOnce, fixHabitTemplateDescriptionsOnce, seedReadinessBadgesOnce, dedupeCheckInsOnce, backfillContentTagsOnce, revokeEmptyBurnoutBadgesOnce, revokeEmptyAiBadgesOnce, revokeInvalidPerfectRecordOnce, seedLabTopicCoversOnce, seedLabPathCoversOnce, seedLabLifeStageOnce, stripEmDashesFromDescriptionsOnce, restoreRecipeImagesFromUploadsOnce, reconcileBreathworkDurationsOnce, seedBreathworkTechniquesV2Once, backfillBriefingConversationsOnce }) => {
+    import("./startupMigrations").then(({ runSchemaSelfHealOnce, runProfileImageMigrationOnce, seedMeditationsOnce, seedAiPromptsOnce, repairBodyweightGoalUnitsOnce, normalizeRecipeMacrosOnce, seedBadgesV2Once, retireDroppedDeskBadgesOnce, fixHabitTemplateDescriptionsOnce, seedReadinessBadgesOnce, dedupeCheckInsOnce, backfillContentTagsOnce, revokeEmptyBurnoutBadgesOnce, revokeEmptyAiBadgesOnce, revokeInvalidPerfectRecordOnce, revokeInflatedStretchingBadgesOnce, seedLabTopicCoversOnce, seedLabPathCoversOnce, seedLabLifeStageOnce, stripEmDashesFromDescriptionsOnce, restoreRecipeImagesFromUploadsOnce, reconcileBreathworkDurationsOnce, seedBreathworkTechniquesV2Once, backfillBriefingConversationsOnce }) => {
       runSchemaSelfHealOnce()
         .catch((e: any) => logger.error({ e }, "[startup-migration] schema self-heal failed"))
         .then(() => {
@@ -72,6 +72,7 @@ if (Number.isNaN(port) || port <= 0) {
           revokeEmptyBurnoutBadgesOnce().catch((e: any) => logger.error({ e }, "[startup-migration] revoke empty burnout badges failed"));
           revokeEmptyAiBadgesOnce().catch((e: any) => logger.error({ e }, "[startup-migration] revoke empty AI badges failed"));
           revokeInvalidPerfectRecordOnce().catch((e: any) => logger.error({ e }, "[startup-migration] revoke invalid Perfect Record failed"));
+          revokeInflatedStretchingBadgesOnce().catch((e: any) => logger.error({ e }, "[startup-migration] revoke inflated stretching badges failed"));
           seedLabTopicCoversOnce().catch((e: any) => logger.error({ e }, "[startup-migration] lab topic covers failed"));
           seedLabPathCoversOnce().catch((e: any) => logger.error({ e }, "[startup-migration] lab path covers failed"));
           seedLabLifeStageOnce().catch((e: any) => logger.error({ e }, "[startup-migration] lab life-stage failed"));

@@ -3218,6 +3218,21 @@ export const testerPromptEvents = pgTable("tester_prompt_events", {
 });
 export type TesterPromptEvent = typeof testerPromptEvents.$inferSelect;
 
+// Founding Five waitlist (website /#apply form). One row per sign-up; the
+// Resend "Waitlist" segment mirrors it for broadcasts. Spec: claude/waitlist-endpoint-spec-10oct.md
+export const waitlistSignups = pgTable("waitlist_signups", {
+  id: serial("id").primaryKey(),
+  firstName: varchar("first_name").notNull(),
+  lastName: varchar("last_name"),
+  email: varchar("email").notNull(),
+  company: varchar("company").notNull(),
+  role: varchar("role"),
+  staffBand: varchar("staff_band"),   // 'under50' | '50-99' | '100-249' | '250plus'
+  source: varchar("source"),          // 'website'
+  createdAt: timestamp("created_at").defaultNow(),
+});
+export type WaitlistSignup = typeof waitlistSignups.$inferSelect;
+
 export const insertCompanyWellbeingContactSchema = createInsertSchema(companyWellbeingContacts)
   .omit({ id: true, createdAt: true, updatedAt: true });
 export type InsertCompanyWellbeingContact = z.infer<typeof insertCompanyWellbeingContactSchema>;

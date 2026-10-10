@@ -4,6 +4,7 @@ import { createServer, type Server } from "http";
 import { storage } from "../storage";
 import { db, pool } from "../db";
 import { setupAuth, isAuthenticated, generateResetToken, hashToken, sendUserInviteEmail, sendPasswordResetEmail, sendTesterWelcomeEmail, sendTesterSignupNotification, addTesterToAudience, TESTFLIGHT_URL, PLAY_TESTING_URL } from "../replitAuth";
+import { saveWaitlistSignup, addToWaitlistSegment, sendWaitlistConfirmation, sendWaitlistAdminPing, countWaitlist, STAFF_BANDS, type StaffBand } from "../waitlist";
 import { getDuePrompt, recordPromptEvent, validateAnswers, wantsReview, emailMarkAboutAnswer, listTesterFeedback, runTesterPromptSweep, isTesterUser, type PromptKey } from "../testerPrompts";
 import rateLimit, { ipKeyGenerator } from "express-rate-limit";
 import { registerNotificationRoutes } from "../notificationsRoutes";
@@ -444,7 +445,7 @@ import { rulesFromOutcome, poolFromOutcome, hasAnyCriteria, evaluateFlag, rankSu
 import { assessmentContextFor, resolveChecksForUser, RED_FLAGS, MOVEMENT_RESPONSES } from '../bodyMapChecks';
 import { buildReduction } from '../programmeReduction';
 import { trackCalibrationEvent, trackRecoveryModeActivation, generateCalibrationReport, getLevel as getBurnoutLevel, writePhysiologicalSnapshot } from '../burnoutCalibration';
-import { companies, burnoutScores, insertCompanySchema, insertCompanyBenefitSchema, insertCompanyWellbeingContactSchema, checkIns, bodyMapLogs, departments, companyInvites, usageAlerts, insertAiPromptSchema, workdayBreakLogs, aiInsightReads, recoveryModePeriods, physiologicalSnapshots, cycleSettings, cycleLogs, testerPromptEvents } from "@workspace/db";
+import { companies, burnoutScores, insertCompanySchema, insertCompanyBenefitSchema, insertCompanyWellbeingContactSchema, checkIns, bodyMapLogs, departments, companyInvites, usageAlerts, insertAiPromptSchema, workdayBreakLogs, aiInsightReads, recoveryModePeriods, physiologicalSnapshots, cycleSettings, cycleLogs, testerPromptEvents, waitlistSignups } from "@workspace/db";
 
 import {
   insertExerciseLibraryItemSchema,
@@ -2662,6 +2663,48 @@ export async function registerRoutes(app: Express): Promise<Server> {
     } catch (error) {
       console.error("[TESTER] sign-up error:", error);
       return res.status(500).json({ ok: false, message: "Something went wrong on my side. Email me and I'll set you up by hand." });
+    }
+  });
+
+  // ---------------------------------------------------------------------------
+  // Founding Five waitlist (website /#apply form). Spec: claude/waitlist-endpoint-spec-10oct.md
+  // ---------------------------------------------------------------------------
+  app.post('/api/public/waitlist', testerSignupLimit, async (req: any, res) => {
+    try {
+      const body = req.body || {};
+      if (typeof body.website === "string" && body.website.trim() !== "") return res.status(200).json({ ok: true });
+
+      const firstName = String(body.firstName || "").trim().slice(0, 60);
+      const lastName = String(body.lastName || "").trim().slice(0, 60) || null;
+      const email = String(body.email || "").trim().toLowerCase();
+      const company = String(body.company || "").trim().slice(0, 120);
+      const role = String(body.role || "").trim().slice(0, 80) || null;
+      const staffBandRaw = String(body.staffBand || "").trim();
+      const staffBand = (STAFF_BANDS as readonly string[]).includes(staffBandRaw) ? (staffBandRaw as StaffBand) : null;
+
+      if (!firstName) return res.status(400).json({ ok: false, message: "First name is required" });
+      if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return res.status(400).json({ ok: false, message: "That email doesn't look right" });
+      if (!company) return res.status(400).json({ ok: false, message: "Company name is required" });
+
+      const input = { firstName, lastName, email, company, role, staffBand };
+      const { existing } = await saveWaitlistSignup(input);
+      const emailSent = await sendWaitlistConfirmation(input);
+      addToWaitlistSegment(email, firstName, lastName).catch(() => {});
+      sendWaitlistAdminPing(input, existing).catch(() => {});
+      return res.status(existing ? 200 : 201).json({ ok: true, emailSent });
+    } catch (error) {
+      console.error("[WAITLIST] sign-up error:", error);
+      return res.status(500).json({ ok: false, message: "Something went wrong on my side. Email me and I'll add you by hand." });
+    }
+  });
+
+  app.get('/api/admin/waitlist', isAuthenticated, requireAdmin, async (_req: any, res) => {
+    try {
+      const rows = await db.select().from(waitlistSignups).orderBy(desc(waitlistSignups.createdAt));
+      return res.json({ count: await countWaitlist(), rows });
+    } catch (error) {
+      console.error("[WAITLIST] list error:", error);
+      return res.status(500).json({ message: "Failed" });
     }
   });
 

@@ -516,6 +516,19 @@ export const SELF_HEAL_DDL: string[] = [
      created_at timestamp DEFAULT now()
    )`,
   `CREATE INDEX IF NOT EXISTS tester_prompt_events_user_idx ON tester_prompt_events (user_id, prompt_key)`,
+  // Founding Five waitlist, 10 Oct 2026.
+  `CREATE TABLE IF NOT EXISTS waitlist_signups (
+     id serial PRIMARY KEY,
+     first_name varchar NOT NULL,
+     last_name varchar,
+     email varchar NOT NULL,
+     company varchar NOT NULL,
+     role varchar,
+     staff_band varchar,
+     source varchar,
+     created_at timestamp DEFAULT now()
+   )`,
+  `CREATE UNIQUE INDEX IF NOT EXISTS waitlist_signups_email_idx ON waitlist_signups (lower(email))`,
 ];
 
 export async function runSchemaSelfHealOnce(): Promise<void> {

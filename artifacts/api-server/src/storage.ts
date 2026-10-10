@@ -13352,8 +13352,11 @@ export class DatabaseStorage implements IStorage {
     stats.supplements_total = Number(supplementsTotal?.count || 0);
 
     // ---- BURNOUT ----
+    // A score counts for Self-Aware only when the member's own check-in fed it.
+    // Wearable-only scores (sleep, steps) used to count, so a new member with a
+    // watch got "Self-Aware" on day two without having told us anything.
     const [burnoutCount] = await db.select({ count: sql<number>`count(*)` }).from(burnoutScores)
-      .where(and(eq(burnoutScores.userId, userId), sql`${burnoutScores.dataSourceCount} > 0`));
+      .where(and(eq(burnoutScores.userId, userId), sql`${burnoutScores.dataSourceCount} > 0`, sql`${burnoutScores.checkInCount} > 0`));
     stats.burnout_scores_count = Number(burnoutCount?.count || 0);
 
     const bouncedBackRes = await pool.query(`

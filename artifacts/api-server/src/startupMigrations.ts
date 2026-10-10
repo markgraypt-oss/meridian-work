@@ -1551,6 +1551,54 @@ export async function revokeInflatedStretchingBadgesOnce(): Promise<void> {
   }
 }
 
+let hasRunRevokeWearableOnlySelfAware = false;
+const REVOKE_WEARABLE_ONLY_SELF_AWARE_FLAG = "revoke_wearable_only_self_aware_v1";
+
+// Corrective: Self-Aware ("Generate your first burnout score") used to count
+// any score with a data source, so a new member with a watch earned it on day
+// two from sleep and steps alone. The stat now requires the score to include
+// one of the member's own check-ins. Remove it from anyone who holds it without
+// a single check-in-backed score. Once per database, guarded by system_flags.
+export async function revokeWearableOnlySelfAwareOnce(): Promise<void> {
+  if (hasRunRevokeWearableOnlySelfAware) return;
+  hasRunRevokeWearableOnlySelfAware = true;
+
+  try {
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS system_flags (
+        key text PRIMARY KEY,
+        created_at timestamp DEFAULT now()
+      )
+    `);
+    const existing = await pool.query(
+      `SELECT 1 FROM system_flags WHERE key = $1 LIMIT 1`,
+      [REVOKE_WEARABLE_ONLY_SELF_AWARE_FLAG],
+    );
+    if ((existing.rowCount ?? 0) > 0) return;
+
+    const result = await pool.query(`
+      DELETE FROM user_badges ub
+      USING badges b
+      WHERE ub.badge_id = b.id
+        AND b.name = 'Self-Aware'
+        AND NOT EXISTS (
+          SELECT 1 FROM burnout_scores bs
+          WHERE bs.user_id = ub.user_id
+            AND bs.data_source_count > 0
+            AND bs.check_in_count > 0
+        )
+    `);
+    console.log(`[startup-migration] revoke wearable-only Self-Aware: removed ${result.rowCount} badge(s)`);
+
+    await pool.query(
+      `INSERT INTO system_flags (key) VALUES ($1) ON CONFLICT (key) DO NOTHING`,
+      [REVOKE_WEARABLE_ONLY_SELF_AWARE_FLAG],
+    );
+  } catch (e: any) {
+    console.error("[startup-migration] revoke wearable-only Self-Aware failed:", e?.message || e);
+  }
+}
+
 let hasRunRevokeEmptyAiBadges = false;
 const REVOKE_EMPTY_AI_BADGES_FLAG = "revoke_empty_ai_badges_v1";
 

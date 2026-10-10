@@ -18,6 +18,7 @@ import { pool } from "./db";
 import { isAuthenticated } from "./replitAuth";
 import { storage } from "./storage";
 import { notify } from "./notifications";
+import { isTesterUser } from "./testerPrompts";
 
 export const COMMUNITY_TERMS_VERSION = "1.0";
 
@@ -834,9 +835,22 @@ export function registerCommunityRoutes(app: Express): void {
   // Kick off schema creation immediately; every handler awaits readiness.
   ensureCommunitySchema().catch(() => {});
 
+  // Testers (website sign-ups / Testers company) get the app, coach and check-ins but not Community.
+  // The tab stays; /me reports locked:true so the app shows one explanatory screen, every other route is 403.
+  const LOCKED_MESSAGE = "Community opens when your company joins. Testers get the app, the coach and the check-ins; challenges and live sessions are for member companies.";
   const ready = (handler: (req: any, res: any) => Promise<any>) => async (req: any, res: any) => {
     try {
       await ensureCommunitySchema();
+      const uid = req.user?.claims?.sub;
+      if (uid) {
+        const u = await storage.getUser(uid);
+        if (u && (await isTesterUser(u as any))) {
+          if (req.method === "GET" && req.path === "/api/community/me") {
+            return res.json({ joined: false, locked: true, termsVersion: COMMUNITY_TERMS_VERSION, suggestedDisplayName: null, message: LOCKED_MESSAGE });
+          }
+          return res.status(403).json({ message: LOCKED_MESSAGE, code: "TESTER_LOCKED" });
+        }
+      }
       await handler(req, res);
     } catch (e) {
       console.error(`[community] ${req.method} ${req.path} failed:`, e);

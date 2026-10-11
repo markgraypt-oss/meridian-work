@@ -220,18 +220,24 @@ async function sweepCoachBriefings(
 
       const dateKey = mod.todayKeyForUser(row.timezone);
       const existing = await storage.getCoachBriefingForDay(row.id, dateKey, type);
-      if (existing) continue;
+      // A read briefing is frozen. An UNREAD one is passed back through
+      // getOrGenerateBriefing so its drift check can rewrite it if the
+      // numbers it quotes have changed since it was written (e.g. the night's
+      // sleep finished syncing after the briefing). That path never
+      // re-notifies and is floored at one rewrite per 30 minutes.
+      if (existing && (existing as any).readAt) continue;
 
-      // Morning briefing waits for the user's daily check-in. Before 10:00
-      // local time, skip if the user hasn't checked in yet - the check-in
-      // POST endpoint will trigger the briefing immediately when they do.
-      // From 10:00 local onwards we fire without it. Evening unchanged.
-      if (type === "morning") {
+      // Morning briefing waits for the user's daily check-in, with no
+      // time-of-day fallback: the old 10:00 cut-off wrote a briefing while
+      // the user was still asleep. The check-in POST endpoint triggers the
+      // briefing immediately when they check in. Evening unchanged.
+      if (type === "morning" && !existing) {
         const todayCheckIn = await storage.getTodayCheckIn(row.id, row.timezone);
-        if (!todayCheckIn && hour < 10) continue;
+        if (!todayCheckIn) continue;
       }
 
       await mod.getOrGenerateBriefing(row.id, type);
+      if (existing) continue;
       if (type === "morning") generatedMorning++;
       else generatedEvening++;
     } catch (e) {

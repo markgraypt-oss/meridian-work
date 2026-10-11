@@ -22330,7 +22330,19 @@ Respond as the coach. Be personalised, reference their actual data and specific 
       // Return whatever briefing exists for the current window (read or
       // unread). The client decides what to do with readAt.
       const matching = todayRows.find((b: any) => b.type === windowType);
-      if (matching) return res.json(matching);
+      if (matching) {
+        // An UNREAD briefing goes through getOrGenerateBriefing so its drift
+        // check can run (a morning briefing written before the night's sleep
+        // had fully synced is rewritten once the real numbers land). Returning
+        // the stored row here skipped that check, so the stale copy was
+        // served until it was read and frozen. A read briefing is returned as is.
+        if (!(matching as any).readAt) {
+          const { getOrGenerateBriefing } = await import('../coach/briefings');
+          const refreshed = await getOrGenerateBriefing(userId, matching.type);
+          if (refreshed && (refreshed as any).source !== 'fallback') return res.json(refreshed);
+        }
+        return res.json(matching);
+      }
 
       const requested = typeof req.query.type === 'string' ? req.query.type : null;
       const type: 'morning' | 'evening' =
@@ -22338,12 +22350,12 @@ Respond as the coach. Be personalised, reference their actual data and specific 
           ? requested
           : windowType;
 
-      // Morning briefing gate: before 10:00 local, do NOT generate if the
-      // user has not yet logged today's check-in. The check-in POST handler
-      // will trigger generation immediately when they check in. From 10:00
-      // local onwards we fall through and generate without it. Evening
-      // unchanged. Mirrors the scheduler sweep rule in scheduledBriefings.ts.
-      if (type === 'morning' && hour < 10) {
+      // Morning briefing gate: do NOT generate until the user has logged
+      // today's check-in. The check-in POST handler triggers generation the
+      // moment they do. There is no time-of-day fallback: the old 10:00
+      // cut-off wrote a briefing while the user was still asleep (11 Oct).
+      // Evening unchanged. Mirrors the scheduler sweep rule in scheduledBriefings.ts.
+      if (type === 'morning') {
         const todayCheckIn = await storage.getTodayCheckIn(userId, _userTz);
         if (!todayCheckIn) return res.status(204).end();
       }

@@ -17,9 +17,15 @@ export const pool = new Pool({
   // token-save step of a WHOOP refresh, lost the freshly rotated token and got
   // the whole token family revoked. Retire idle clients before the server
   // does, keep TCP keepalives on, and never wait forever for a connection.
-  idleTimeoutMillis: 30_000,
+  //
+  // keepAlive alone is not enough: pg defaults keepAliveInitialDelayMillis to
+  // 0, which leaves the OS default idle time (often ~2h) in force, so probes
+  // never fire on the 30-60s timescale that matters here. Set it explicitly,
+  // and retire idle clients well before any plausible server-side cutoff.
+  idleTimeoutMillis: 10_000,
   connectionTimeoutMillis: 10_000,
   keepAlive: true,
+  keepAliveInitialDelayMillis: 10_000,
 });
 pool.on("error", (err) => {
   // Errors on idle clients would otherwise crash the process.

@@ -10451,7 +10451,35 @@ export class DatabaseStorage implements IStorage {
       .orderBy(desc(sleepEntries.date));
 
     const wearRowsRaw = await db
-      .select()
+      // Explicit projection: every column EXCEPT `raw`, the provider audit
+      // payload. Nothing on this path reads `raw`, but a bare .select() pulled
+      // that JSONB blob for every wearable row the user has ever had, which is
+      // what made this query scale with wearable history. Every other column
+      // is kept: mergeMetricsPerDay() needs `provider` for priority and reads
+      // all physio/activity fields plus strainScore.
+      .select({
+        id: wearableMetricsDaily.id,
+        userId: wearableMetricsDaily.userId,
+        provider: wearableMetricsDaily.provider,
+        date: wearableMetricsDaily.date,
+        sleepMinutes: wearableMetricsDaily.sleepMinutes,
+        sleepDeepMinutes: wearableMetricsDaily.sleepDeepMinutes,
+        sleepRemMinutes: wearableMetricsDaily.sleepRemMinutes,
+        sleepLightMinutes: wearableMetricsDaily.sleepLightMinutes,
+        sleepAwakeMinutes: wearableMetricsDaily.sleepAwakeMinutes,
+        sleepScore: wearableMetricsDaily.sleepScore,
+        hrvMs: wearableMetricsDaily.hrvMs,
+        restingHrBpm: wearableMetricsDaily.restingHrBpm,
+        steps: wearableMetricsDaily.steps,
+        activeMinutes: wearableMetricsDaily.activeMinutes,
+        caloriesBurned: wearableMetricsDaily.caloriesBurned,
+        readinessScore: wearableMetricsDaily.readinessScore,
+        strainScore: wearableMetricsDaily.strainScore,
+        workoutCount: wearableMetricsDaily.workoutCount,
+        vo2MaxMlKgMin: wearableMetricsDaily.vo2MaxMlKgMin,
+        createdAt: wearableMetricsDaily.createdAt,
+        updatedAt: wearableMetricsDaily.updatedAt,
+      })
       .from(wearableMetricsDaily)
       .where(and(eq(wearableMetricsDaily.userId, userId), sql`${wearableMetricsDaily.sleepMinutes} IS NOT NULL`))
       .orderBy(desc(wearableMetricsDaily.date));
@@ -10542,7 +10570,35 @@ export class DatabaseStorage implements IStorage {
       .orderBy(desc(stepEntries.date));
 
     const wearRowsRaw = await db
-      .select()
+      // Explicit projection: every column EXCEPT `raw`, the provider audit
+      // payload. Nothing on this path reads `raw`, but a bare .select() pulled
+      // that JSONB blob for every wearable row the user has ever had, which is
+      // what made this query scale with wearable history. Every other column
+      // is kept: mergeMetricsPerDay() needs `provider` for priority and reads
+      // all physio/activity fields plus strainScore.
+      .select({
+        id: wearableMetricsDaily.id,
+        userId: wearableMetricsDaily.userId,
+        provider: wearableMetricsDaily.provider,
+        date: wearableMetricsDaily.date,
+        sleepMinutes: wearableMetricsDaily.sleepMinutes,
+        sleepDeepMinutes: wearableMetricsDaily.sleepDeepMinutes,
+        sleepRemMinutes: wearableMetricsDaily.sleepRemMinutes,
+        sleepLightMinutes: wearableMetricsDaily.sleepLightMinutes,
+        sleepAwakeMinutes: wearableMetricsDaily.sleepAwakeMinutes,
+        sleepScore: wearableMetricsDaily.sleepScore,
+        hrvMs: wearableMetricsDaily.hrvMs,
+        restingHrBpm: wearableMetricsDaily.restingHrBpm,
+        steps: wearableMetricsDaily.steps,
+        activeMinutes: wearableMetricsDaily.activeMinutes,
+        caloriesBurned: wearableMetricsDaily.caloriesBurned,
+        readinessScore: wearableMetricsDaily.readinessScore,
+        strainScore: wearableMetricsDaily.strainScore,
+        workoutCount: wearableMetricsDaily.workoutCount,
+        vo2MaxMlKgMin: wearableMetricsDaily.vo2MaxMlKgMin,
+        createdAt: wearableMetricsDaily.createdAt,
+        updatedAt: wearableMetricsDaily.updatedAt,
+      })
       .from(wearableMetricsDaily)
       .where(and(eq(wearableMetricsDaily.userId, userId), sql`${wearableMetricsDaily.steps} IS NOT NULL`))
       .orderBy(desc(wearableMetricsDaily.date));
@@ -11005,7 +11061,35 @@ export class DatabaseStorage implements IStorage {
       .orderBy(desc(caloricBurnEntries.date));
 
     const wearRowsRaw = await db
-      .select()
+      // Explicit projection: every column EXCEPT `raw`, the provider audit
+      // payload. Nothing on this path reads `raw`, but a bare .select() pulled
+      // that JSONB blob for every wearable row the user has ever had, which is
+      // what made this query scale with wearable history. Every other column
+      // is kept: mergeMetricsPerDay() needs `provider` for priority and reads
+      // all physio/activity fields plus strainScore.
+      .select({
+        id: wearableMetricsDaily.id,
+        userId: wearableMetricsDaily.userId,
+        provider: wearableMetricsDaily.provider,
+        date: wearableMetricsDaily.date,
+        sleepMinutes: wearableMetricsDaily.sleepMinutes,
+        sleepDeepMinutes: wearableMetricsDaily.sleepDeepMinutes,
+        sleepRemMinutes: wearableMetricsDaily.sleepRemMinutes,
+        sleepLightMinutes: wearableMetricsDaily.sleepLightMinutes,
+        sleepAwakeMinutes: wearableMetricsDaily.sleepAwakeMinutes,
+        sleepScore: wearableMetricsDaily.sleepScore,
+        hrvMs: wearableMetricsDaily.hrvMs,
+        restingHrBpm: wearableMetricsDaily.restingHrBpm,
+        steps: wearableMetricsDaily.steps,
+        activeMinutes: wearableMetricsDaily.activeMinutes,
+        caloriesBurned: wearableMetricsDaily.caloriesBurned,
+        readinessScore: wearableMetricsDaily.readinessScore,
+        strainScore: wearableMetricsDaily.strainScore,
+        workoutCount: wearableMetricsDaily.workoutCount,
+        vo2MaxMlKgMin: wearableMetricsDaily.vo2MaxMlKgMin,
+        createdAt: wearableMetricsDaily.createdAt,
+        updatedAt: wearableMetricsDaily.updatedAt,
+      })
       .from(wearableMetricsDaily)
       .where(and(eq(wearableMetricsDaily.userId, userId), sql`${wearableMetricsDaily.caloriesBurned} IS NOT NULL`))
       .orderBy(desc(wearableMetricsDaily.date));
@@ -11075,7 +11159,35 @@ export class DatabaseStorage implements IStorage {
       .orderBy(desc(exerciseMinutesEntries.date));
 
     const wearRowsRaw = await db
-      .select()
+      // Explicit projection: every column EXCEPT `raw`, the provider audit
+      // payload. Nothing on this path reads `raw`, but a bare .select() pulled
+      // that JSONB blob for every wearable row the user has ever had, which is
+      // what made this query scale with wearable history. Every other column
+      // is kept: mergeMetricsPerDay() needs `provider` for priority and reads
+      // all physio/activity fields plus strainScore.
+      .select({
+        id: wearableMetricsDaily.id,
+        userId: wearableMetricsDaily.userId,
+        provider: wearableMetricsDaily.provider,
+        date: wearableMetricsDaily.date,
+        sleepMinutes: wearableMetricsDaily.sleepMinutes,
+        sleepDeepMinutes: wearableMetricsDaily.sleepDeepMinutes,
+        sleepRemMinutes: wearableMetricsDaily.sleepRemMinutes,
+        sleepLightMinutes: wearableMetricsDaily.sleepLightMinutes,
+        sleepAwakeMinutes: wearableMetricsDaily.sleepAwakeMinutes,
+        sleepScore: wearableMetricsDaily.sleepScore,
+        hrvMs: wearableMetricsDaily.hrvMs,
+        restingHrBpm: wearableMetricsDaily.restingHrBpm,
+        steps: wearableMetricsDaily.steps,
+        activeMinutes: wearableMetricsDaily.activeMinutes,
+        caloriesBurned: wearableMetricsDaily.caloriesBurned,
+        readinessScore: wearableMetricsDaily.readinessScore,
+        strainScore: wearableMetricsDaily.strainScore,
+        workoutCount: wearableMetricsDaily.workoutCount,
+        vo2MaxMlKgMin: wearableMetricsDaily.vo2MaxMlKgMin,
+        createdAt: wearableMetricsDaily.createdAt,
+        updatedAt: wearableMetricsDaily.updatedAt,
+      })
       .from(wearableMetricsDaily)
       .where(and(eq(wearableMetricsDaily.userId, userId), sql`${wearableMetricsDaily.activeMinutes} IS NOT NULL`))
       .orderBy(desc(wearableMetricsDaily.date));

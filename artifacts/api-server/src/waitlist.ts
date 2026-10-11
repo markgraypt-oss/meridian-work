@@ -64,11 +64,11 @@ export async function sendWaitlistConfirmation(input: WaitlistInput): Promise<bo
       html: renderBrandedEmail({
         eyebrow: "The Founding Five",
         heading: "You're on the list.",
-        preheader: "Five places. January 2027. You hear first.",
+        preheader: "Five places. A live webinar on 20 January. You hear first.",
         bodyHtml:
           emailParagraph(`Hi ${input.firstName},`) +
           emailParagraph("Thanks for putting your company's name down. Here's what happens next.") +
-          emailParagraph("In December you'll get an invitation to the live on <strong>Wednesday 20 January</strong>, where I show the index on real data and open the five places. Applications open during the live and close on <strong>Friday 5 February</strong>, or the moment the fifth place is taken. The waitlist hears before anyone else.") +
+          emailParagraph("In December you'll get an invitation to a live webinar on <strong>Wednesday 20 January</strong> (Zoom, 45 minutes, lunchtime), where I show the index on real data and open the five places. Applications open during the webinar and close on <strong>Friday 5 February</strong>, or the moment the fifth place is taken. The waitlist hears before anyone else.") +
           emailParagraph("Until then: £5 / €6 per employee a month, half the standard price, locked for life. No trial, no free months.") +
           emailParagraph("If you want to see the app before then, reply to this email. I read every one."),
         signature: true,

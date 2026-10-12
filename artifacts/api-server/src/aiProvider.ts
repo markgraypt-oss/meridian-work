@@ -452,6 +452,17 @@ export async function getUserDataContext(userId: string, feature: string): Promi
     console.error('[life-stage] context build failed:', e);
   }
 
+  // Workforce Load Diagnostic: the user's own answers about commute, shifts,
+  // caring, sleep environment. Makes advice specific; never presented as
+  // measured data. Failure must never block the health context.
+  try {
+    const { getStatus: ldGetStatus, summariseForCoach } = await import('./loadDiagnostic');
+    const ld = await ldGetStatus(userId);
+    if (ld.latest) context += '\n\n' + summariseForCoach(ld.latest, ld.latestPeriod);
+  } catch (e) {
+    console.error('[load-diag] context build failed:', e);
+  }
+
   context += '\n\nUSER HEALTH DATA CONTEXT:';
 
   try {

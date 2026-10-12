@@ -529,6 +529,17 @@ export const SELF_HEAL_DDL: string[] = [
      created_at timestamp DEFAULT now()
    )`,
   `CREATE UNIQUE INDEX IF NOT EXISTS waitlist_signups_email_idx ON waitlist_signups (lower(email))`,
+  // Workforce Load Diagnostic, 12 Oct 2026.
+  `CREATE TABLE IF NOT EXISTS load_diagnostic_responses (
+     id serial PRIMARY KEY,
+     user_id varchar NOT NULL,
+     version integer NOT NULL DEFAULT 1,
+     period_key varchar NOT NULL,
+     answers jsonb NOT NULL,
+     completed_at timestamp DEFAULT now(),
+     updated_at timestamp DEFAULT now()
+   )`,
+  `CREATE UNIQUE INDEX IF NOT EXISTS load_diag_user_period_idx ON load_diagnostic_responses (user_id, period_key)`,
 ];
 
 export async function runSchemaSelfHealOnce(): Promise<void> {

@@ -3233,6 +3233,19 @@ export const waitlistSignups = pgTable("waitlist_signups", {
 });
 export type WaitlistSignup = typeof waitlistSignups.$inferSelect;
 
+// Workforce Load Diagnostic: one row per user per period (calendar quarter).
+// Spec: claude/load-diagnostic-baseline-spec-11oct.md
+export const loadDiagnosticResponses = pgTable("load_diagnostic_responses", {
+  id: serial("id").primaryKey(),
+  userId: varchar("user_id").notNull(),
+  version: integer("version").notNull().default(1),
+  periodKey: varchar("period_key").notNull(),   // e.g. '2026-Q4'
+  answers: jsonb("answers").notNull(),           // { commute_time: '45_90', ... }
+  completedAt: timestamp("completed_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+});
+export type LoadDiagnosticResponse = typeof loadDiagnosticResponses.$inferSelect;
+
 export const insertCompanyWellbeingContactSchema = createInsertSchema(companyWellbeingContacts)
   .omit({ id: true, createdAt: true, updatedAt: true });
 export type InsertCompanyWellbeingContact = z.infer<typeof insertCompanyWellbeingContactSchema>;

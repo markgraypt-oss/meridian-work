@@ -4,6 +4,7 @@ import { createServer, type Server } from "http";
 import { storage } from "../storage";
 import { db, pool } from "../db";
 import { setupAuth, isAuthenticated, generateResetToken, hashToken, sendUserInviteEmail, sendPasswordResetEmail, sendTesterWelcomeEmail, sendTesterSignupNotification, addTesterToAudience, TESTFLIGHT_URL, PLAY_TESTING_URL } from "../replitAuth";
+import { QUESTIONS as LD_QUESTIONS, INTRO_COPY as LD_INTRO, CARD_COPY as LD_CARD, getStatus as ldGetStatus, validate as ldValidate, saveAnswers as ldSave, personalLine as ldPersonalLine, aggregateForCompany as ldAggregate, periodKeyFor as ldPeriodKey } from "../loadDiagnostic";
 import { saveWaitlistSignup, addToWaitlistSegment, sendWaitlistConfirmation, sendWaitlistAdminPing, countWaitlist, STAFF_BANDS, type StaffBand } from "../waitlist";
 import { getDuePrompt, recordPromptEvent, validateAnswers, wantsReview, emailMarkAboutAnswer, listTesterFeedback, runTesterPromptSweep, isTesterUser, type PromptKey } from "../testerPrompts";
 import rateLimit, { ipKeyGenerator } from "express-rate-limit";
@@ -2663,6 +2664,44 @@ export async function registerRoutes(app: Express): Promise<Server> {
     } catch (error) {
       console.error("[TESTER] sign-up error:", error);
       return res.status(500).json({ ok: false, message: "Something went wrong on my side. Email me and I'll set you up by hand." });
+    }
+  });
+
+  // ---------------------------------------------------------------------------
+  // Workforce Load Diagnostic. Spec: claude/load-diagnostic-baseline-spec-11oct.md
+  // ---------------------------------------------------------------------------
+  app.get('/api/load-diagnostic', isAuthenticated, async (req: any, res) => {
+    try {
+      const status = await ldGetStatus(req.user.claims.sub);
+      return res.json({ status, questions: LD_QUESTIONS, intro: LD_INTRO, card: LD_CARD });
+    } catch (error) {
+      console.error("[LOAD-DIAG] status error:", error);
+      return res.status(500).json({ message: "Failed to load diagnostic" });
+    }
+  });
+
+  app.post('/api/load-diagnostic', isAuthenticated, async (req: any, res) => {
+    try {
+      const v = ldValidate(req.body?.answers);
+      if (!v.ok) return res.status(400).json({ ok: false, message: v.message });
+      const saved = await ldSave(req.user.claims.sub, v.answers);
+      return res.json({ ok: true, ...saved, personalLine: ldPersonalLine(v.answers) });
+    } catch (error) {
+      console.error("[LOAD-DIAG] save error:", error);
+      return res.status(500).json({ ok: false, message: "Couldn't save your answers. Try again." });
+    }
+  });
+
+  app.get('/api/admin/reports/company/:companyName/load-diagnostic', isAuthenticated, requireAdmin, async (req: any, res) => {
+    try {
+      const name = String(req.params.companyName || "");
+      const [company] = await db.select({ id: companies.id, name: companies.name }).from(companies).where(sql`lower(${companies.name}) = ${name.toLowerCase()}`);
+      if (!company) return res.status(404).json({ message: "Company not found" });
+      const period = typeof req.query.period === "string" && /^\d{4}-Q[1-4]$/.test(req.query.period) ? req.query.period : ldPeriodKey();
+      return res.json(await ldAggregate(company.id, period));
+    } catch (error) {
+      console.error("[LOAD-DIAG] aggregate error:", error);
+      return res.status(500).json({ message: "Failed" });
     }
   });
 

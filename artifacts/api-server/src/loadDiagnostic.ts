@@ -44,16 +44,36 @@ export const QUESTIONS: LdQuestion[] = [
 ];
 
 export const INTRO_COPY = {
-  title: "Two minutes. Twelve questions.",
-  body: "Then your coach knows what your days look like.",
-  privacy: "Your answers stay yours. Your coach uses them to give you better advice. Your company only ever sees group numbers, never fewer than ten people behind any figure, and never which answer was yours.",
+  title: "Your working day",
+  lead: "Twelve questions about how you work: your commute, your hours, your meetings, and what pulls on your sleep at home.",
+  sections: [
+    {
+      heading: "Why we ask",
+      body: "The app measures how you are. It can't see why. A ninety-minute drive and a toddler waking at 3am need different advice from a ten-minute walk and a quiet house. These answers let your coach give advice that fits your actual days.",
+    },
+    {
+      heading: "What happens to your answers",
+      body: "They shape your coach's advice and nothing else. If you use MeridianWork through your company, it sees group patterns only: never fewer than ten people behind any figure, and never which answer was yours.",
+    },
+  ],
+  note: "About two minutes. You can change your answers any time in Profile.",
   start: "Start",
-  done: { title: "Thanks. Your coach now knows your days.", button: "Done" },
+  done: { title: "Done. Your coach now knows your days.", button: "Back to home" },
 };
 
 export const CARD_COPY = {
-  baseline: { title: "Two minutes. Twelve questions.", body: "Your coach can't tell a long commute from a short walk until you tell it.", button: "Start", later: "Not now" },
-  quarterly: { title: "New quarter. Has anything changed?", body: "Two minutes to bring your load profile up to date.", button: "Update", later: "Not now" },
+  baseline: {
+    title: "Tell your coach about your working day",
+    body: "Commute, hours, meetings, sleep at home. Twelve quick questions, so the advice fits your life and not a generic one.",
+    button: "Answer now",
+    later: "Not now",
+  },
+  quarterly: {
+    title: "Has your working day changed?",
+    body: "A new quarter. Two minutes to bring your answers up to date so the advice keeps fitting.",
+    button: "Update",
+    later: "Not now",
+  },
 };
 
 export type Answers = Record<string, string>;

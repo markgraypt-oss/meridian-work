@@ -26,10 +26,30 @@ export function getAdapter(provider: string): WearableAdapter | null {
   return null;
 }
 
-export function buildRedirectUri(req: { protocol: string; get(h: string): string | undefined }, provider: string): string {
-  const host = req.get("x-forwarded-host") || req.get("host") || "";
-  const proto = (req.get("x-forwarded-proto") || req.protocol || "https").split(",")[0].trim();
-  return `${proto}://${host}/api/wearables/callback/${provider}`;
+// The public base URL of this API. Every OAuth redirect and webhook callback we
+// hand to a provider is built from this.
+//
+// These URLs are PRE-REGISTERED with Whoop, Oura and Google. They must never be
+// derived from the incoming request: this server answers on more than one
+// hostname, so if the app reaches it on a name the provider does not have
+// registered, the provider rejects the request outright. That is exactly what
+// took Whoop down on 13 Oct 2026 ("redirect_uri does not match any of the OAuth
+// 2.0 Client's pre-registered redirect urls") after a restart changed the host.
+//
+// Only change WEARABLES_PUBLIC_BASE_URL after registering the new URL with
+// EVERY provider dashboard, or connections will break again.
+export const WEARABLES_PUBLIC_BASE_URL = (
+  process.env.WEARABLES_PUBLIC_BASE_URL ||
+  "https://the-paradigm-project-coachmarkgray.replit.app"
+).replace(/\/+$/, "");
+
+// `_req` is kept so existing callers need no change; it is deliberately unused.
+export function buildRedirectUri(_req: unknown, provider: string): string {
+  return `${WEARABLES_PUBLIC_BASE_URL}/api/wearables/callback/${provider}`;
+}
+
+export function buildWebhookUrl(provider: string): string {
+  return `${WEARABLES_PUBLIC_BASE_URL}/api/wearables/${provider}/webhook`;
 }
 
 function dateOnly(d: Date): string {

@@ -5,9 +5,10 @@
 // RENEW_WITHIN_DAYS. Re-creation (delete + create) resets the ~90-day clock and
 // uses the same endpoints proven working at setup time.
 
+import { buildWebhookUrl } from "./wearables/index";
+
 const SUBSCRIPTION_URL = "https://api.ouraring.com/v2/webhook/subscription";
-const CALLBACK_URL =
-  "https://the-paradigm-project-coachmarkgray.replit.app/api/wearables/oura/webhook";
+const CALLBACK_URL = buildWebhookUrl("oura");
 const DATA_TYPES = ["sleep", "daily_readiness", "daily_activity", "workout"];
 
 const TICK_INTERVAL_MS = 6 * 60 * 60 * 1000; // check every 6h; cheap when nothing is due

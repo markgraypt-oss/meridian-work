@@ -7,6 +7,7 @@ import {
   ADAPTERS,
   PROVIDER_LABELS,
   buildRedirectUri,
+  buildWebhookUrl,
   disconnectProvider,
   getAdapter,
   getConnections,
@@ -143,7 +144,7 @@ export function registerWearableRoutes(app: Express) {
       if (!me?.isAdmin) return res.status(403).json({ message: "Admin only" });
 
       const dataType = String(req.body?.dataType || "daily_readiness");
-      const callbackUrl = "https://the-paradigm-project-coachmarkgray.replit.app/api/wearables/oura/webhook";
+      const callbackUrl = buildWebhookUrl("oura");
       const verificationToken = process.env.OURA_CLIENT_SECRET || "";
 
       const resp = await fetch("https://api.ouraring.com/v2/webhook/subscription", {

@@ -447,7 +447,7 @@ export interface IStorage {
   getUserByIdentifierWithPassword(identifier: string): Promise<User | undefined>;
   getAllUsers(): Promise<User[]>;
   createUser(user: { email: string; password?: string; firstName?: string; lastName?: string; isAdmin?: boolean; role?: string; companyName?: string }): Promise<User>;
-  updateUser(id: string, data: Partial<{ email: string; password: string; firstName: string; lastName: string; isAdmin: boolean; profileImageUrl: string; firstLoginAt: Date; onboardingCompleted: boolean; onboardingStep: number; onboardingData: any; welcomeSeenAt: Date; displayName: string; dateOfBirth: string; gender: string; height: number; heightUnit: string; weightUnit: string; distanceUnit: string; timeFormat: string; dateFormat: string }>): Promise<User>;
+  updateUser(id: string, data: Partial<typeof users.$inferInsert>): Promise<User>;
   markFirstLogin(userId: string): Promise<boolean>;
   deleteUser(id: string): Promise<void>;
   upsertUser(user: UpsertUser): Promise<User>;
@@ -1440,7 +1440,7 @@ export class DatabaseStorage implements IStorage {
     return user;
   }
 
-  async updateUser(id: string, data: Partial<{ email: string; password: string; firstName: string; lastName: string; isAdmin: boolean; profileImageUrl: string; firstLoginAt: Date; onboardingCompleted: boolean; onboardingStep: number; onboardingData: any; welcomeSeenAt: Date; displayName: string; dateOfBirth: string; gender: string; height: number; heightUnit: string; weightUnit: string; distanceUnit: string; timeFormat: string; dateFormat: string }>): Promise<User> {
+  async updateUser(id: string, data: Partial<typeof users.$inferInsert>): Promise<User> {
     const [user] = await db
       .update(users)
       .set({ ...data, updatedAt: new Date() })

@@ -59,7 +59,8 @@ export const PROMPTS = {
     consentLabel: "You can use this with my first name and job title.",
     submit: "Post it",
     later: "Maybe later",
-    thanks: "Thank you. If you'd ever do a 30-second video version, reply to any of my emails and say so.",
+    thanks: "Thank you. If you would also record a short video saying the same thing, use the link below. It takes about a minute.",
+    thanksLink: { label: "Record a video testimonial", url: "https://senja.io/p/meridianwork/r/SBBOAW" },
   },
   messageMark: { label: "Message Mark", mailto: "mailto:mark@meridian.work?subject=MeridianWork%20tester%20feedback" },
 };

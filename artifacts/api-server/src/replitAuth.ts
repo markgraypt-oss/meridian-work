@@ -101,9 +101,6 @@ export async function sendUserInviteEmail(email: string, token: string, baseUrl:
 export const TESTER_REPLY_TO = process.env.TESTER_REPLY_TO || "mark@meridian.work";
 export const TESTFLIGHT_URL = process.env.TESTFLIGHT_URL || "https://testflight.apple.com/join/awdTzCjX";
 export const PLAY_TESTING_URL = process.env.PLAY_TESTING_URL || "";
-// Where "New tester" alerts go. Was ADMIN_NOTIFICATION_EMAIL, which defaults to
-// no-reply@meridian.work, so the alerts never reached Mark (19 Oct 2026).
-export const TESTER_ADMIN_PING_TO = process.env.TESTER_ADMIN_PING_TO || "markgraypt@gmail.com";
 
 function installLinksHtml(phone?: string | null): string {
   const ios = `<strong>iPhone:</strong> <a href="${TESTFLIGHT_URL}" style="color:#a9743f;">${TESTFLIGHT_URL}</a>`;
@@ -188,7 +185,7 @@ export async function sendTesterSignupNotification(input: { firstName: string; e
   try {
     const { error } = await resend.emails.send({
       from: "MeridianWork <no-reply@meridian.work>",
-      to: TESTER_ADMIN_PING_TO,
+      to: ADMIN_NOTIFICATION_EMAIL,
       subject: input.trapped
         ? `Tester sign-up caught by bot trap: ${input.firstName} (check by hand)`
         : `New tester: ${input.firstName} (${input.phone === "ios" ? "iPhone" : "Android"})${input.existing ? " — existing account" : ""}`,

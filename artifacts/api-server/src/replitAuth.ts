@@ -101,6 +101,9 @@ export async function sendUserInviteEmail(email: string, token: string, baseUrl:
 export const TESTER_REPLY_TO = process.env.TESTER_REPLY_TO || "mark@meridian.work";
 export const TESTFLIGHT_URL = process.env.TESTFLIGHT_URL || "https://testflight.apple.com/join/awdTzCjX";
 export const PLAY_TESTING_URL = process.env.PLAY_TESTING_URL || "";
+// Where "New tester" alerts go. Was ADMIN_NOTIFICATION_EMAIL, which defaults to
+// no-reply@meridian.work, so the alerts never reached Mark (19 Oct 2026).
+export const TESTER_ADMIN_PING_TO = process.env.TESTER_ADMIN_PING_TO || "markgraypt@gmail.com";
 
 function installLinksHtml(phone?: string | null): string {
   const ios = `<strong>iPhone:</strong> <a href="${TESTFLIGHT_URL}" style="color:#a9743f;">${TESTFLIGHT_URL}</a>`;
@@ -179,24 +182,27 @@ export async function addTesterToAudience(email: string, firstName?: string | nu
   }
 }
 
-export async function sendTesterSignupNotification(input: { firstName: string; email: string; phone: string; existing: boolean }): Promise<void> {
-  if (!resend) return;
+export async function sendTesterSignupNotification(input: { firstName: string; email: string; phone: string; existing: boolean; trapped?: boolean }): Promise<void> {
+  if (!resend) { console.error("[TESTER] Admin ping skipped: RESEND_API_KEY missing"); return; }
   if (process.env.TESTER_ADMIN_PING === "off") return;
   try {
-    await resend.emails.send({
+    const { error } = await resend.emails.send({
       from: "MeridianWork <no-reply@meridian.work>",
-      to: ADMIN_NOTIFICATION_EMAIL,
-      subject: `New tester: ${input.firstName} (${input.phone === "ios" ? "iPhone" : "Android"})${input.existing ? " — existing account" : ""}`,
+      to: TESTER_ADMIN_PING_TO,
+      subject: input.trapped
+        ? `Tester sign-up caught by bot trap: ${input.firstName} (check by hand)`
+        : `New tester: ${input.firstName} (${input.phone === "ios" ? "iPhone" : "Android"})${input.existing ? " — existing account" : ""}`,
       html: renderBrandedEmail({
         eyebrow: "Internal",
         heading: "New tester sign-up",
         bodyHtml:
           emailParagraph(`<strong>${input.firstName}</strong> &lt;${input.email}&gt; signed up on /test (${input.phone}).`) +
-          emailParagraph(input.existing ? "This email already had an account; a fresh set-up link was sent instead of creating a duplicate." : "Account created in the Testers company and the welcome email sent.") +
+          emailParagraph(input.trapped ? "The hidden bot-trap field was filled, so no account was created and no email was sent. If this looks like a real person, add them by hand in the admin portal." : input.existing ? "This email already had an account; a fresh set-up link was sent instead of creating a duplicate." : "Account created in the Testers company and the welcome email sent.") +
           emailParagraph(new Date().toLocaleString("en-GB", { timeZone: "Europe/Madrid", timeZoneName: "short" })),
         footerNote: "Set TESTER_ADMIN_PING=off in Secrets to stop these.",
       }),
     });
+    if (error) console.error("[TESTER] Failed to send admin ping:", error);
   } catch (err) {
     console.error("[TESTER] Error sending admin ping:", err);
   }

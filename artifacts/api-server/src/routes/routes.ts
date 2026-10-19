@@ -2597,7 +2597,14 @@ export async function registerRoutes(app: Express): Promise<Server> {
     try {
       const body = req.body || {};
       // Honeypot: bots fill every field. Humans never see this one.
-      if (typeof body.website === "string" && body.website.trim() !== "") {
+      // 19 Oct 2026: the old trap was named "website", and Chrome on Android
+      // autofills that name (it ignores autocomplete="off"), so real people were
+      // silently dropped with no account and no email. "website" is now ignored.
+      // The trap is "mw_hp" (a name autofill never matches). A hit is logged and
+      // Mark is pinged, so nothing is ever dropped without a trace.
+      if (typeof body.mw_hp === "string" && body.mw_hp.trim() !== "") {
+        console.warn(`[TESTER] Bot trap hit: firstName="${String(body.firstName || "").slice(0, 60)}" email="${String(body.email || "").slice(0, 120)}"`);
+        sendTesterSignupNotification({ firstName: String(body.firstName || "?").slice(0, 60), email: String(body.email || "?").slice(0, 120), phone: String(body.phone || "?"), existing: false, trapped: true }).catch(() => {});
         return res.status(200).json({ ok: true, links: { ios: TESTFLIGHT_URL, android: PLAY_TESTING_URL || null } });
       }
 
@@ -2711,7 +2718,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.post('/api/public/waitlist', testerSignupLimit, async (req: any, res) => {
     try {
       const body = req.body || {};
-      if (typeof body.website === "string" && body.website.trim() !== "") return res.status(200).json({ ok: true });
+      // Same autofill bug as tester sign-up (19 Oct 2026): "website" is ignored, the trap is "mw_hp".
+      if (typeof body.mw_hp === "string" && body.mw_hp.trim() !== "") {
+        console.warn(`[WAITLIST] Bot trap hit: email="${String(body.email || "").slice(0, 120)}" company="${String(body.company || "").slice(0, 120)}"`);
+        return res.status(200).json({ ok: true });
+      }
 
       const firstName = String(body.firstName || "").trim().slice(0, 60);
       const lastName = String(body.lastName || "").trim().slice(0, 60) || null;

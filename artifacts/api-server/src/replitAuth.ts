@@ -179,22 +179,20 @@ export async function addTesterToAudience(email: string, firstName?: string | nu
   }
 }
 
-export async function sendTesterSignupNotification(input: { firstName: string; email: string; phone: string; existing: boolean; trapped?: boolean }): Promise<void> {
+export async function sendTesterSignupNotification(input: { firstName: string; email: string; phone: string; existing: boolean }): Promise<void> {
   if (!resend) { console.error("[TESTER] Admin ping skipped: RESEND_API_KEY missing"); return; }
   if (process.env.TESTER_ADMIN_PING === "off") return;
   try {
     const { error } = await resend.emails.send({
       from: "MeridianWork <no-reply@meridian.work>",
       to: ADMIN_NOTIFICATION_EMAIL,
-      subject: input.trapped
-        ? `Tester sign-up caught by bot trap: ${input.firstName} (check by hand)`
-        : `New tester: ${input.firstName} (${input.phone === "ios" ? "iPhone" : "Android"})${input.existing ? " — existing account" : ""}`,
+      subject: `New tester: ${input.firstName} (${input.phone === "ios" ? "iPhone" : "Android"})${input.existing ? " — existing account" : ""}`,
       html: renderBrandedEmail({
         eyebrow: "Internal",
         heading: "New tester sign-up",
         bodyHtml:
           emailParagraph(`<strong>${input.firstName}</strong> &lt;${input.email}&gt; signed up on /test (${input.phone}).`) +
-          emailParagraph(input.trapped ? "The hidden bot-trap field was filled, so no account was created and no email was sent. If this looks like a real person, add them by hand in the admin portal." : input.existing ? "This email already had an account; a fresh set-up link was sent instead of creating a duplicate." : "Account created in the Testers company and the welcome email sent.") +
+          emailParagraph(input.existing ? "This email already had an account; a fresh set-up link was sent instead of creating a duplicate." : "Account created in the Testers company and the welcome email sent.") +
           emailParagraph(new Date().toLocaleString("en-GB", { timeZone: "Europe/Madrid", timeZoneName: "short" })),
         footerNote: "Set TESTER_ADMIN_PING=off in Secrets to stop these.",
       }),

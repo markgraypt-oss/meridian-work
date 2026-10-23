@@ -24,6 +24,7 @@ const FALLBACK_PRICE: ModelPrice = { promptPerMTok: 3, completionPerMTok: 6 };
 const MODEL_PRICES: Record<string, ModelPrice> = {
   // Anthropic
   "claude-sonnet-5-5": { promptPerMTok: 2, completionPerMTok: 10, ...ANTHROPIC_CACHE },
+  "claude-haiku-5-5": { promptPerMTok: 0.1, completionPerMTok: 0.5, ...ANTHROPIC_CACHE },
   "claude-sonnet-4-5": { promptPerMTok: 3, completionPerMTok: 15, ...ANTHROPIC_CACHE },
   "claude-haiku-4-5": { promptPerMTok: 1, completionPerMTok: 5, ...ANTHROPIC_CACHE },
   "claude-opus-4": { promptPerMTok: 15, completionPerMTok: 75, ...ANTHROPIC_CACHE },

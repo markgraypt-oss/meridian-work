@@ -1,4 +1,5 @@
 import crypto from "crypto";
+import { CHEAP_MODEL, FLAGSHIP_MODEL, candidateModels, looksLikeUnknownModel, markDead, alertModelProblem } from "./modelRegistry";
 import { z } from 'zod';
 import { analyzeText, analyzeVision, getDefaultConfig, getProviderConfig, type AIProviderConfig } from "../aiProvider";
 
@@ -58,18 +59,10 @@ const CHEAP_TIER_FEATURES = new Set<string>([
   "content_tagging",         // classification
   "workout_categorize",      // classification
 ]);
-const CHEAP_TIER_MODEL: Record<string, string> = {
-  anthropic: "claude-haiku-4-5",
-};
-const DEFAULT_FLAGSHIP: Record<string, string> = {
-  anthropic: "claude-sonnet-5-5",
-};
-
-function looksLikeUnknownModel(err: any): boolean {
-  const status = err?.status ?? err?.statusCode;
-  const msg = String(err?.message || err || "").toLowerCase();
-  return (status === 404 || status === 400) && msg.includes("model");
-}
+// Model names live in ai/modelRegistry.ts (Secret-overridable, with a
+// fallback chain), never as literals here.
+const CHEAP_TIER_MODEL: Record<string, string> = CHEAP_MODEL;
+const DEFAULT_FLAGSHIP: Record<string, string> = FLAGSHIP_MODEL;
 
 const DEFAULT_TIMEOUT_MS = 30_000;
 const DEFAULT_MAX_TOKENS = 1500;
@@ -325,35 +318,38 @@ export async function aiCall<T = unknown>(params: AiCallParams<T>): Promise<AiCa
   const legs: Leg[] = [];
   const systemText = systemBlocks.join("\n");
 
-  // One call to the provider with the cheap-tier fallback: if the substituted
-  // cheaper model is unknown upstream, retry once on the original model and
-  // keep using it for the rest of this aiCall.
+  // One call to the provider, walking the model fallback chain: if the
+  // provider rejects a model as unknown (404/400 mentioning "model"), the
+  // model is marked dead for an hour, the admin is alerted once a day, and
+  // the next model in the chain is tried. Any other error is thrown as
+  // before. Whichever model answers is kept for the rest of this aiCall.
   const callProvider = async (prompt: string, temperature: number | undefined) => {
-    try {
-      return await withTimeout(
-        analyzeText(
-          { prompt, system: systemBlocks.length ? systemBlocks : undefined, maxTokens: safeMaxTokens, temperature },
-          config.provider,
-          config.model,
-        ),
-        timeoutMs,
-      );
-    } catch (err: any) {
-      if (config.fallbackModel && looksLikeUnknownModel(err)) {
-        console.warn(`[aiCall] ${params.feature}: model ${config.model} rejected upstream, falling back to ${config.fallbackModel}:`, err?.message);
-        config.model = config.fallbackModel;
-        config.fallbackModel = undefined;
-        return await withTimeout(
+    const candidates = candidateModels(config.provider, config.model, config.fallbackModel);
+    let lastErr: any = null;
+    for (const model of candidates) {
+      try {
+        const out = await withTimeout(
           analyzeText(
             { prompt, system: systemBlocks.length ? systemBlocks : undefined, maxTokens: safeMaxTokens, temperature },
             config.provider,
-            config.model,
+            model,
           ),
           timeoutMs,
         );
+        if (model !== config.model) {
+          console.warn(`[aiCall] ${params.feature}: using fallback model ${model} instead of ${config.model}`);
+          config.model = model;
+        }
+        config.fallbackModel = undefined;
+        return out;
+      } catch (err: any) {
+        if (!looksLikeUnknownModel(err)) throw err;
+        lastErr = err;
+        markDead(config.provider, model);
+        void alertModelProblem(config.provider, model, params.feature, String(err?.message || err));
       }
-      throw err;
     }
+    throw lastErr || new Error("no AI model available");
   };
 
   try {

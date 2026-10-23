@@ -20913,8 +20913,8 @@ Keep your response concise, practical, and evidence-based. This is general guida
       if (!currentUser?.isAdmin) {
         return res.status(403).json({ message: "Admin access required" });
       }
-      const { getAvailableProviders } = await import('../aiProvider');
-      res.json(getAvailableProviders());
+      const { getAvailableProvidersLive } = await import('../aiProvider');
+      res.json(await getAvailableProvidersLive());
     } catch (error) {
       console.error("Error fetching AI providers:", error);
       res.status(500).json({ message: "Failed to fetch AI providers" });

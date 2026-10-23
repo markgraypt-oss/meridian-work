@@ -92,6 +92,11 @@ if (Number.isNaN(port) || port <= 0) {
         });
     }).catch((e: any) => logger.error({ e }, "[startup-migration] startup migrations import failed"));
 
+    // Are the AI model defaults still served by the provider? Logs and emails
+    // the admin if not; calls fall back along the chain regardless.
+    import("./ai/modelRegistry").then(({ checkDefaultModelsOnBoot }) => checkDefaultModelsOnBoot())
+      .catch((e: any) => logger.error({ e }, "[ai-models] boot check failed"));
+
     // Primary-muscle backfill: give every exercise one designated muscle, derived
     // from its name. Once per database, only fills NULLs.
     import("./primaryMuscle").then(({ backfillPrimaryMuscleOnce }) => {

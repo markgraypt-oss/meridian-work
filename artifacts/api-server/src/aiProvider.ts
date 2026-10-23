@@ -1,4 +1,5 @@
 import type { AiCoachingSetting } from "@workspace/db";
+import { FLAGSHIP_MODEL, CHEAP_MODEL, listLiveAnthropicModels } from "./ai/modelRegistry";
 import { users } from "@workspace/db";
 import { eq } from "drizzle-orm";
 import { db } from "./db";
@@ -29,15 +30,16 @@ export interface AIProviderConfig {
   model: string;
 }
 
+// Static list, used when the live list cannot be fetched. The admin picker
+// prefers Anthropic's live model list (see getAvailableProvidersLive).
 const PROVIDER_MODELS: Record<string, string[]> = {
   anthropic: [
-    // claude-sonnet-4-5 stopped resolving at Anthropic on 23 Oct 2026 (404
-    // not_found_error) and took every coach briefing down with it. Sonnet 5.5
-    // is Anthropic's listed replacement.
+    FLAGSHIP_MODEL.anthropic,
     "claude-sonnet-5-5",
+    "claude-haiku-5-5",
+    CHEAP_MODEL.anthropic,
     "claude-haiku-4-5",
-    "claude-haiku-35",
-  ],
+  ].filter((m, i, a) => a.indexOf(m) === i),
   openai: [
     "gpt-5.2",
     "gpt-5.1",
@@ -60,7 +62,19 @@ export function getAvailableProviders(): { provider: string; models: string[] }[
 }
 
 export function getDefaultConfig(): AIProviderConfig {
-  return { provider: "anthropic", model: "claude-sonnet-5-5" };
+  return { provider: "anthropic", model: FLAGSHIP_MODEL.anthropic };
+}
+
+// Live version for the admin picker: Anthropic's current model list merged
+// with the configured defaults, so the dropdown can never offer a name the
+// provider no longer serves (and can offer new ones without a code change).
+export async function getAvailableProvidersLive(): Promise<{ provider: string; models: string[] }[]> {
+  const live = await listLiveAnthropicModels();
+  return Object.entries(PROVIDER_MODELS).map(([provider, models]) => {
+    if (provider !== "anthropic" || !live) return { provider, models };
+    const merged = [FLAGSHIP_MODEL.anthropic, CHEAP_MODEL.anthropic, ...live].filter((m, i, a) => a.indexOf(m) === i && live.includes(m));
+    return { provider, models: merged.length ? merged : models };
+  });
 }
 
 export function getProviderConfig(settings: AiCoachingSetting | null): AIProviderConfig {

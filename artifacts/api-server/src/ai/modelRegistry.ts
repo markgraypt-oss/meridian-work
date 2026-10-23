@@ -54,10 +54,15 @@ export function candidateModels(provider: string, configured: string, explicitFa
   return out;
 }
 
+// "This model does not exist" and nothing else. A 400 about a parameter
+// ("`temperature` is deprecated for this model") also contains the word
+// "model" and must NOT count: on 23 Oct it marked two working models dead.
 export function looksLikeUnknownModel(err: any): boolean {
   const status = err?.status ?? err?.statusCode;
   const msg = String(err?.message || err || "").toLowerCase();
-  return (status === 404 || status === 400) && msg.includes("model");
+  if (status === 404 && msg.includes("model")) return true;
+  if (status === 400 && /model/.test(msg) && /(not found|not_found|does not exist|unknown model|invalid model|unsupported model|no such model)/.test(msg)) return true;
+  return false;
 }
 
 // Models the provider has rejected recently. A dead model is skipped for an
@@ -132,7 +137,11 @@ export async function checkDefaultModelsOnBoot(): Promise<void> {
   const live = await listLiveAnthropicModels();
   if (!live) { console.warn("[ai-models] boot check skipped: no live model list"); return; }
   const wanted = Array.from(new Set([FLAGSHIP_MODEL.anthropic, CHEAP_MODEL.anthropic, ...(FALLBACKS.anthropic || [])]));
-  const missing = wanted.filter((m) => !live.includes(m));
+  // An alias such as claude-haiku-4-5 is served even though the live list
+  // only carries its dated snapshot (claude-haiku-4-5-20251001), so a name
+  // counts as present when any live id equals it or starts with it.
+  const served = (m: string) => live.some((id) => id === m || id.startsWith(`${m}-`));
+  const missing = wanted.filter((m) => !served(m));
   if (missing.length === 0) {
     console.log(`[ai-models] boot check ok: ${wanted.join(", ")} all served by Anthropic`);
     return;

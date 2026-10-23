@@ -72,7 +72,8 @@ export async function getAvailableProvidersLive(): Promise<{ provider: string; m
   const live = await listLiveAnthropicModels();
   return Object.entries(PROVIDER_MODELS).map(([provider, models]) => {
     if (provider !== "anthropic" || !live) return { provider, models };
-    const merged = [FLAGSHIP_MODEL.anthropic, CHEAP_MODEL.anthropic, ...live].filter((m, i, a) => a.indexOf(m) === i && live.includes(m));
+    const served = (m: string) => live.some((id) => id === m || id.startsWith(`${m}-`));
+    const merged = [FLAGSHIP_MODEL.anthropic, CHEAP_MODEL.anthropic, ...live].filter((m, i, a) => a.indexOf(m) === i && served(m));
     return { provider, models: merged.length ? merged : models };
   });
 }
@@ -239,6 +240,18 @@ function looksLikeCacheControlRejection(err: any): boolean {
   return (status === 400 || status === 422) && (msg.includes("cache_control") || msg.includes("cache control"));
 }
 
+// Models that refuse the `temperature` parameter (Claude 5.5 answers 400
+// "`temperature` is deprecated for this model"). Learned per model at run
+// time: the first rejection drops the parameter and retries, later calls to
+// that model never send it.
+const anthropicNoTemperature = new Set<string>();
+
+function looksLikeTemperatureRejection(err: any): boolean {
+  const status = err?.status ?? err?.statusCode;
+  const msg = String(err?.message || err || "").toLowerCase();
+  return status === 400 && msg.includes("temperature");
+}
+
 async function textWithAnthropic(
   prompt: string,
   model: string,
@@ -248,6 +261,7 @@ async function textWithAnthropic(
 ): Promise<VisionAnalysisResponse> {
   const Anthropic = (await import("@anthropic-ai/sdk")).default;
   const anthropic = new Anthropic(anthropicClientOptions());
+  if (anthropicNoTemperature.has(model)) temperature = undefined;
 
   const systemBlocks = (system || []).map((t) => t.trim()).filter(Boolean);
 
@@ -265,7 +279,7 @@ async function textWithAnthropic(
     anthropic.messages.create({
       model,
       max_tokens: maxTokens,
-      temperature: temperature ?? undefined,
+      ...(temperature != null ? { temperature } : {}),
       ...(systemBlocks.length > 0 ? { system: buildSystem(withCache) } : {}),
       messages: [{ role: "user", content: prompt }],
     });
@@ -275,7 +289,12 @@ async function textWithAnthropic(
   try {
     message = await send(tryCache);
   } catch (err: any) {
-    if (tryCache && looksLikeCacheControlRejection(err)) {
+    if (temperature != null && looksLikeTemperatureRejection(err)) {
+      anthropicNoTemperature.add(model);
+      console.warn(`[aiProvider] ${model} rejects temperature; retrying without it and dropping it for this model from now on.`);
+      temperature = undefined;
+      message = await send(tryCache);
+    } else if (tryCache && looksLikeCacheControlRejection(err)) {
       anthropicCacheControlSupported = false;
       console.warn(
         "[aiProvider] upstream rejected cache_control; prompt caching disabled for this process. Error:",

@@ -88,15 +88,25 @@ export function detectImageMediaType(input: string): SupportedImageMediaType {
   return "image/jpeg";
 }
 
+// Direct Anthropic key (billed to the MeridianWork Console org, which draws
+// the monthly Max plan API credit) takes priority. If ANTHROPIC_API_KEY is not
+// set, fall back to Replit AI Integrations so nothing breaks mid-switch.
+function anthropicClientOptions(): { apiKey?: string; baseURL?: string } {
+  if (process.env.ANTHROPIC_API_KEY) {
+    return { apiKey: process.env.ANTHROPIC_API_KEY };
+  }
+  return {
+    apiKey: process.env.AI_INTEGRATIONS_ANTHROPIC_API_KEY,
+    baseURL: process.env.AI_INTEGRATIONS_ANTHROPIC_BASE_URL,
+  };
+}
+
 async function analyzeWithAnthropic(
   request: VisionAnalysisRequest,
   model: string
 ): Promise<VisionAnalysisResponse> {
   const Anthropic = (await import("@anthropic-ai/sdk")).default;
-  const anthropic = new Anthropic({
-    apiKey: process.env.AI_INTEGRATIONS_ANTHROPIC_API_KEY,
-    baseURL: process.env.AI_INTEGRATIONS_ANTHROPIC_BASE_URL,
-  });
+  const anthropic = new Anthropic(anthropicClientOptions());
 
   const mediaType = detectImageMediaType(request.imageBase64);
   const base64Data = request.imageBase64.replace(/^data:image\/\w+;base64,/, "");
@@ -220,10 +230,7 @@ async function textWithAnthropic(
   system?: string[],
 ): Promise<VisionAnalysisResponse> {
   const Anthropic = (await import("@anthropic-ai/sdk")).default;
-  const anthropic = new Anthropic({
-    apiKey: process.env.AI_INTEGRATIONS_ANTHROPIC_API_KEY,
-    baseURL: process.env.AI_INTEGRATIONS_ANTHROPIC_BASE_URL,
-  });
+  const anthropic = new Anthropic(anthropicClientOptions());
 
   const systemBlocks = (system || []).map((t) => t.trim()).filter(Boolean);
 

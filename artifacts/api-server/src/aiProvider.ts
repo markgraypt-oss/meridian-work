@@ -31,7 +31,10 @@ export interface AIProviderConfig {
 
 const PROVIDER_MODELS: Record<string, string[]> = {
   anthropic: [
-    "claude-sonnet-4-5",
+    // claude-sonnet-4-5 stopped resolving at Anthropic on 23 Oct 2026 (404
+    // not_found_error) and took every coach briefing down with it. Sonnet 5.5
+    // is Anthropic's listed replacement.
+    "claude-sonnet-5-5",
     "claude-haiku-4-5",
     "claude-haiku-35",
   ],
@@ -57,7 +60,7 @@ export function getAvailableProviders(): { provider: string; models: string[] }[
 }
 
 export function getDefaultConfig(): AIProviderConfig {
-  return { provider: "anthropic", model: "claude-sonnet-4-5" };
+  return { provider: "anthropic", model: "claude-sonnet-5-5" };
 }
 
 export function getProviderConfig(settings: AiCoachingSetting | null): AIProviderConfig {

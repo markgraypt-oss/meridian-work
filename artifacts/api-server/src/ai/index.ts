@@ -62,7 +62,7 @@ const CHEAP_TIER_MODEL: Record<string, string> = {
   anthropic: "claude-haiku-4-5",
 };
 const DEFAULT_FLAGSHIP: Record<string, string> = {
-  anthropic: "claude-sonnet-4-5",
+  anthropic: "claude-sonnet-5-5",
 };
 
 function looksLikeUnknownModel(err: any): boolean {

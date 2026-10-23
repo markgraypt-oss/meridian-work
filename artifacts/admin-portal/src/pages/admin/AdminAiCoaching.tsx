@@ -359,7 +359,7 @@ export default function AdminAiCoaching() {
 
   const [featureData, setFeatureData] = useState<Record<string, string | boolean>>({
     provider: 'anthropic',
-    model: 'claude-sonnet-4-5',
+    model: 'claude-sonnet-5-5',
     customGuidelines: '',
     featureContext: '',
     coachingRules: '',
@@ -425,7 +425,7 @@ export default function AdminAiCoaching() {
       if (featureSetting) {
         setFeatureData({
           provider: featureSetting.provider || 'anthropic',
-          model: featureSetting.model || 'claude-sonnet-4-5',
+          model: featureSetting.model || 'claude-sonnet-5-5',
           customGuidelines: featureSetting.customGuidelines || '',
           featureContext: featureSetting.featureContext || '',
           coachingRules: featureSetting.coachingRules || '',
@@ -435,7 +435,7 @@ export default function AdminAiCoaching() {
       } else {
         setFeatureData({
           provider: 'anthropic',
-          model: 'claude-sonnet-4-5',
+          model: 'claude-sonnet-5-5',
           customGuidelines: '',
           featureContext: '',
           coachingRules: '',

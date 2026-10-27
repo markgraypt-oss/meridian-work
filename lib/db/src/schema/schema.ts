@@ -3118,9 +3118,18 @@ export const companies = pgTable("companies", {
   wellbeingContactEnabled: boolean("wellbeing_contact_enabled").notNull().default(true),
   wellbeingButtonLabel: varchar("wellbeing_button_label"),
   wellbeingIntroText: text("wellbeing_intro_text"),
+  // Company branding in the mobile app. When any of these are set, the app
+  // swaps Meridian's colours and logo for the company's own. Colours are
+  // 6-digit hex (#RRGGBB). logoUrl above is the logo.
+  brandPrimaryColor: varchar("brand_primary_color"),
+  brandSecondaryColor: varchar("brand_secondary_color"),
+  brandBackgroundColor: varchar("brand_background_color"),
+  brandWelcomeMessage: text("brand_welcome_message"),
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow(),
 });
+
+const brandHex = z.string().regex(/^#[0-9A-Fa-f]{6}$/, "Colour must be a 6-digit hex like #1A2B3C").nullable().optional();
 
 export const insertCompanySchema = createInsertSchema(companies)
   .omit({ id: true, createdAt: true, updatedAt: true })
@@ -3129,6 +3138,9 @@ export const insertCompanySchema = createInsertSchema(companies)
     contractStartDate: z.coerce.date().nullable().optional(),
     contractEndDate: z.coerce.date().nullable().optional(),
     renewalDate: z.coerce.date().nullable().optional(),
+    brandPrimaryColor: brandHex,
+    brandSecondaryColor: brandHex,
+    brandBackgroundColor: brandHex,
   });
 export type InsertCompany = z.infer<typeof insertCompanySchema>;
 export type Company = typeof companies.$inferSelect;

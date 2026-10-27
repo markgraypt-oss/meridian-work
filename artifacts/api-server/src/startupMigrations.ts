@@ -482,6 +482,11 @@ export const SELF_HEAL_DDL: string[] = [
   `ALTER TABLE companies ADD COLUMN IF NOT EXISTS wellbeing_contact_enabled boolean NOT NULL DEFAULT true`,
   `ALTER TABLE companies ADD COLUMN IF NOT EXISTS wellbeing_button_label varchar`,
   `ALTER TABLE companies ADD COLUMN IF NOT EXISTS wellbeing_intro_text text`,
+  // Company branding in the mobile app (colours + welcome message; logo uses logo_url).
+  `ALTER TABLE companies ADD COLUMN IF NOT EXISTS brand_primary_color varchar`,
+  `ALTER TABLE companies ADD COLUMN IF NOT EXISTS brand_secondary_color varchar`,
+  `ALTER TABLE companies ADD COLUMN IF NOT EXISTS brand_background_color varchar`,
+  `ALTER TABLE companies ADD COLUMN IF NOT EXISTS brand_welcome_message text`,
 
   // ── Volume reduction as a third outcome for a flagged exercise.
   // Reductions live alongside substitutions rather than in their own table, so

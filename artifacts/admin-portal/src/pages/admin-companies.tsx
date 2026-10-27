@@ -11,11 +11,12 @@ import { Switch } from "@/components/ui/switch";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
-import { Plus, Edit, Trash2, Building2, Users, Search, ExternalLink, Phone, Mail, Calendar, Shield, Upload, BarChart3, Heart, AlertTriangle, FolderTree, Send, TrendingUp, TrendingDown, Minus, Activity, Brain, Zap, LifeBuoy, MailCheck } from "lucide-react";
+import { Palette, Plus, Edit, Trash2, Building2, Users, Search, ExternalLink, Phone, Mail, Calendar, Shield, Upload, BarChart3, Heart, AlertTriangle, FolderTree, Send, TrendingUp, TrendingDown, Minus, Activity, Brain, Zap, LifeBuoy, MailCheck } from "lucide-react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 import { format } from "date-fns";
+import { uploadImageFile, uploadErrorMessage } from "@/lib/uploadImage";
 
 type CompanyData = {
   id: number;
@@ -46,7 +47,17 @@ type CompanyData = {
   wellbeingContactEnabled: boolean | null;
   wellbeingButtonLabel: string | null;
   wellbeingIntroText: string | null;
+  brandPrimaryColor: string | null;
+  brandSecondaryColor: string | null;
+  brandBackgroundColor: string | null;
+  brandWelcomeMessage: string | null;
 };
+
+const HEX_RE = /^#[0-9A-Fa-f]{6}$/;
+
+// Meridian's own colours, shown as the starting values when a company has no branding.
+const MERIDIAN_PRIMARY = "#D4A574";
+const MERIDIAN_BACKGROUND = "#0A1628";
 
 // A person an employee can ask to check in with them, from the Burnout Index →
 // Talk to Your Manager screen in the app.
@@ -190,6 +201,7 @@ export default function AdminCompanies() {
   const [deleteWellbeingId, setDeleteWellbeingId] = useState<number | null>(null);
   const [wellbeingForm, setWellbeingForm] = useState({ name: "", role: "", email: "", isActive: true });
   const [wellbeingCopy, setWellbeingCopy] = useState({ buttonLabel: "", introText: "" });
+  const [brandForm, setBrandForm] = useState({ primary: "", secondary: "", background: "", welcome: "" });
 
   const [companyForm, setCompanyForm] = useState({
     name: "",
@@ -294,6 +306,30 @@ export default function AdminCompanies() {
       introText: companyDetail?.wellbeingIntroText || "",
     });
   }, [companyDetail?.id, companyDetail?.wellbeingButtonLabel, companyDetail?.wellbeingIntroText]);
+
+  // Keep the branding fields in step with whichever company is selected.
+  useEffect(() => {
+    setBrandForm({
+      primary: companyDetail?.brandPrimaryColor || "",
+      secondary: companyDetail?.brandSecondaryColor || "",
+      background: companyDetail?.brandBackgroundColor || "",
+      welcome: companyDetail?.brandWelcomeMessage || "",
+    });
+  }, [companyDetail?.id, companyDetail?.brandPrimaryColor, companyDetail?.brandSecondaryColor, companyDetail?.brandBackgroundColor, companyDetail?.brandWelcomeMessage]);
+
+  const updateBrandingMutation = useMutation({
+    mutationFn: async (data: Record<string, unknown>) => {
+      return apiRequest("PATCH", `/api/admin/companies/${selectedCompanyId}`, data);
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/admin/companies", selectedCompanyId] });
+      queryClient.invalidateQueries({ queryKey: ["/api/admin/companies"] });
+      toast({ title: "Branding saved", description: "People at this company see it next time they open the app." });
+    },
+    onError: (error: any) => {
+      toast({ title: "Failed to save branding", description: error.message, variant: "destructive" });
+    },
+  });
 
   const invalidateWellbeing = () => {
     queryClient.invalidateQueries({ queryKey: ["/api/admin/companies", selectedCompanyId, "wellbeing-contacts"] });
@@ -554,17 +590,18 @@ export default function AdminCompanies() {
     },
   });
 
+  // Logos go to Object Storage with a public ACL so the mobile app can load
+  // them without a login header. The old /logo endpoint saved to local disk,
+  // which does not survive a redeploy.
   const uploadLogoMutation = useMutation({
     mutationFn: async (file: File) => {
-      const formData = new FormData();
-      formData.append("logo", file);
-      const res = await fetch(`/api/admin/companies/${selectedCompanyId}/logo`, {
-        method: "POST",
-        body: formData,
-        credentials: "include",
-      });
-      if (!res.ok) throw new Error("Upload failed");
-      return res.json();
+      let objectPath: string;
+      try {
+        objectPath = await uploadImageFile(file, { visibility: "public" });
+      } catch (e) {
+        throw new Error(uploadErrorMessage(e));
+      }
+      return apiRequest("PATCH", `/api/admin/companies/${selectedCompanyId}`, { logoUrl: objectPath });
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/admin/companies", selectedCompanyId] });
@@ -860,6 +897,133 @@ export default function AdminCompanies() {
                   <p className="text-sm text-foreground whitespace-pre-wrap">{companyDetail.notes}</p>
                 </div>
               )}
+            </CardContent>
+          </Card>
+
+          {/* App branding: logo, colours and welcome message the mobile app
+              shows to everyone at this company instead of Meridian's own. */}
+          <Card className="border-border">
+            <CardHeader className="pb-2">
+              <CardTitle className="text-sm font-semibold text-foreground flex items-center gap-2">
+                <Palette className="h-4 w-4 text-[#b8874a]" />
+                App Branding
+              </CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <p className="text-xs text-muted-foreground">
+                Everyone at this company sees these colours and this logo in the app instead of Meridian's.
+                App text is white, so a light background colour is darkened automatically to keep text readable.
+              </p>
+
+              <div className="flex items-center gap-3">
+                {companyDetail.logoUrl ? (
+                  <img src={companyDetail.logoUrl} alt={companyDetail.name} className="h-14 w-14 rounded-lg object-contain border border-border bg-muted" />
+                ) : (
+                  <div className="h-14 w-14 rounded-lg border border-dashed border-border flex items-center justify-center text-[10px] text-muted-foreground">No logo</div>
+                )}
+                <label className="inline-flex items-center gap-1.5 text-sm border border-border rounded-md px-3 py-1.5 cursor-pointer hover:bg-muted transition-colors">
+                  <Upload className="h-3.5 w-3.5" />
+                  {uploadLogoMutation.isPending ? "Uploading..." : companyDetail.logoUrl ? "Replace logo" : "Upload logo"}
+                  <input type="file" accept="image/png,image/jpeg,image/webp" className="hidden" onChange={(e) => {
+                    const file = e.target.files?.[0];
+                    if (file) uploadLogoMutation.mutate(file);
+                    e.target.value = "";
+                  }} />
+                </label>
+                {companyDetail.logoUrl && (
+                  <Button size="sm" variant="ghost" onClick={() => updateBrandingMutation.mutate({ logoUrl: null })}>
+                    Remove logo
+                  </Button>
+                )}
+              </div>
+              <p className="text-xs text-muted-foreground -mt-2">A PNG with a transparent background works best.</p>
+
+              {([
+                { key: "primary", label: "Main colour", hint: "Replaces Meridian gold on buttons, highlights, tabs and charts.", fallback: MERIDIAN_PRIMARY },
+                { key: "secondary", label: "Second colour (optional)", hint: "Used where the app shows a second accent. Leave blank to use a lighter version of the main colour.", fallback: "" },
+                { key: "background", label: "Background colour (optional)", hint: "Replaces Meridian navy behind every screen. Cards and borders are worked out from it. Leave blank to keep the navy.", fallback: MERIDIAN_BACKGROUND },
+              ] as const).map((f) => {
+                const value = brandForm[f.key];
+                const valid = !value || HEX_RE.test(value);
+                return (
+                  <div key={f.key}>
+                    <Label className="text-xs text-muted-foreground">{f.label}</Label>
+                    <div className="flex items-center gap-2 mt-1">
+                      <input
+                        type="color"
+                        value={HEX_RE.test(value) ? value : (f.fallback || "#888888")}
+                        onChange={(e) => setBrandForm({ ...brandForm, [f.key]: e.target.value.toUpperCase() })}
+                        className="h-9 w-12 rounded border border-border bg-transparent cursor-pointer"
+                      />
+                      <Input
+                        value={value}
+                        onChange={(e) => setBrandForm({ ...brandForm, [f.key]: e.target.value.trim() })}
+                        placeholder={f.fallback || "#RRGGBB"}
+                        className={`font-mono w-32 ${valid ? "" : "border-destructive"}`}
+                      />
+                      {value && (
+                        <Button size="sm" variant="ghost" onClick={() => setBrandForm({ ...brandForm, [f.key]: "" })}>Clear</Button>
+                      )}
+                    </div>
+                    <p className={`text-xs mt-1 ${valid ? "text-muted-foreground" : "text-destructive"}`}>
+                      {valid ? f.hint : "Use a 6-digit hex code like #1A2B3C."}
+                    </p>
+                  </div>
+                );
+              })}
+
+              <div>
+                <Label className="text-xs text-muted-foreground">Welcome message on the Home screen (optional)</Label>
+                <textarea
+                  className="flex min-h-[60px] w-full rounded-md border border-input bg-background px-3 py-2 text-sm mt-1 placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                  value={brandForm.welcome}
+                  maxLength={280}
+                  onChange={(e) => setBrandForm({ ...brandForm, welcome: e.target.value })}
+                  placeholder="For example, a short note from the MD about why the company is using the app."
+                />
+                <p className="text-xs text-muted-foreground mt-1">{brandForm.welcome.length}/280</p>
+              </div>
+
+              <div className="rounded-lg p-3 border border-border" style={{ backgroundColor: HEX_RE.test(brandForm.background) ? brandForm.background : MERIDIAN_BACKGROUND }}>
+                <p className="text-xs text-white/70 mb-2">Preview</p>
+                <div className="flex items-center gap-2">
+                  <span className="text-sm font-semibold px-3 py-1.5 rounded-md text-black" style={{ backgroundColor: HEX_RE.test(brandForm.primary) ? brandForm.primary : MERIDIAN_PRIMARY }}>Button</span>
+                  <span className="text-sm font-semibold" style={{ color: HEX_RE.test(brandForm.primary) ? brandForm.primary : MERIDIAN_PRIMARY }}>Highlighted text</span>
+                  {HEX_RE.test(brandForm.secondary) && (
+                    <span className="text-sm font-semibold" style={{ color: brandForm.secondary }}>Second colour</span>
+                  )}
+                </div>
+                <p className="text-sm text-white mt-2">Body text in the app is white.</p>
+              </div>
+
+              <div className="flex gap-2">
+                <Button
+                  size="sm"
+                  disabled={updateBrandingMutation.isPending || [brandForm.primary, brandForm.secondary, brandForm.background].some((v) => v && !HEX_RE.test(v))}
+                  onClick={() => updateBrandingMutation.mutate({
+                    brandPrimaryColor: brandForm.primary ? brandForm.primary.toUpperCase() : null,
+                    brandSecondaryColor: brandForm.secondary ? brandForm.secondary.toUpperCase() : null,
+                    brandBackgroundColor: brandForm.background ? brandForm.background.toUpperCase() : null,
+                    brandWelcomeMessage: brandForm.welcome.trim() || null,
+                  })}
+                >
+                  Save branding
+                </Button>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  disabled={updateBrandingMutation.isPending}
+                  onClick={() => updateBrandingMutation.mutate({
+                    brandPrimaryColor: null,
+                    brandSecondaryColor: null,
+                    brandBackgroundColor: null,
+                    brandWelcomeMessage: null,
+                    logoUrl: null,
+                  })}
+                >
+                  Go back to Meridian branding
+                </Button>
+              </div>
             </CardContent>
           </Card>
 

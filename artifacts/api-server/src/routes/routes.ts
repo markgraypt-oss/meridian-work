@@ -1401,6 +1401,35 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // Company branding for the mobile app. Returns branded:false for users with
+  // no company, or whose company has no branding set, so the app keeps
+  // Meridian's own look. The app caches this and reloads itself when it changes.
+  app.get('/api/my-company/branding', isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = req.user.claims.sub;
+      const user = await storage.getUser(userId);
+      if (!user?.companyId) return res.json({ branded: false });
+      const [company] = await db.select().from(companies).where(eq(companies.id, user.companyId));
+      if (!company) return res.json({ branded: false });
+      const logo = company.logoUrl && company.logoUrl.startsWith('/objects/') ? company.logoUrl : null;
+      const branded = !!(company.brandPrimaryColor || company.brandBackgroundColor || logo);
+      if (!branded) return res.json({ branded: false });
+      res.json({
+        branded: true,
+        companyId: company.id,
+        companyName: company.name,
+        logoUrl: logo,
+        primaryColor: company.brandPrimaryColor || null,
+        secondaryColor: company.brandSecondaryColor || null,
+        backgroundColor: company.brandBackgroundColor || null,
+        welcomeMessage: company.brandWelcomeMessage || null,
+      });
+    } catch (error) {
+      console.error("Error fetching company branding:", error);
+      res.status(500).json({ message: "Failed to fetch company branding" });
+    }
+  });
+
   // ============ COACH ACCESS CONSENT ============
   // A coach/admin requests read access to a coaching client's progress data.
   // The client (role='client') grants or declines, and can revoke afterwards.

@@ -6,6 +6,7 @@ import { db, pool } from "../db";
 import { setupAuth, isAuthenticated, generateResetToken, hashToken, sendUserInviteEmail, sendPasswordResetEmail, sendTesterWelcomeEmail, sendTesterSignupNotification, addTesterToAudience, TESTFLIGHT_URL, PLAY_TESTING_URL } from "../replitAuth";
 import { QUESTIONS as LD_QUESTIONS, INTRO_COPY as LD_INTRO, CARD_COPY as LD_CARD, getStatus as ldGetStatus, validate as ldValidate, saveAnswers as ldSave, personalLine as ldPersonalLine, aggregateForCompany as ldAggregate, periodKeyFor as ldPeriodKey } from "../loadDiagnostic";
 import { saveWaitlistSignup, addToWaitlistSegment, sendWaitlistConfirmation, sendWaitlistAdminPing, countWaitlist, STAFF_BANDS, type StaffBand } from "../waitlist";
+import { looksLikeBotSignup } from "../signupBotCheck";
 import { getDuePrompt, recordPromptEvent, validateAnswers, wantsReview, emailMarkAboutAnswer, listTesterFeedback, runTesterPromptSweep, isTesterUser, type PromptKey } from "../testerPrompts";
 import rateLimit, { ipKeyGenerator } from "express-rate-limit";
 import { registerNotificationRoutes } from "../notificationsRoutes";
@@ -2614,6 +2615,15 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
 
       const links = { ios: TESTFLIGHT_URL, android: PLAY_TESTING_URL || null };
+
+      // Spam bot: random-letter name + someone else's real email. No account, no
+      // email to that address; Mark still gets the ping marked "Likely bot".
+      if (looksLikeBotSignup({ names: [firstName], email })) {
+        console.warn(`[TESTER] Likely bot sign-up blocked: "${firstName}" <${email}>`);
+        sendTesterSignupNotification({ firstName, email, phone, existing: false, likelyBot: true }).catch(() => {});
+        return res.status(201).json({ ok: true, emailSent: true, links });
+      }
+
       const baseUrl = `https://${req.get("host")}`;
       const existing = await storage.getUserByEmail(email);
 
@@ -2721,6 +2731,15 @@ export async function registerRoutes(app: Express): Promise<Server> {
       if (!company) return res.status(400).json({ ok: false, message: "Company name is required" });
 
       const input = { firstName, lastName, email, company, role, staffBand };
+
+      // Spam bot: random-letter name + someone else's real email. Not saved, no
+      // email to that address; Mark still gets the ping marked "Likely bot".
+      if (looksLikeBotSignup({ names: [firstName, lastName], email })) {
+        console.warn(`[WAITLIST] Likely bot sign-up blocked: "${firstName} ${lastName || ""}" <${email}>`);
+        sendWaitlistAdminPing(input, false, true).catch(() => {});
+        return res.status(201).json({ ok: true, emailSent: true });
+      }
+
       const { existing } = await saveWaitlistSignup(input);
       const emailSent = await sendWaitlistConfirmation(input);
       addToWaitlistSegment(email, firstName, lastName).catch(() => {});

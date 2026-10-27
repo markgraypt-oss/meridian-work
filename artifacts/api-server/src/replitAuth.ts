@@ -179,20 +179,22 @@ export async function addTesterToAudience(email: string, firstName?: string | nu
   }
 }
 
-export async function sendTesterSignupNotification(input: { firstName: string; email: string; phone: string; existing: boolean }): Promise<void> {
+export async function sendTesterSignupNotification(input: { firstName: string; email: string; phone: string; existing: boolean; likelyBot?: boolean }): Promise<void> {
   if (!resend) { console.error("[TESTER] Admin ping skipped: RESEND_API_KEY missing"); return; }
   if (process.env.TESTER_ADMIN_PING === "off") return;
   try {
     const { error } = await resend.emails.send({
       from: "MeridianWork <no-reply@meridian.work>",
       to: ADMIN_NOTIFICATION_EMAIL,
-      subject: `New tester: ${input.firstName} (${input.phone === "ios" ? "iPhone" : "Android"})${input.existing ? " — existing account" : ""}`,
+      subject: `${input.likelyBot ? "Likely bot, blocked. " : ""}New tester: ${input.firstName} (${input.phone === "ios" ? "iPhone" : "Android"})${input.existing ? " — existing account" : ""}`,
       html: renderBrandedEmail({
         eyebrow: "Internal",
         heading: "New tester sign-up",
         bodyHtml:
           emailParagraph(`<strong>${input.firstName}</strong> &lt;${input.email}&gt; signed up on /test (${input.phone}).`) +
-          emailParagraph(input.existing ? "This email already had an account; a fresh set-up link was sent instead of creating a duplicate." : "Account created in the Testers company and the welcome email sent.") +
+          emailParagraph(input.likelyBot
+            ? "Blocked as a likely bot: the name looks like random letters and doesn't match the email. No account created and no email sent to this address. If this is a real person, add them by hand."
+            : input.existing ? "This email already had an account; a fresh set-up link was sent instead of creating a duplicate." : "Account created in the Testers company and the welcome email sent.") +
           emailParagraph(new Date().toLocaleString("en-GB", { timeZone: "Europe/Madrid", timeZoneName: "short" })),
         footerNote: "Set TESTER_ADMIN_PING=off in Secrets to stop these.",
       }),

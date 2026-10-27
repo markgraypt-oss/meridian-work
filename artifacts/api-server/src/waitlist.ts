@@ -82,7 +82,7 @@ export async function sendWaitlistConfirmation(input: WaitlistInput): Promise<bo
   }
 }
 
-export async function sendWaitlistAdminPing(input: WaitlistInput, existing: boolean): Promise<void> {
+export async function sendWaitlistAdminPing(input: WaitlistInput, existing: boolean, likelyBot = false): Promise<void> {
   if (!resend || process.env.TESTER_ADMIN_PING === "off") return;
   try {
     const name = [input.firstName, input.lastName].filter(Boolean).join(" ");
@@ -90,14 +90,16 @@ export async function sendWaitlistAdminPing(input: WaitlistInput, existing: bool
       from: "MeridianWork <no-reply@meridian.work>",
       to: ADMIN_EMAIL,
       replyTo: input.email,
-      subject: `Waitlist: ${input.company} (${name})${existing ? " — updated" : ""}`,
+      subject: `${likelyBot ? "Likely bot, blocked. " : ""}Waitlist: ${input.company} (${name})${existing ? " — updated" : ""}`,
       html: renderBrandedEmail({
         eyebrow: "Internal",
         heading: "Founding Five waitlist",
         bodyHtml:
           emailParagraph(`<strong>${name}</strong> &lt;${input.email}&gt;`) +
           emailParagraph(`${input.company}${input.role ? ` · ${input.role}` : ""}${input.staffBand ? ` · ${BAND_LABEL[input.staffBand]} staff` : ""}`) +
-          emailParagraph(existing ? "Already on the list; details refreshed." : "New. Add to the Outreach Pipeline.") +
+          emailParagraph(likelyBot
+            ? "Blocked as a likely bot: the name looks like random letters and doesn't match the email. Not saved to the waitlist and no email sent to this address. If this is a real person, add them by hand."
+            : existing ? "Already on the list; details refreshed." : "New. Add to the Outreach Pipeline.") +
           emailParagraph(new Date().toLocaleString("en-GB", { timeZone: "Europe/Madrid", timeZoneName: "short" })),
         footerNote: "Reply goes to the MD. Set TESTER_ADMIN_PING=off to stop these.",
       }),

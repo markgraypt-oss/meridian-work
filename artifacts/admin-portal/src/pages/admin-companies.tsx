@@ -17,6 +17,7 @@ import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 import { format } from "date-fns";
 import { uploadImageFile, uploadErrorMessage } from "@/lib/uploadImage";
+import { processLogo } from "@/lib/processLogo";
 
 type CompanyData = {
   id: number;
@@ -593,20 +594,28 @@ export default function AdminCompanies() {
   // Logos go to Object Storage with a public ACL so the mobile app can load
   // them without a login header. The old /logo endpoint saved to local disk,
   // which does not survive a redeploy.
+  // Every logo is trimmed and resized first (lib/processLogo.ts) so it fills
+  // the app's logo space the same way whatever file is uploaded.
   const uploadLogoMutation = useMutation({
     mutationFn: async (file: File) => {
+      const processed = await processLogo(file);
       let objectPath: string;
       try {
-        objectPath = await uploadImageFile(file, { visibility: "public" });
+        objectPath = await uploadImageFile(processed.file, { visibility: "public" });
       } catch (e) {
         throw new Error(uploadErrorMessage(e));
       }
-      return apiRequest("PATCH", `/api/admin/companies/${selectedCompanyId}`, { logoUrl: objectPath });
+      await apiRequest("PATCH", `/api/admin/companies/${selectedCompanyId}`, { logoUrl: objectPath });
+      return processed.notes;
     },
-    onSuccess: () => {
+    onSuccess: (notes: string[]) => {
       queryClient.invalidateQueries({ queryKey: ["/api/admin/companies", selectedCompanyId] });
       queryClient.invalidateQueries({ queryKey: ["/api/admin/companies"] });
-      toast({ title: "Logo uploaded successfully" });
+      if (notes.length) {
+        toast({ title: "Logo uploaded, with a note", description: notes.join(" ") });
+      } else {
+        toast({ title: "Logo uploaded successfully" });
+      }
     },
     onError: (error: any) => {
       toast({ title: "Failed to upload logo", description: error.message, variant: "destructive" });
@@ -936,7 +945,9 @@ export default function AdminCompanies() {
                   </Button>
                 )}
               </div>
-              <p className="text-xs text-muted-foreground -mt-2">A PNG with a transparent background works best.</p>
+              <p className="text-xs text-muted-foreground -mt-2">
+                Empty margins are trimmed and the logo is resized automatically. A PNG with a transparent background works best.
+              </p>
 
               {([
                 { key: "primary", label: "Main colour", hint: "Replaces Meridian gold on buttons, highlights, tabs and charts.", fallback: MERIDIAN_PRIMARY },
@@ -986,6 +997,13 @@ export default function AdminCompanies() {
 
               <div className="rounded-lg p-3 border border-border" style={{ backgroundColor: HEX_RE.test(brandForm.background) ? brandForm.background : MERIDIAN_BACKGROUND }}>
                 <p className="text-xs text-white/70 mb-2">Preview</p>
+                <div className="flex items-center justify-center mb-3">
+                  {companyDetail.logoUrl ? (
+                    <img src={companyDetail.logoUrl} alt="Logo as shown in the app" style={{ width: 150, height: 36, objectFit: "contain" }} />
+                  ) : (
+                    <span className="text-xs text-white/60">No logo: the app shows the MeridianWork wordmark</span>
+                  )}
+                </div>
                 <div className="flex items-center gap-2">
                   <span className="text-sm font-semibold px-3 py-1.5 rounded-md text-black" style={{ backgroundColor: HEX_RE.test(brandForm.primary) ? brandForm.primary : MERIDIAN_PRIMARY }}>Button</span>
                   <span className="text-sm font-semibold" style={{ color: HEX_RE.test(brandForm.primary) ? brandForm.primary : MERIDIAN_PRIMARY }}>Highlighted text</span>

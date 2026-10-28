@@ -172,6 +172,17 @@ const COMMUNITY_DDL: string[] = [
     created_at timestamp DEFAULT now()
   )`,
   `ALTER TABLE community_posts ADD COLUMN IF NOT EXISTS live_session_id integer`,
+  // ── Phase 3: staff-created company challenges (28 Oct 2026) ──
+  // company_id NULL = Meridian-wide (admin) challenge, visible to every member company.
+  // Set = visible only to people in that company.
+  `ALTER TABLE community_challenges ADD COLUMN IF NOT EXISTS company_id integer`,
+  `ALTER TABLE community_challenges ADD COLUMN IF NOT EXISTS created_by varchar`,
+  `ALTER TABLE community_challenges ADD COLUMN IF NOT EXISTS source text NOT NULL DEFAULT 'admin'`,
+  `ALTER TABLE community_challenges ADD COLUMN IF NOT EXISTS is_hidden boolean NOT NULL DEFAULT false`,
+  `ALTER TABLE community_challenges ADD COLUMN IF NOT EXISTS hidden_reason text`,
+  // Daily tick challenges: what the person ticks each day, e.g. "No alcohol today".
+  `ALTER TABLE community_challenges ADD COLUMN IF NOT EXISTS check_label text`,
+  `CREATE INDEX IF NOT EXISTS idx_community_challenges_company ON community_challenges (company_id, start_date DESC)`,
   `CREATE INDEX IF NOT EXISTS idx_community_posts_live ON community_posts (live_session_id, id DESC)`,
 ];
 
@@ -246,6 +257,11 @@ type ChallengeRow = {
   prizeText: string | null;
   rulesUrl: string | null;
   isPublished: boolean;
+  companyId: number | null;
+  createdBy: string | null;
+  source: string;
+  isHidden: boolean;
+  checkLabel: string | null;
 };
 
 const CHALLENGE_COLS = `id, title, description, cover_image_url AS "coverImageUrl", type,
@@ -253,7 +269,36 @@ const CHALLENGE_COLS = `id, title, description, cover_image_url AS "coverImageUr
   allow_personal_target AS "allowPersonalTarget", personal_target_options AS "personalTargetOptions",
   start_date AS "startDate", end_date AS "endDate", grace_days AS "graceDays",
   results_final_hours AS "resultsFinalHours", prize_text AS "prizeText", rules_url AS "rulesUrl",
-  is_published AS "isPublished"`;
+  is_published AS "isPublished", company_id AS "companyId", created_by AS "createdBy",
+  source, is_hidden AS "isHidden", hidden_reason AS "hiddenReason", check_label AS "checkLabel"`;
+
+// ---------------------------------------------------------------------------
+// Company scoping. A person sees Meridian-wide challenges (company_id NULL)
+// and their own company's. Admins see everything. Hidden challenges (reported,
+// or deleted by the creator) are never shown to members.
+// ---------------------------------------------------------------------------
+
+type Viewer = { userId: string; companyId: number | null; isAdmin: boolean };
+
+async function getViewer(userId: string): Promise<Viewer> {
+  const u = await storage.getUser(userId);
+  return { userId, companyId: (u?.companyId as number | null) ?? null, isAdmin: !!u?.isAdmin };
+}
+
+/** SQL condition (on alias-less community_challenges columns) + params for what this viewer may see. */
+function visibleChallengeSql(v: Viewer, firstParam: number): { sql: string; params: any[] } {
+  if (v.isAdmin) return { sql: `is_published = true`, params: [] };
+  return {
+    sql: `is_published = true AND is_hidden = false AND (company_id IS NULL OR company_id = $${firstParam})`,
+    params: [v.companyId ?? -1],
+  };
+}
+
+async function loadVisibleChallenge(v: Viewer, id: number): Promise<ChallengeRow | undefined> {
+  const vis = visibleChallengeSql(v, 2);
+  const { rows } = await pool.query(`SELECT ${CHALLENGE_COLS} FROM community_challenges WHERE id = $1 AND ${vis.sql}`, [id, ...vis.params]);
+  return rows[0] as ChallengeRow | undefined;
+}
 
 function challengeStatus(c: ChallengeRow, now = new Date()): "upcoming" | "active" | "scoring" | "final" {
   // Evaluated against UTC date keys; per-user local days are handled in scoring.
@@ -382,6 +427,41 @@ async function screenText(text: string): Promise<{ rejected?: string; autoHide?:
 }
 
 // ---------------------------------------------------------------------------
+// Staff-created challenges: the rules.
+// ---------------------------------------------------------------------------
+
+export const CHALLENGE_REPORTS_TO_HIDE = 3;
+const STAFF_MAX_LIVE_CHALLENGES = 2;
+const STAFF_MIN_DAYS = 3;
+const STAFF_MAX_DAYS = 100;
+const STAFF_MAX_DAYS_AHEAD = 90;
+
+// What staff can build a challenge from. Anything to do with body weight, body
+// fat, calories or fasting is never offered and is refused in the text too:
+// a weight-loss leaderboard among colleagues is a real risk for anyone with a
+// difficult relationship with food.
+const STAFF_KINDS = {
+  steps: { type: "metric", metric: "steps", goalMode: "daily_target", min: 1000, max: 30000 },
+  active_minutes: { type: "metric", metric: "active_minutes", goalMode: "daily_target", min: 10, max: 180 },
+  workouts: { type: "metric", metric: "workouts", goalMode: "total", min: null, max: null },
+  tick: { type: "tick", metric: null, goalMode: "daily_target", min: null, max: null },
+} as const;
+
+const BODY_WEIGHT_TERMS = /\b(weigh|weigh-?ins?|weighed|weight ?loss|lose weight|losing weight|lost weight|drop weight|kg|kgs|kilos?|lbs?|pounds|calories?|kcal|cals|fasting|diet|dieting|bmi|body ?fat|skinny|slimming|shred|shredded)\b|\d\s?(kg|kgs|kilos?|lbs?)\b/i;
+
+const staffChallengeSchema = z.object({
+  title: z.string().trim().min(3).max(80),
+  description: z.string().trim().max(600).optional(),
+  kind: z.enum(["steps", "active_minutes", "workouts", "tick"]),
+  dailyTarget: z.number().int().positive().optional(),
+  checkLabel: z.string().trim().min(3).max(60).optional(),
+  startDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+  durationDays: z.number().int().min(STAFF_MIN_DAYS).max(STAFF_MAX_DAYS),
+  timezone: z.string().min(1).max(60),
+  showOnLeaderboard: z.boolean().optional(),
+});
+
+// ---------------------------------------------------------------------------
 // Scoring engine
 // ---------------------------------------------------------------------------
 
@@ -442,6 +522,9 @@ async function scoreParticipant(c: ChallengeRow, p: { userId: string; timezone: 
   }
   if (from > to) return;
 
+  // Daily tick challenges are scored by the person ticking each day (POST .../checkin).
+  if (c.type === "tick") return;
+
   const target = p.personalTarget ?? c.dailyTarget ?? null;
   let byDay: Map<string, number>;
   let source: string;
@@ -486,7 +569,7 @@ async function activeParticipants(challengeId: number): Promise<{ userId: string
 }
 
 async function scorableChallenges(): Promise<ChallengeRow[]> {
-  const { rows } = await pool.query(`SELECT ${CHALLENGE_COLS} FROM community_challenges WHERE is_published = true`);
+  const { rows } = await pool.query(`SELECT ${CHALLENGE_COLS} FROM community_challenges WHERE is_published = true AND is_hidden = false AND type != 'tick'`);
   return (rows as ChallengeRow[]).filter((c) => {
     const s = challengeStatus(c);
     return s === "active" || s === "scoring";
@@ -522,7 +605,7 @@ async function alreadyNotified(userId: string, eventKey: string): Promise<boolea
 }
 
 async function runLifecycleNotifications(): Promise<void> {
-  const { rows } = await pool.query(`SELECT ${CHALLENGE_COLS} FROM community_challenges WHERE is_published = true`);
+  const { rows } = await pool.query(`SELECT ${CHALLENGE_COLS} FROM community_challenges WHERE is_published = true AND is_hidden = false`);
   const now = new Date();
   for (const c of rows as ChallengeRow[]) {
     const status = challengeStatus(c, now);
@@ -969,8 +1052,8 @@ export function registerCommunityRoutes(app: Express): void {
     if (scope === "announcement" && !admin) return res.status(403).json({ message: "Only admins can post announcements" });
     if (scope === "challenge") {
       if (!challengeId) return res.status(400).json({ message: "challengeId required for challenge posts" });
-      const { rows: cRows } = await pool.query(`SELECT ${CHALLENGE_COLS} FROM community_challenges WHERE id = $1 AND is_published = true`, [challengeId]);
-      if (!cRows[0]) return res.status(404).json({ message: "Challenge not found" });
+      const cRow = await loadVisibleChallenge(await getViewer(userId), challengeId);
+      if (!cRow) return res.status(404).json({ message: "Challenge not found" });
       const { rows: pRows } = await pool.query(
         `SELECT id FROM community_challenge_participants WHERE challenge_id = $1 AND user_id = $2 AND left_at IS NULL`,
         [challengeId, userId],
@@ -1145,12 +1228,15 @@ export function registerCommunityRoutes(app: Express): void {
     const userId = req.user.claims.sub;
     const profile = await requireProfile(userId, res);
     if (!profile) return;
+    const viewer = await getViewer(userId);
+    const vis = visibleChallengeSql(viewer, 2);
     const { rows } = await pool.query(
       `SELECT ${CHALLENGE_COLS},
         (SELECT count(*)::int FROM community_challenge_participants pp WHERE pp.challenge_id = community_challenges.id AND pp.left_at IS NULL) AS "participantCount",
-        (SELECT count(*)::int FROM community_challenge_participants pp WHERE pp.challenge_id = community_challenges.id AND pp.user_id = $1 AND pp.left_at IS NULL) AS "joinedFlag"
-       FROM community_challenges WHERE is_published = true ORDER BY start_date DESC`,
-      [userId],
+        (SELECT count(*)::int FROM community_challenge_participants pp WHERE pp.challenge_id = community_challenges.id AND pp.user_id = $1 AND pp.left_at IS NULL) AS "joinedFlag",
+        (SELECT display_name FROM community_profiles WHERE user_id = community_challenges.created_by) AS "creatorName"
+       FROM community_challenges WHERE ${vis.sql} ORDER BY start_date DESC`,
+      [userId, ...vis.params],
     );
     const grouped: any = { active: [], upcoming: [], past: [] };
     for (const r of rows as any[]) {
@@ -1162,6 +1248,13 @@ export function registerCommunityRoutes(app: Express): void {
       else grouped.past.push(item);
     }
     grouped.upcoming.sort((a: any, b: any) => a.startDate.localeCompare(b.startDate));
+    // What the create screen needs to know.
+    let canCreate = false;
+    if (viewer.companyId != null) {
+      const { rows: cRows } = await pool.query(`SELECT staff_challenges_enabled AS on FROM companies WHERE id = $1`, [viewer.companyId]);
+      canCreate = !!cRows[0]?.on;
+    }
+    grouped.canCreate = canCreate;
     res.json(grouped);
   }));
 
@@ -1171,8 +1264,7 @@ export function registerCommunityRoutes(app: Express): void {
     if (!profile) return;
     const id = parseInt(req.params.id, 10);
     if (Number.isNaN(id)) return res.status(400).json({ message: "Invalid id" });
-    const { rows } = await pool.query(`SELECT ${CHALLENGE_COLS} FROM community_challenges WHERE id = $1 AND is_published = true`, [id]);
-    const c = rows[0] as ChallengeRow | undefined;
+    const c = await loadVisibleChallenge(await getViewer(userId), id);
     if (!c) return res.status(404).json({ message: "Challenge not found" });
     const status = challengeStatus(c);
 
@@ -1221,12 +1313,40 @@ export function registerCommunityRoutes(app: Express): void {
         showOnLeaderboard: mine.showOnLeaderboard,
       };
     }
+    // Daily tick challenges: which days the person can still tick (today and yesterday).
+    if (mine && c.type === "tick") {
+      const today = dateKeyInTz(new Date(), mine.timezone);
+      const yesterday = addDaysToDateKey(today, -1);
+      const { rows: tickRows } = await pool.query(
+        `SELECT date_key AS "dateKey", on_target AS "onTarget" FROM community_challenge_scores
+         WHERE challenge_id = $1 AND user_id = $2 AND date_key = ANY($3::text[])`,
+        [id, userId, [today, yesterday]],
+      );
+      const tickable = [today, yesterday].filter((k) => k >= c.startDate && k <= c.endDate);
+      const byKey = new Map(tickRows.map((r: any) => [r.dateKey, r.onTarget]));
+      if (myProgress && tickable.length) myProgress.tickDays = tickable.map((k) => ({
+        dateKey: k,
+        isToday: k === today,
+        done: byKey.has(k) ? byKey.get(k) === true : null,
+      }));
+    }
+    const { rows: creatorRows } = c.createdBy
+      ? await pool.query(`SELECT display_name AS name FROM community_profiles WHERE user_id = $1`, [c.createdBy])
+      : { rows: [] as any[] };
 
     const { rows: countRows } = await pool.query(
       `SELECT count(*)::int AS c FROM community_challenge_participants WHERE challenge_id = $1 AND left_at IS NULL`,
       [id],
     );
-    res.json({ ...c, status, participantCount: countRows[0].c, joined: !!mine, myProgress });
+    res.json({
+      ...c,
+      status,
+      participantCount: countRows[0].c,
+      joined: !!mine,
+      myProgress,
+      creatorName: creatorRows[0]?.name ?? null,
+      isMine: c.createdBy === userId,
+    });
   }));
 
   app.post("/api/community/challenges/:id/join", isAuthenticated, ready(async (req, res) => {
@@ -1237,8 +1357,7 @@ export function registerCommunityRoutes(app: Express): void {
     if (Number.isNaN(id)) return res.status(400).json({ message: "Invalid id" });
     const parsed = joinChallengeSchema.safeParse(req.body);
     if (!parsed.success) return res.status(400).json({ message: "Invalid join", errors: parsed.error.flatten() });
-    const { rows } = await pool.query(`SELECT ${CHALLENGE_COLS} FROM community_challenges WHERE id = $1 AND is_published = true`, [id]);
-    const c = rows[0] as ChallengeRow | undefined;
+    const c = await loadVisibleChallenge(await getViewer(userId), id);
     if (!c) return res.status(404).json({ message: "Challenge not found" });
     const status = challengeStatus(c);
     if (status === "scoring" || status === "final") return res.status(400).json({ message: "This challenge has ended" });
@@ -1280,8 +1399,7 @@ export function registerCommunityRoutes(app: Express): void {
     if (!profile) return;
     const id = parseInt(req.params.id, 10);
     if (Number.isNaN(id)) return res.status(400).json({ message: "Invalid id" });
-    const { rows } = await pool.query(`SELECT ${CHALLENGE_COLS} FROM community_challenges WHERE id = $1 AND is_published = true`, [id]);
-    const c = rows[0] as ChallengeRow | undefined;
+    const c = await loadVisibleChallenge(await getViewer(userId), id);
     if (!c) return res.status(404).json({ message: "Challenge not found" });
     const blocked = await blockedIdsFor(userId);
 
@@ -1312,6 +1430,7 @@ export function registerCommunityRoutes(app: Express): void {
     if (!profile) return;
     const id = parseInt(req.params.id, 10);
     if (Number.isNaN(id)) return res.status(400).json({ message: "Invalid id" });
+    if (!(await loadVisibleChallenge(await getViewer(userId), id))) return res.status(404).json({ message: "Challenge not found" });
     const limit = Math.min(parseInt(String(req.query.limit ?? "20"), 10) || 20, 50);
     const cursor = parseInt(String(req.query.cursor ?? "0"), 10) || null;
     const blocked = await blockedIdsFor(userId);
@@ -1332,12 +1451,150 @@ export function registerCommunityRoutes(app: Express): void {
     res.json({ posts: rows, nextCursor: rows.length === limit ? rows[rows.length - 1].id : null });
   }));
 
+  // ── Staff-created challenges ─────────────────────────────────────────────
+
+  app.post("/api/community/challenges", isAuthenticated, ready(async (req, res) => {
+    const userId = req.user.claims.sub;
+    const profile = await requireProfile(userId, res);
+    if (!profile) return;
+    const viewer = await getViewer(userId);
+    if (viewer.companyId == null) return res.status(403).json({ message: "Challenges are created within a company. Your account isn't linked to one." });
+    const { rows: coRows } = await pool.query(`SELECT staff_challenges_enabled AS on FROM companies WHERE id = $1`, [viewer.companyId]);
+    if (!coRows[0]?.on) return res.status(403).json({ message: "Your company has turned off staff challenges." });
+
+    const parsed = staffChallengeSchema.safeParse(req.body);
+    if (!parsed.success) return res.status(400).json({ message: "Some details are missing or not allowed.", errors: parsed.error.flatten() });
+    const d = parsed.data;
+    const kind = STAFF_KINDS[d.kind];
+
+    // Target
+    let dailyTarget: number | null = null;
+    if (kind.min != null && kind.max != null) {
+      if (!d.dailyTarget || d.dailyTarget < kind.min || d.dailyTarget > kind.max) {
+        return res.status(400).json({ message: `Pick a daily target between ${kind.min.toLocaleString("en-GB")} and ${kind.max.toLocaleString("en-GB")}.` });
+      }
+      dailyTarget = d.dailyTarget;
+    }
+    if (d.kind === "tick") {
+      if (!d.checkLabel) return res.status(400).json({ message: "Write what people tick off each day, for example \"No alcohol today\"." });
+      dailyTarget = 1;
+    }
+
+    // Dates: start tomorrow at the earliest (creator's own day), at most 90 days ahead.
+    const today = dateKeyInTz(new Date(), d.timezone);
+    if (d.startDate <= today) return res.status(400).json({ message: "The challenge has to start tomorrow or later." });
+    if (d.startDate > addDaysToDateKey(today, STAFF_MAX_DAYS_AHEAD)) return res.status(400).json({ message: "The start date can be up to 90 days away." });
+    const endDate = addDaysToDateKey(d.startDate, d.durationDays - 1);
+
+    // Words: no weight, body fat, calories or fasting; banned words; AI moderation.
+    const allText = [d.title, d.description ?? "", d.checkLabel ?? ""].join("\n");
+    if (BODY_WEIGHT_TERMS.test(allText)) {
+      return res.status(400).json({ message: "Challenges can't be about weight, body fat, calories or dieting. Pick steps, active minutes, workouts or a daily habit instead." });
+    }
+    const screen = await screenText(allText);
+    if (screen.rejected) return res.status(400).json({ message: "Your challenge contains language that isn't allowed here." });
+    const hidden = !!screen.autoHide;
+
+    // Limit: 2 challenges per person that haven't finished yet.
+    const { rows: liveRows } = await pool.query(
+      `SELECT count(*)::int AS n FROM community_challenges
+       WHERE created_by = $1 AND source = 'staff' AND is_hidden = false AND end_date >= $2`,
+      [userId, today],
+    );
+    if ((liveRows[0]?.n ?? 0) >= STAFF_MAX_LIVE_CHALLENGES) {
+      return res.status(400).json({ message: "You can run 2 challenges at a time. Wait for one to finish, or delete one, to start another." });
+    }
+
+    const { rows } = await pool.query(
+      `INSERT INTO community_challenges
+        (title, description, type, metric, goal_mode, daily_target, allow_personal_target,
+         start_date, end_date, grace_days, results_final_hours, is_published,
+         company_id, created_by, source, is_hidden, hidden_reason, check_label)
+       VALUES ($1,$2,$3,$4,$5,$6,false,$7,$8,$9,$10,true,$11,$12,'staff',$13,$14,$15)
+       RETURNING id`,
+      [
+        d.title, d.description || null, kind.type, kind.metric, kind.goalMode, dailyTarget,
+        d.startDate, endDate, 2, 48,
+        viewer.companyId, userId, hidden, hidden ? "auto_moderation" : null, d.kind === "tick" ? d.checkLabel : null,
+      ],
+    );
+    const id = rows[0].id;
+
+    if (hidden) {
+      await pool.query(
+        `INSERT INTO community_reports (reporter_user_id, target_type, target_id, reason, status) VALUES ('system','challenge',$1,$2,'open')`,
+        [String(id), `Auto-flagged: ${(screen.autoHide || []).join(", ")}`],
+      );
+      await modLog("auto", "flagged", "challenge", String(id), { categories: screen.autoHide });
+      return res.status(202).json({ id, held: true, message: "Your challenge is being checked before it appears." });
+    }
+
+    // The creator is in their own challenge.
+    await pool.query(
+      `INSERT INTO community_challenge_participants (challenge_id, user_id, timezone, show_on_leaderboard)
+       VALUES ($1,$2,$3,$4) ON CONFLICT ON CONSTRAINT uq_community_participant DO NOTHING`,
+      [id, userId, d.timezone, d.showOnLeaderboard ?? true],
+    );
+    await modLog(userId, "created", "challenge", String(id), { companyId: viewer.companyId, kind: d.kind });
+    res.json({ id, held: false });
+  }));
+
+  // The creator can delete their own challenge at any time.
+  app.delete("/api/community/challenges/:id", isAuthenticated, ready(async (req, res) => {
+    const userId = req.user.claims.sub;
+    const id = parseInt(req.params.id, 10);
+    if (Number.isNaN(id)) return res.status(400).json({ message: "Invalid id" });
+    const { rowCount } = await pool.query(
+      `UPDATE community_challenges SET is_hidden = true, hidden_reason = 'creator_deleted'
+       WHERE id = $1 AND created_by = $2 AND source = 'staff'`,
+      [id, userId],
+    );
+    if (!rowCount) return res.status(404).json({ message: "Challenge not found" });
+    await modLog(userId, "deleted", "challenge", String(id));
+    res.json({ ok: true });
+  }));
+
+  // Daily tick: the person marks today (or yesterday, if they forgot) as done or not.
+  app.post("/api/community/challenges/:id/checkin", isAuthenticated, ready(async (req, res) => {
+    const userId = req.user.claims.sub;
+    const profile = await requireProfile(userId, res);
+    if (!profile) return;
+    const id = parseInt(req.params.id, 10);
+    if (Number.isNaN(id)) return res.status(400).json({ message: "Invalid id" });
+    const parsed = z.object({
+      dateKey: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+      done: z.boolean(),
+    }).safeParse(req.body);
+    if (!parsed.success) return res.status(400).json({ message: "Invalid check-in" });
+    const c = await loadVisibleChallenge(await getViewer(userId), id);
+    if (!c || c.type !== "tick") return res.status(404).json({ message: "Challenge not found" });
+    const { rows: pRows } = await pool.query(
+      `SELECT timezone FROM community_challenge_participants WHERE challenge_id = $1 AND user_id = $2 AND left_at IS NULL`,
+      [id, userId],
+    );
+    if (!pRows[0]) return res.status(403).json({ message: "Join the challenge first" });
+    const today = dateKeyInTz(new Date(), pRows[0].timezone);
+    const { dateKey, done } = parsed.data;
+    if (dateKey !== today && dateKey !== addDaysToDateKey(today, -1)) {
+      return res.status(400).json({ message: "You can tick today or yesterday." });
+    }
+    if (dateKey < c.startDate || dateKey > c.endDate) return res.status(400).json({ message: "That day isn't part of the challenge." });
+    await pool.query(
+      `INSERT INTO community_challenge_scores (challenge_id, user_id, date_key, value, on_target, source, updated_at)
+       VALUES ($1,$2,$3,$4,$5,'tick', now())
+       ON CONFLICT ON CONSTRAINT uq_community_score
+       DO UPDATE SET value = EXCLUDED.value, on_target = EXCLUDED.on_target, source = 'tick', updated_at = now()`,
+      [id, userId, dateKey, done ? 1 : 0, done],
+    );
+    res.json({ ok: true });
+  }));
+
   // ── Safety: reports & blocks ──────────────────────────────────────────────
 
   app.post("/api/community/reports", isAuthenticated, ready(async (req, res) => {
     const userId = req.user.claims.sub;
     const parsed = z.object({
-      targetType: z.enum(["post", "comment", "user"]),
+      targetType: z.enum(["post", "comment", "user", "challenge"]),
       targetId: z.union([z.string(), z.number()]),
       reason: z.string().trim().min(1).max(1000),
     }).safeParse(req.body);
@@ -1347,6 +1604,22 @@ export function registerCommunityRoutes(app: Express): void {
       `INSERT INTO community_reports (reporter_user_id, target_type, target_id, reason) VALUES ($1,$2,$3,$4)`,
       [userId, targetType, String(targetId), reason],
     );
+    // A staff challenge reported by 3 different people hides itself until an admin reviews it.
+    if (targetType === "challenge") {
+      const { rows: rc } = await pool.query(
+        `SELECT count(DISTINCT reporter_user_id)::int AS n FROM community_reports
+         WHERE target_type = 'challenge' AND target_id = $1 AND status = 'open'`,
+        [String(targetId)],
+      );
+      if ((rc[0]?.n ?? 0) >= CHALLENGE_REPORTS_TO_HIDE) {
+        const { rowCount } = await pool.query(
+          `UPDATE community_challenges SET is_hidden = true, hidden_reason = 'reported'
+           WHERE id = $1 AND source = 'staff' AND is_hidden = false`,
+          [parseInt(String(targetId), 10) || -1],
+        );
+        if (rowCount) await modLog("auto", "hidden", "challenge", String(targetId), { reports: rc[0].n });
+      }
+    }
     // Alert admins (in-app + push via their own prefs) so reports get "timely responses" (Apple 1.2).
     (async () => {
       try {
@@ -1528,9 +1801,11 @@ export function registerCommunityRoutes(app: Express): void {
               r.reason, r.status, r.created_at AS "createdAt",
               CASE WHEN r.target_type = 'post' THEN (SELECT body FROM community_posts WHERE id = r.target_id::int)
                    WHEN r.target_type = 'comment' THEN (SELECT body FROM community_comments WHERE id = r.target_id::int)
+                   WHEN r.target_type = 'challenge' THEN (SELECT title || COALESCE(E'\n\n' || description, '') FROM community_challenges WHERE id = r.target_id::int)
                    ELSE NULL END AS "targetBody",
               CASE WHEN r.target_type = 'post' THEN (SELECT user_id FROM community_posts WHERE id = r.target_id::int)
                    WHEN r.target_type = 'comment' THEN (SELECT user_id FROM community_comments WHERE id = r.target_id::int)
+                   WHEN r.target_type = 'challenge' THEN (SELECT created_by FROM community_challenges WHERE id = r.target_id::int)
                    ELSE r.target_id END AS "targetUserId"
        FROM community_reports r WHERE r.status = $1 ORDER BY r.created_at DESC LIMIT 100`,
       [status],
@@ -1560,6 +1835,8 @@ export function registerCommunityRoutes(app: Express): void {
         await pool.query(`UPDATE community_posts SET is_hidden = $2, hidden_reason = $3 WHERE id = $1`, [parseInt(report.targetId, 10), hide, hide ? "admin_removed" : null]);
       } else if (report.targetType === "comment") {
         await pool.query(`UPDATE community_comments SET is_hidden = $2, hidden_reason = $3 WHERE id = $1`, [parseInt(report.targetId, 10), hide, hide ? "admin_removed" : null]);
+      } else if (report.targetType === "challenge") {
+        await pool.query(`UPDATE community_challenges SET is_hidden = $2, hidden_reason = $3 WHERE id = $1`, [parseInt(report.targetId, 10), hide, hide ? "admin_removed" : null]);
       }
       await modLog("admin", hide ? "hidden" : "unhidden", report.targetType, report.targetId, { reportId: id, by: req.user.claims.sub });
     } else if (action === "ban_user") {
@@ -1571,6 +1848,9 @@ export function registerCommunityRoutes(app: Express): void {
       } else if (report.targetType === "comment") {
         const { rows: r2 } = await pool.query(`SELECT user_id FROM community_comments WHERE id = $1`, [parseInt(report.targetId, 10)]);
         targetUserId = r2[0]?.user_id ?? null;
+      } else if (report.targetType === "challenge") {
+        const { rows: r2 } = await pool.query(`SELECT created_by FROM community_challenges WHERE id = $1`, [parseInt(report.targetId, 10)]);
+        targetUserId = r2[0]?.created_by ?? null;
       }
       if (targetUserId) {
         await pool.query(`UPDATE community_profiles SET is_banned = true, updated_at = now() WHERE user_id = $1`, [targetUserId]);
@@ -1583,6 +1863,22 @@ export function registerCommunityRoutes(app: Express): void {
       `UPDATE community_reports SET status = $2, resolved_at = now(), resolution_note = $3 WHERE id = $1`,
       [id, action === "dismiss" ? "dismissed" : "actioned", note ?? null],
     );
+    // Closing one report on a challenge closes the others on it, so a dismissed
+    // challenge doesn't hide itself again from the same old reports.
+    if (report.targetType === "challenge") {
+      // Dismissing reports on a challenge that hid itself from reports puts it back.
+      if (action === "dismiss") {
+        await pool.query(
+          `UPDATE community_challenges SET is_hidden = false, hidden_reason = NULL WHERE id = $1 AND hidden_reason = 'reported'`,
+          [parseInt(report.targetId, 10)],
+        );
+      }
+      await pool.query(
+        `UPDATE community_reports SET status = $2, resolved_at = now(), resolution_note = COALESCE(resolution_note, $3)
+         WHERE target_type = 'challenge' AND target_id = $1 AND status = 'open'`,
+        [report.targetId, action === "dismiss" ? "dismissed" : "actioned", `Closed with report ${id}`],
+      );
+    }
     res.json({ ok: true });
   }));
 

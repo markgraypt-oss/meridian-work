@@ -487,6 +487,8 @@ export const SELF_HEAL_DDL: string[] = [
   `ALTER TABLE companies ADD COLUMN IF NOT EXISTS brand_secondary_color varchar`,
   `ALTER TABLE companies ADD COLUMN IF NOT EXISTS brand_background_color varchar`,
   `ALTER TABLE companies ADD COLUMN IF NOT EXISTS brand_welcome_message text`,
+  // Community: staff-created challenges switch, per company.
+  `ALTER TABLE companies ADD COLUMN IF NOT EXISTS staff_challenges_enabled boolean NOT NULL DEFAULT true`,
 
   // ── Volume reduction as a third outcome for a flagged exercise.
   // Reductions live alongside substitutions rather than in their own table, so

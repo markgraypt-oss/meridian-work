@@ -52,6 +52,7 @@ type CompanyData = {
   brandSecondaryColor: string | null;
   brandBackgroundColor: string | null;
   brandWelcomeMessage: string | null;
+  staffChallengesEnabled: boolean | null;
 };
 
 const HEX_RE = /^#[0-9A-Fa-f]{6}$/;
@@ -329,6 +330,19 @@ export default function AdminCompanies() {
     },
     onError: (error: any) => {
       toast({ title: "Failed to save branding", description: error.message, variant: "destructive" });
+    },
+  });
+
+  const updateCommunitySettingsMutation = useMutation({
+    mutationFn: async (data: Record<string, unknown>) => {
+      return apiRequest("PATCH", `/api/admin/companies/${selectedCompanyId}`, data);
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/admin/companies", selectedCompanyId] });
+      toast({ title: "Community setting saved" });
+    },
+    onError: (error: any) => {
+      toast({ title: "Failed to save setting", description: error.message, variant: "destructive" });
     },
   });
 
@@ -906,6 +920,31 @@ export default function AdminCompanies() {
                   <p className="text-sm text-foreground whitespace-pre-wrap">{companyDetail.notes}</p>
                 </div>
               )}
+            </CardContent>
+          </Card>
+
+          {/* Community: whether staff at this company can create challenges for colleagues. */}
+          <Card className="border-border">
+            <CardHeader className="pb-2">
+              <CardTitle className="text-sm font-semibold text-foreground flex items-center gap-2">
+                <Users className="h-4 w-4 text-[#b8874a]" />
+                Community
+              </CardTitle>
+            </CardHeader>
+            <CardContent>
+              <div className="flex items-start justify-between gap-4 border border-border rounded-lg p-3">
+                <div>
+                  <p className="text-sm text-foreground font-medium">Staff can create challenges</p>
+                  <p className="text-xs text-muted-foreground mt-0.5">
+                    When on, anyone at this company can set up a challenge that only their colleagues can see and join.
+                    Turning it off stops new ones. Challenges already running carry on.
+                  </p>
+                </div>
+                <Switch
+                  checked={companyDetail.staffChallengesEnabled !== false}
+                  onCheckedChange={(checked) => updateCommunitySettingsMutation.mutate({ staffChallengesEnabled: checked })}
+                />
+              </div>
             </CardContent>
           </Card>
 

@@ -388,9 +388,11 @@ function ChallengesTab() {
                     ) : (
                       <Badge variant="outline">draft — hidden from members</Badge>
                     )}
+                    {c.source === "staff" && <Badge variant="outline">Staff challenge · company {c.companyId}</Badge>}
+                    {c.isHidden && <Badge variant="destructive">hidden ({c.hiddenReason || "removed"})</Badge>}
                   </div>
                   <p className="text-xs text-muted-foreground mt-0.5">
-                    {c.startDate} → {c.endDate} · {c.participantCount} joined · {c.type === "programme" ? `programme ${c.programId}` : c.metric} · {c.goalMode}
+                    {c.startDate} → {c.endDate} · {c.participantCount} joined · {c.type === "programme" ? `programme ${c.programId}` : c.type === "tick" ? `daily tick: ${c.checkLabel}` : c.metric} · {c.goalMode}
                   </p>
                 </div>
                 <Button size="sm" variant="ghost" onClick={() => startEdit(c)}>Edit</Button>
@@ -465,9 +467,9 @@ function ReportsTab() {
               {status === "open" && (
                 <div className="flex flex-wrap gap-2 pt-1">
                   <Button size="sm" variant="outline" onClick={() => act.mutate({ id: r.id, action: "dismiss" })}>
-                    Dismiss
+                    {r.targetType === "challenge" ? "Dismiss (shows the challenge again)" : "Dismiss"}
                   </Button>
-                  {(r.targetType === "post" || r.targetType === "comment") && (
+                  {(r.targetType === "post" || r.targetType === "comment" || r.targetType === "challenge") && (
                     <>
                       <Button size="sm" variant="outline" onClick={() => act.mutate({ id: r.id, action: "hide_content" })}>
                         <EyeOff className="w-3.5 h-3.5 mr-1" /> Hide content

@@ -3125,6 +3125,8 @@ export const companies = pgTable("companies", {
   brandSecondaryColor: varchar("brand_secondary_color"),
   brandBackgroundColor: varchar("brand_background_color"),
   brandWelcomeMessage: text("brand_welcome_message"),
+  // Community: staff at this company can create challenges for colleagues.
+  staffChallengesEnabled: boolean("staff_challenges_enabled").notNull().default(true),
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow(),
 });

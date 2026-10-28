@@ -436,10 +436,7 @@ const STAFF_MIN_DAYS = 3;
 const STAFF_MAX_DAYS = 100;
 const STAFF_MAX_DAYS_AHEAD = 90;
 
-// What staff can build a challenge from. Anything to do with body weight, body
-// fat, calories or fasting is never offered and is refused in the text too:
-// a weight-loss leaderboard among colleagues is a real risk for anyone with a
-// difficult relationship with food.
+// What staff can build a challenge from.
 const STAFF_KINDS = {
   steps: { type: "metric", metric: "steps", goalMode: "daily_target", min: 1000, max: 30000 },
   active_minutes: { type: "metric", metric: "active_minutes", goalMode: "daily_target", min: 10, max: 180 },
@@ -447,7 +444,6 @@ const STAFF_KINDS = {
   tick: { type: "tick", metric: null, goalMode: "daily_target", min: null, max: null },
 } as const;
 
-const BODY_WEIGHT_TERMS = /\b(weigh|weigh-?ins?|weighed|weight ?loss|lose weight|losing weight|lost weight|drop weight|kg|kgs|kilos?|lbs?|pounds|calories?|kcal|cals|fasting|diet|dieting|bmi|body ?fat|skinny|slimming|shred|shredded)\b|\d\s?(kg|kgs|kilos?|lbs?)\b/i;
 
 const staffChallengeSchema = z.object({
   title: z.string().trim().min(3).max(80),
@@ -1486,11 +1482,8 @@ export function registerCommunityRoutes(app: Express): void {
     if (d.startDate > addDaysToDateKey(today, STAFF_MAX_DAYS_AHEAD)) return res.status(400).json({ message: "The start date can be up to 90 days away." });
     const endDate = addDaysToDateKey(d.startDate, d.durationDays - 1);
 
-    // Words: no weight, body fat, calories or fasting; banned words; AI moderation.
+    // Words: banned words; AI moderation.
     const allText = [d.title, d.description ?? "", d.checkLabel ?? ""].join("\n");
-    if (BODY_WEIGHT_TERMS.test(allText)) {
-      return res.status(400).json({ message: "Challenges can't be about weight, body fat, calories or dieting. Pick steps, active minutes, workouts or a daily habit instead." });
-    }
     const screen = await screenText(allText);
     if (screen.rejected) return res.status(400).json({ message: "Your challenge contains language that isn't allowed here." });
     const hidden = !!screen.autoHide;

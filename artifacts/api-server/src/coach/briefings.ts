@@ -859,7 +859,12 @@ Return only the JSON object now.`;
         userId,
         system: [systemVoice, systemRules],
         prompt,
-        maxTokens: 400,
+        // 400 was too tight: the full JSON (opener, teaser, two deepDive items,
+        // recommendation, question, replies) regularly ran past it on Claude 5.5
+        // and was cut off mid-object, so the briefing failed and was only retried
+        // by the next 30-minute sweep (28 Oct: Mark's evening briefing landed 30
+        // minutes late after a truncated first attempt).
+        maxTokens: 1200,
         provider: config.provider,
         model: config.model,
         schema: briefingSchema,

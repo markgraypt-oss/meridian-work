@@ -870,15 +870,23 @@ export async function getUserDataContext(userId: string, feature: string): Promi
         context += `\nAvg daily steps: ${Math.round(avgSteps).toLocaleString()}`;
         context += `\nMost recent (${latest.date}, from ${PROVIDER_LABEL[latestSrc] || latestSrc}): ${latest.steps.toLocaleString()} steps${latest.activeMinutes ? `, ${latest.activeMinutes} active min` : ''}${latest.caloriesBurned ? `, ${latest.caloriesBurned} kcal` : ''}`;
       } else {
-        const stepEntries = await storage.getStepEntries(userId, 14);
+        // Only entries from the last 14 days. getStepEntries returns the whole
+        // history, so when a phone stopped syncing the "most recent" entry could
+        // be weeks old, and it was printed without a date, so the briefing quoted
+        // it as today's steps (28 Oct: "Only 372 steps logged", from 9 Oct).
+        const cutoff = new Date(Date.now() - 14 * 24 * 60 * 60 * 1000);
+        const stepEntries = (await storage.getStepEntries(userId)).filter((e) => new Date(e.date) >= cutoff);
         if (stepEntries.length > 0) {
-          context += '\n\n--- Step Tracking (last 14 entries, self-reported) ---';
+          context += `\n\n--- Step Tracking (last ${stepEntries.length} entries) ---`;
           const avgSteps = stepEntries.reduce((s, e) => s + (e.steps || 0), 0) / stepEntries.length;
           context += `\nAvg daily steps: ${Math.round(avgSteps).toLocaleString()}`;
           const latest = stepEntries[0];
           if (latest) {
-            context += `\nMost recent: ${latest.steps.toLocaleString()} steps${latest.activeMinutes ? `, ${latest.activeMinutes} active minutes` : ''}`;
+            const latestDate = new Date(latest.date).toISOString().slice(0, 10);
+            context += `\nMost recent (${latestDate}): ${latest.steps.toLocaleString()} steps${latest.activeMinutes ? `, ${latest.activeMinutes} active minutes` : ''}`;
           }
+        } else {
+          context += '\n\n--- Activity ---\nNo step data in the last 14 days. Do not mention steps.';
         }
       }
     }

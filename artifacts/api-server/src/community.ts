@@ -183,6 +183,11 @@ const COMMUNITY_DDL: string[] = [
   // Daily tick challenges: what the person ticks each day, e.g. "No alcohol today".
   `ALTER TABLE community_challenges ADD COLUMN IF NOT EXISTS check_label text`,
   `CREATE INDEX IF NOT EXISTS idx_community_challenges_company ON community_challenges (company_id, start_date DESC)`,
+  // "Reach a total by the end" challenges: the total to reach (steps, minutes,
+  // workouts, or % of body weight lost). NULL = no goal, ranked on the total.
+  `ALTER TABLE community_challenges ADD COLUMN IF NOT EXISTS goal_total real`,
+  // Weight challenges: the person also shows kg lost on the leaderboard (off by default; % is always shown).
+  `ALTER TABLE community_challenge_participants ADD COLUMN IF NOT EXISTS share_weight_change boolean NOT NULL DEFAULT false`,
   `CREATE INDEX IF NOT EXISTS idx_community_posts_live ON community_posts (live_session_id, id DESC)`,
 ];
 
@@ -262,6 +267,7 @@ type ChallengeRow = {
   source: string;
   isHidden: boolean;
   checkLabel: string | null;
+  goalTotal: number | null;
 };
 
 const CHALLENGE_COLS = `id, title, description, cover_image_url AS "coverImageUrl", type,
@@ -270,7 +276,8 @@ const CHALLENGE_COLS = `id, title, description, cover_image_url AS "coverImageUr
   start_date AS "startDate", end_date AS "endDate", grace_days AS "graceDays",
   results_final_hours AS "resultsFinalHours", prize_text AS "prizeText", rules_url AS "rulesUrl",
   is_published AS "isPublished", company_id AS "companyId", created_by AS "createdBy",
-  source, is_hidden AS "isHidden", hidden_reason AS "hiddenReason", check_label AS "checkLabel"`;
+  source, is_hidden AS "isHidden", hidden_reason AS "hiddenReason", check_label AS "checkLabel",
+  goal_total AS "goalTotal"`;
 
 // ---------------------------------------------------------------------------
 // Company scoping. A person sees Meridian-wide challenges (company_id NULL)
@@ -437,19 +444,26 @@ const STAFF_MAX_DAYS = 100;
 const STAFF_MAX_DAYS_AHEAD = 90;
 
 // What staff can build a challenge from.
+// Limits for custom targets. daily = per day; total = across the whole challenge.
 const STAFF_KINDS = {
-  steps: { type: "metric", metric: "steps", goalMode: "daily_target", min: 1000, max: 30000 },
-  active_minutes: { type: "metric", metric: "active_minutes", goalMode: "daily_target", min: 10, max: 180 },
-  workouts: { type: "metric", metric: "workouts", goalMode: "total", min: null, max: null },
-  tick: { type: "tick", metric: null, goalMode: "daily_target", min: null, max: null },
+  steps: { type: "metric", metric: "steps", daily: [1000, 50000], total: [10000, 5000000] },
+  active_minutes: { type: "metric", metric: "active_minutes", daily: [5, 300], total: [30, 30000] },
+  workouts: { type: "metric", metric: "workouts", daily: [1, 3], total: [1, 300] },
+  // Body weight: linked to the body weight tracker, scored as % of starting weight lost.
+  weight: { type: "metric", metric: "weight", daily: null, total: [0.5, 25] },
+  tick: { type: "tick", metric: null, daily: null, total: null },
 } as const;
 
 
 const staffChallengeSchema = z.object({
   title: z.string().trim().min(3).max(80),
   description: z.string().trim().max(600).optional(),
-  kind: z.enum(["steps", "active_minutes", "workouts", "tick"]),
+  kind: z.enum(["steps", "active_minutes", "workouts", "weight", "tick"]),
+  // "daily" = hit a target every day; "total" = reach a total by the end.
+  style: z.enum(["daily", "total"]).optional(),
   dailyTarget: z.number().int().positive().optional(),
+  goalTotal: z.number().positive().optional(),
+  shareWeightChange: z.boolean().optional(),
   checkLabel: z.string().trim().min(3).max(60).optional(),
   startDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
   durationDays: z.number().int().min(STAFF_MIN_DAYS).max(STAFF_MAX_DAYS),
@@ -507,6 +521,49 @@ async function workoutCountsByDay(
   return map;
 }
 
+/**
+ * Body weight challenges, from the body weight tracker (bodyweight_entries, kg).
+ * Starting weight: the latest weigh-in in the 7 days before the start; if none,
+ * the first weigh-in in the first 3 days. Current weight: the latest weigh-in
+ * after that, up to the end of the challenge. Scored as % of starting weight lost.
+ */
+type WeightProgress = { startKg: number | null; currentKg: number | null; lostKg: number | null; lostPct: number | null };
+
+async function weightProgressFor(userIds: string[], c: ChallengeRow): Promise<Map<string, WeightProgress>> {
+  const out = new Map<string, WeightProgress>();
+  if (userIds.length === 0) return out;
+  const from = addDaysToDateKey(c.startDate, -7);
+  const { rows } = await pool.query(
+    `SELECT user_id AS "userId", weight::float AS kg, to_char(date, 'YYYY-MM-DD') AS day
+     FROM bodyweight_entries
+     WHERE user_id = ANY($1::text[]) AND date >= $2::date AND date < ($3::date + 1)
+     ORDER BY date ASC, id ASC`,
+    [userIds, from, c.endDate],
+  );
+  const byUser = new Map<string, { kg: number; day: string }[]>();
+  for (const r of rows) {
+    if (!byUser.has(r.userId)) byUser.set(r.userId, []);
+    byUser.get(r.userId)!.push({ kg: Number(r.kg), day: r.day });
+  }
+  const firstDays = addDaysToDateKey(c.startDate, 2);
+  for (const uid of userIds) {
+    const list = byUser.get(uid) ?? [];
+    const before = list.filter((e) => e.day < c.startDate);
+    const early = list.filter((e) => e.day >= c.startDate && e.day <= firstDays);
+    const startEntry = before.length ? before[before.length - 1] : early.length ? early[0] : null;
+    let currentKg: number | null = null;
+    if (startEntry) {
+      const after = list.filter((e) => e.day >= c.startDate && e !== startEntry && e.day >= startEntry.day);
+      if (after.length) currentKg = after[after.length - 1].kg;
+    }
+    const startKg = startEntry ? startEntry.kg : null;
+    const lostKg = startKg != null && currentKg != null ? Math.round((startKg - currentKg) * 10) / 10 : null;
+    const lostPct = startKg != null && currentKg != null && startKg > 0 ? Math.round(((startKg - currentKg) / startKg) * 1000) / 10 : null;
+    out.set(uid, { startKg, currentKg, lostKg, lostPct });
+  }
+  return out;
+}
+
 async function scoreParticipant(c: ChallengeRow, p: { userId: string; timezone: string; personalTarget: number | null }, onlyLastDays?: number) {
   const now = new Date();
   const localToday = dateKeyInTz(now, p.timezone);
@@ -520,6 +577,8 @@ async function scoreParticipant(c: ChallengeRow, p: { userId: string; timezone: 
 
   // Daily tick challenges are scored by the person ticking each day (POST .../checkin).
   if (c.type === "tick") return;
+  // Weight challenges are worked out live from the body weight tracker.
+  if (c.metric === "weight") return;
 
   const target = p.personalTarget ?? c.dailyTarget ?? null;
   let byDay: Map<string, number>;
@@ -907,6 +966,7 @@ const challengeCreateSchema = z.object({
 const joinChallengeSchema = z.object({
   timezone: z.string().min(1).max(60),
   showOnLeaderboard: z.boolean().optional(),
+  shareWeightChange: z.boolean().optional(),
   personalTarget: z.number().int().positive().optional(),
 });
 
@@ -1265,7 +1325,8 @@ export function registerCommunityRoutes(app: Express): void {
     const status = challengeStatus(c);
 
     const { rows: partRows } = await pool.query(
-      `SELECT timezone, personal_target AS "personalTarget", show_on_leaderboard AS "showOnLeaderboard", joined_at AS "joinedAt"
+      `SELECT timezone, personal_target AS "personalTarget", show_on_leaderboard AS "showOnLeaderboard", joined_at AS "joinedAt",
+              share_weight_change AS "shareWeightChange"
        FROM community_challenge_participants WHERE challenge_id = $1 AND user_id = $2 AND left_at IS NULL`,
       [id, userId],
     );
@@ -1307,7 +1368,11 @@ export function registerCommunityRoutes(app: Express): void {
         totalDays,
         target: mine.personalTarget ?? c.dailyTarget ?? null,
         showOnLeaderboard: mine.showOnLeaderboard,
+        shareWeightChange: mine.shareWeightChange,
       };
+      if (c.metric === "weight") {
+        myProgress.weight = (await weightProgressFor([userId], c)).get(userId) ?? null;
+      }
     }
     // Daily tick challenges: which days the person can still tick (today and yesterday).
     if (mine && c.type === "tick") {
@@ -1368,12 +1433,12 @@ export function registerCommunityRoutes(app: Express): void {
     }
 
     await pool.query(
-      `INSERT INTO community_challenge_participants (challenge_id, user_id, timezone, personal_target, show_on_leaderboard, joined_at, left_at)
-       VALUES ($1,$2,$3,$4,$5, now(), NULL)
+      `INSERT INTO community_challenge_participants (challenge_id, user_id, timezone, personal_target, show_on_leaderboard, share_weight_change, joined_at, left_at)
+       VALUES ($1,$2,$3,$4,$5,$6, now(), NULL)
        ON CONFLICT ON CONSTRAINT uq_community_participant
        DO UPDATE SET timezone = EXCLUDED.timezone, personal_target = EXCLUDED.personal_target,
-         show_on_leaderboard = EXCLUDED.show_on_leaderboard, left_at = NULL`,
-      [id, userId, parsed.data.timezone, personalTarget, parsed.data.showOnLeaderboard ?? true],
+         show_on_leaderboard = EXCLUDED.show_on_leaderboard, share_weight_change = EXCLUDED.share_weight_change, left_at = NULL`,
+      [id, userId, parsed.data.timezone, personalTarget, parsed.data.showOnLeaderboard ?? true, c.metric === "weight" ? !!parsed.data.shareWeightChange : false],
     );
     res.json({ ok: true });
   }));
@@ -1398,6 +1463,38 @@ export function registerCommunityRoutes(app: Express): void {
     const c = await loadVisibleChallenge(await getViewer(userId), id);
     if (!c) return res.status(404).json({ message: "Challenge not found" });
     const blocked = await blockedIdsFor(userId);
+
+    // Weight: % of starting weight lost from the body weight tracker. Nobody's
+    // actual weight is ever sent; kg lost only for people who chose to share it.
+    if (c.metric === "weight") {
+      const { rows: parts } = await pool.query(
+        `SELECT p.user_id AS "userId", cp.display_name AS "displayName", cp.avatar_url AS "avatarUrl",
+                p.share_weight_change AS "shareWeightChange"
+         FROM community_challenge_participants p
+         JOIN community_profiles cp ON cp.user_id = p.user_id AND cp.is_banned = false
+         WHERE p.challenge_id = $1 AND p.left_at IS NULL AND p.show_on_leaderboard = true
+           AND p.user_id != ALL($2::varchar[])
+         LIMIT 200`,
+        [id, blocked],
+      );
+      const wp = await weightProgressFor(parts.map((r: any) => r.userId), c);
+      const list = parts
+        .map((r: any) => {
+          const w = wp.get(r.userId);
+          return {
+            userId: r.userId,
+            displayName: r.displayName,
+            avatarUrl: r.avatarUrl,
+            lostPct: w?.lostPct ?? null,
+            lostKg: r.shareWeightChange || r.userId === userId ? (w?.lostKg ?? null) : null,
+            total: w?.lostPct ?? 0,
+            daysOnTarget: 0,
+          };
+        })
+        .sort((a: any, b: any) => (b.lostPct ?? -999) - (a.lostPct ?? -999));
+      const ranked = list.map((r: any, i: number) => ({ rank: i + 1, ...r, isMe: r.userId === userId }));
+      return res.json({ goalMode: c.goalMode, metric: "weight", leaderboard: ranked, me: ranked.find((r: any) => r.isMe) ?? null });
+    }
 
     const orderExpr = c.goalMode === "total" ? `total DESC` : `"daysOnTarget" DESC, total DESC`;
     const { rows: board } = await pool.query(
@@ -1463,17 +1560,34 @@ export function registerCommunityRoutes(app: Express): void {
     const d = parsed.data;
     const kind = STAFF_KINDS[d.kind];
 
-    // Target
+    // Style and target
+    const fmt = (n: number) => n.toLocaleString("en-GB");
+    let goalMode: "daily_target" | "total" = "daily_target";
     let dailyTarget: number | null = null;
-    if (kind.min != null && kind.max != null) {
-      if (!d.dailyTarget || d.dailyTarget < kind.min || d.dailyTarget > kind.max) {
-        return res.status(400).json({ message: `Pick a daily target between ${kind.min.toLocaleString("en-GB")} and ${kind.max.toLocaleString("en-GB")}.` });
-      }
-      dailyTarget = d.dailyTarget;
-    }
+    let goalTotal: number | null = null;
     if (d.kind === "tick") {
       if (!d.checkLabel) return res.status(400).json({ message: "Write what people tick off each day, for example \"No alcohol today\"." });
       dailyTarget = 1;
+    } else if (d.kind === "weight") {
+      goalMode = "total";
+      if (d.goalTotal != null) {
+        const [lo, hi] = kind.total!;
+        if (d.goalTotal < lo || d.goalTotal > hi) return res.status(400).json({ message: `Pick a goal between ${lo}% and ${hi}% of starting weight, or leave it blank.` });
+        goalTotal = Math.round(d.goalTotal * 10) / 10;
+      }
+    } else if ((d.style ?? "daily") === "daily") {
+      const [lo, hi] = kind.daily!;
+      if (!d.dailyTarget || d.dailyTarget < lo || d.dailyTarget > hi) {
+        return res.status(400).json({ message: `Pick a daily target between ${fmt(lo)} and ${fmt(hi)}.` });
+      }
+      dailyTarget = d.dailyTarget;
+    } else {
+      goalMode = "total";
+      if (d.goalTotal != null) {
+        const [lo, hi] = kind.total!;
+        if (d.goalTotal < lo || d.goalTotal > hi) return res.status(400).json({ message: `Pick a total between ${fmt(lo)} and ${fmt(hi)}, or leave it blank.` });
+        goalTotal = Math.round(d.goalTotal);
+      }
     }
 
     // Dates: start tomorrow at the earliest (creator's own day), at most 90 days ahead.
@@ -1502,13 +1616,13 @@ export function registerCommunityRoutes(app: Express): void {
       `INSERT INTO community_challenges
         (title, description, type, metric, goal_mode, daily_target, allow_personal_target,
          start_date, end_date, grace_days, results_final_hours, is_published,
-         company_id, created_by, source, is_hidden, hidden_reason, check_label)
-       VALUES ($1,$2,$3,$4,$5,$6,false,$7,$8,$9,$10,true,$11,$12,'staff',$13,$14,$15)
+         company_id, created_by, source, is_hidden, hidden_reason, check_label, goal_total)
+       VALUES ($1,$2,$3,$4,$5,$6,false,$7,$8,$9,$10,true,$11,$12,'staff',$13,$14,$15,$16)
        RETURNING id`,
       [
-        d.title, d.description || null, kind.type, kind.metric, kind.goalMode, dailyTarget,
+        d.title, d.description || null, kind.type, kind.metric, goalMode, dailyTarget,
         d.startDate, endDate, 2, 48,
-        viewer.companyId, userId, hidden, hidden ? "auto_moderation" : null, d.kind === "tick" ? d.checkLabel : null,
+        viewer.companyId, userId, hidden, hidden ? "auto_moderation" : null, d.kind === "tick" ? d.checkLabel : null, goalTotal,
       ],
     );
     const id = rows[0].id;
@@ -1524,9 +1638,9 @@ export function registerCommunityRoutes(app: Express): void {
 
     // The creator is in their own challenge.
     await pool.query(
-      `INSERT INTO community_challenge_participants (challenge_id, user_id, timezone, show_on_leaderboard)
-       VALUES ($1,$2,$3,$4) ON CONFLICT ON CONSTRAINT uq_community_participant DO NOTHING`,
-      [id, userId, d.timezone, d.showOnLeaderboard ?? true],
+      `INSERT INTO community_challenge_participants (challenge_id, user_id, timezone, show_on_leaderboard, share_weight_change)
+       VALUES ($1,$2,$3,$4,$5) ON CONFLICT ON CONSTRAINT uq_community_participant DO NOTHING`,
+      [id, userId, d.timezone, d.showOnLeaderboard ?? true, d.kind === "weight" ? !!d.shareWeightChange : false],
     );
     await modLog(userId, "created", "challenge", String(id), { companyId: viewer.companyId, kind: d.kind });
     res.json({ id, held: false });

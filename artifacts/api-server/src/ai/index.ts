@@ -303,6 +303,9 @@ export async function aiCall<T = unknown>(params: AiCallParams<T>): Promise<AiCa
   let validationOutcome: ValidationOutcome = params.schema ? "invalid" : "no_schema";
   let safetyFlags: string[] = [];
   let rawText = "";
+  // Set when the provider cut the reply off at max_tokens; recorded in the
+  // call log so a truncated answer never shows up as a bare "invalid".
+  let truncated = false;
   let parsed: T | null = null;
   let errorMessage: string | undefined;
   // Track per-leg usage so we can estimate any missing leg independently
@@ -355,6 +358,7 @@ export async function aiCall<T = unknown>(params: AiCallParams<T>): Promise<AiCa
   try {
     const first = await callProvider(redactedPrompt, params.temperature);
     rawText = first.text || "";
+    if (first.stopReason === "max_tokens") truncated = true;
     logLegUsage(params.feature, 1, first.usage);
     legs.push({
       promptTokens: first.usage?.promptTokens,
@@ -394,6 +398,7 @@ export async function aiCall<T = unknown>(params: AiCallParams<T>): Promise<AiCa
           const secondText = second.text || "";
           logLegUsage(params.feature, 2, second.usage);
           rawText = secondText || rawText;
+          truncated = second.stopReason === "max_tokens";
           legs.push({
             promptTokens: second.usage?.promptTokens,
             completionTokens: second.usage?.completionTokens,
@@ -439,10 +444,16 @@ export async function aiCall<T = unknown>(params: AiCallParams<T>): Promise<AiCa
   const latencyMs = Date.now() - startedAt;
   // On a schema failure keep a short preview of what the model actually sent,
   // so the admin AI Activity page shows WHY instead of a bare "invalid".
-  if (params.schema && parsed === null && !errorMessage && rawText) {
+  if (params.schema && parsed === null && !errorMessage) {
     const flat = rawText.replace(/\s+/g, " ").trim();
     const preview = flat.length > 300 ? `${flat.slice(0, 180)} … ${flat.slice(-100)}` : flat;
-    errorMessage = `invalid_json_preview: ${preview}`;
+    if (truncated) {
+      errorMessage = `truncated_at_max_tokens(${safeMaxTokens}): ${preview || "(no text block in reply)"}`;
+    } else if (!flat) {
+      errorMessage = `empty_reply: provider returned no text block`;
+    } else {
+      errorMessage = `invalid_json_preview: ${preview}`;
+    }
   }
   // Prefer real provider usage per leg; fall back to ~chars/4 estimate
   // for whichever leg the provider didn't report. Ensures totals don't

@@ -12,6 +12,9 @@ export interface VisionAnalysisRequest {
 
 export interface VisionAnalysisResponse {
   text: string;
+  // Provider stop reason ("end_turn", "max_tokens", ...). Lets callers tell a
+  // reply that was cut off at the token limit from one that was simply bad.
+  stopReason?: string;
   usage?: {
     // promptTokens is the TOTAL input the model saw (uncached + cache reads +
     // cache writes) so token totals stay comparable before/after caching.
@@ -129,34 +132,35 @@ async function analyzeWithAnthropic(
   const mediaType = detectImageMediaType(request.imageBase64);
   const base64Data = request.imageBase64.replace(/^data:image\/\w+;base64,/, "");
 
-  const message = await anthropic.messages.create({
+  const messages: any = [
+    {
+      role: "user",
+      content: [
+        {
+          type: "image",
+          source: {
+            type: "base64",
+            media_type: mediaType,
+            data: base64Data,
+          },
+        },
+        {
+          type: "text",
+          text: request.prompt,
+        },
+      ],
+    },
+  ];
+  const message = await sendAnthropic(anthropic, model, {
     model,
     max_tokens: request.maxTokens || 2048,
-    messages: [
-      {
-        role: "user",
-        content: [
-          {
-            type: "image",
-            source: {
-              type: "base64",
-              media_type: mediaType,
-              data: base64Data,
-            },
-          },
-          {
-            type: "text",
-            text: request.prompt,
-          },
-        ],
-      },
-    ],
+    messages,
   });
 
-  const responseText =
-    message.content[0].type === "text" ? message.content[0].text : "";
+  const responseText = anthropicText(message);
   return {
     text: responseText,
+    stopReason: message.stop_reason ?? undefined,
     usage: {
       promptTokens: message.usage?.input_tokens,
       completionTokens: message.usage?.output_tokens,
@@ -252,6 +256,79 @@ function looksLikeTemperatureRejection(err: any): boolean {
   return status === 400 && msg.includes("temperature");
 }
 
+// Claude 5.5 and later think by default: the reply then starts with a
+// `thinking` block, the thinking is paid for out of max_tokens, and with the
+// small budgets our structured calls use the model can spend the whole budget
+// thinking and never write the answer. Every call here wants a direct answer,
+// so thinking is turned off with the documented setting for these models,
+// `thinking: { type: "between_tools" }`. Older models reject that setting
+// with a 400, so what to send is learned per model at run time, both ways:
+//   - a 400 that mentions "thinking" -> stop sending it for that model;
+//   - a reply with a thinking block from a model we did not send it to ->
+//     start sending it, and if that reply had no text, resend once.
+const anthropicThinkingPref = new Map<string, "off" | "none">();
+
+function defaultThinkingPref(model: string): "off" | "none" {
+  const m = /^claude-[a-z]+-(\d+)/.exec(model);
+  const major = m ? Number(m[1]) : 0;
+  return major >= 5 ? "off" : "none";
+}
+
+function thinkingParam(model: string): Record<string, unknown> {
+  const pref = anthropicThinkingPref.get(model) ?? defaultThinkingPref(model);
+  return pref === "off" ? { thinking: { type: "between_tools" } } : {};
+}
+
+function looksLikeThinkingRejection(err: any): boolean {
+  const status = err?.status ?? err?.statusCode;
+  const msg = String(err?.message || err || "").toLowerCase();
+  return status === 400 && msg.includes("thinking");
+}
+
+// Every text block, in order. Reading only content[0] silently returns ""
+// when the reply starts with a thinking block.
+export function anthropicText(message: any): string {
+  const blocks: any[] = Array.isArray(message?.content) ? message.content : [];
+  return blocks.filter((b) => b?.type === "text" && typeof b.text === "string").map((b) => b.text).join("");
+}
+
+function hasThinkingBlock(message: any): boolean {
+  const blocks: any[] = Array.isArray(message?.content) ? message.content : [];
+  return blocks.some((b) => b?.type === "thinking" || b?.type === "redacted_thinking");
+}
+
+// One place that sends a Messages request with the thinking setting applied
+// and the two learning rules above. `params` must not contain `thinking`.
+async function sendAnthropic(anthropic: any, model: string, params: Record<string, unknown>): Promise<any> {
+  const attempt = (withThinking: boolean) =>
+    anthropic.messages.create({ ...params, ...(withThinking ? thinkingParam(model) : {}) });
+
+  let message: any;
+  try {
+    message = await attempt(true);
+  } catch (err: any) {
+    if (Object.keys(thinkingParam(model)).length > 0 && looksLikeThinkingRejection(err)) {
+      anthropicThinkingPref.set(model, "none");
+      console.warn(`[aiProvider] ${model} rejects the thinking setting; dropping it for this model from now on. Error: ${String(err?.message || err).slice(0, 200)}`);
+      message = await attempt(true);
+    } else {
+      throw err;
+    }
+  }
+
+  if (hasThinkingBlock(message) && Object.keys(thinkingParam(model)).length === 0) {
+    anthropicThinkingPref.set(model, "off");
+    console.warn(`[aiProvider] ${model} returned a thinking block; turning thinking off for this model from now on.`);
+    if (!anthropicText(message).trim()) {
+      message = await attempt(true);
+    }
+  }
+  if (message?.stop_reason === "max_tokens") {
+    console.warn(`[aiProvider] ${model} hit max_tokens=${String(params.max_tokens)} (blocks: ${(message.content || []).map((b: any) => b?.type).join(",")})`);
+  }
+  return message;
+}
+
 async function textWithAnthropic(
   prompt: string,
   model: string,
@@ -276,7 +353,7 @@ async function textWithAnthropic(
   };
 
   const send = (withCache: boolean) =>
-    anthropic.messages.create({
+    sendAnthropic(anthropic, model, {
       model,
       max_tokens: maxTokens,
       ...(temperature != null ? { temperature } : {}),
@@ -306,7 +383,7 @@ async function textWithAnthropic(
     }
   }
 
-  const responseText = message.content?.[0]?.type === "text" ? message.content[0].text : "";
+  const responseText = anthropicText(message);
   const uncached = message.usage?.input_tokens ?? 0;
   const cacheRead = message.usage?.cache_read_input_tokens ?? 0;
   const cacheWrite = message.usage?.cache_creation_input_tokens ?? 0;
@@ -314,6 +391,7 @@ async function textWithAnthropic(
   const completionTokens = message.usage?.output_tokens;
   return {
     text: responseText,
+    stopReason: message.stop_reason ?? undefined,
     usage: {
       promptTokens,
       completionTokens,

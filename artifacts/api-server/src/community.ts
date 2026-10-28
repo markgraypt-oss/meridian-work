@@ -1251,8 +1251,8 @@ export function registerCommunityRoutes(app: Express): void {
     // What the create screen needs to know.
     let canCreate = false;
     if (viewer.companyId != null) {
-      const { rows: cRows } = await pool.query(`SELECT staff_challenges_enabled AS on FROM companies WHERE id = $1`, [viewer.companyId]);
-      canCreate = !!cRows[0]?.on;
+      const { rows: cRows } = await pool.query(`SELECT staff_challenges_enabled AS enabled FROM companies WHERE id = $1`, [viewer.companyId]);
+      canCreate = !!cRows[0]?.enabled;
     }
     grouped.canCreate = canCreate;
     res.json(grouped);
@@ -1459,8 +1459,8 @@ export function registerCommunityRoutes(app: Express): void {
     if (!profile) return;
     const viewer = await getViewer(userId);
     if (viewer.companyId == null) return res.status(403).json({ message: "Challenges are created within a company. Your account isn't linked to one." });
-    const { rows: coRows } = await pool.query(`SELECT staff_challenges_enabled AS on FROM companies WHERE id = $1`, [viewer.companyId]);
-    if (!coRows[0]?.on) return res.status(403).json({ message: "Your company has turned off staff challenges." });
+    const { rows: coRows } = await pool.query(`SELECT staff_challenges_enabled AS enabled FROM companies WHERE id = $1`, [viewer.companyId]);
+    if (!coRows[0]?.enabled) return res.status(403).json({ message: "Your company has turned off staff challenges." });
 
     const parsed = staffChallengeSchema.safeParse(req.body);
     if (!parsed.success) return res.status(400).json({ message: "Some details are missing or not allowed.", errors: parsed.error.flatten() });

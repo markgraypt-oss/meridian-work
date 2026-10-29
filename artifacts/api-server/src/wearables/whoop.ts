@@ -138,7 +138,15 @@ export const whoopAdapter: WearableAdapter = {
       return byDate.get(d)!;
     };
 
-    for (const s of sleepJson.records || []) {
+    // One sleep entry per day. WHOOP sends naps (nap: true) and split nights
+    // as separate records that end on the same date; they used to overwrite
+    // each other, last write wins, so a nap could replace the whole night.
+    // Now every record for a day is added up, and the sleep score comes from
+    // the main (non-nap) sleep. Records are summed in start order so the
+    // kept raw record is the main night, with the others listed beside it.
+    const sleepSorted = [...(sleepJson.records || [])].sort((a: any, b: any) =>
+      String(a?.start || "").localeCompare(String(b?.start || "")));
+    for (const s of sleepSorted) {
       const day = dayOf(s.end || s.start || "");
       if (!day) continue;
       const d = ensure(day);
@@ -147,17 +155,29 @@ export const whoopAdapter: WearableAdapter = {
       // Sleep" figure. Do NOT use (in_bed - awake): WHOOP buckets sleep latency
       // and no-data gaps outside total_awake_time_milli, so that formula runs
       // several minutes short of the real asleep total.
-      const _light = stage.total_light_sleep_time_milli || 0;
-      const _deep = stage.total_slow_wave_sleep_time_milli || 0;
-      const _rem = stage.total_rem_sleep_time_milli || 0;
-      const _asleepMilli = _light + _deep + _rem;
-      d.sleepMinutes = _asleepMilli > 0 ? Math.round(_asleepMilli / 60000) : null;
-      d.sleepDeepMinutes = stage.total_slow_wave_sleep_time_milli ? Math.round(stage.total_slow_wave_sleep_time_milli / 60000) : null;
-      d.sleepRemMinutes = stage.total_rem_sleep_time_milli ? Math.round(stage.total_rem_sleep_time_milli / 60000) : null;
-      d.sleepLightMinutes = stage.total_light_sleep_time_milli ? Math.round(stage.total_light_sleep_time_milli / 60000) : null;
-      d.sleepAwakeMinutes = stage.total_awake_time_milli ? Math.round(stage.total_awake_time_milli / 60000) : null;
-      d.sleepScore = s.score?.sleep_performance_percentage ? Math.round(s.score.sleep_performance_percentage) : null;
-      (d.raw as any).sleep = s;
+      const mins = (v: any) => (v ? Math.round(v / 60000) : 0);
+      const light = mins(stage.total_light_sleep_time_milli);
+      const deep = mins(stage.total_slow_wave_sleep_time_milli);
+      const rem = mins(stage.total_rem_sleep_time_milli);
+      const awake = mins(stage.total_awake_time_milli);
+      const asleep = light + deep + rem;
+      const add = (cur: number | null | undefined, v: number) => (v > 0 ? (cur || 0) + v : (cur ?? null));
+      d.sleepMinutes = add(d.sleepMinutes, asleep);
+      d.sleepDeepMinutes = add(d.sleepDeepMinutes, deep);
+      d.sleepRemMinutes = add(d.sleepRemMinutes, rem);
+      d.sleepLightMinutes = add(d.sleepLightMinutes, light);
+      d.sleepAwakeMinutes = add(d.sleepAwakeMinutes, awake);
+      const isNap = s.nap === true;
+      const perf = s.score?.sleep_performance_percentage;
+      if (!isNap && perf) d.sleepScore = Math.round(perf);
+      else if (d.sleepScore == null && perf) d.sleepScore = Math.round(perf);
+      const rawAny = d.raw as any;
+      if (!isNap || !rawAny.sleep) {
+        if (rawAny.sleep && rawAny.sleep !== s) rawAny.sleepExtra = [...(rawAny.sleepExtra || []), rawAny.sleep];
+        rawAny.sleep = s;
+      } else {
+        rawAny.sleepExtra = [...(rawAny.sleepExtra || []), s];
+      }
     }
     for (const r of recJson.records || []) {
       const day = dayOf(r.created_at || "");

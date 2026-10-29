@@ -373,6 +373,9 @@ async function refreshIfNeeded(conn: WearableConnection, adapter: WearableAdapte
       // Deployment logs were blind to refresh deaths (nothing logged them) —
       // always print the REAL provider error here.
       console.error(`[wearables] token refresh FAILED for conn ${conn.id} (${conn.provider}):`, msg);
+      // Shape of the token we sent, never the token: tells a token the provider
+      // never issued (odd length, wrong prefix) from one it has revoked.
+      console.error(`[wearables] conn ${conn.id} refresh token shape: len=${refreshToken.length} prefix=${refreshToken.slice(0, 4)} saved=${(cur ?? conn).updatedAt?.toISOString?.() ?? "?"} expiresAt=${(cur ?? conn).tokenExpiresAt?.toISOString?.() ?? "?"}`);
       const fatal = /invalid_grant|invalid_token|unauthorized|\b400\b|\b401\b/i.test(msg);
       if (fatal) {
         // Reconnect-interleave guard: the OAuth callback writes new tokens

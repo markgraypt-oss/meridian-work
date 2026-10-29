@@ -3123,7 +3123,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // 30 days back, max 100 rows.
   app.get('/api/admin/wearables-debug', isAuthenticated, requireAdmin, async (req: any, res) => {
     try {
-      const userId = req.user.claims.sub;
+      // Admin support tool: ?userId= looks at another user's rows (raw provider
+      // records included) so a "my sleep is wrong" report can be checked
+      // against what the wearable actually sent, instead of guessed at.
+      const userId = typeof req.query.userId === 'string' && req.query.userId.trim()
+        ? req.query.userId.trim()
+        : req.user.claims.sub;
       const provider = typeof req.query.provider === 'string' ? req.query.provider : undefined;
       const daysRaw = parseInt(String(req.query.days ?? '14'), 10);
       const days = Number.isFinite(daysRaw) ? Math.min(Math.max(daysRaw, 1), 30) : 14;

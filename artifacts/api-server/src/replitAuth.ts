@@ -193,7 +193,7 @@ export async function sendTesterSignupNotification(input: { firstName: string; e
         bodyHtml:
           emailParagraph(`<strong>${input.firstName}</strong> &lt;${input.email}&gt; signed up on /test (${input.phone}).`) +
           emailParagraph(input.likelyBot
-            ? "Blocked as a likely bot: the name looks like random letters and doesn't match the email. No account created and no email sent to this address. If this is a real person, add them by hand."
+            ? "Blocked as a likely bot: random-letter details that don't match the email. No account created and no email sent to this address. If this is a real person, add them by hand."
             : input.existing ? "This email already had an account; a fresh set-up link was sent instead of creating a duplicate." : "Account created in the Testers company and the welcome email sent.") +
           emailParagraph(new Date().toLocaleString("en-GB", { timeZone: "Europe/Madrid", timeZoneName: "short" })),
         footerNote: "Set TESTER_ADMIN_PING=off in Secrets to stop these.",

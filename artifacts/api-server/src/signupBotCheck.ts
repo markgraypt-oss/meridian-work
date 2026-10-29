@@ -1,12 +1,17 @@
 // Spam-bot check for the public tester and waitlist forms.
 // 27 Oct 2026, v2: v1 let "Unfcez" through on the tester form. v2 scores how
 // name-like each word is and remembers bot emails across both forms.
+// 29 Oct 2026, v3: v2 let "Dghyigr Qfwvo" <garysgreen@...> through because the
+// email check only worked on first.last addresses, and the company and role
+// fields ("Lpghomuklg LLC", "DeFliTNAVOjEMpGibJ") were never checked.
 //
-// The pattern: a bot puts random letters in the name fields ("Kunuyp Zxnjg",
-// "Cjohfk", "Unfcez") next to a real, scraped work email. A sign-up is blocked when
-//   (a) a name word looks like random letters AND the email is first.last style
-//       and matches none of the names, or
-//   (b) the same email was blocked on either form in the last 24 hours and the
+// The pattern: a bot puts random letters in the name, company and role fields
+// next to a real, scraped email. A sign-up is blocked when
+//   (a) any name, company or role word is a jumble of upper and lower case
+//       ("DeFliTNAVOjEMpGibJ"), or
+//   (b) any name, company or role word looks like random letters AND the email
+//       (any style, dotted or not) matches none of the person's names, or
+//   (c) the same email was blocked on either form in the last 24 hours and the
 //       name doesn't match it (so the real owner of the address still gets in).
 //
 // Blocked sign-ups are NOT silently dropped: the routes skip every email to the
@@ -73,11 +78,27 @@ export function nameTokenLooksRandom(raw: string): boolean {
   return nameScore(t) < RANDOM_THRESHOLD;
 }
 
-/** True when the email is first.last style and no part of it matches any submitted name. */
+/** True when a word is a jumble of upper and lower case, e.g. "DeFliTNAVOjEMpGibJ".
+ *  Real names and brands ("McDonald", "OpenAI", "LinkedIn") switch case a few times at most. */
+export function tokenIsCaseJumble(raw: string): boolean {
+  const t = String(raw || "").replace(/[^A-Za-z]/g, "");
+  if (t.length < 10) return false;
+  let switches = 0;
+  for (let i = 1; i < t.length; i++) {
+    const a = t[i - 1] === t[i - 1].toUpperCase();
+    const b = t[i] === t[i].toUpperCase();
+    if (a !== b) switches++;
+  }
+  return switches >= 6;
+}
+
+/** True when no part of the email matches any submitted name. Works on any email
+ *  style: first.last, firstlast, jsmith, john. */
 export function emailNameMismatch(email: string, names: string[]): boolean {
   const local = email.split("@")[0].split("+")[0];
   const parts = local.split(/[._-]+/).map(letters).filter((p) => p.length >= 2);
-  if (parts.length < 2) return false;
+  if (parts.length === 0) return false;
+  const whole = letters(local);
   const tokens = names.flatMap((n) => String(n || "").split(/\s+/)).map(letters).filter((t) => t.length >= 2);
   if (tokens.length === 0) return false;
   const matches = tokens.some((t) =>
@@ -85,7 +106,9 @@ export function emailNameMismatch(email: string, names: string[]): boolean {
       p.startsWith(t.slice(0, 3)) || t.startsWith(p.slice(0, 3)) ||
       // Short names are often nicknames (Tom for thomas., Liz for elizabeth.):
       // a shared first letter counts. Bot names are 5+ letters, so this doesn't weaken the check.
-      (t.length <= 4 && p[0] === t[0])),
+      (t.length <= 4 && p[0] === t[0])) ||
+    // Undotted emails: "jsmith" or "garysgreen" contain the name without a separator.
+    (t.length >= 3 && whole.includes(t.slice(0, 3))),
   );
   return !matches;
 }
@@ -106,14 +129,23 @@ function isRecentBotEmail(email: string): boolean {
   return !!until && until > Date.now();
 }
 
-export function looksLikeBotSignup(input: { names: Array<string | null | undefined>; email: string }): boolean {
-  const names = input.names.filter((n): n is string => !!n && !!String(n).trim());
+export function looksLikeBotSignup(input: {
+  names: Array<string | null | undefined>;
+  /** Other free-text fields (company, role). Checked for random letters, not matched against the email. */
+  extra?: Array<string | null | undefined>;
+  email: string;
+}): boolean {
+  const clean = (arr: Array<string | null | undefined>) => arr.filter((n): n is string => !!n && !!String(n).trim());
+  const names = clean(input.names);
+  const extra = clean(input.extra || []);
+  const words = [...names, ...extra].flatMap((n) => n.split(/\s+/));
   const mismatch = emailNameMismatch(input.email, names);
   // A bot's email is a real person's scraped address, so the 24-hour memory only
   // blocks when the name doesn't match it; the real owner still gets through.
   if (mismatch && isRecentBotEmail(input.email)) return true;
-  const anyRandom = names.flatMap((n) => n.split(/\s+/)).some(nameTokenLooksRandom);
-  const bot = anyRandom && mismatch;
+  const caseJumble = words.some(tokenIsCaseJumble);
+  const anyRandom = words.some(nameTokenLooksRandom);
+  const bot = caseJumble || (anyRandom && mismatch);
   if (bot) rememberBotEmail(input.email);
   return bot;
 }

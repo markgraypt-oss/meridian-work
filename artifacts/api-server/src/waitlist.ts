@@ -98,7 +98,7 @@ export async function sendWaitlistAdminPing(input: WaitlistInput, existing: bool
           emailParagraph(`<strong>${name}</strong> &lt;${input.email}&gt;`) +
           emailParagraph(`${input.company}${input.role ? ` · ${input.role}` : ""}${input.staffBand ? ` · ${BAND_LABEL[input.staffBand]} staff` : ""}`) +
           emailParagraph(likelyBot
-            ? "Blocked as a likely bot: the name looks like random letters and doesn't match the email. Not saved to the waitlist and no email sent to this address. If this is a real person, add them by hand."
+            ? "Blocked as a likely bot: random-letter details that don't match the email. Not saved to the waitlist and no email sent to this address. If this is a real person, add them by hand."
             : existing ? "Already on the list; details refreshed." : "New. Add to the Outreach Pipeline.") +
           emailParagraph(new Date().toLocaleString("en-GB", { timeZone: "Europe/Madrid", timeZoneName: "short" })),
         footerNote: "Reply goes to the MD. Set TESTER_ADMIN_PING=off to stop these.",

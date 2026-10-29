@@ -2645,10 +2645,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       const links = { ios: TESTFLIGHT_URL, android: PLAY_TESTING_URL || null };
 
-      // Spam bot: random-letter name + someone else's real email. No account, no
-      // email to that address, no admin email. Logged in the Repl console only.
+      // Spam bot: random-letter details + someone else's real email. No account and
+      // no email to that address. Mark still gets the admin ping marked "Likely bot"
+      // so a real person caught by mistake can be added by hand.
       if (looksLikeBotSignup({ names: [firstName], email })) {
         console.warn(`[TESTER] Likely bot sign-up blocked: "${firstName}" <${email}>`);
+        sendTesterSignupNotification({ firstName, email, phone, existing: false, likelyBot: true }).catch(() => {});
         return res.status(201).json({ ok: true, emailSent: true, links });
       }
 
@@ -2760,10 +2762,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       const input = { firstName, lastName, email, company, role, staffBand };
 
-      // Spam bot: random-letter name + someone else's real email. Not saved, no
-      // email to that address, no admin email. Logged in the Repl console only.
-      if (looksLikeBotSignup({ names: [firstName, lastName], email })) {
+      // Spam bot: random-letter details + someone else's real email. Not saved and
+      // no email to that address. Mark still gets the admin ping marked "Likely bot"
+      // so a real person caught by mistake can be added by hand.
+      if (looksLikeBotSignup({ names: [firstName, lastName], extra: [company, role], email })) {
         console.warn(`[WAITLIST] Likely bot sign-up blocked: "${firstName} ${lastName || ""}" <${email}>`);
+        sendWaitlistAdminPing(input, false, true).catch(() => {});
         return res.status(201).json({ ok: true, emailSent: true });
       }
 

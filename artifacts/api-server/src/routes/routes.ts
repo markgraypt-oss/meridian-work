@@ -3136,7 +3136,22 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const conditions = [eq(wearableMetricsDaily.userId, userId), sql`${wearableMetricsDaily.date} >= ${cutoff}`];
       if (provider) conditions.push(eq(wearableMetricsDaily.provider, provider));
       const rows = await db.select().from(wearableMetricsDaily).where(and(...conditions)).orderBy(desc(wearableMetricsDaily.date)).limit(100);
-      res.json({ userId, provider: provider ?? 'all', days, count: rows.length, rows });
+      // Connection state (never the tokens): shows whether a provider has
+      // stopped syncing and what the last error was.
+      const connections = await db.select({
+        id: wearableConnections.id,
+        provider: wearableConnections.provider,
+        status: wearableConnections.status,
+        tokenExpiresAt: wearableConnections.tokenExpiresAt,
+        connectedAt: wearableConnections.connectedAt,
+        lastSyncAt: wearableConnections.lastSyncAt,
+        lastSyncStatus: wearableConnections.lastSyncStatus,
+        lastSyncError: wearableConnections.lastSyncError,
+        scopes: wearableConnections.scopes,
+        meta: wearableConnections.meta,
+        updatedAt: wearableConnections.updatedAt,
+      }).from(wearableConnections).where(eq(wearableConnections.userId, userId));
+      res.json({ userId, provider: provider ?? 'all', days, count: rows.length, connections, rows });
     } catch (error: any) {
       console.error('[wearables-debug] error:', error);
       res.status(500).json({ message: 'Failed to fetch wearable debug data', error: error?.message });

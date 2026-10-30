@@ -4703,7 +4703,6 @@ export class DatabaseStorage implements IStorage {
     const endOfDay = new Date(date);
     endOfDay.setHours(23, 59, 59, 999);
     const now = new Date();
-    const overdueCutoff = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
 
     const rows = await db
       .select()
@@ -4722,18 +4721,19 @@ export class DatabaseStorage implements IStorage {
               gte(reassessmentReminders.dueAt, startOfDay),
               lte(reassessmentReminders.dueAt, endOfDay)
             ),
-            // Viewing today or a past day: also include anything overdue —
-            // but only for a week. A reminder nobody acted on for seven days
-            // is not going to be acted on; leaving it on the dashboard for
-            // ever just buries the things that matter today.
+            // Viewing today or a past day: also include anything overdue,
+            // for as long as it stays open. (A one-week drop-off used to hide
+            // older ones here while the push notification kept firing for
+            // them, so people got nagged about a card that was not there.
+            // Decided 30 Oct 2026: the card stays until it is reassessed,
+            // snoozed or dismissed, same as the notification.)
             and(
               sql`${startOfDay} <= ${now}`,
               or(
                 eq(reassessmentReminders.status, 'due'),
                 eq(reassessmentReminders.status, 'scheduled')
               ),
-              lte(reassessmentReminders.dueAt, now),
-              gte(reassessmentReminders.dueAt, overdueCutoff)
+              lte(reassessmentReminders.dueAt, now)
             ),
             // COMPLETED ON THIS DAY. A reassessment that has been done used to
             // vanish from the dashboard the moment it was finished, so the day's

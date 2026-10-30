@@ -201,6 +201,10 @@ async function runBodyMapReassessments(): Promise<void> {
           ? `${areas[0]} and ${areas[1]}`
           : `${areas[0]}, ${areas[1]} and ${areas.length - 2} more`;
 
+      const dueParam = encodeURIComponent(due.map((d) => d.bodyArea).join(","));
+      const bodyMapLink = due.length === 1
+        ? `/body-map?area=${encodeURIComponent(due[0].bodyArea)}`
+        : `/body-map?due=${dueParam}`;
       const oldest = due[0].dueAt;
       const daysOverdue = Math.floor((today.getTime() - new Date(oldest).getTime()) / 86_400_000);
       const timing =
@@ -215,11 +219,14 @@ async function runBodyMapReassessments(): Promise<void> {
         body: `${timing} A quick reassessment of your ${areaText} keeps your training adjusted to it.`,
         data: {
           bodyMapReassessment: true,
-          // Same destination as the Home card. These disagreed before.
-          url: "/training/body-map",
-          route: "/training/body-map",
+          // Same destination as the Home card, with the due areas in the
+          // link: one area preselects it, several highlight them all on the
+          // figure. The old bare route opened the map with nothing marked.
+          url: bodyMapLink,
+          route: bodyMapLink,
           reminderId: due[0].id,
           bodyArea: due[0].bodyArea,
+          bodyAreas: due.map((d) => d.bodyArea),
         },
         disableEmail: true,
         prefKey: "bodyMapReassessment",

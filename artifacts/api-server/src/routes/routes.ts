@@ -3158,6 +3158,23 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // Admin support tool: recompute one user's readiness for one past day from
+  // the wearable rows as they stand now. Past days only recompute on the
+  // nightly job (yesterday), so a corrected sync never reached older scores.
+  app.post('/api/admin/readiness/recompute', isAuthenticated, requireAdmin, async (req: any, res) => {
+    try {
+      const userId = String(req.query.userId || req.body?.userId || req.user.claims.sub).trim();
+      const date = String(req.query.date || req.body?.date || '').trim();
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) return res.status(400).json({ message: 'date=YYYY-MM-DD required' });
+      const dr = await import('../dailyReadiness');
+      const result = await dr.computeAndStoreForUserDay(userId, date);
+      res.json({ userId, date, result });
+    } catch (error: any) {
+      console.error('[admin/readiness/recompute] error:', error);
+      res.status(500).json({ message: 'Failed to recompute readiness', error: error?.message });
+    }
+  });
+
   // Admin-only: force-generate a coach briefing for a user, bypassing the
   // time window. Intended for testing prompt changes. Query params:
   //   userId (required) - target user

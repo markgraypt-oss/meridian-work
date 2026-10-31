@@ -36,5 +36,7 @@ export interface WearableAdapter {
   exchangeCode?(code: string, redirectUri: string): Promise<OAuthTokens>;
   refresh?(refreshToken: string): Promise<OAuthTokens>;
   // All providers (except apple_health) implement this
-  fetchDaily?(accessToken: string, fromDate: string, toDate: string): Promise<NormalisedDailyMetrics[]>;
+  // tz: the user's IANA timezone. Providers that return instants (WHOOP) use
+  // it to file each record on the user's local day, not the UTC day.
+  fetchDaily?(accessToken: string, fromDate: string, toDate: string, tz?: string | null): Promise<NormalisedDailyMetrics[]>;
 }

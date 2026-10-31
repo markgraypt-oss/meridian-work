@@ -82,7 +82,7 @@ export const whoopAdapter: WearableAdapter = {
     };
   },
 
-  async fetchDaily(accessToken: string, fromDate: string, toDate: string): Promise<NormalisedDailyMetrics[]> {
+  async fetchDaily(accessToken: string, fromDate: string, toDate: string, tz?: string | null): Promise<NormalisedDailyMetrics[]> {
     const headers = { Authorization: `Bearer ${accessToken}` };
     const start = `${fromDate}T00:00:00.000Z`;
     const end = `${toDate}T23:59:59.999Z`;
@@ -132,7 +132,21 @@ export const whoopAdapter: WearableAdapter = {
     }
 
     const byDate = new Map<string, NormalisedDailyMetrics>();
-    const dayOf = (iso: string) => (iso || "").slice(0, 10);
+    // File each record on the USER'S local day. Keying on the UTC date put a
+    // sleep that ended at 01:10 local on the previous day (23:10Z), where it
+    // merged with the night before and left the real day empty.
+    let dayFmt: Intl.DateTimeFormat | null = null;
+    if (tz) {
+      try { dayFmt = new Intl.DateTimeFormat("en-CA", { timeZone: tz, year: "numeric", month: "2-digit", day: "2-digit" }); } catch { dayFmt = null; }
+    }
+    const dayOf = (iso: string) => {
+      if (!iso) return "";
+      if (dayFmt) {
+        const t = new Date(iso);
+        if (!isNaN(t.getTime())) return dayFmt.format(t); // en-CA gives YYYY-MM-DD
+      }
+      return iso.slice(0, 10);
+    };
     const ensure = (d: string) => {
       if (!byDate.has(d)) byDate.set(d, { date: d, raw: {} });
       return byDate.get(d)!;

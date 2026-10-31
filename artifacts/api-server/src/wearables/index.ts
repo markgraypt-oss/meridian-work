@@ -514,7 +514,7 @@ export async function syncProvider(userId: string, provider: WearableProvider, o
     const today = new Date();
     const fromDate = dateOnly(new Date(today.getTime() - days * 24 * 60 * 60 * 1000));
     const toDate = dateOnly(today);
-    const metrics = await adapter.fetchDaily(accessToken, fromDate, toDate);
+    const metrics = await adapter.fetchDaily(accessToken, fromDate, toDate, await getUserTimezone(userId));
     const written = await upsertDailyMetrics(userId, provider, metrics);
     await finalize("ok", written);
     return { daysSynced: written, status: "ok" };
@@ -523,6 +523,16 @@ export async function syncProvider(userId: string, provider: WearableProvider, o
     console.error(`[wearables] sync ${provider} for ${userId} failed:`, msg);
     await finalize("error", 0, msg);
     return { daysSynced: 0, status: "error", error: msg };
+  }
+}
+
+async function getUserTimezone(userId: string): Promise<string | null> {
+  try {
+    const { users } = await import("@workspace/db");
+    const [row] = await db.select({ timezone: users.timezone }).from(users).where(eq(users.id, userId)).limit(1);
+    return row?.timezone || null;
+  } catch {
+    return null;
   }
 }
 

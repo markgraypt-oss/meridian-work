@@ -988,6 +988,16 @@ const BADGES_V2 = [
   { name: "Week Warrior", description: "Maintain a 7-day activity streak", category: "streak", tier: "bronze", icon: "⚔️", requirement: JSON.stringify({ type: "streak", metric: "activity_streak", target: 7 }), sortOrder: 160 },
   { name: "Monthly Marvel", description: "Maintain a 30-day activity streak", category: "streak", tier: "gold", icon: "🌟", requirement: JSON.stringify({ type: "streak", metric: "activity_streak", target: 30 }), sortOrder: 161 },
   { name: "Century Streak", description: "Maintain a 100-day activity streak", category: "streak", tier: "platinum", icon: "💯", requirement: JSON.stringify({ type: "streak", metric: "activity_streak", target: 100 }), sortOrder: 162 },
+  // Added 30 Oct 2026: the ladder used to stop at 100 days.
+  { name: "200 Days Strong", description: "Maintain a 200-day activity streak", category: "streak", tier: "platinum", icon: "🔥", requirement: JSON.stringify({ type: "streak", metric: "activity_streak", target: 200 }), sortOrder: 163 },
+  { name: "300 Days Strong", description: "Maintain a 300-day activity streak", category: "streak", tier: "platinum", icon: "🏅", requirement: JSON.stringify({ type: "streak", metric: "activity_streak", target: 300 }), sortOrder: 164 },
+  { name: "400 Days Strong", description: "Maintain a 400-day activity streak", category: "streak", tier: "platinum", icon: "🎯", requirement: JSON.stringify({ type: "streak", metric: "activity_streak", target: 400 }), sortOrder: 165 },
+  { name: "500 Days Strong", description: "Maintain a 500-day activity streak", category: "streak", tier: "platinum", icon: "🛡️", requirement: JSON.stringify({ type: "streak", metric: "activity_streak", target: 500 }), sortOrder: 166 },
+  { name: "600 Days Strong", description: "Maintain a 600-day activity streak", category: "streak", tier: "platinum", icon: "⚡", requirement: JSON.stringify({ type: "streak", metric: "activity_streak", target: 600 }), sortOrder: 167 },
+  { name: "700 Days Strong", description: "Maintain a 700-day activity streak", category: "streak", tier: "platinum", icon: "🌠", requirement: JSON.stringify({ type: "streak", metric: "activity_streak", target: 700 }), sortOrder: 168 },
+  { name: "800 Days Strong", description: "Maintain an 800-day activity streak", category: "streak", tier: "platinum", icon: "🗿", requirement: JSON.stringify({ type: "streak", metric: "activity_streak", target: 800 }), sortOrder: 169 },
+  { name: "900 Days Strong", description: "Maintain a 900-day activity streak", category: "streak", tier: "platinum", icon: "🏔️", requirement: JSON.stringify({ type: "streak", metric: "activity_streak", target: 900 }), sortOrder: 170 },
+  { name: "Thousand Day Legend", description: "Maintain a 1000-day activity streak", category: "streak", tier: "platinum", icon: "👑", requirement: JSON.stringify({ type: "streak", metric: "activity_streak", target: 1000 }), sortOrder: 171 },
   // SUPPLEMENT (4)
   { name: "First Stack", description: "Add your first supplement", category: "supplement", tier: "bronze", icon: "💊", requirement: JSON.stringify({ type: "count", metric: "supplements_total", target: 1 }), sortOrder: 170 },
   { name: "Supplement Starter", description: "Take supplements for 7 consecutive days", category: "supplement", tier: "bronze", icon: "🌿", requirement: JSON.stringify({ type: "streak", metric: "supplement_streak", target: 7 }), sortOrder: 171 },
@@ -1097,6 +1107,32 @@ export async function seedReadinessBadgesOnce(): Promise<void> {
     console.log(`[startup-migration] readiness-badges: seeded ${readinessBadges.length} badges`);
   } catch (e: any) {
     console.error("[startup-migration] readiness-badges failed:", e?.message || e);
+  }
+}
+
+// Streak ladder 200..1000 days (30 Oct 2026). Inserts only the streak badges
+// whose name is not yet in the current collection, so it is safe on every boot.
+export async function seedStreakLadderOnce(): Promise<void> {
+  try {
+    const ladder = BADGES_V2.filter(b => b.category === 'streak');
+    const existing = await pool.query(
+      `SELECT name FROM badges WHERE category = 'streak' AND collection = 'current' AND is_active = true`
+    );
+    const have = new Set((existing.rows || []).map((r: any) => String(r.name)));
+    let added = 0;
+    for (const b of ladder) {
+      if (have.has(b.name)) continue;
+      await pool.query(
+        `INSERT INTO badges (name, description, category, tier, icon, requirement, collection, sort_order, is_active)
+         VALUES ($1, $2, $3, $4, $5, $6, 'current', $7, true)
+         ON CONFLICT DO NOTHING`,
+        [b.name, b.description, b.category, b.tier, b.icon, b.requirement, b.sortOrder]
+      );
+      added++;
+    }
+    if (added) console.log(`[startup-migration] streak-ladder: added ${added} badges`);
+  } catch (e: any) {
+    console.error("[startup-migration] streak-ladder failed:", e?.message || e);
   }
 }
 

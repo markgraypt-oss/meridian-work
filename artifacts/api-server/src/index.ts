@@ -54,7 +54,7 @@ if (Number.isNaN(port) || port <= 0) {
       "Server listening",
     );
 
-    import("./startupMigrations").then(({ runSchemaSelfHealOnce, runProfileImageMigrationOnce, seedMeditationsOnce, seedAiPromptsOnce, repairBodyweightGoalUnitsOnce, normalizeRecipeMacrosOnce, seedBadgesV2Once, retireDroppedDeskBadgesOnce, fixHabitTemplateDescriptionsOnce, seedReadinessBadgesOnce, dedupeCheckInsOnce, backfillContentTagsOnce, revokeEmptyBurnoutBadgesOnce, revokeEmptyAiBadgesOnce, revokeInvalidPerfectRecordOnce, revokeInflatedStretchingBadgesOnce, revokeWearableOnlySelfAwareOnce, seedLabTopicCoversOnce, seedLabPathCoversOnce, seedLabLifeStageOnce, stripEmDashesFromDescriptionsOnce, restoreRecipeImagesFromUploadsOnce, reconcileBreathworkDurationsOnce, seedBreathworkTechniquesV2Once, backfillBriefingConversationsOnce }) => {
+    import("./startupMigrations").then(({ runSchemaSelfHealOnce, runProfileImageMigrationOnce, seedMeditationsOnce, seedAiPromptsOnce, repairBodyweightGoalUnitsOnce, normalizeRecipeMacrosOnce, seedBadgesV2Once, retireDroppedDeskBadgesOnce, fixHabitTemplateDescriptionsOnce, seedReadinessBadgesOnce, seedStreakLadderOnce, dedupeCheckInsOnce, backfillContentTagsOnce, revokeEmptyBurnoutBadgesOnce, revokeEmptyAiBadgesOnce, revokeInvalidPerfectRecordOnce, revokeInflatedStretchingBadgesOnce, revokeWearableOnlySelfAwareOnce, seedLabTopicCoversOnce, seedLabPathCoversOnce, seedLabLifeStageOnce, stripEmDashesFromDescriptionsOnce, restoreRecipeImagesFromUploadsOnce, reconcileBreathworkDurationsOnce, seedBreathworkTechniquesV2Once, backfillBriefingConversationsOnce }) => {
       runSchemaSelfHealOnce()
         .catch((e: any) => logger.error({ e }, "[startup-migration] schema self-heal failed"))
         .then(() => {
@@ -67,6 +67,7 @@ if (Number.isNaN(port) || port <= 0) {
           retireDroppedDeskBadgesOnce().catch((e: any) => logger.error({ e }, "[startup-migration] retire-desk-badges failed"));
           fixHabitTemplateDescriptionsOnce().catch((e: any) => logger.error({ e }, "[startup-migration] habit-template-descriptions failed"));
           seedReadinessBadgesOnce().catch((e: any) => logger.error({ e }, "[startup-migration] readiness-badges failed"));
+          seedStreakLadderOnce().catch((e: any) => logger.error({ e }, "[startup-migration] streak-ladder failed"));
           dedupeCheckInsOnce().catch((e: any) => logger.error({ e }, "[startup-migration] dedupe-check-ins failed"));
           backfillContentTagsOnce().catch((e: any) => logger.error({ e }, "[startup-migration] content-tag backfill failed"));
           revokeEmptyBurnoutBadgesOnce().catch((e: any) => logger.error({ e }, "[startup-migration] revoke empty burnout badges failed"));

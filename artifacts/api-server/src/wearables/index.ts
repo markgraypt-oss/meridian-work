@@ -445,13 +445,18 @@ async function refreshIfNeeded(conn: WearableConnection, adapter: WearableAdapte
       try {
         const { notify } = await import("../notifications");
         const label = PROVIDER_LABELS[conn.provider as WearableProvider] || conn.provider;
+        // force: this is an account-health alert, not a nudge. Without it the
+        // push went through the "admin" category whose push toggle defaults
+        // OFF, so a dropped wearable only ever reached the in-app bell and
+        // members read the missing data as a bug (Sarah K, 27 Oct 2026).
         await notify({
           userId: conn.userId,
           category: "admin",
-          title: `${label} disconnected`,
-          body: `MeridianWork lost its connection to ${label} and has stopped syncing. Open Wearables & Integrations and tap Connect to restore your sleep, recovery and HRV data.`,
-          data: { url: "/profile/integrations", provider: conn.provider, kind: "wearable_disconnected" },
+          title: `${label} needs reconnecting`,
+          body: `${label} stopped accepting MeridianWork's connection, so your sleep, recovery and HRV have stopped syncing. Open Wearables & Integrations and tap Connect to link it again.`,
+          data: { url: "/profile/integrations", route: "/profile/integrations", provider: conn.provider, kind: "wearable_disconnected" },
           disableEmail: true,
+          force: true,
         });
       } catch (notifyErr) {
         console.error("[wearables] disconnect notification failed:", notifyErr);
@@ -722,10 +727,16 @@ export function mergeMetricsPerDay(rows: WearableMetricsDaily[]): MergedDailyMet
 // A connection that is not explicitly disconnected counts: needs_reauth users
 // have been notified and the scheduler retries them — Apple must not silently
 // take over physio in the meantime.
+// A dedicated wearable counts as connected only while it is actually syncing
+// (status "connected"). One that needs reconnecting (token rejected) or was
+// disconnected no longer blocks Apple Health / Health Connect: the phone's
+// data stands in until the wearable is linked again, then WHOOP/Oura take
+// over again on their own. (Until 1 Nov 2026 needs_reauth still counted as
+// connected, so a dropped WHOOP left sleep, HRV and RHR blank for days.)
 export async function getConnectedOauthProvider(userId: string): Promise<WearableProvider | null> {
   const conns = await getConnections(userId);
   const c = conns.find(
-    (x) => (x.provider === "whoop" || x.provider === "oura") && x.status !== "disconnected",
+    (x) => (x.provider === "whoop" || x.provider === "oura") && x.status === "connected",
   );
   return (c?.provider as WearableProvider) ?? null;
 }

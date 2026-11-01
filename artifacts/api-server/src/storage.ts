@@ -10486,8 +10486,15 @@ export class DatabaseStorage implements IStorage {
     // Honour provider priority (100% of the time): collapse multi-provider days
     // to one canonical row per date via the shared per-metric merge, instead of
     // letting arbitrary DB row order decide which provider wins.
-    const { mergeMetricsPerDay } = await import("./wearables");
-    const wearRows = mergeMetricsPerDay(wearRowsRaw as any);
+    const { mergeMetricsPerDay, getConnectedOauthProvider, stripNonOauthPhysio } = await import("./wearables");
+    // Same rule as readiness: while WHOOP/Oura is connected, Apple Health /
+    // Health Connect never supply sleep (the WHOOP app writes its own data
+    // into Apple Health, so a half-recorded night would show up here while
+    // readiness ignored it). A day the wearable has nothing for shows no data.
+    const oauthProvider = await getConnectedOauthProvider(userId);
+    const wearRows = mergeMetricsPerDay(wearRowsRaw as any)
+      .map((r: any) => (oauthProvider ? stripNonOauthPhysio(r) : r))
+      .filter((r: any) => !!r && r.sleepMinutes != null);
 
     const byDate = new Map<string, SleepEntryWithSource>();
 

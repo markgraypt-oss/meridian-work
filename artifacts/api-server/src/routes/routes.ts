@@ -11345,7 +11345,10 @@ Rules:
       };
       const result = await generateWorkoutWithAI(inputs, userId);
       if (!result.ok) {
-        return res.status(502).json({ message: result.error, validationOutcome: result.validationOutcome, logId: result.logId });
+        // 422, not 502: the request was fine, the generator could not satisfy
+        // it. 502 means "the server behind us is down" and made every failed
+        // generation look like an outage in Sentry.
+        return res.status(422).json({ message: result.error, validationOutcome: result.validationOutcome, logId: result.logId });
       }
       res.json({ inputs, data: result.data, logId: result.logId, safetyFlags: result.safetyFlags, validationOutcome: result.validationOutcome });
     } catch (error: any) {

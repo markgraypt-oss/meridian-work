@@ -26,7 +26,33 @@ app.use(
   }),
 );
 
-app.use(cors({ origin: true, credentials: true }));
+// CORS: an explicit allowlist. `origin: true` reflected ANY website's origin
+// with credentials, so any page a logged-in admin visited could call this API
+// as them and read the answers. The admin portal is served from this same
+// origin (no CORS needed); the website's public forms post without
+// credentials; the mobile app sends no Origin header at all.
+const CORS_ALLOWED = new Set(
+  [
+    "https://meridian.work",
+    "https://www.meridian.work",
+    "https://api.meridian.work",
+    "https://meridian-work-eu.replit.app",
+    ...(process.env.CORS_EXTRA_ORIGINS || "").split(",").map((s) => s.trim()).filter(Boolean),
+  ],
+);
+const isDev = process.env.NODE_ENV !== "production";
+app.use(
+  cors({
+    origin: (origin, cb) => {
+      if (!origin) return cb(null, true); // native app, curl, same-origin
+      if (CORS_ALLOWED.has(origin)) return cb(null, true);
+      if (isDev && /^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/.test(origin)) return cb(null, true);
+      if (/\.replit\.dev$/.test(new URL(origin).hostname)) return cb(null, true); // Replit workspace preview
+      return cb(null, false);
+    },
+    credentials: true,
+  }),
+);
 
 const LARGE_BODY_PATHS = [
   "/api/workday/analyze-desk",

@@ -223,7 +223,10 @@ export function getSession() {
     cookie: {
       httpOnly: true,
       secure: isProduction,
-      sameSite: isProduction ? "none" : "lax",
+      // Lax, not None: the admin portal is same-origin, so the cookie never
+      // needs to ride along on cross-site requests. None made every logged-in
+      // browser session usable by any other website (CSRF).
+      sameSite: "lax",
       maxAge: sessionTtl,
     },
   });
@@ -290,26 +293,45 @@ export async function setupAuth(app: Express) {
   passport.serializeUser((user: Express.User, cb) => cb(null, user));
   passport.deserializeUser((user: Express.User, cb) => cb(null, user));
 
-  app.post("/api/login", async (req, res) => {
-    console.log("[LOGIN] Attempt received:", { email: req.body?.email });
+  // Brute-force and credential-stuffing limit: 10 attempts per email per
+  // 15 minutes, and 60 per IP per 15 minutes (shared Wi-Fi at a company).
+  // No email or outcome is logged any more; the old lines wrote every
+  // attempt's address and "Password valid: false" to the deployment log.
+  const loginByEmailLimit = rateLimit({
+    windowMs: 15 * 60 * 1000,
+    limit: 10,
+    standardHeaders: true,
+    legacyHeaders: false,
+    keyGenerator: (req: any) => "email:" + (String(req.body?.email || "").trim().toLowerCase() || ipKeyGenerator(req.ip)),
+    message: { message: "Too many sign-in attempts. Please wait 15 minutes and try again." },
+  });
+  const loginByIpLimit = rateLimit({
+    windowMs: 15 * 60 * 1000,
+    limit: 60,
+    standardHeaders: true,
+    legacyHeaders: false,
+    keyGenerator: (req: any) => "ip:" + ipKeyGenerator(req.ip),
+    message: { message: "Too many sign-in attempts. Please wait 15 minutes and try again." },
+  });
+
+  app.post("/api/login", loginByIpLimit, loginByEmailLimit, async (req, res) => {
     try {
       const { email, password } = req.body;
 
       if (!email || !password) {
-        console.log("[LOGIN] Missing email or password");
         return res.status(400).json({ message: "Email and password are required" });
       }
 
       const user = await storage.getUserByIdentifierWithPassword(email);
-      console.log("[LOGIN] User found:", user ? { id: user.id, email: user.email, hasPassword: !!user.password } : null);
 
       if (!user) {
-        console.log("[LOGIN] No user with password found for email:", email);
+        // Burn the same time as a real comparison so a missing account is not
+        // distinguishable from a wrong password by timing.
+        await bcrypt.compare(String(password), "$2a$10$CwTycUXWue0Thq9StjUM0uJ8e3Dq4q5Rk4Ir0f9G1iQ0W0sX1Fq7K");
         return res.status(401).json({ message: "Invalid email or password" });
       }
 
       const isValidPassword = await bcrypt.compare(password, user.password!);
-      console.log("[LOGIN] Password valid:", isValidPassword);
 
       if (!isValidPassword) {
         return res.status(401).json({ message: "Invalid email or password" });
@@ -340,16 +362,34 @@ export async function setupAuth(app: Express) {
     }
   });
 
-  app.get("/api/logout", (req, res) => {
-    req.logout(() => {
-      res.redirect("/");
+  // Logout must end the session the caller is actually using. The mobile app
+  // authenticates with an x-session-id header, which passport's req.logout()
+  // never touched, so a phone session stayed valid for its full 7 days after
+  // "Log out". Now the header session is destroyed in the store as well.
+  const destroyCallerSessions = (req: any): Promise<void> =>
+    new Promise((resolve) => {
+      const mobileSessionId = req.headers?.["x-session-id"] as string | undefined;
+      const finish = () => {
+        if (typeof req.logout === "function") {
+          req.logout(() => {
+            if (req.session && typeof req.session.destroy === "function") req.session.destroy(() => resolve());
+            else resolve();
+          });
+        } else resolve();
+      };
+      if (mobileSessionId && req.sessionStore?.destroy) {
+        req.sessionStore.destroy(mobileSessionId, () => finish());
+      } else finish();
     });
+
+  app.get("/api/logout", async (req: any, res) => {
+    await destroyCallerSessions(req);
+    res.redirect("/");
   });
 
-  app.post("/api/logout", (req, res) => {
-    req.logout(() => {
-      res.json({ success: true });
-    });
+  app.post("/api/logout", async (req: any, res) => {
+    await destroyCallerSessions(req);
+    res.json({ success: true });
   });
 
   // Rate-limited (4 Oct 2026): something was requesting resets for one address
@@ -468,6 +508,9 @@ export async function setupAuth(app: Express) {
 
       const hashedPassword = await bcrypt.hash(password, 10);
       await storage.updateUser(resetToken.userId, { password: hashedPassword });
+      // A reset means the old password may be in someone else's hands: end
+      // every existing session for the account.
+      await storage.destroyAllSessionsForUser(resetToken.userId).catch(() => 0);
       await storage.markPasswordResetTokenUsed(hashedToken);
 
       // Never auto-login after invite setup — account setup must not open the web app.

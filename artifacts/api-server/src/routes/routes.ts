@@ -249,6 +249,7 @@ function parseIdParam(s: string | undefined): number | null {
   return Number.isFinite(n) && n > 0 ? n : null;
 }
 import { eq, and, like, inArray, desc, or, isNull, asc, gte, lte, lt, sql } from "drizzle-orm";
+import { publicUser } from "../publicUser";
 import { users, userProgramEnrollments, programWeeks, programDays, programmeWorkouts, programmeWorkoutBlocks, pathContentItems, topicContentItems, learningPaths, programmeModificationRecords, exerciseSubstitutionMappings, programmeBlockExercises, enrollmentWorkouts, enrollmentWorkoutBlocks, enrollmentBlockExercises, programs, userExtraWorkoutSessions, scheduledWorkouts, workoutLogs, learnContentLibrary, exerciseLibrary, workoutExerciseLogs, workoutSetLogs, aiFeedback, workouts, workoutBlocks, blockExercises, stepEntries, sleepEntries, bodyweightEntries, bodyFatEntries, restingHREntries, caloricBurnEntries, exerciseMinutesEntries, bloodPressureEntries, leanBodyMassEntries, caloricIntakeEntries, hydrationLogs, hydrationGoals, habitCompletions, habits, wearableMetricsDaily, wearableConnections, progressPictures, bodyMeasurements, dailyReadinessHistory, checkIns, foodLogs, userPhysiologicalBaselines } from "@workspace/db";
 import { calculateProgramEquipment, updateProgramEquipmentAuto } from "../equipmentDetection";
 import multer from "multer";
@@ -1394,7 +1395,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
       // Track last app open for inactivity nudge scheduler. Fire-and-forget.
       storage.updateUser(userId, { lastActiveAt: new Date() }).catch(() => {});
-      res.json(user);
+      res.json(publicUser(user));
     } catch (error) {
       console.error("Error fetching user:", error);
       res.status(500).json({ message: "Failed to fetch user" });
@@ -1835,7 +1836,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       });
 
       const updatedUser = await storage.getUser(userId);
-      res.json(updatedUser);
+      res.json(publicUser(updatedUser));
     } catch (error) {
       console.error("Error updating onboarding progress:", error);
       res.status(500).json({ message: "Failed to update onboarding progress" });
@@ -2061,7 +2062,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
 
       const updatedUser = await storage.getUser(userId);
-      res.json(updatedUser);
+      res.json(publicUser(updatedUser));
     } catch (error) {
       console.error("Error completing onboarding:", error);
       res.status(500).json({ message: "Failed to complete onboarding" });
@@ -2525,6 +2526,17 @@ export async function registerRoutes(app: Express): Promise<Server> {
     keyGenerator: (req: any) => ipKeyGenerator(req.ip),
     message: { ok: false, message: "Too many sign-ups from this connection. Try again in an hour." },
   });
+  // Per address as well as per connection: an existing account's sign-up
+  // sends a password-reset email, so without this one address could be
+  // mailed five times an hour from every IP.
+  const testerSignupEmailLimit = rateLimit({
+    windowMs: 24 * 60 * 60 * 1000,
+    limit: 2,
+    standardHeaders: true,
+    legacyHeaders: false,
+    keyGenerator: (req: any) => "email:" + (String(req.body?.email || "").trim().toLowerCase() || ipKeyGenerator(req.ip)),
+    message: { ok: true, links: {} },
+  });
 
   async function resolveTestersCompany(): Promise<{ id: number; name: string } | null> {
     const envId = Number(process.env.TESTERS_COMPANY_ID);
@@ -2623,7 +2635,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.post('/api/public/tester-signup', testerSignupLimit, async (req: any, res) => {
+  app.post('/api/public/tester-signup', testerSignupLimit, testerSignupEmailLimit, async (req: any, res) => {
     try {
       const body = req.body || {};
 
@@ -2670,7 +2682,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
         }
         addTesterToAudience(email, existing.firstName || firstName).catch(() => {});
         sendTesterSignupNotification({ firstName, email, phone, existing: true }).catch(() => {});
-        return res.status(200).json({ ok: true, links });
+        // Same status as a brand-new sign-up, so the response does not reveal
+        // whether an address already has an account.
+        return res.status(201).json({ ok: true, links });
       }
 
       const newUser = await storage.createUser({
@@ -3005,7 +3019,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
           return res.status(400).json({ message: "Password not set for your account" });
         }
         
-        const bcrypt = await import("bcrypt");
+        const bcrypt = (await import("bcryptjs")).default;
         const isValidPassword = await bcrypt.compare(password, currentUser.password);
         if (!isValidPassword) {
           return res.status(401).json({ message: "Incorrect password" });
@@ -7535,17 +7549,6 @@ Return format: {"category": "strength|cardio|hiit|mobility|recovery", "difficult
   });
 
   // Update a set log (record actual reps/weight/time)
-  app.patch('/api/set-logs/:id', isAuthenticated, async (req, res) => {
-    try {
-      const id = parseInt(req.params.id);
-      const updated = await storage.updateWorkoutSetLog(id, req.body);
-      res.json(updated);
-    } catch (error) {
-      console.error("Error updating set log:", error);
-      res.status(500).json({ message: "Failed to update set log" });
-    }
-  });
-
   // Bulk update set logs
   app.patch('/api/set-logs/bulk', isAuthenticated, async (req, res) => {
     try {
@@ -7555,6 +7558,17 @@ Return format: {"category": "strength|cardio|hiit|mobility|recovery", "difficult
     } catch (error) {
       console.error("Error bulk updating set logs:", error);
       res.status(500).json({ message: "Failed to update sets" });
+    }
+  });
+
+  app.patch('/api/set-logs/:id', isAuthenticated, async (req, res) => {
+    try {
+      const id = parseInt(req.params.id);
+      const updated = await storage.updateWorkoutSetLog(id, req.body);
+      res.json(updated);
+    } catch (error) {
+      console.error("Error updating set log:", error);
+      res.status(500).json({ message: "Failed to update set log" });
     }
   });
 
@@ -8190,11 +8204,31 @@ Rules:
   app.post('/api/check-ins', isAuthenticated, async (req: any, res) => {
     try {
       const userId = req.user.claims.sub;
+      // The app sends its local date at noon. Accept only today or yesterday
+      // in the user's timezone; anything else (a backdated or future date from
+      // a tampered request) is replaced with today, so streaks, badges and the
+      // readiness history cannot be seeded with invented days.
+      const ciTzRow = await db.select({ timezone: users.timezone }).from(users).where(eq(users.id, userId)).limit(1);
+      const ciTz = ciTzRow[0]?.timezone ?? null;
+      const dayKeyIn = (tz: string | null, d: Date) => {
+        try {
+          return new Intl.DateTimeFormat('en-CA', { timeZone: tz || 'UTC', year: 'numeric', month: '2-digit', day: '2-digit' }).format(d);
+        } catch { return d.toISOString().slice(0, 10); }
+      };
+      const todayKeyLocal = dayKeyIn(ciTz, new Date());
+      const yesterdayKeyLocal = dayKeyIn(ciTz, new Date(Date.now() - 86_400_000));
+      let checkInDate = new Date();
+      if (req.body.checkInDate) {
+        const supplied = String(req.body.checkInDate).slice(0, 10);
+        if (supplied === todayKeyLocal || supplied === yesterdayKeyLocal) {
+          const parsed = new Date(req.body.checkInDate);
+          if (!isNaN(parsed.getTime())) checkInDate = parsed;
+        }
+      }
       const checkInData = insertCheckInSchema.parse({
         ...req.body,
         userId,
-        // Default to now if the client didn't supply a check-in date
-        checkInDate: req.body.checkInDate ? new Date(req.body.checkInDate) : new Date(),
+        checkInDate,
       });
 
       // Run notes analysis synchronously when notes are present.
@@ -22044,7 +22078,7 @@ Keep your response concise, practical, and evidence-based. This is general guida
       const userData = {
         exportDate: new Date().toISOString(),
         userId,
-        profile: await storage.getUser(userId),
+        profile: publicUser(await storage.getUser(userId)),
         workoutLogs: await storage.getWorkoutLogs(userId),
         sleepEntries: await storage.getSleepEntries(userId),
         foodLogs: await storage.getFoodLogs(userId, new Date().toISOString().split('T')[0]),
@@ -22067,14 +22101,15 @@ Keep your response concise, practical, and evidence-based. This is general guida
   app.post('/api/auth/logout-all', isAuthenticated, async (req: any, res) => {
     try {
       const userId = req.user.claims.sub;
-      // Destroy current session - in a full implementation, you'd also invalidate all stored sessions
-      req.session.destroy((err: any) => {
-        if (err) {
-          console.error("Error destroying session:", err);
-          return res.status(500).json({ message: "Failed to logout" });
-        }
-        res.json({ success: true, message: "Logged out of all devices" });
-      });
+      // Every stored session for this user, web cookie and mobile header
+      // alike. The old code only destroyed the caller's cookie session and
+      // reported "Logged out of all devices".
+      const ended = await storage.destroyAllSessionsForUser(userId);
+      if (req.session && typeof req.session.destroy === 'function') {
+        req.session.destroy(() => res.json({ success: true, ended, message: "Logged out of all devices" }));
+      } else {
+        res.json({ success: true, ended, message: "Logged out of all devices" });
+      }
     } catch (error) {
       console.error("Error logging out all devices:", error);
       res.status(500).json({ message: "Failed to logout all devices" });
@@ -22125,7 +22160,7 @@ Keep your response concise, practical, and evidence-based. This is general guida
         return res.status(400).json({ message: "No password set for this account" });
       }
 
-      const bcrypt = await import("bcrypt");
+      const bcrypt = (await import("bcryptjs")).default;
       const isValid = await bcrypt.compare(currentPassword, user.password);
       if (!isValid) {
         return res.status(401).json({ message: "Current password is incorrect" });
@@ -22133,6 +22168,14 @@ Keep your response concise, practical, and evidence-based. This is general guida
 
       const hashedNewPassword = await bcrypt.hash(newPassword, 10);
       await storage.updateUser(userId, { password: hashedNewPassword });
+      // A changed password ends every other session (web and mobile); the
+      // caller's own session is kept so they are not thrown out mid-flow.
+      const currentSid = (req.headers['x-session-id'] as string) || req.sessionID;
+      await storage.destroyAllSessionsForUser(userId).catch(() => 0);
+      if (currentSid && req.session) {
+        // Re-save the caller's session so it survives the sweep.
+        await new Promise<void>((resolve) => req.session.save(() => resolve()));
+      }
 
       res.json({ message: "Password changed successfully" });
     } catch (error) {

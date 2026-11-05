@@ -727,7 +727,7 @@ export interface IStorage {
   // User notes operations
   getUserNotes(userId: string, contentType?: string, contentId?: number): Promise<UserNote[]>;
   createUserNote(note: InsertUserNote): Promise<UserNote>;
-  updateUserNote(id: number, note: string): Promise<UserNote>;
+  updateUserNote(id: number, note: string, userId: string): Promise<UserNote | undefined>;
 
   // Search operations
   searchContent(query: string): Promise<{
@@ -738,10 +738,10 @@ export interface IStorage {
 
   // Injury tracking operations
   getInjuryLogs(userId: string): Promise<InjuryLog[]>;
-  getInjuryLogById(id: number): Promise<InjuryLog | undefined>;
+  getInjuryLogById(id: number, userId?: string): Promise<InjuryLog | undefined>;
   createInjuryLog(log: InsertInjuryLog): Promise<InjuryLog>;
-  updateInjuryLog(id: number, updates: Partial<InsertInjuryLog>): Promise<InjuryLog>;
-  deleteInjuryLog(id: number): Promise<void>;
+  updateInjuryLog(id: number, updates: Partial<InsertInjuryLog>, userId: string): Promise<InjuryLog | undefined>;
+  deleteInjuryLog(id: number, userId: string): Promise<boolean>;
 
   // Daily severity tracking
   getDailySeverityLogs(injuryLogId: number, days?: number): Promise<DailySeverityLog[]>;
@@ -751,8 +751,9 @@ export interface IStorage {
   // Recovery actions
   getRecoveryActions(injuryLogId: number): Promise<RecoveryAction[]>;
   createRecoveryAction(action: InsertRecoveryAction): Promise<RecoveryAction>;
-  updateRecoveryAction(id: number, updates: Partial<InsertRecoveryAction>): Promise<RecoveryAction>;
-  deleteRecoveryAction(id: number): Promise<void>;
+  getRecoveryActionById(id: number, userId?: string): Promise<RecoveryAction | undefined>;
+  updateRecoveryAction(id: number, updates: Partial<InsertRecoveryAction>, userId: string): Promise<RecoveryAction | undefined>;
+  deleteRecoveryAction(id: number, userId: string): Promise<boolean>;
 
   // Recovery compliance
   getRecoveryCompliance(recoveryActionId: number, days?: number): Promise<RecoveryCompliance[]>;
@@ -762,8 +763,8 @@ export interface IStorage {
   // Recovery alerts
   getRecoveryAlerts(userId: string, unreadOnly?: boolean): Promise<RecoveryAlert[]>;
   createRecoveryAlert(alert: InsertRecoveryAlert): Promise<RecoveryAlert>;
-  markAlertAsRead(id: number): Promise<void>;
-  dismissAlert(id: number): Promise<void>;
+  markAlertAsRead(id: number, userId: string): Promise<boolean>;
+  dismissAlert(id: number, userId: string): Promise<boolean>;
 
   // Smart feedback logic
   analyzeInjuryProgress(injuryLogId: number): Promise<{
@@ -781,17 +782,17 @@ export interface IStorage {
   // Progress photos operations
   getProgressPhotos(userId: string): Promise<ProgressPhoto[]>;
   createProgressPhoto(photo: InsertProgressPhoto): Promise<ProgressPhoto>;
-  deleteProgressPhoto(id: number): Promise<void>;
+  deleteProgressPhoto(id: number, userId: string): Promise<boolean>;
 
   // Body stats operations
   getBodyStats(userId: string): Promise<BodyStats[]>;
   createBodyStats(stats: InsertBodyStats): Promise<BodyStats>;
-  deleteBodyStats(id: number): Promise<void>;
+  deleteBodyStats(id: number, userId: string): Promise<boolean>;
 
   // Workout sessions operations
   getWorkoutSessions(userId: string): Promise<WorkoutSession[]>;
   createWorkoutSession(session: InsertWorkoutSession): Promise<WorkoutSession>;
-  deleteWorkoutSession(id: number): Promise<void>;
+  deleteWorkoutSession(id: number, userId: string): Promise<boolean>;
 
   // Calendar/Activity aggregation
   getActivitiesByDateRange(userId: string, startDate?: Date, endDate?: Date): Promise<any>;
@@ -861,12 +862,12 @@ export interface IStorage {
 
   // Goals operations
   getGoals(userId: string): Promise<Goal[]>;
-  getGoalById(id: number): Promise<Goal | undefined>;
+  getGoalById(id: number, userId?: string): Promise<Goal | undefined>;
   getActiveBodyweightGoals(userId: string): Promise<Goal[]>;
   getActiveNutritionGoals(userId: string): Promise<Goal[]>;
   createGoal(goal: InsertGoal): Promise<Goal>;
-  updateGoal(id: number, goal: Partial<InsertGoal>): Promise<Goal>;
-  deleteGoal(id: number): Promise<void>;
+  updateGoal(id: number, goal: Partial<InsertGoal>, userId: string): Promise<Goal | undefined>;
+  deleteGoal(id: number, userId: string): Promise<boolean>;
   syncBodyweightGoals(userId: string, weight: number): Promise<void>;
   archiveGoal(id: number): Promise<Goal>;
   getGoalProgress(goalId: number, userId: string): Promise<{ current: number; target: number; label: string; percentage: number } | null>;
@@ -874,8 +875,8 @@ export interface IStorage {
   // User Habit Library operations
   getUserHabitLibrary(userId: string): Promise<UserHabitLibraryEntry[]>;
   createUserHabitLibraryEntry(entry: InsertUserHabitLibraryEntry): Promise<UserHabitLibraryEntry>;
-  updateUserHabitLibraryEntry(id: number, data: Partial<InsertUserHabitLibraryEntry>): Promise<UserHabitLibraryEntry>;
-  deleteUserHabitLibraryEntry(id: number): Promise<void>;
+  updateUserHabitLibraryEntry(id: number, data: Partial<InsertUserHabitLibraryEntry>, userId: string): Promise<UserHabitLibraryEntry | undefined>;
+  deleteUserHabitLibraryEntry(id: number, userId: string): Promise<boolean>;
 
   // Habit Templates operations
   getHabitTemplates(): Promise<HabitTemplate[]>;
@@ -883,13 +884,13 @@ export interface IStorage {
 
   // Habits operations
   getHabits(userId: string): Promise<Habit[]>;
-  getHabitById(id: number): Promise<Habit | undefined>;
+  getHabitById(id: number, userId?: string): Promise<Habit | undefined>;
   createHabit(habit: InsertHabit): Promise<Habit>;
-  updateHabit(id: number, habit: Partial<InsertHabit>): Promise<Habit>;
-  deleteHabit(id: number): Promise<void>;
-  completeHabit(habitId: number, userId: string, date?: Date): Promise<HabitCompletion>;
-  uncompleteHabit(habitId: number, userId: string, date: Date): Promise<void>;
-  getHabitCompletions(habitId: number): Promise<HabitCompletion[]>;
+  updateHabit(id: number, habit: Partial<InsertHabit>, userId?: string): Promise<Habit | undefined>;
+  deleteHabit(id: number, userId: string): Promise<boolean>;
+  completeHabit(habitId: number, userId: string, date?: Date): Promise<HabitCompletion | undefined>;
+  uncompleteHabit(habitId: number, userId: string, date: Date): Promise<boolean>;
+  getHabitCompletions(habitId: number, userId?: string): Promise<HabitCompletion[]>;
   getHabitCompletionsForDate(userId: string, date: Date): Promise<{ habitId: number; completedDate: Date }[]>;
   updateHabitStreak(habitId: number): Promise<void>;
 
@@ -923,29 +924,30 @@ export interface IStorage {
 
   // Active Workout Log operations
   createWorkoutLog(log: any): Promise<any>;
-  getWorkoutLogById(id: number): Promise<any>;
+  getWorkoutLogById(id: number, userId?: string): Promise<any>;
   getUserWorkoutLogs(userId: string, limit?: number): Promise<any[]>;
   getActiveWorkoutLog(userId: string): Promise<any>;
   getCompletedWorkoutLogByContext(userId: string, enrollmentId: number, week: number, day: number): Promise<any>;
   getCompletedWorkoutLogByWorkoutId(userId: string, workoutId: number): Promise<any>;
-  updateWorkoutLog(id: number, updates: any): Promise<any>;
+  updateWorkoutLog(id: number, updates: any, userId?: string): Promise<any>;
   completeWorkoutLog(id: number): Promise<any>;
-  cancelWorkoutLog(id: number): Promise<void>;
+  cancelWorkoutLog(id: number, userId?: string): Promise<boolean>;
   deleteWorkoutLog(id: number): Promise<void>;
   recomputeExerciseSnapshots(userId: string, exerciseLibraryIds: number[]): Promise<void>;
   
   // Workout Exercise Log operations
   createWorkoutExerciseLog(log: any): Promise<any>;
-  getWorkoutExerciseLogs(workoutLogId: number): Promise<any[]>;
-  updateWorkoutExerciseLog(id: number, updates: any): Promise<any>;
-  deleteWorkoutExerciseLog(id: number): Promise<void>;
+  getWorkoutExerciseLogs(workoutLogId: number, userId?: string): Promise<any[]>;
+  ownsExerciseLog(exerciseLogId: number, userId: string): Promise<boolean>;
+  updateWorkoutExerciseLog(id: number, updates: any, userId?: string): Promise<any>;
+  deleteWorkoutExerciseLog(id: number, userId?: string): Promise<boolean>;
   
   // Workout Set Log operations
   createWorkoutSetLog(log: any): Promise<any>;
-  getWorkoutSetLogs(exerciseLogId: number): Promise<any[]>;
-  updateWorkoutSetLog(id: number, updates: any): Promise<any>;
-  bulkUpdateWorkoutSetLogs(logs: { id: number; updates: any }[]): Promise<any[]>;
-  deleteWorkoutSetLog(id: number): Promise<void>;
+  getWorkoutSetLogs(exerciseLogId: number, userId?: string): Promise<any[]>;
+  updateWorkoutSetLog(id: number, updates: any, userId?: string): Promise<any>;
+  bulkUpdateWorkoutSetLogs(logs: { id: number; updates: any }[], userId?: string): Promise<any[]>;
+  deleteWorkoutSetLog(id: number, userId?: string): Promise<boolean>;
   
   // Get previous workout performance for an exercise
   getPreviousExercisePerformance(userId: string, exerciseLibraryId: number): Promise<any>;
@@ -977,9 +979,9 @@ export interface IStorage {
   getSupplementById(id: number): Promise<Supplement | null>;
   createSupplement(supplement: InsertSupplement): Promise<Supplement>;
   updateSupplement(id: number, data: Partial<InsertSupplement>): Promise<Supplement>;
-  deleteSupplement(id: number): Promise<void>;
-  permanentlyDeleteSupplement(id: number): Promise<void>;
-  hasSupplementLogs(supplementId: number): Promise<boolean>;
+  deleteSupplement(id: number, userId: string): Promise<boolean>;
+  permanentlyDeleteSupplement(id: number, userId: string): Promise<boolean>;
+  hasSupplementLogs(supplementId: number, userId?: string): Promise<boolean>;
   getSupplementLogsForDate(userId: string, date: Date): Promise<SupplementLog[]>;
   getSupplementLogs(userId: string, supplementId: number): Promise<SupplementLog[]>;
   getSupplementStats(userId: string, supplementId: number): Promise<{ totalLogs: number; currentStreak: number; longestStreak: number; monthlyPercentage: number }>;
@@ -1000,16 +1002,16 @@ export interface IStorage {
   getUserFoodHistory(userId: string, limit?: number): Promise<UserFoodHistoryItem[]>;
   searchUserFoodHistory(userId: string, query: string): Promise<UserFoodHistoryItem[]>;
   addOrUpdateFoodHistory(userId: string, food: Omit<InsertUserFoodHistoryItem, 'userId'>): Promise<UserFoodHistoryItem>;
-  deleteFoodHistoryItem(id: number): Promise<void>;
+  deleteFoodHistoryItem(id: number, userId: string): Promise<boolean>;
   
   // Saved Meal Templates operations
   getUserSavedMeals(userId: string): Promise<SavedMealTemplate[]>;
-  getSavedMealWithItems(savedMealId: number): Promise<{ template: SavedMealTemplate; items: SavedMealItem[] } | null>;
+  getSavedMealWithItems(savedMealId: number, userId?: string): Promise<{ template: SavedMealTemplate; items: SavedMealItem[] } | null>;
   createSavedMealTemplate(template: InsertSavedMealTemplate): Promise<SavedMealTemplate>;
-  updateSavedMealTemplate(id: number, updates: Partial<InsertSavedMealTemplate>): Promise<SavedMealTemplate>;
-  deleteSavedMealTemplate(id: number): Promise<void>;
-  addItemToSavedMeal(item: InsertSavedMealItem): Promise<SavedMealItem>;
-  deleteItemFromSavedMeal(id: number): Promise<void>;
+  updateSavedMealTemplate(id: number, updates: Partial<InsertSavedMealTemplate>, userId: string): Promise<SavedMealTemplate | undefined>;
+  deleteSavedMealTemplate(id: number, userId: string): Promise<boolean>;
+  addItemToSavedMeal(item: InsertSavedMealItem, userId?: string): Promise<SavedMealItem | undefined>;
+  deleteItemFromSavedMeal(id: number, userId: string): Promise<boolean>;
   addSavedMealToLog(userId: string, savedMealId: number, mealLogId: number, servings: number): Promise<MealFoodEntry[]>;
   
   // Recipe to Meal integration
@@ -1018,8 +1020,8 @@ export interface IStorage {
   // User Meal Categories operations
   getUserMealCategories(userId: string): Promise<UserMealCategory[]>;
   createUserMealCategory(category: InsertUserMealCategory): Promise<UserMealCategory>;
-  updateUserMealCategory(id: number, updates: Partial<InsertUserMealCategory>): Promise<UserMealCategory>;
-  deleteUserMealCategory(id: number): Promise<void>;
+  updateUserMealCategory(id: number, updates: Partial<InsertUserMealCategory>, userId: string): Promise<UserMealCategory | undefined>;
+  deleteUserMealCategory(id: number, userId: string): Promise<boolean>;
   initializeDefaultMealCategories(userId: string): Promise<UserMealCategory[]>;
 
   // Breath Work operations
@@ -1037,10 +1039,10 @@ export interface IStorage {
   getBreathWorkStats(userId: string): Promise<{ totalSessions: number; totalMinutes: number; currentStreak: number }>;
   
   getCustomBreathRoutines(userId: string): Promise<CustomBreathRoutine[]>;
-  getCustomBreathRoutineById(id: number): Promise<CustomBreathRoutine | undefined>;
+  getCustomBreathRoutineById(id: number, userId?: string): Promise<CustomBreathRoutine | undefined>;
   createCustomBreathRoutine(routine: InsertCustomBreathRoutine): Promise<CustomBreathRoutine>;
-  updateCustomBreathRoutine(id: number, routine: Partial<InsertCustomBreathRoutine>): Promise<CustomBreathRoutine>;
-  deleteCustomBreathRoutine(id: number): Promise<void>;
+  updateCustomBreathRoutine(id: number, routine: Partial<InsertCustomBreathRoutine>, userId: string): Promise<CustomBreathRoutine | undefined>;
+  deleteCustomBreathRoutine(id: number, userId: string): Promise<boolean>;
   
   getBreathRoutinePhases(routineId: number): Promise<BreathRoutinePhase[]>;
   createBreathRoutinePhase(phase: InsertBreathRoutinePhase): Promise<BreathRoutinePhase>;
@@ -1070,8 +1072,8 @@ export interface IStorage {
   createMealPlan(plan: InsertMealPlan): Promise<MealPlan>;
   createMealPlanInactive(plan: InsertMealPlan): Promise<MealPlan>;
   activateMealPlan(planId: number, userId: string): Promise<void>;
-  updateMealPlan(id: number, plan: Partial<InsertMealPlan>): Promise<MealPlan>;
-  deleteMealPlan(id: number): Promise<void>;
+  updateMealPlan(id: number, plan: Partial<InsertMealPlan>, userId: string): Promise<MealPlan | undefined>;
+  deleteMealPlan(id: number, userId: string): Promise<boolean>;
   createMealPlanDay(day: InsertMealPlanDay): Promise<MealPlanDay>;
   updateMealPlanDay(id: number, day: Partial<InsertMealPlanDay>): Promise<MealPlanDay>;
   createMealPlanMeal(meal: InsertMealPlanMeal): Promise<MealPlanMeal>;
@@ -1156,7 +1158,7 @@ export interface IStorage {
   getUserBadges(userId: string, limit?: number): Promise<(UserBadge & { badge: Badge })[]>;
   getUserUnnotifiedBadges(userId: string): Promise<(UserBadge & { badge: Badge })[]>;
   awardBadge(userId: string, badgeId: number): Promise<UserBadge | null>;
-  markBadgeNotified(userBadgeId: number): Promise<void>;
+  markBadgeNotified(userBadgeId: number, userId: string): Promise<boolean>;
   resetBadgeNotified(userBadgeId: number): Promise<UserBadge | null>;
   markAllBadgesNotified(userId: string): Promise<void>;
   checkUserBadgeEligibility(userId: string): Promise<Badge[]>;
@@ -4921,11 +4923,11 @@ export class DatabaseStorage implements IStorage {
     return newNote;
   }
 
-  async updateUserNote(id: number, note: string): Promise<UserNote> {
+  async updateUserNote(id: number, note: string, userId: string): Promise<UserNote | undefined> {
     const [updatedNote] = await db
       .update(userNotes)
       .set({ note, updatedAt: new Date() })
-      .where(eq(userNotes.id, id))
+      .where(and(eq(userNotes.id, id), eq(userNotes.userId, userId)))
       .returning();
     return updatedNote;
   }
@@ -4964,8 +4966,9 @@ export class DatabaseStorage implements IStorage {
       .orderBy(desc(injuryLogs.lastUpdatedAt));
   }
 
-  async getInjuryLogById(id: number): Promise<InjuryLog | undefined> {
-    const [log] = await db.select().from(injuryLogs).where(eq(injuryLogs.id, id));
+  async getInjuryLogById(id: number, userId?: string): Promise<InjuryLog | undefined> {
+    const [log] = await db.select().from(injuryLogs)
+      .where(userId ? and(eq(injuryLogs.id, id), eq(injuryLogs.userId, userId)) : eq(injuryLogs.id, id));
     return log || undefined;
   }
 
@@ -4974,16 +4977,19 @@ export class DatabaseStorage implements IStorage {
     return created;
   }
 
-  async updateInjuryLog(id: number, updates: Partial<InsertInjuryLog>): Promise<InjuryLog> {
+  async updateInjuryLog(id: number, updates: Partial<InsertInjuryLog>, userId: string): Promise<InjuryLog | undefined> {
     const [updated] = await db.update(injuryLogs)
       .set({ ...updates, lastUpdatedAt: new Date() })
-      .where(eq(injuryLogs.id, id))
+      .where(and(eq(injuryLogs.id, id), eq(injuryLogs.userId, userId)))
       .returning();
     return updated;
   }
 
-  async deleteInjuryLog(id: number): Promise<void> {
-    await db.delete(injuryLogs).where(eq(injuryLogs.id, id));
+  async deleteInjuryLog(id: number, userId: string): Promise<boolean> {
+    const deleted = await db.delete(injuryLogs)
+      .where(and(eq(injuryLogs.id, id), eq(injuryLogs.userId, userId)))
+      .returning({ id: injuryLogs.id });
+    return deleted.length > 0;
   }
 
   // Daily severity tracking
@@ -5026,16 +5032,25 @@ export class DatabaseStorage implements IStorage {
     return created;
   }
 
-  async updateRecoveryAction(id: number, updates: Partial<InsertRecoveryAction>): Promise<RecoveryAction> {
+  async getRecoveryActionById(id: number, userId?: string): Promise<RecoveryAction | undefined> {
+    const [action] = await db.select().from(recoveryActions)
+      .where(userId ? and(eq(recoveryActions.id, id), eq(recoveryActions.userId, userId)) : eq(recoveryActions.id, id));
+    return action || undefined;
+  }
+
+  async updateRecoveryAction(id: number, updates: Partial<InsertRecoveryAction>, userId: string): Promise<RecoveryAction | undefined> {
     const [updated] = await db.update(recoveryActions)
       .set(updates)
-      .where(eq(recoveryActions.id, id))
+      .where(and(eq(recoveryActions.id, id), eq(recoveryActions.userId, userId)))
       .returning();
     return updated;
   }
 
-  async deleteRecoveryAction(id: number): Promise<void> {
-    await db.delete(recoveryActions).where(eq(recoveryActions.id, id));
+  async deleteRecoveryAction(id: number, userId: string): Promise<boolean> {
+    const deleted = await db.delete(recoveryActions)
+      .where(and(eq(recoveryActions.id, id), eq(recoveryActions.userId, userId)))
+      .returning({ id: recoveryActions.id });
+    return deleted.length > 0;
   }
 
   // Recovery compliance
@@ -5115,16 +5130,20 @@ export class DatabaseStorage implements IStorage {
     return created;
   }
 
-  async markAlertAsRead(id: number): Promise<void> {
-    await db.update(recoveryAlerts)
+  async markAlertAsRead(id: number, userId: string): Promise<boolean> {
+    const updated = await db.update(recoveryAlerts)
       .set({ isRead: true })
-      .where(eq(recoveryAlerts.id, id));
+      .where(and(eq(recoveryAlerts.id, id), eq(recoveryAlerts.userId, userId)))
+      .returning({ id: recoveryAlerts.id });
+    return updated.length > 0;
   }
 
-  async dismissAlert(id: number): Promise<void> {
-    await db.update(recoveryAlerts)
+  async dismissAlert(id: number, userId: string): Promise<boolean> {
+    const updated = await db.update(recoveryAlerts)
       .set({ isDismissed: true })
-      .where(eq(recoveryAlerts.id, id));
+      .where(and(eq(recoveryAlerts.id, id), eq(recoveryAlerts.userId, userId)))
+      .returning({ id: recoveryAlerts.id });
+    return updated.length > 0;
   }
 
   // Smart feedback logic
@@ -5219,8 +5238,11 @@ export class DatabaseStorage implements IStorage {
     return created;
   }
 
-  async deleteProgressPhoto(id: number): Promise<void> {
-    await db.delete(progressPhotos).where(eq(progressPhotos.id, id));
+  async deleteProgressPhoto(id: number, userId: string): Promise<boolean> {
+    const deleted = await db.delete(progressPhotos)
+      .where(and(eq(progressPhotos.id, id), eq(progressPhotos.userId, userId)))
+      .returning({ id: progressPhotos.id });
+    return deleted.length > 0;
   }
 
   // Body stats operations
@@ -5235,8 +5257,11 @@ export class DatabaseStorage implements IStorage {
     return created;
   }
 
-  async deleteBodyStats(id: number): Promise<void> {
-    await db.delete(bodyStats).where(eq(bodyStats.id, id));
+  async deleteBodyStats(id: number, userId: string): Promise<boolean> {
+    const deleted = await db.delete(bodyStats)
+      .where(and(eq(bodyStats.id, id), eq(bodyStats.userId, userId)))
+      .returning({ id: bodyStats.id });
+    return deleted.length > 0;
   }
 
   // Workout sessions operations
@@ -5251,8 +5276,11 @@ export class DatabaseStorage implements IStorage {
     return created;
   }
 
-  async deleteWorkoutSession(id: number): Promise<void> {
-    await db.delete(workoutSessions).where(eq(workoutSessions.id, id));
+  async deleteWorkoutSession(id: number, userId: string): Promise<boolean> {
+    const deleted = await db.delete(workoutSessions)
+      .where(and(eq(workoutSessions.id, id), eq(workoutSessions.userId, userId)))
+      .returning({ id: workoutSessions.id });
+    return deleted.length > 0;
   }
 
   // Calendar/Activity aggregation
@@ -6029,8 +6057,9 @@ export class DatabaseStorage implements IStorage {
       .orderBy(desc(goals.createdAt));
   }
 
-  async getGoalById(id: number): Promise<Goal | undefined> {
-    const [goal] = await db.select().from(goals).where(eq(goals.id, id));
+  async getGoalById(id: number, userId?: string): Promise<Goal | undefined> {
+    const [goal] = await db.select().from(goals)
+      .where(userId ? and(eq(goals.id, id), eq(goals.userId, userId)) : eq(goals.id, id));
     return goal;
   }
 
@@ -6039,17 +6068,20 @@ export class DatabaseStorage implements IStorage {
     return newGoal;
   }
 
-  async updateGoal(id: number, goal: Partial<InsertGoal>): Promise<Goal> {
+  async updateGoal(id: number, goal: Partial<InsertGoal>, userId: string): Promise<Goal | undefined> {
     const [updated] = await db
       .update(goals)
       .set({ ...goal, updatedAt: new Date() })
-      .where(eq(goals.id, id))
+      .where(and(eq(goals.id, id), eq(goals.userId, userId)))
       .returning();
     return updated;
   }
 
-  async deleteGoal(id: number): Promise<void> {
-    await db.delete(goals).where(eq(goals.id, id));
+  async deleteGoal(id: number, userId: string): Promise<boolean> {
+    const deleted = await db.delete(goals)
+      .where(and(eq(goals.id, id), eq(goals.userId, userId)))
+      .returning({ id: goals.id });
+    return deleted.length > 0;
   }
 
   async getActiveBodyweightGoals(userId: string): Promise<Goal[]> {
@@ -6315,7 +6347,7 @@ export class DatabaseStorage implements IStorage {
           }
           
           if (milestoneAchieved) {
-            await this.completeMilestone(milestone.id);
+            await this.completeMilestone(milestone.id, goal.userId);
           }
         }
       }
@@ -6336,37 +6368,48 @@ export class DatabaseStorage implements IStorage {
     return newMilestone;
   }
 
-  async updateMilestone(id: number, milestone: Partial<InsertGoalMilestone>): Promise<GoalMilestone> {
+  // Milestones carry no userId: ownership is derived from the parent goal.
+  private milestoneOwnedBy(id: number, userId: string): SQL {
+    return and(
+      eq(goalMilestones.id, id),
+      inArray(goalMilestones.goalId, db.select({ id: goals.id }).from(goals).where(eq(goals.userId, userId)))
+    )!;
+  }
+
+  async updateMilestone(id: number, milestone: Partial<InsertGoalMilestone>, userId: string): Promise<GoalMilestone | undefined> {
     const [updated] = await db
       .update(goalMilestones)
       .set({ ...milestone, updatedAt: new Date() })
-      .where(eq(goalMilestones.id, id))
+      .where(this.milestoneOwnedBy(id, userId))
       .returning();
     return updated;
   }
 
-  async deleteMilestone(id: number): Promise<void> {
-    await db.delete(goalMilestones).where(eq(goalMilestones.id, id));
+  async deleteMilestone(id: number, userId: string): Promise<boolean> {
+    const deleted = await db.delete(goalMilestones)
+      .where(this.milestoneOwnedBy(id, userId))
+      .returning({ id: goalMilestones.id });
+    return deleted.length > 0;
   }
 
   async deleteMilestonesByGoalId(goalId: number): Promise<void> {
     await db.delete(goalMilestones).where(eq(goalMilestones.goalId, goalId));
   }
 
-  async completeMilestone(id: number): Promise<GoalMilestone> {
+  async completeMilestone(id: number, userId: string): Promise<GoalMilestone | undefined> {
     const [updated] = await db
       .update(goalMilestones)
       .set({ completed: true, completedDate: new Date(), updatedAt: new Date() })
-      .where(eq(goalMilestones.id, id))
+      .where(this.milestoneOwnedBy(id, userId))
       .returning();
     return updated;
   }
 
-  async uncompleteMilestone(id: number): Promise<GoalMilestone> {
+  async uncompleteMilestone(id: number, userId: string): Promise<GoalMilestone | undefined> {
     const [updated] = await db
       .update(goalMilestones)
       .set({ completed: false, completedDate: null, updatedAt: new Date() })
-      .where(eq(goalMilestones.id, id))
+      .where(this.milestoneOwnedBy(id, userId))
       .returning();
     return updated;
   }
@@ -6385,13 +6428,18 @@ export class DatabaseStorage implements IStorage {
     return created;
   }
 
-  async updateUserHabitLibraryEntry(id: number, data: Partial<InsertUserHabitLibraryEntry>): Promise<UserHabitLibraryEntry> {
-    const [updated] = await db.update(userHabitLibrary).set(data).where(eq(userHabitLibrary.id, id)).returning();
+  async updateUserHabitLibraryEntry(id: number, data: Partial<InsertUserHabitLibraryEntry>, userId: string): Promise<UserHabitLibraryEntry | undefined> {
+    const [updated] = await db.update(userHabitLibrary).set(data)
+      .where(and(eq(userHabitLibrary.id, id), eq(userHabitLibrary.userId, userId)))
+      .returning();
     return updated;
   }
 
-  async deleteUserHabitLibraryEntry(id: number): Promise<void> {
-    await db.delete(userHabitLibrary).where(eq(userHabitLibrary.id, id));
+  async deleteUserHabitLibraryEntry(id: number, userId: string): Promise<boolean> {
+    const deleted = await db.delete(userHabitLibrary)
+      .where(and(eq(userHabitLibrary.id, id), eq(userHabitLibrary.userId, userId)))
+      .returning({ id: userHabitLibrary.id });
+    return deleted.length > 0;
   }
 
   async getHabitTemplates(): Promise<HabitTemplate[]> {
@@ -6477,8 +6525,9 @@ export class DatabaseStorage implements IStorage {
     return currentStreak;
   }
 
-  async getHabitById(id: number): Promise<Habit | undefined> {
-    const [habit] = await db.select().from(habits).where(eq(habits.id, id));
+  async getHabitById(id: number, userId?: string): Promise<Habit | undefined> {
+    const [habit] = await db.select().from(habits)
+      .where(userId ? and(eq(habits.id, id), eq(habits.userId, userId)) : eq(habits.id, id));
     return habit;
   }
 
@@ -6487,20 +6536,26 @@ export class DatabaseStorage implements IStorage {
     return newHabit;
   }
 
-  async updateHabit(id: number, habit: Partial<InsertHabit>): Promise<Habit> {
+  async updateHabit(id: number, habit: Partial<InsertHabit>, userId?: string): Promise<Habit | undefined> {
     const [updated] = await db
       .update(habits)
       .set(habit)
-      .where(eq(habits.id, id))
+      .where(userId ? and(eq(habits.id, id), eq(habits.userId, userId)) : eq(habits.id, id))
       .returning();
     return updated;
   }
 
-  async deleteHabit(id: number): Promise<void> {
-    await db.update(habits).set({ isActive: false }).where(eq(habits.id, id));
+  async deleteHabit(id: number, userId: string): Promise<boolean> {
+    const updated = await db.update(habits).set({ isActive: false })
+      .where(and(eq(habits.id, id), eq(habits.userId, userId)))
+      .returning({ id: habits.id });
+    return updated.length > 0;
   }
 
-  async completeHabit(habitId: number, userId: string, date?: Date): Promise<HabitCompletion> {
+  async completeHabit(habitId: number, userId: string, date?: Date): Promise<HabitCompletion | undefined> {
+    // Only the habit's owner may log a completion against it.
+    const owned = await this.getHabitById(habitId, userId);
+    if (!owned) return undefined;
     const completedDate = date || new Date();
     const [completion] = await db
       .insert(habitCompletions)
@@ -6513,7 +6568,9 @@ export class DatabaseStorage implements IStorage {
     return completion;
   }
 
-  async uncompleteHabit(habitId: number, userId: string, date: Date): Promise<void> {
+  async uncompleteHabit(habitId: number, userId: string, date: Date): Promise<boolean> {
+    const owned = await this.getHabitById(habitId, userId);
+    if (!owned) return false;
     const startOfDay = new Date(date);
     startOfDay.setHours(0, 0, 0, 0);
     
@@ -6533,13 +6590,16 @@ export class DatabaseStorage implements IStorage {
     
     // Update habit streak
     await this.updateHabitStreak(habitId);
+    return true;
   }
 
-  async getHabitCompletions(habitId: number): Promise<HabitCompletion[]> {
+  async getHabitCompletions(habitId: number, userId?: string): Promise<HabitCompletion[]> {
     return await db
       .select()
       .from(habitCompletions)
-      .where(eq(habitCompletions.habitId, habitId))
+      .where(userId
+        ? and(eq(habitCompletions.habitId, habitId), eq(habitCompletions.userId, userId))
+        : eq(habitCompletions.habitId, habitId))
       .orderBy(desc(habitCompletions.completedDate));
   }
 
@@ -7269,8 +7329,11 @@ export class DatabaseStorage implements IStorage {
     return result;
   }
 
-  async deleteHydrationLog(id: number): Promise<void> {
-    await db.delete(hydrationLogs).where(eq(hydrationLogs.id, id));
+  async deleteHydrationLog(id: number, userId: string): Promise<boolean> {
+    const deleted = await db.delete(hydrationLogs)
+      .where(and(eq(hydrationLogs.id, id), eq(hydrationLogs.userId, userId)))
+      .returning({ id: hydrationLogs.id });
+    return deleted.length > 0;
   }
 
   async getHydrationGoal(userId: string, date: Date): Promise<HydrationGoal | undefined> {
@@ -9474,11 +9537,11 @@ export class DatabaseStorage implements IStorage {
     return created;
   }
 
-  async getWorkoutLogById(id: number): Promise<WorkoutLog | undefined> {
+  async getWorkoutLogById(id: number, userId?: string): Promise<WorkoutLog | undefined> {
     const [log] = await db
       .select()
       .from(workoutLogs)
-      .where(eq(workoutLogs.id, id));
+      .where(userId ? and(eq(workoutLogs.id, id), eq(workoutLogs.userId, userId)) : eq(workoutLogs.id, id));
     return log;
   }
 
@@ -9518,11 +9581,11 @@ export class DatabaseStorage implements IStorage {
     return log;
   }
 
-  async updateWorkoutLog(id: number, updates: Partial<InsertWorkoutLog>): Promise<WorkoutLog> {
+  async updateWorkoutLog(id: number, updates: Partial<InsertWorkoutLog>, userId?: string): Promise<WorkoutLog | undefined> {
     const [updated] = await db
       .update(workoutLogs)
       .set(updates)
-      .where(eq(workoutLogs.id, id))
+      .where(userId ? and(eq(workoutLogs.id, id), eq(workoutLogs.userId, userId)) : eq(workoutLogs.id, id))
       .returning();
     return updated;
   }
@@ -9547,7 +9610,11 @@ export class DatabaseStorage implements IStorage {
     return updated;
   }
 
-  async cancelWorkoutLog(id: number): Promise<void> {
+  async cancelWorkoutLog(id: number, userId?: string): Promise<boolean> {
+    if (userId) {
+      const owned = await this.getWorkoutLogById(id, userId);
+      if (!owned) return false;
+    }
     // Get all exercise logs for this workout
     const exerciseLogs = await db
       .select()
@@ -9570,6 +9637,7 @@ export class DatabaseStorage implements IStorage {
     await db
       .delete(workoutLogs)
       .where(eq(workoutLogs.id, id));
+    return true;
   }
 
   async deleteWorkoutLog(id: number): Promise<void> {
@@ -9827,7 +9895,11 @@ export class DatabaseStorage implements IStorage {
     return created;
   }
 
-  async getWorkoutExerciseLogs(workoutLogId: number): Promise<any[]> {
+  async getWorkoutExerciseLogs(workoutLogId: number, userId?: string): Promise<any[]> {
+    if (userId) {
+      const owned = await this.getWorkoutLogById(workoutLogId, userId);
+      if (!owned) return [];
+    }
     return await db
       .select({
         id: workoutExerciseLogs.id,
@@ -9854,7 +9926,34 @@ export class DatabaseStorage implements IStorage {
       .orderBy(asc(workoutExerciseLogs.position));
   }
 
-  async updateWorkoutExerciseLog(id: number, updates: Partial<InsertWorkoutExerciseLog>): Promise<WorkoutExerciseLog> {
+  // Exercise/set logs carry no userId: ownership is derived from the parent workout log.
+  private async exerciseLogOwnerId(exerciseLogId: number): Promise<string | undefined> {
+    const [row] = await db
+      .select({ userId: workoutLogs.userId })
+      .from(workoutExerciseLogs)
+      .innerJoin(workoutLogs, eq(workoutExerciseLogs.workoutLogId, workoutLogs.id))
+      .where(eq(workoutExerciseLogs.id, exerciseLogId))
+      .limit(1);
+    return row?.userId;
+  }
+
+  private async setLogOwnerId(setLogId: number): Promise<string | undefined> {
+    const [row] = await db
+      .select({ userId: workoutLogs.userId })
+      .from(workoutSetLogs)
+      .innerJoin(workoutExerciseLogs, eq(workoutSetLogs.exerciseLogId, workoutExerciseLogs.id))
+      .innerJoin(workoutLogs, eq(workoutExerciseLogs.workoutLogId, workoutLogs.id))
+      .where(eq(workoutSetLogs.id, setLogId))
+      .limit(1);
+    return row?.userId;
+  }
+
+  async ownsExerciseLog(exerciseLogId: number, userId: string): Promise<boolean> {
+    return (await this.exerciseLogOwnerId(exerciseLogId)) === userId;
+  }
+
+  async updateWorkoutExerciseLog(id: number, updates: Partial<InsertWorkoutExerciseLog>, userId?: string): Promise<WorkoutExerciseLog | undefined> {
+    if (userId && !(await this.ownsExerciseLog(id, userId))) return undefined;
     const [updated] = await db
       .update(workoutExerciseLogs)
       .set(updates)
@@ -9863,11 +9962,13 @@ export class DatabaseStorage implements IStorage {
     return updated;
   }
 
-  async deleteWorkoutExerciseLog(id: number): Promise<void> {
+  async deleteWorkoutExerciseLog(id: number, userId?: string): Promise<boolean> {
+    if (userId && !(await this.ownsExerciseLog(id, userId))) return false;
     // First delete all associated set logs
     await db.delete(workoutSetLogs).where(eq(workoutSetLogs.exerciseLogId, id));
     // Then delete the exercise log
-    await db.delete(workoutExerciseLogs).where(eq(workoutExerciseLogs.id, id));
+    const deleted = await db.delete(workoutExerciseLogs).where(eq(workoutExerciseLogs.id, id)).returning({ id: workoutExerciseLogs.id });
+    return deleted.length > 0;
   }
 
   // ============================================
@@ -9882,7 +9983,8 @@ export class DatabaseStorage implements IStorage {
     return created;
   }
 
-  async getWorkoutSetLogs(exerciseLogId: number): Promise<WorkoutSetLog[]> {
+  async getWorkoutSetLogs(exerciseLogId: number, userId?: string): Promise<WorkoutSetLog[]> {
+    if (userId && !(await this.ownsExerciseLog(exerciseLogId, userId))) return [];
     return await db
       .select()
       .from(workoutSetLogs)
@@ -9890,7 +9992,8 @@ export class DatabaseStorage implements IStorage {
       .orderBy(asc(workoutSetLogs.setNumber));
   }
 
-  async updateWorkoutSetLog(id: number, updates: Partial<InsertWorkoutSetLog>): Promise<WorkoutSetLog> {
+  async updateWorkoutSetLog(id: number, updates: Partial<InsertWorkoutSetLog>, userId?: string): Promise<WorkoutSetLog | undefined> {
+    if (userId && (await this.setLogOwnerId(id)) !== userId) return undefined;
     const [updated] = await db
       .update(workoutSetLogs)
       .set(updates)
@@ -9899,17 +10002,19 @@ export class DatabaseStorage implements IStorage {
     return updated;
   }
 
-  async bulkUpdateWorkoutSetLogs(logs: { id: number; updates: Partial<InsertWorkoutSetLog> }[]): Promise<WorkoutSetLog[]> {
+  async bulkUpdateWorkoutSetLogs(logs: { id: number; updates: Partial<InsertWorkoutSetLog> }[], userId?: string): Promise<WorkoutSetLog[]> {
     const results: WorkoutSetLog[] = [];
     for (const log of logs) {
-      const updated = await this.updateWorkoutSetLog(log.id, log.updates);
-      results.push(updated);
+      const updated = await this.updateWorkoutSetLog(log.id, log.updates, userId);
+      if (updated) results.push(updated);
     }
     return results;
   }
 
-  async deleteWorkoutSetLog(id: number): Promise<void> {
-    await db.delete(workoutSetLogs).where(eq(workoutSetLogs.id, id));
+  async deleteWorkoutSetLog(id: number, userId?: string): Promise<boolean> {
+    if (userId && (await this.setLogOwnerId(id)) !== userId) return false;
+    const deleted = await db.delete(workoutSetLogs).where(eq(workoutSetLogs.id, id)).returning({ id: workoutSetLogs.id });
+    return deleted.length > 0;
   }
 
   // ============================================
@@ -11477,26 +11582,34 @@ export class DatabaseStorage implements IStorage {
     return updated;
   }
 
-  async deleteSupplement(id: number): Promise<void> {
-    await db
+  async deleteSupplement(id: number, userId: string): Promise<boolean> {
+    const updated = await db
       .update(supplements)
       .set({ isActive: false })
-      .where(eq(supplements.id, id));
+      .where(and(eq(supplements.id, id), eq(supplements.userId, userId)))
+      .returning({ id: supplements.id });
+    return updated.length > 0;
   }
 
-  async permanentlyDeleteSupplement(id: number): Promise<void> {
+  async permanentlyDeleteSupplement(id: number, userId: string): Promise<boolean> {
+    const owned = await db.select({ id: supplements.id }).from(supplements)
+      .where(and(eq(supplements.id, id), eq(supplements.userId, userId)))
+      .limit(1);
+    if (owned.length === 0) return false;
     await db.delete(supplementLogs).where(eq(supplementLogs.supplementId, id));
     await db.delete(supplements).where(eq(supplements.id, id));
+    return true;
   }
 
-  async hasSupplementLogs(supplementId: number): Promise<boolean> {
+  async hasSupplementLogs(supplementId: number, userId?: string): Promise<boolean> {
     const logs = await db
       .select()
       .from(supplementLogs)
       .where(
         and(
           eq(supplementLogs.supplementId, supplementId),
-          eq(supplementLogs.taken, true)
+          eq(supplementLogs.taken, true),
+          ...(userId ? [eq(supplementLogs.userId, userId)] : [])
         )
       )
       .limit(1);
@@ -11886,8 +11999,11 @@ export class DatabaseStorage implements IStorage {
     return created;
   }
 
-  async deleteFoodHistoryItem(id: number): Promise<void> {
-    await db.delete(userFoodHistory).where(eq(userFoodHistory.id, id));
+  async deleteFoodHistoryItem(id: number, userId: string): Promise<boolean> {
+    const deleted = await db.delete(userFoodHistory)
+      .where(and(eq(userFoodHistory.id, id), eq(userFoodHistory.userId, userId)))
+      .returning({ id: userFoodHistory.id });
+    return deleted.length > 0;
   }
 
   // ============================================
@@ -11902,8 +12018,9 @@ export class DatabaseStorage implements IStorage {
       .orderBy(desc(savedMealTemplates.updatedAt));
   }
 
-  async getSavedMealWithItems(savedMealId: number): Promise<{ template: SavedMealTemplate; items: SavedMealItem[] } | null> {
-    const [template] = await db.select().from(savedMealTemplates).where(eq(savedMealTemplates.id, savedMealId));
+  async getSavedMealWithItems(savedMealId: number, userId?: string): Promise<{ template: SavedMealTemplate; items: SavedMealItem[] } | null> {
+    const [template] = await db.select().from(savedMealTemplates)
+      .where(userId ? and(eq(savedMealTemplates.id, savedMealId), eq(savedMealTemplates.userId, userId)) : eq(savedMealTemplates.id, savedMealId));
     if (!template) return null;
     
     const items = await db
@@ -11919,20 +12036,29 @@ export class DatabaseStorage implements IStorage {
     return created;
   }
 
-  async updateSavedMealTemplate(id: number, updates: Partial<InsertSavedMealTemplate>): Promise<SavedMealTemplate> {
+  async updateSavedMealTemplate(id: number, updates: Partial<InsertSavedMealTemplate>, userId: string): Promise<SavedMealTemplate | undefined> {
     const [updated] = await db
       .update(savedMealTemplates)
       .set({ ...updates, updatedAt: new Date() })
-      .where(eq(savedMealTemplates.id, id))
+      .where(and(eq(savedMealTemplates.id, id), eq(savedMealTemplates.userId, userId)))
       .returning();
     return updated;
   }
 
-  async deleteSavedMealTemplate(id: number): Promise<void> {
-    await db.delete(savedMealTemplates).where(eq(savedMealTemplates.id, id));
+  async deleteSavedMealTemplate(id: number, userId: string): Promise<boolean> {
+    const deleted = await db.delete(savedMealTemplates)
+      .where(and(eq(savedMealTemplates.id, id), eq(savedMealTemplates.userId, userId)))
+      .returning({ id: savedMealTemplates.id });
+    return deleted.length > 0;
   }
 
-  async addItemToSavedMeal(item: InsertSavedMealItem): Promise<SavedMealItem> {
+  async addItemToSavedMeal(item: InsertSavedMealItem, userId?: string): Promise<SavedMealItem | undefined> {
+    if (userId) {
+      const owned = await db.select({ id: savedMealTemplates.id }).from(savedMealTemplates)
+        .where(and(eq(savedMealTemplates.id, item.savedMealId), eq(savedMealTemplates.userId, userId)))
+        .limit(1);
+      if (owned.length === 0) return undefined;
+    }
     const [created] = await db.insert(savedMealItems).values(item).returning();
     
     // Recalculate template totals
@@ -11941,13 +12067,17 @@ export class DatabaseStorage implements IStorage {
     return created;
   }
 
-  async deleteItemFromSavedMeal(id: number): Promise<void> {
-    // Get the saved meal ID before deleting
-    const [item] = await db.select().from(savedMealItems).where(eq(savedMealItems.id, id));
-    if (item) {
-      await db.delete(savedMealItems).where(eq(savedMealItems.id, id));
-      await this.recalculateSavedMealTotals(item.savedMealId);
-    }
+  async deleteItemFromSavedMeal(id: number, userId: string): Promise<boolean> {
+    // Get the saved meal ID before deleting; items carry no userId so check the parent template.
+    const [item] = await db
+      .select({ id: savedMealItems.id, savedMealId: savedMealItems.savedMealId })
+      .from(savedMealItems)
+      .innerJoin(savedMealTemplates, eq(savedMealItems.savedMealId, savedMealTemplates.id))
+      .where(and(eq(savedMealItems.id, id), eq(savedMealTemplates.userId, userId)));
+    if (!item) return false;
+    await db.delete(savedMealItems).where(eq(savedMealItems.id, id));
+    await this.recalculateSavedMealTotals(item.savedMealId);
+    return true;
   }
 
   private async recalculateSavedMealTotals(savedMealId: number): Promise<void> {
@@ -11973,7 +12103,7 @@ export class DatabaseStorage implements IStorage {
   }
 
   async addSavedMealToLog(userId: string, savedMealId: number, mealLogId: number, servings: number): Promise<MealFoodEntry[]> {
-    const savedMeal = await this.getSavedMealWithItems(savedMealId);
+    const savedMeal = await this.getSavedMealWithItems(savedMealId, userId);
     if (!savedMeal) return [];
 
     const entries: MealFoodEntry[] = [];
@@ -12063,17 +12193,20 @@ export class DatabaseStorage implements IStorage {
     return created;
   }
 
-  async updateUserMealCategory(id: number, updates: Partial<InsertUserMealCategory>): Promise<UserMealCategory> {
+  async updateUserMealCategory(id: number, updates: Partial<InsertUserMealCategory>, userId: string): Promise<UserMealCategory | undefined> {
     const [updated] = await db
       .update(userMealCategories)
       .set({ ...updates, updatedAt: new Date() })
-      .where(eq(userMealCategories.id, id))
+      .where(and(eq(userMealCategories.id, id), eq(userMealCategories.userId, userId)))
       .returning();
     return updated;
   }
 
-  async deleteUserMealCategory(id: number): Promise<void> {
-    await db.delete(userMealCategories).where(eq(userMealCategories.id, id));
+  async deleteUserMealCategory(id: number, userId: string): Promise<boolean> {
+    const deleted = await db.delete(userMealCategories)
+      .where(and(eq(userMealCategories.id, id), eq(userMealCategories.userId, userId)))
+      .returning({ id: userMealCategories.id });
+    return deleted.length > 0;
   }
 
   async initializeDefaultMealCategories(userId: string): Promise<UserMealCategory[]> {
@@ -12219,8 +12352,9 @@ export class DatabaseStorage implements IStorage {
       .orderBy(desc(customBreathRoutines.createdAt));
   }
 
-  async getCustomBreathRoutineById(id: number): Promise<CustomBreathRoutine | undefined> {
-    const [routine] = await db.select().from(customBreathRoutines).where(eq(customBreathRoutines.id, id));
+  async getCustomBreathRoutineById(id: number, userId?: string): Promise<CustomBreathRoutine | undefined> {
+    const [routine] = await db.select().from(customBreathRoutines)
+      .where(userId ? and(eq(customBreathRoutines.id, id), eq(customBreathRoutines.userId, userId)) : eq(customBreathRoutines.id, id));
     return routine;
   }
 
@@ -12229,17 +12363,20 @@ export class DatabaseStorage implements IStorage {
     return created;
   }
 
-  async updateCustomBreathRoutine(id: number, routine: Partial<InsertCustomBreathRoutine>): Promise<CustomBreathRoutine> {
+  async updateCustomBreathRoutine(id: number, routine: Partial<InsertCustomBreathRoutine>, userId: string): Promise<CustomBreathRoutine | undefined> {
     const [updated] = await db
       .update(customBreathRoutines)
       .set({ ...routine, updatedAt: new Date() })
-      .where(eq(customBreathRoutines.id, id))
+      .where(and(eq(customBreathRoutines.id, id), eq(customBreathRoutines.userId, userId)))
       .returning();
     return updated;
   }
 
-  async deleteCustomBreathRoutine(id: number): Promise<void> {
-    await db.delete(customBreathRoutines).where(eq(customBreathRoutines.id, id));
+  async deleteCustomBreathRoutine(id: number, userId: string): Promise<boolean> {
+    const deleted = await db.delete(customBreathRoutines)
+      .where(and(eq(customBreathRoutines.id, id), eq(customBreathRoutines.userId, userId)))
+      .returning({ id: customBreathRoutines.id });
+    return deleted.length > 0;
   }
 
   async getBreathRoutinePhases(routineId: number): Promise<BreathRoutinePhase[]> {
@@ -12484,17 +12621,20 @@ export class DatabaseStorage implements IStorage {
     });
   }
 
-  async updateMealPlan(id: number, plan: Partial<InsertMealPlan>): Promise<MealPlan> {
+  async updateMealPlan(id: number, plan: Partial<InsertMealPlan>, userId: string): Promise<MealPlan | undefined> {
     const [updated] = await db
       .update(mealPlans)
       .set({ ...plan, updatedAt: new Date() })
-      .where(eq(mealPlans.id, id))
+      .where(and(eq(mealPlans.id, id), eq(mealPlans.userId, userId)))
       .returning();
     return updated;
   }
 
-  async deleteMealPlan(id: number): Promise<void> {
-    await db.delete(mealPlans).where(eq(mealPlans.id, id));
+  async deleteMealPlan(id: number, userId: string): Promise<boolean> {
+    const deleted = await db.delete(mealPlans)
+      .where(and(eq(mealPlans.id, id), eq(mealPlans.userId, userId)))
+      .returning({ id: mealPlans.id });
+    return deleted.length > 0;
   }
 
   async createMealPlanDay(day: InsertMealPlanDay): Promise<MealPlanDay> {
@@ -13226,8 +13366,11 @@ export class DatabaseStorage implements IStorage {
     return result;
   }
 
-  async markBadgeNotified(userBadgeId: number): Promise<void> {
-    await db.update(userBadges).set({ notified: true }).where(eq(userBadges.id, userBadgeId));
+  async markBadgeNotified(userBadgeId: number, userId: string): Promise<boolean> {
+    const updated = await db.update(userBadges).set({ notified: true })
+      .where(and(eq(userBadges.id, userBadgeId), eq(userBadges.userId, userId)))
+      .returning({ id: userBadges.id });
+    return updated.length > 0;
   }
 
   async resetBadgeNotified(userBadgeId: number): Promise<UserBadge | null> {

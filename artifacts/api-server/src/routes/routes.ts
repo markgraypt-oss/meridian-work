@@ -173,6 +173,18 @@ const aiTtsRateLimit = rateLimit({
 });
 
 /**
+ * Mass-assignment guard for PATCH handlers that spread req.body into an update.
+ * Returns a shallow copy of body with server-owned keys removed.
+ */
+const NEVER_CLIENT_SETTABLE = ['id', 'userId', 'createdAt', 'updatedAt'] as const;
+function pickEditable(body: any, disallowed: readonly string[] = []): any {
+  const out: Record<string, any> = { ...(body && typeof body === 'object' ? body : {}) };
+  for (const k of NEVER_CLIENT_SETTABLE) delete out[k];
+  for (const k of disallowed) delete out[k];
+  return out;
+}
+
+/**
  * Parse a "YYYY-MM-DD" date string from the client as user-local-midnight.
  * `new Date("2026-06-03")` parses as UTC midnight, which is the wrong day
  * for any user not on UTC. This produces midnight in the IANA tz provided.
@@ -6439,13 +6451,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Get workout log by ID with all exercises and sets
-  app.get('/api/workout-logs/:id', isAuthenticated, async (req, res) => {
+  app.get('/api/workout-logs/:id', isAuthenticated, async (req: any, res) => {
     try {
       const id = parseInt(req.params.id);
-      const log = await storage.getWorkoutLogById(id);
+      const log = await storage.getWorkoutLogById(id, req.user.claims.sub);
       
       if (!log) {
-        return res.status(404).json({ message: "Workout log not found" });
+        return res.status(404).json({ message: "Not found" });
       }
       
       const exerciseLogs = await storage.getWorkoutExerciseLogs(id);
@@ -6544,10 +6556,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Update workout log (notes, etc.)
-  app.patch('/api/workout-logs/:id', isAuthenticated, async (req, res) => {
+  app.patch('/api/workout-logs/:id', isAuthenticated, async (req: any, res) => {
     try {
       const id = parseInt(req.params.id);
-      const updates = { ...req.body };
+      const updates = pickEditable(req.body, ['status', 'completedAt', 'pointsAwarded', 'badgesAwarded']);
       
       // Convert date strings to Date objects
       if (updates.startedAt && typeof updates.startedAt === 'string') {
@@ -6557,7 +6569,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
         updates.completedAt = new Date(updates.completedAt);
       }
       
-      const updated = await storage.updateWorkoutLog(id, updates);
+      const updated = await storage.updateWorkoutLog(id, updates, req.user.claims.sub);
+      if (!updated) return res.status(404).json({ message: "Not found" });
       res.json(updated);
     } catch (error) {
       console.error("Error updating workout log:", error);
@@ -6733,10 +6746,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Cancel a specific workout by ID
-  app.post('/api/workout-logs/:id/cancel', isAuthenticated, async (req, res) => {
+  app.post('/api/workout-logs/:id/cancel', isAuthenticated, async (req: any, res) => {
     try {
       const id = parseInt(req.params.id);
-      await storage.cancelWorkoutLog(id);
+      const ok = await storage.cancelWorkoutLog(id, req.user.claims.sub);
+      if (!ok) return res.status(404).json({ message: "Not found" });
       res.json({ success: true });
     } catch (error) {
       console.error("Error cancelling workout:", error);
@@ -6970,9 +6984,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Update a custom WOD
-  app.patch('/api/workout-logs/custom/:id', isAuthenticated, async (req, res) => {
+  app.patch('/api/workout-logs/custom/:id', isAuthenticated, async (req: any, res) => {
     try {
       const id = parseInt(req.params.id);
+      // Ownership check: every write below is scoped to this log
+      const ownedLog = await storage.getWorkoutLogById(id, req.user.claims.sub);
+      if (!ownedLog) return res.status(404).json({ message: "Not found" });
       const { date, exercises, intervalRounds, durationHint } = req.body;
 
       // Update the workout log date and intervalRounds if provided
@@ -7184,10 +7201,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Delete a custom WOD
-  app.delete('/api/workout-logs/custom/:id', isAuthenticated, async (req, res) => {
+  app.delete('/api/workout-logs/custom/:id', isAuthenticated, async (req: any, res) => {
     try {
       const id = parseInt(req.params.id);
-      await storage.cancelWorkoutLog(id);
+      const ok = await storage.cancelWorkoutLog(id, req.user.claims.sub);
+      if (!ok) return res.status(404).json({ message: "Not found" });
       res.json({ success: true });
     } catch (error) {
       console.error("Error deleting custom WOD:", error);
@@ -7391,9 +7409,11 @@ Return format: {"category": "strength|cardio|hiit|mobility|recovery", "difficult
   });
 
   // Get exercises for a workout log
-  app.get('/api/workout-logs/:logId/exercises', isAuthenticated, async (req, res) => {
+  app.get('/api/workout-logs/:logId/exercises', isAuthenticated, async (req: any, res) => {
     try {
       const logId = parseInt(req.params.logId);
+      const ownedLog = await storage.getWorkoutLogById(logId, req.user.claims.sub);
+      if (!ownedLog) return res.status(404).json({ message: "Not found" });
       const exerciseLogs = await storage.getWorkoutExerciseLogs(logId);
       const exercisesWithSets = await Promise.all(
         exerciseLogs.map(async (ex) => ({
@@ -7500,32 +7520,16 @@ Return format: {"category": "strength|cardio|hiit|mobility|recovery", "difficult
   });
 
   /**
-   * Does this exercise log belong to the calling user? Both routes below pass the
-   * request body straight into an UPDATE / run a DELETE keyed only on an
-   * auto-increment id, so without this any signed-in user could rewrite or delete
-   * another user's training history by guessing ids. The substitute-exercise flow
-   * now writes exerciseName/exerciseLibraryId through the PATCH, which made this
-   * worth closing rather than leaving as-is.
+   * Exercise/set logs carry no userId. The storage layer derives ownership from
+   * the parent workout log (storage.ownsExerciseLog / userId argument) and the
+   * routes below return 404 when the row is missing or not the caller's.
    */
-  async function ownsExerciseLog(exerciseLogId: number, userId: string): Promise<boolean> {
-    const [row] = await db
-      .select({ workoutLogId: workoutExerciseLogs.workoutLogId })
-      .from(workoutExerciseLogs)
-      .where(eq(workoutExerciseLogs.id, exerciseLogId))
-      .limit(1);
-    if (!row) return false;
-    const parent = await storage.getWorkoutLogById(row.workoutLogId);
-    return !!parent && parent.userId === userId;
-  }
-
   // Update exercise log
   app.patch('/api/exercise-logs/:id', isAuthenticated, async (req: any, res) => {
     try {
       const id = parseInt(req.params.id);
-      if (!(await ownsExerciseLog(id, req.user.claims.sub))) {
-        return res.status(403).json({ message: "Not authorized" });
-      }
-      const updated = await storage.updateWorkoutExerciseLog(id, req.body);
+      const updated = await storage.updateWorkoutExerciseLog(id, pickEditable(req.body, ['workoutLogId']), req.user.claims.sub);
+      if (!updated) return res.status(404).json({ message: "Not found" });
       res.json(updated);
     } catch (error) {
       console.error("Error updating exercise log:", error);
@@ -7537,10 +7541,8 @@ Return format: {"category": "strength|cardio|hiit|mobility|recovery", "difficult
   app.delete('/api/exercise-logs/:id', isAuthenticated, async (req: any, res) => {
     try {
       const id = parseInt(req.params.id);
-      if (!(await ownsExerciseLog(id, req.user.claims.sub))) {
-        return res.status(403).json({ message: "Not authorized" });
-      }
-      await storage.deleteWorkoutExerciseLog(id);
+      const ok = await storage.deleteWorkoutExerciseLog(id, req.user.claims.sub);
+      if (!ok) return res.status(404).json({ message: "Not found" });
       res.json({ success: true });
     } catch (error) {
       console.error("Error deleting exercise log:", error);
@@ -7550,10 +7552,16 @@ Return format: {"category": "strength|cardio|hiit|mobility|recovery", "difficult
 
   // Update a set log (record actual reps/weight/time)
   // Bulk update set logs
-  app.patch('/api/set-logs/bulk', isAuthenticated, async (req, res) => {
+  app.patch('/api/set-logs/bulk', isAuthenticated, async (req: any, res) => {
     try {
       const { updates } = req.body; // Array of { id, updates }
-      const results = await storage.bulkUpdateWorkoutSetLogs(updates);
+      if (!Array.isArray(updates)) return res.status(400).json({ message: "updates must be an array" });
+      const safeUpdates = updates
+        .filter((u: any) => u && Number.isFinite(Number(u.id)))
+        .map((u: any) => ({ id: Number(u.id), updates: pickEditable(u.updates, ['exerciseLogId']) }));
+      // Rows not owned by the caller are skipped (not updated, not returned).
+      const results = await storage.bulkUpdateWorkoutSetLogs(safeUpdates, req.user.claims.sub);
+      if (safeUpdates.length > 0 && results.length === 0) return res.status(404).json({ message: "Not found" });
       res.json(results);
     } catch (error) {
       console.error("Error bulk updating set logs:", error);
@@ -7561,10 +7569,11 @@ Return format: {"category": "strength|cardio|hiit|mobility|recovery", "difficult
     }
   });
 
-  app.patch('/api/set-logs/:id', isAuthenticated, async (req, res) => {
+  app.patch('/api/set-logs/:id', isAuthenticated, async (req: any, res) => {
     try {
       const id = parseInt(req.params.id);
-      const updated = await storage.updateWorkoutSetLog(id, req.body);
+      const updated = await storage.updateWorkoutSetLog(id, pickEditable(req.body, ['exerciseLogId']), req.user.claims.sub);
+      if (!updated) return res.status(404).json({ message: "Not found" });
       res.json(updated);
     } catch (error) {
       console.error("Error updating set log:", error);
@@ -7573,10 +7582,11 @@ Return format: {"category": "strength|cardio|hiit|mobility|recovery", "difficult
   });
 
   // Delete a set log
-  app.delete('/api/set-logs/:id', isAuthenticated, async (req, res) => {
+  app.delete('/api/set-logs/:id', isAuthenticated, async (req: any, res) => {
     try {
       const id = parseInt(req.params.id);
-      await storage.deleteWorkoutSetLog(id);
+      const ok = await storage.deleteWorkoutSetLog(id, req.user.claims.sub);
+      if (!ok) return res.status(404).json({ message: "Not found" });
       res.json({ success: true });
     } catch (error) {
       console.error("Error deleting set log:", error);
@@ -7585,9 +7595,12 @@ Return format: {"category": "strength|cardio|hiit|mobility|recovery", "difficult
   });
 
   // Add a new set to an exercise
-  app.post('/api/exercise-logs/:exerciseLogId/sets', isAuthenticated, async (req, res) => {
+  app.post('/api/exercise-logs/:exerciseLogId/sets', isAuthenticated, async (req: any, res) => {
     try {
       const exerciseLogId = parseInt(req.params.exerciseLogId);
+      if (!(await storage.ownsExerciseLog(exerciseLogId, req.user.claims.sub))) {
+        return res.status(404).json({ message: "Not found" });
+      }
       const { targetReps, targetDuration, setNumber, initialData } = req.body;
       
       // Get current sets to determine next set number if not provided
@@ -10891,7 +10904,8 @@ Rules:
     try {
       const id = parseInt(req.params.id);
       const { note } = req.body;
-      const updatedNote = await storage.updateUserNote(id, note);
+      const updatedNote = await storage.updateUserNote(id, note, req.user.claims.sub);
+      if (!updatedNote) return res.status(404).json({ message: "Not found" });
       res.json(updatedNote);
     } catch (error) {
       console.error("Error updating note:", error);
@@ -10927,11 +10941,11 @@ Rules:
     }
   });
 
-  app.get("/api/injuries/:id", isAuthenticated, async (req, res) => {
+  app.get("/api/injuries/:id", isAuthenticated, async (req: any, res) => {
     try {
-      const injury = await storage.getInjuryLogById(parseInt(req.params.id));
+      const injury = await storage.getInjuryLogById(parseInt(req.params.id), req.user.claims.sub);
       if (!injury) {
-        return res.status(404).json({ message: "Injury not found" });
+        return res.status(404).json({ message: "Not found" });
       }
       res.json(injury);
     } catch (error) {
@@ -10956,9 +10970,10 @@ Rules:
     }
   });
 
-  app.put("/api/injuries/:id", isAuthenticated, async (req, res) => {
+  app.put("/api/injuries/:id", isAuthenticated, async (req: any, res) => {
     try {
-      const injury = await storage.updateInjuryLog(parseInt(req.params.id), req.body);
+      const injury = await storage.updateInjuryLog(parseInt(req.params.id), pickEditable(req.body, ['lastUpdatedAt']), req.user.claims.sub);
+      if (!injury) return res.status(404).json({ message: "Not found" });
       res.json(injury);
     } catch (error) {
       console.error("Error updating injury:", error);
@@ -10966,9 +10981,10 @@ Rules:
     }
   });
 
-  app.delete("/api/injuries/:id", isAuthenticated, async (req, res) => {
+  app.delete("/api/injuries/:id", isAuthenticated, async (req: any, res) => {
     try {
-      await storage.deleteInjuryLog(parseInt(req.params.id));
+      const ok = await storage.deleteInjuryLog(parseInt(req.params.id), req.user.claims.sub);
+      if (!ok) return res.status(404).json({ message: "Not found" });
       res.status(204).send();
     } catch (error) {
       console.error("Error deleting injury:", error);
@@ -10977,8 +10993,11 @@ Rules:
   });
 
   // Daily severity tracking routes
-  app.get("/api/injuries/:id/severity", isAuthenticated, async (req, res) => {
+  app.get("/api/injuries/:id/severity", isAuthenticated, async (req: any, res) => {
     try {
+      if (!(await storage.getInjuryLogById(parseInt(req.params.id), req.user.claims.sub))) {
+        return res.status(404).json({ message: "Not found" });
+      }
       const days = req.query.days ? parseInt(req.query.days as string) : 30;
       const severityLogs = await storage.getDailySeverityLogs(parseInt(req.params.id), days);
       res.json(severityLogs);
@@ -10988,11 +11007,16 @@ Rules:
     }
   });
 
-  app.post("/api/injuries/:id/severity", isAuthenticated, async (req, res) => {
+  app.post("/api/injuries/:id/severity", isAuthenticated, async (req: any, res) => {
     try {
+      const userId = req.user.claims.sub;
+      if (!(await storage.getInjuryLogById(parseInt(req.params.id), userId))) {
+        return res.status(404).json({ message: "Not found" });
+      }
       const validatedData = insertDailySeverityLogSchema.parse({
         ...req.body,
-        injuryLogId: parseInt(req.params.id)
+        injuryLogId: parseInt(req.params.id),
+        userId
       });
       
       const severityLog = await storage.createDailySeverityLog(validatedData);
@@ -11003,8 +11027,11 @@ Rules:
     }
   });
 
-  app.get("/api/injuries/:id/severity/latest", isAuthenticated, async (req, res) => {
+  app.get("/api/injuries/:id/severity/latest", isAuthenticated, async (req: any, res) => {
     try {
+      if (!(await storage.getInjuryLogById(parseInt(req.params.id), req.user.claims.sub))) {
+        return res.status(404).json({ message: "Not found" });
+      }
       const latestSeverity = await storage.getLatestSeverityForInjury(parseInt(req.params.id));
       res.json(latestSeverity);
     } catch (error) {
@@ -11014,8 +11041,11 @@ Rules:
   });
 
   // Recovery action routes
-  app.get("/api/injuries/:id/recovery-actions", isAuthenticated, async (req, res) => {
+  app.get("/api/injuries/:id/recovery-actions", isAuthenticated, async (req: any, res) => {
     try {
+      if (!(await storage.getInjuryLogById(parseInt(req.params.id), req.user.claims.sub))) {
+        return res.status(404).json({ message: "Not found" });
+      }
       const actions = await storage.getRecoveryActions(parseInt(req.params.id));
       res.json(actions);
     } catch (error) {
@@ -11024,11 +11054,16 @@ Rules:
     }
   });
 
-  app.post("/api/injuries/:id/recovery-actions", isAuthenticated, async (req, res) => {
+  app.post("/api/injuries/:id/recovery-actions", isAuthenticated, async (req: any, res) => {
     try {
+      const userId = req.user.claims.sub;
+      if (!(await storage.getInjuryLogById(parseInt(req.params.id), userId))) {
+        return res.status(404).json({ message: "Not found" });
+      }
       const validatedData = insertRecoveryActionSchema.parse({
         ...req.body,
-        injuryLogId: parseInt(req.params.id)
+        injuryLogId: parseInt(req.params.id),
+        userId
       });
       
       const action = await storage.createRecoveryAction(validatedData);
@@ -11039,9 +11074,10 @@ Rules:
     }
   });
 
-  app.put("/api/recovery-actions/:id", isAuthenticated, async (req, res) => {
+  app.put("/api/recovery-actions/:id", isAuthenticated, async (req: any, res) => {
     try {
-      const action = await storage.updateRecoveryAction(parseInt(req.params.id), req.body);
+      const action = await storage.updateRecoveryAction(parseInt(req.params.id), pickEditable(req.body, ['injuryLogId']), req.user.claims.sub);
+      if (!action) return res.status(404).json({ message: "Not found" });
       res.json(action);
     } catch (error) {
       console.error("Error updating recovery action:", error);
@@ -11049,9 +11085,10 @@ Rules:
     }
   });
 
-  app.delete("/api/recovery-actions/:id", isAuthenticated, async (req, res) => {
+  app.delete("/api/recovery-actions/:id", isAuthenticated, async (req: any, res) => {
     try {
-      await storage.deleteRecoveryAction(parseInt(req.params.id));
+      const ok = await storage.deleteRecoveryAction(parseInt(req.params.id), req.user.claims.sub);
+      if (!ok) return res.status(404).json({ message: "Not found" });
       res.status(204).send();
     } catch (error) {
       console.error("Error deleting recovery action:", error);
@@ -11060,8 +11097,11 @@ Rules:
   });
 
   // Recovery compliance routes
-  app.get("/api/recovery-actions/:id/compliance", isAuthenticated, async (req, res) => {
+  app.get("/api/recovery-actions/:id/compliance", isAuthenticated, async (req: any, res) => {
     try {
+      if (!(await storage.getRecoveryActionById(parseInt(req.params.id), req.user.claims.sub))) {
+        return res.status(404).json({ message: "Not found" });
+      }
       const days = req.query.days ? parseInt(req.query.days as string) : 30;
       const compliance = await storage.getRecoveryCompliance(parseInt(req.params.id), days);
       res.json(compliance);
@@ -11071,11 +11111,16 @@ Rules:
     }
   });
 
-  app.post("/api/recovery-actions/:id/compliance", isAuthenticated, async (req, res) => {
+  app.post("/api/recovery-actions/:id/compliance", isAuthenticated, async (req: any, res) => {
     try {
+      const userId = req.user.claims.sub;
+      if (!(await storage.getRecoveryActionById(parseInt(req.params.id), userId))) {
+        return res.status(404).json({ message: "Not found" });
+      }
       const validatedData = insertRecoveryComplianceSchema.parse({
         ...req.body,
-        recoveryActionId: parseInt(req.params.id)
+        recoveryActionId: parseInt(req.params.id),
+        userId
       });
       
       const compliance = await storage.createRecoveryCompliance(validatedData);
@@ -11086,8 +11131,11 @@ Rules:
     }
   });
 
-  app.get("/api/recovery-actions/:id/compliance/stats", isAuthenticated, async (req, res) => {
+  app.get("/api/recovery-actions/:id/compliance/stats", isAuthenticated, async (req: any, res) => {
     try {
+      if (!(await storage.getRecoveryActionById(parseInt(req.params.id), req.user.claims.sub))) {
+        return res.status(404).json({ message: "Not found" });
+      }
       const days = req.query.days ? parseInt(req.query.days as string) : 30;
       const stats = await storage.getComplianceStats(parseInt(req.params.id), days);
       res.json(stats);
@@ -11124,9 +11172,10 @@ Rules:
     }
   });
 
-  app.put("/api/recovery-alerts/:id/read", isAuthenticated, async (req, res) => {
+  app.put("/api/recovery-alerts/:id/read", isAuthenticated, async (req: any, res) => {
     try {
-      await storage.markAlertAsRead(parseInt(req.params.id));
+      const ok = await storage.markAlertAsRead(parseInt(req.params.id), req.user.claims.sub);
+      if (!ok) return res.status(404).json({ message: "Not found" });
       res.status(204).send();
     } catch (error) {
       console.error("Error marking alert as read:", error);
@@ -11134,9 +11183,10 @@ Rules:
     }
   });
 
-  app.put("/api/recovery-alerts/:id/dismiss", isAuthenticated, async (req, res) => {
+  app.put("/api/recovery-alerts/:id/dismiss", isAuthenticated, async (req: any, res) => {
     try {
-      await storage.dismissAlert(parseInt(req.params.id));
+      const ok = await storage.dismissAlert(parseInt(req.params.id), req.user.claims.sub);
+      if (!ok) return res.status(404).json({ message: "Not found" });
       res.status(204).send();
     } catch (error) {
       console.error("Error dismissing alert:", error);
@@ -11145,8 +11195,11 @@ Rules:
   });
 
   // Injury analysis route
-  app.get("/api/injuries/:id/analysis", isAuthenticated, async (req, res) => {
+  app.get("/api/injuries/:id/analysis", isAuthenticated, async (req: any, res) => {
     try {
+      if (!(await storage.getInjuryLogById(parseInt(req.params.id), req.user.claims.sub))) {
+        return res.status(404).json({ message: "Not found" });
+      }
       const analysis = await storage.analyzeInjuryProgress(parseInt(req.params.id));
       res.json(analysis);
     } catch (error) {
@@ -14043,10 +14096,11 @@ Rules:
     }
   });
 
-  app.delete('/api/progress-photos/:id', isAuthenticated, async (req, res) => {
+  app.delete('/api/progress-photos/:id', isAuthenticated, async (req: any, res) => {
     try {
       const id = parseInt(req.params.id);
-      await storage.deleteProgressPhoto(id);
+      const ok = await storage.deleteProgressPhoto(id, req.user.claims.sub);
+      if (!ok) return res.status(404).json({ message: "Not found" });
       res.json({ success: true });
     } catch (error) {
       console.error("Error deleting progress photo:", error);
@@ -14078,10 +14132,11 @@ Rules:
     }
   });
 
-  app.delete('/api/body-stats/:id', isAuthenticated, async (req, res) => {
+  app.delete('/api/body-stats/:id', isAuthenticated, async (req: any, res) => {
     try {
       const id = parseInt(req.params.id);
-      await storage.deleteBodyStats(id);
+      const ok = await storage.deleteBodyStats(id, req.user.claims.sub);
+      if (!ok) return res.status(404).json({ message: "Not found" });
       res.json({ success: true });
     } catch (error) {
       console.error("Error deleting body stats:", error);
@@ -14113,10 +14168,11 @@ Rules:
     }
   });
 
-  app.delete('/api/workout-sessions/:id', isAuthenticated, async (req, res) => {
+  app.delete('/api/workout-sessions/:id', isAuthenticated, async (req: any, res) => {
     try {
       const id = parseInt(req.params.id);
-      await storage.deleteWorkoutSession(id);
+      const ok = await storage.deleteWorkoutSession(id, req.user.claims.sub);
+      if (!ok) return res.status(404).json({ message: "Not found" });
       res.json({ success: true });
     } catch (error) {
       console.error("Error deleting workout session:", error);
@@ -14243,9 +14299,9 @@ Rules:
   app.get('/api/goals/:id', isAuthenticated, async (req: any, res) => {
     try {
       const id = parseInt(req.params.id);
-      const goal = await storage.getGoalById(id);
+      const goal = await storage.getGoalById(id, req.user.claims.sub);
       if (!goal) {
-        return res.status(404).json({ message: "Goal not found" });
+        return res.status(404).json({ message: "Not found" });
       }
       res.json(goal);
     } catch (error) {
@@ -14254,16 +14310,17 @@ Rules:
     }
   });
 
-  app.patch('/api/goals/:id', isAuthenticated, async (req, res) => {
+  app.patch('/api/goals/:id', isAuthenticated, async (req: any, res) => {
     try {
       const id = parseInt(req.params.id);
       const { milestones: milestonesData, ...bodyRest } = req.body;
       const updateData = {
-        ...bodyRest,
+        ...pickEditable(bodyRest),
         startDate: req.body.startDate ? new Date(req.body.startDate) : req.body.startDate === null ? null : undefined,
         deadline: req.body.deadline ? new Date(req.body.deadline) : req.body.deadline === null ? null : undefined
       };
-      const goal = await storage.updateGoal(id, updateData);
+      const goal = await storage.updateGoal(id, updateData, req.user.claims.sub);
+      if (!goal) return res.status(404).json({ message: "Not found" });
       
       // Update milestones if provided
       if (milestonesData && Array.isArray(milestonesData)) {
@@ -14296,10 +14353,11 @@ Rules:
     }
   });
 
-  app.delete('/api/goals/:id', isAuthenticated, async (req, res) => {
+  app.delete('/api/goals/:id', isAuthenticated, async (req: any, res) => {
     try {
       const id = parseInt(req.params.id);
-      await storage.deleteGoal(id);
+      const ok = await storage.deleteGoal(id, req.user.claims.sub);
+      if (!ok) return res.status(404).json({ message: "Not found" });
       res.json({ success: true });
     } catch (error) {
       console.error("Error deleting goal:", error);
@@ -14321,9 +14379,12 @@ Rules:
     }
   });
 
-  app.get('/api/goals/:goalId/milestones', isAuthenticated, async (req, res) => {
+  app.get('/api/goals/:goalId/milestones', isAuthenticated, async (req: any, res) => {
     try {
       const goalId = parseInt(req.params.goalId);
+      if (!(await storage.getGoalById(goalId, req.user.claims.sub))) {
+        return res.status(404).json({ message: "Not found" });
+      }
       const milestones = await storage.getMilestones(goalId);
       res.json(milestones);
     } catch (error) {
@@ -14335,8 +14396,11 @@ Rules:
   app.post('/api/goals/:goalId/milestones', isAuthenticated, async (req: any, res) => {
     try {
       const goalId = parseInt(req.params.goalId);
+      if (!(await storage.getGoalById(goalId, req.user.claims.sub))) {
+        return res.status(404).json({ message: "Not found" });
+      }
       const milestoneData = {
-        ...req.body,
+        ...pickEditable(req.body),
         goalId,
         dueDate: req.body.dueDate ? new Date(req.body.dueDate) : new Date(),
       };
@@ -14352,10 +14416,11 @@ Rules:
     try {
       const id = parseInt(req.params.id);
       const updateData = {
-        ...req.body,
+        ...pickEditable(req.body, ['goalId']),
         dueDate: req.body.dueDate ? new Date(req.body.dueDate) : undefined,
       };
-      const milestone = await storage.updateMilestone(id, updateData);
+      const milestone = await storage.updateMilestone(id, updateData, req.user.claims.sub);
+      if (!milestone) return res.status(404).json({ message: "Not found" });
       res.json(milestone);
     } catch (error) {
       console.error("Error updating milestone:", error);
@@ -14363,10 +14428,11 @@ Rules:
     }
   });
 
-  app.post('/api/milestones/:id/complete', isAuthenticated, async (req, res) => {
+  app.post('/api/milestones/:id/complete', isAuthenticated, async (req: any, res) => {
     try {
       const id = parseInt(req.params.id);
-      const milestone = await storage.completeMilestone(id);
+      const milestone = await storage.completeMilestone(id, req.user.claims.sub);
+      if (!milestone) return res.status(404).json({ message: "Not found" });
       res.json(milestone);
     } catch (error) {
       console.error("Error completing milestone:", error);
@@ -14374,10 +14440,11 @@ Rules:
     }
   });
 
-  app.post('/api/milestones/:id/uncomplete', isAuthenticated, async (req, res) => {
+  app.post('/api/milestones/:id/uncomplete', isAuthenticated, async (req: any, res) => {
     try {
       const id = parseInt(req.params.id);
-      const milestone = await storage.uncompleteMilestone(id);
+      const milestone = await storage.uncompleteMilestone(id, req.user.claims.sub);
+      if (!milestone) return res.status(404).json({ message: "Not found" });
       res.json(milestone);
     } catch (error) {
       console.error("Error uncompleting milestone:", error);
@@ -14385,10 +14452,11 @@ Rules:
     }
   });
 
-  app.delete('/api/milestones/:id', isAuthenticated, async (req, res) => {
+  app.delete('/api/milestones/:id', isAuthenticated, async (req: any, res) => {
     try {
       const id = parseInt(req.params.id);
-      await storage.deleteMilestone(id);
+      const ok = await storage.deleteMilestone(id, req.user.claims.sub);
+      if (!ok) return res.status(404).json({ message: "Not found" });
       res.json({ success: true });
     } catch (error) {
       console.error("Error deleting milestone:", error);
@@ -14454,7 +14522,8 @@ Rules:
       const id = parseInt(req.params.id);
       const { title, description, icon, category } = req.body;
       if (!title?.trim()) return res.status(400).json({ message: "Title is required" });
-      const updated = await storage.updateUserHabitLibraryEntry(id, { title, description, icon, category });
+      const updated = await storage.updateUserHabitLibraryEntry(id, { title, description, icon, category }, req.user.claims.sub);
+      if (!updated) return res.status(404).json({ message: "Not found" });
       res.json(updated);
     } catch (error) {
       console.error("Error updating user habit library entry:", error);
@@ -14465,7 +14534,8 @@ Rules:
   app.delete('/api/user-habit-library/:id', isAuthenticated, async (req: any, res) => {
     try {
       const id = parseInt(req.params.id);
-      await storage.deleteUserHabitLibraryEntry(id);
+      const ok = await storage.deleteUserHabitLibraryEntry(id, req.user.claims.sub);
+      if (!ok) return res.status(404).json({ message: "Not found" });
       res.status(204).send();
     } catch (error) {
       console.error("Error deleting user habit library entry:", error);
@@ -14547,10 +14617,11 @@ Rules:
     }
   });
 
-  app.patch('/api/habits/:id', isAuthenticated, async (req, res) => {
+  app.patch('/api/habits/:id', isAuthenticated, async (req: any, res) => {
     try {
       const id = parseInt(req.params.id);
-      const habit = await storage.updateHabit(id, req.body);
+      const habit = await storage.updateHabit(id, pickEditable(req.body, ['currentStreak', 'longestStreak']), req.user.claims.sub);
+      if (!habit) return res.status(404).json({ message: "Not found" });
       res.json(habit);
     } catch (error) {
       console.error("Error updating habit:", error);
@@ -14561,9 +14632,9 @@ Rules:
   app.get('/api/habits/:id', isAuthenticated, async (req: any, res) => {
     try {
       const id = parseInt(req.params.id);
-      const habit = await storage.getHabitById(id);
+      const habit = await storage.getHabitById(id, req.user.claims.sub);
       if (!habit) {
-        return res.status(404).json({ message: "Habit not found" });
+        return res.status(404).json({ message: "Not found" });
       }
       res.json(habit);
     } catch (error) {
@@ -14572,10 +14643,13 @@ Rules:
     }
   });
 
-  app.get('/api/habits/:id/completions', isAuthenticated, async (req, res) => {
+  app.get('/api/habits/:id/completions', isAuthenticated, async (req: any, res) => {
     try {
       const habitId = parseInt(req.params.id);
-      const completions = await storage.getHabitCompletions(habitId);
+      if (!(await storage.getHabitById(habitId, req.user.claims.sub))) {
+        return res.status(404).json({ message: "Not found" });
+      }
+      const completions = await storage.getHabitCompletions(habitId, req.user.claims.sub);
       res.json(completions);
     } catch (error) {
       console.error("Error fetching habit completions:", error);
@@ -14583,10 +14657,11 @@ Rules:
     }
   });
 
-  app.delete('/api/habits/:id', isAuthenticated, async (req, res) => {
+  app.delete('/api/habits/:id', isAuthenticated, async (req: any, res) => {
     try {
       const id = parseInt(req.params.id);
-      await storage.deleteHabit(id);
+      const ok = await storage.deleteHabit(id, req.user.claims.sub);
+      if (!ok) return res.status(404).json({ message: "Not found" });
       res.json({ success: true });
     } catch (error) {
       console.error("Error deleting habit:", error);
@@ -14601,6 +14676,7 @@ Rules:
       const dateStr = req.query.date as string || req.body.date;
       const date = dateStr ? new Date(dateStr) : new Date();
       const completion = await storage.completeHabit(id, userId, date);
+      if (!completion) return res.status(404).json({ message: "Not found" });
       res.status(201).json(completion);
     } catch (error) {
       console.error("Error completing habit:", error);
@@ -14628,7 +14704,8 @@ Rules:
             }
             return new Date(now.getFullYear(), now.getMonth(), now.getDate());
           })();
-      await storage.uncompleteHabit(id, userId, date);
+      const ok = await storage.uncompleteHabit(id, userId, date);
+      if (!ok) return res.status(404).json({ message: "Not found" });
       res.json({ success: true });
     } catch (error) {
       console.error("Error uncompleting habit:", error);
@@ -15735,7 +15812,8 @@ Rules:
   app.delete('/api/hydration/log/:id', isAuthenticated, async (req: any, res) => {
     try {
       const { id } = req.params;
-      await storage.deleteHydrationLog(parseInt(id));
+      const ok = await storage.deleteHydrationLog(parseInt(id), req.user.claims.sub);
+      if (!ok) return res.status(404).json({ message: "Not found" });
       res.json({ success: true });
     } catch (error) {
       console.error("Error deleting hydration log:", error);
@@ -16389,7 +16467,8 @@ Rules:
   app.delete('/api/nutrition/food-history/:id', isAuthenticated, async (req: any, res) => {
     try {
       const { id } = req.params;
-      await storage.deleteFoodHistoryItem(parseInt(id));
+      const ok = await storage.deleteFoodHistoryItem(parseInt(id), req.user.claims.sub);
+      if (!ok) return res.status(404).json({ message: "Not found" });
       res.json({ success: true });
     } catch (error) {
       console.error("Error deleting food history item:", error);
@@ -16415,9 +16494,9 @@ Rules:
   app.get('/api/nutrition/saved-meals/:id', isAuthenticated, async (req: any, res) => {
     try {
       const { id } = req.params;
-      const savedMeal = await storage.getSavedMealWithItems(parseInt(id));
+      const savedMeal = await storage.getSavedMealWithItems(parseInt(id), req.user.claims.sub);
       if (!savedMeal) {
-        return res.status(404).json({ message: "Saved meal not found" });
+        return res.status(404).json({ message: "Not found" });
       }
       res.json(savedMeal);
     } catch (error) {
@@ -16473,7 +16552,8 @@ Rules:
       const updated = await storage.updateSavedMealTemplate(parseInt(id), {
         name,
         description,
-      });
+      }, req.user.claims.sub);
+      if (!updated) return res.status(404).json({ message: "Not found" });
       
       res.json(updated);
     } catch (error) {
@@ -16486,7 +16566,8 @@ Rules:
   app.delete('/api/nutrition/saved-meals/:id', isAuthenticated, async (req: any, res) => {
     try {
       const { id } = req.params;
-      await storage.deleteSavedMealTemplate(parseInt(id));
+      const ok = await storage.deleteSavedMealTemplate(parseInt(id), req.user.claims.sub);
+      if (!ok) return res.status(404).json({ message: "Not found" });
       res.json({ success: true });
     } catch (error) {
       console.error("Error deleting saved meal:", error);
@@ -16513,7 +16594,8 @@ Rules:
         fat: fat || 0,
         recipeId: recipeId || null,
         foodHistoryId: foodHistoryId || null,
-      });
+      }, req.user.claims.sub);
+      if (!item) return res.status(404).json({ message: "Not found" });
       
       res.status(201).json(item);
     } catch (error) {
@@ -16526,7 +16608,8 @@ Rules:
   app.delete('/api/nutrition/saved-meals/items/:id', isAuthenticated, async (req: any, res) => {
     try {
       const { id } = req.params;
-      await storage.deleteItemFromSavedMeal(parseInt(id));
+      const ok = await storage.deleteItemFromSavedMeal(parseInt(id), req.user.claims.sub);
+      if (!ok) return res.status(404).json({ message: "Not found" });
       res.json({ success: true });
     } catch (error) {
       console.error("Error deleting item from saved meal:", error);
@@ -16600,7 +16683,8 @@ Rules:
       const { id } = req.params;
       const { name, displayOrder } = req.body;
       
-      const category = await storage.updateUserMealCategory(parseInt(id), { name, displayOrder });
+      const category = await storage.updateUserMealCategory(parseInt(id), { name, displayOrder }, req.user.claims.sub);
+      if (!category) return res.status(404).json({ message: "Not found" });
       res.json(category);
     } catch (error) {
       console.error("Error updating meal category:", error);
@@ -16612,7 +16696,8 @@ Rules:
   app.delete('/api/nutrition/meal-categories/:id', isAuthenticated, async (req: any, res) => {
     try {
       const { id } = req.params;
-      await storage.deleteUserMealCategory(parseInt(id));
+      const ok = await storage.deleteUserMealCategory(parseInt(id), req.user.claims.sub);
+      if (!ok) return res.status(404).json({ message: "Not found" });
       res.json({ success: true });
     } catch (error) {
       console.error("Error deleting meal category:", error);
@@ -16912,13 +16997,19 @@ Keep your response concise, practical, and evidence-based. This is general guida
     try {
       const { id } = req.params;
       const supplementId = parseInt(id);
+      const userId = req.user.claims.sub;
+      const supplement = await storage.getSupplementById(supplementId);
+      if (!supplement || supplement.userId !== userId) {
+        return res.status(404).json({ message: "Not found" });
+      }
       
-      const hasLogs = await storage.hasSupplementLogs(supplementId);
+      const hasLogs = await storage.hasSupplementLogs(supplementId, userId);
       if (!hasLogs) {
         return res.status(400).json({ message: "Cannot archive supplement without any logged entries. Delete it instead." });
       }
       
-      await storage.deleteSupplement(supplementId);
+      const ok = await storage.deleteSupplement(supplementId, userId);
+      if (!ok) return res.status(404).json({ message: "Not found" });
       res.json({ success: true });
     } catch (error) {
       console.error("Error deactivating supplement:", error);
@@ -16930,7 +17021,8 @@ Keep your response concise, practical, and evidence-based. This is general guida
   app.delete('/api/supplements/:id/permanent', isAuthenticated, async (req: any, res) => {
     try {
       const { id } = req.params;
-      await storage.permanentlyDeleteSupplement(parseInt(id));
+      const ok = await storage.permanentlyDeleteSupplement(parseInt(id), req.user.claims.sub);
+      if (!ok) return res.status(404).json({ message: "Not found" });
       res.json({ success: true });
     } catch (error) {
       console.error("Error permanently deleting supplement:", error);
@@ -16942,7 +17034,7 @@ Keep your response concise, practical, and evidence-based. This is general guida
   app.get('/api/supplements/:id/has-logs', isAuthenticated, async (req: any, res) => {
     try {
       const { id } = req.params;
-      const hasLogs = await storage.hasSupplementLogs(parseInt(id));
+      const hasLogs = await storage.hasSupplementLogs(parseInt(id), req.user.claims.sub);
       res.json({ hasLogs });
     } catch (error) {
       console.error("Error checking supplement logs:", error);
@@ -18772,9 +18864,9 @@ Keep your response concise, practical, and evidence-based. This is general guida
   app.get('/api/breathwork/routines/:id', isAuthenticated, async (req: any, res) => {
     try {
       const id = parseInt(req.params.id);
-      const routine = await storage.getCustomBreathRoutineById(id);
+      const routine = await storage.getCustomBreathRoutineById(id, req.user.claims.sub);
       if (!routine) {
-        return res.status(404).json({ message: "Routine not found" });
+        return res.status(404).json({ message: "Not found" });
       }
       const phases = await storage.getBreathRoutinePhases(id);
       res.json({ ...routine, phases });
@@ -18834,7 +18926,8 @@ Keep your response concise, practical, and evidence-based. This is general guida
         name,
         description,
         totalDurationMinutes,
-      });
+      }, req.user.claims.sub);
+      if (!routine) return res.status(404).json({ message: "Not found" });
 
       // If phases are provided, replace all phases
       if (phases && phases.length > 0) {
@@ -18866,7 +18959,8 @@ Keep your response concise, practical, and evidence-based. This is general guida
   app.delete('/api/breathwork/routines/:id', isAuthenticated, async (req: any, res) => {
     try {
       const id = parseInt(req.params.id);
-      await storage.deleteCustomBreathRoutine(id);
+      const ok = await storage.deleteCustomBreathRoutine(id, req.user.claims.sub);
+      if (!ok) return res.status(404).json({ message: "Not found" });
       res.status(204).send();
     } catch (error) {
       console.error("Error deleting custom breath routine:", error);
@@ -19389,7 +19483,8 @@ Keep your response concise, practical, and evidence-based. This is general guida
   app.patch('/api/meal-plan/:id', isAuthenticated, async (req: any, res) => {
     try {
       const planId = parseInt(req.params.id);
-      const updated = await storage.updateMealPlan(planId, req.body);
+      const updated = await storage.updateMealPlan(planId, pickEditable(req.body), req.user.claims.sub);
+      if (!updated) return res.status(404).json({ message: "Not found" });
       res.json(updated);
     } catch (error) {
       console.error("Error updating meal plan:", error);
@@ -19399,7 +19494,8 @@ Keep your response concise, practical, and evidence-based. This is general guida
 
   app.delete('/api/meal-plan/:id', isAuthenticated, async (req: any, res) => {
     try {
-      await storage.deleteMealPlan(parseInt(req.params.id));
+      const ok = await storage.deleteMealPlan(parseInt(req.params.id), req.user.claims.sub);
+      if (!ok) return res.status(404).json({ message: "Not found" });
       res.json({ message: "Meal plan deleted" });
     } catch (error) {
       console.error("Error deleting meal plan:", error);
@@ -19643,7 +19739,7 @@ Keep your response concise, practical, and evidence-based. This is general guida
 
       // Replacement persisted; safe to remove the old plan now.
       try {
-        await storage.deleteMealPlan(planId);
+        await storage.deleteMealPlan(planId, userId);
       } catch (delErr: any) {
         console.error("[meal_plan] failed to delete old plan after regenerate:", delErr?.message);
       }
@@ -21940,7 +22036,8 @@ Keep your response concise, practical, and evidence-based. This is general guida
   app.post('/api/user/badges/:id/notified', isAuthenticated, async (req: any, res) => {
     try {
       const userBadgeId = parseInt(req.params.id);
-      await storage.markBadgeNotified(userBadgeId);
+      const ok = await storage.markBadgeNotified(userBadgeId, req.user.claims.sub);
+      if (!ok) return res.status(404).json({ message: "Not found" });
       res.json({ success: true });
     } catch (error) {
       console.error("Error marking badge notified:", error);

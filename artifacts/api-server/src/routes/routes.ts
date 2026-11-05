@@ -360,6 +360,7 @@ import multer from "multer";
 import path from "path";
 import fs from "fs";
 import { randomUUID } from "crypto";
+import { normaliseImageBuffer, normaliseStoredObject, normaliseAllContentImages } from "../imageNormalise";
 import { ObjectStorageService, ObjectNotFoundError, objectStorageClient, getObjectAclPolicy } from "../replit_integrations/object_storage";
 
 /**
@@ -382,6 +383,8 @@ async function uploadProfileImageBufferToStorage(
   const objectName = parts.slice(1).join('/');
 
   const file = objectStorageClient.bucket(bucketName).file(objectName);
+  const normP = await normaliseImageBuffer(buffer, contentType);
+  if (normP.changed) { buffer = normP.buffer; contentType = normP.contentType; }
   await file.save(buffer, {
     contentType,
     metadata: {
@@ -421,10 +424,15 @@ async function uploadProgressPhotoBufferToStorage(
   const objectName = parts.slice(1).join('/');
 
   const file = objectStorageClient.bucket(bucketName).file(objectName);
-  await file.save(buffer, {
-    contentType,
+  // A phone camera original is 3 to 12 MB; the app only ever shows it at
+  // screen size. Shrink before it is stored.
+  const norm = await normaliseImageBuffer(buffer, contentType);
+  const bytes = norm.changed ? norm.buffer : buffer;
+  const type = norm.changed ? norm.contentType : contentType;
+  await file.save(bytes, {
+    contentType: type,
     metadata: {
-      contentType,
+      contentType: type,
       metadata: {
         'custom:aclPolicy': JSON.stringify({ owner: ownerUserId, visibility: 'private' }),
       },
@@ -1466,7 +1474,15 @@ export async function registerRoutes(app: Express): Promise<Server> {
           owner: (req as any).user?.claims?.sub ?? "system",
           visibility,
         });
-        res.json({ ok: true });
+        // Shrink oversized images in place, so no screen is ever handed a
+        // multi-megabyte original (see imageNormalise.ts).
+        let image: any = null;
+        try {
+          image = await normaliseStoredObject(objectPath);
+        } catch (err: any) {
+          console.error("[images] normalise after upload failed:", err?.message || err);
+        }
+        res.json({ ok: true, image });
       } catch (error) {
         console.error("Error setting object ACL:", error);
         res.status(500).json({ error: "Failed to set object ACL" });
@@ -3210,6 +3226,24 @@ export async function registerRoutes(app: Express): Promise<Server> {
     } catch (error) {
       console.error("Error deleting user:", error);
       res.status(500).json({ message: "Failed to delete user" });
+    }
+  });
+
+  // Admin: shrink every oversized content image already in storage. Super
+  // admin only; a dry run lists what would change. Runs in the request, which
+  // can take a few minutes on a big library, so the admin portal calls it
+  // with a long timeout.
+  app.post('/api/admin/images/normalise', isAuthenticated, requireAdmin, async (req: any, res) => {
+    try {
+      const me = await storage.getUser(req.user.claims.sub);
+      if (!(me as any)?.isSuperAdmin) return res.status(403).json({ message: "Super admin only" });
+      const dryRun = String(req.query.dryRun || req.body?.dryRun || '') === '1' || req.body?.dryRun === true;
+      const limit = Math.min(Math.max(parseInt(String(req.query.limit || req.body?.limit || '5000')) || 5000, 1), 20000);
+      const result = await normaliseAllContentImages({ dryRun, limit });
+      res.json({ dryRun, ...result });
+    } catch (error: any) {
+      console.error("Error normalising images:", error);
+      res.status(500).json({ message: "Failed to normalise images", error: error?.message });
     }
   });
 

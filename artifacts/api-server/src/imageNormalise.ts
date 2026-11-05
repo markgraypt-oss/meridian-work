@@ -1,0 +1,181 @@
+import { pool } from "./db";
+import { ObjectStorageService, objectStorageClient, ObjectNotFoundError } from "./replit_integrations/object_storage";
+
+/**
+ * Every image the app serves goes through here, so no screen can ever be
+ * handed a 6 MB, 4000-pixel PNG again.
+ *
+ * Why this exists: on 5 Nov 2026 two testers' Android phones were killed by
+ * the programme picker. Sixty programme covers had been uploaded as 6 MB
+ * PNGs (275 MB in total); the phone decoded them at full size and ran out of
+ * memory. The admin portal had been shrinking new uploads in the browser
+ * since September, but images that reached storage any other way (older
+ * uploads, AI-generated covers, scripts) were never touched.
+ *
+ * Rules, applied in one place:
+ *   - longest edge at most MAX_EDGE pixels
+ *   - re-encoded as JPEG (quality 82), or PNG only when it has transparency
+ *   - GIF and SVG are left alone (animation, vectors)
+ *   - anything already small and within bounds is left byte-for-byte as is
+ *
+ * Three callers:
+ *   1. normaliseImageBuffer: server-side uploads (progress photos, profile
+ *      images, migrations) before the bytes are saved.
+ *   2. normaliseStoredObject: after an admin upload is finalised, the stored
+ *      object is rewritten in place at the same path, so every link to it
+ *      serves the small version.
+ *   3. normaliseAllContentImages: an admin sweep over every image_url column
+ *      in the database, for images that were already there.
+ */
+
+export const MAX_EDGE = 1600;
+// Below this the file is left alone even if slightly over the edge limit; a
+// re-encode would gain nothing worth the write.
+export const SKIP_BELOW_BYTES = 350 * 1024;
+const JPEG_QUALITY = 82;
+
+type Normalised = {
+  buffer: Buffer;
+  contentType: string;
+  changed: boolean;
+  width: number;
+  height: number;
+  reason?: string;
+};
+
+async function loadSharp(): Promise<any | null> {
+  try {
+    const mod: any = await import("sharp");
+    return mod.default || mod;
+  } catch (err: any) {
+    console.error("[images] sharp is not installed; images are stored as uploaded:", err?.message || err);
+    return null;
+  }
+}
+
+export async function normaliseImageBuffer(buffer: Buffer, contentType?: string | null): Promise<Normalised> {
+  const ct = (contentType || "").toLowerCase();
+  const unchanged = (reason: string, w = 0, h = 0): Normalised => ({ buffer, contentType: ct || "application/octet-stream", changed: false, width: w, height: h, reason });
+  if (ct && !ct.startsWith("image/")) return unchanged("not an image");
+  if (ct === "image/gif" || ct === "image/svg+xml") return unchanged("gif/svg left as is");
+  const sharp = await loadSharp();
+  if (!sharp) return unchanged("sharp unavailable");
+  let meta: any;
+  try {
+    meta = await sharp(buffer, { failOn: "none" }).metadata();
+  } catch {
+    return unchanged("unreadable");
+  }
+  const width = meta.width || 0;
+  const height = meta.height || 0;
+  if (!width || !height) return unchanged("no dimensions");
+  if (meta.format === "gif" || meta.format === "svg") return unchanged("gif/svg left as is", width, height);
+  const tooBig = Math.max(width, height) > MAX_EDGE;
+  const heavy = buffer.length > SKIP_BELOW_BYTES;
+  if (!tooBig && !heavy) return unchanged("already small", width, height);
+  if (!tooBig && heavy && (meta.format === "jpeg" || meta.format === "webp") && buffer.length < 900 * 1024) {
+    // A sub-megabyte JPEG within the pixel limit is fine as it is.
+    return unchanged("acceptable", width, height);
+  }
+  let pipeline = sharp(buffer, { failOn: "none" }).rotate();
+  if (tooBig) pipeline = pipeline.resize({ width: MAX_EDGE, height: MAX_EDGE, fit: "inside", withoutEnlargement: true });
+  const keepPng = !!meta.hasAlpha && meta.format === "png";
+  const out: Buffer = keepPng
+    ? await pipeline.png({ compressionLevel: 9, palette: true }).toBuffer()
+    : await pipeline.jpeg({ quality: JPEG_QUALITY, mozjpeg: true }).toBuffer();
+  // Never make a file bigger.
+  if (!tooBig && out.length >= buffer.length) return unchanged("re-encode not smaller", width, height);
+  const scale = Math.min(1, MAX_EDGE / Math.max(width, height));
+  return {
+    buffer: out,
+    contentType: keepPng ? "image/png" : "image/jpeg",
+    changed: true,
+    width: Math.round(width * scale),
+    height: Math.round(height * scale),
+  };
+}
+
+/**
+ * Rewrite one stored object in place if it is an oversized image. Keeps the
+ * ACL metadata and the path, so nothing that links to it changes.
+ */
+export async function normaliseStoredObject(objectPath: string): Promise<{ objectPath: string; before: number; after: number; changed: boolean; reason?: string }> {
+  const svc = new ObjectStorageService();
+  const file = await svc.getObjectEntityFile(objectPath);
+  const [metadata] = await file.getMetadata();
+  const contentType = String(metadata.contentType || "");
+  const size = Number(metadata.size || 0);
+  if (!contentType.startsWith("image/")) return { objectPath, before: size, after: size, changed: false, reason: "not an image" };
+  if (size > 0 && size < SKIP_BELOW_BYTES && contentType !== "image/png") {
+    return { objectPath, before: size, after: size, changed: false, reason: "small" };
+  }
+  const [buffer] = await file.download();
+  const result = await normaliseImageBuffer(buffer, contentType);
+  if (!result.changed) return { objectPath, before: size, after: size, changed: false, reason: result.reason };
+  const custom = (metadata.metadata || {}) as Record<string, string>;
+  await file.save(result.buffer, {
+    contentType: result.contentType,
+    metadata: { contentType: result.contentType, metadata: custom },
+    resumable: false,
+  });
+  return { objectPath, before: size, after: result.buffer.length, changed: true };
+}
+
+/**
+ * Sweep every image URL column in the database and shrink what is stored
+ * behind it. Only /objects/... paths are touched (that is where every upload
+ * since the move to object storage lives). Safe to run again at any time.
+ */
+export async function normaliseAllContentImages(opts: { dryRun?: boolean; limit?: number } = {}): Promise<{
+  scanned: number; changed: number; skipped: number; failed: number; savedBytes: number; columns: string[]; details: any[];
+}> {
+  const cols = await pool.query(
+    `SELECT table_name, column_name FROM information_schema.columns
+      WHERE table_schema = 'public'
+        AND column_name IN ('image_url', 'cover_image_url', 'thumbnail_url', 'logo_url', 'profile_image_url')
+      ORDER BY table_name`);
+  const seen = new Set<string>();
+  const columns: string[] = [];
+  let scanned = 0, changed = 0, skipped = 0, failed = 0, savedBytes = 0;
+  const details: any[] = [];
+  const limit = opts.limit ?? 5000;
+  for (const { table_name, column_name } of cols.rows) {
+    columns.push(`${table_name}.${column_name}`);
+    const rows = await pool.query(
+      `SELECT DISTINCT ${column_name} AS url FROM ${table_name} WHERE ${column_name} LIKE '/objects/%'`);
+    for (const { url } of rows.rows) {
+      if (!url || seen.has(url)) continue;
+      seen.add(url);
+      if (scanned >= limit) break;
+      scanned++;
+      try {
+        if (opts.dryRun) {
+          const svc = new ObjectStorageService();
+          const file = await svc.getObjectEntityFile(url);
+          const [m] = await file.getMetadata();
+          const size = Number(m.size || 0);
+          if (size > SKIP_BELOW_BYTES && String(m.contentType || "").startsWith("image/")) {
+            details.push({ url, table: table_name, size, wouldShrink: true });
+            changed++;
+          } else skipped++;
+          continue;
+        }
+        const r = await normaliseStoredObject(url);
+        if (r.changed) {
+          changed++;
+          savedBytes += Math.max(0, r.before - r.after);
+          details.push({ url, table: table_name, before: r.before, after: r.after });
+        } else skipped++;
+      } catch (err: any) {
+        failed++;
+        if (!(err instanceof ObjectNotFoundError)) {
+          details.push({ url, table: table_name, error: err?.message || String(err) });
+        }
+      }
+    }
+  }
+  return { scanned, changed, skipped, failed, savedBytes, columns, details: details.slice(0, 200) };
+}
+
+// Re-exported so routes can reach the client without a second import path.
+export { objectStorageClient };

@@ -3,7 +3,7 @@ import express from "express";
 import { createServer, type Server } from "http";
 import { storage } from "../storage";
 import { db, pool } from "../db";
-import { setupAuth, isAuthenticated, generateResetToken, hashToken, sendUserInviteEmail, sendPasswordResetEmail, sendTesterWelcomeEmail, sendTesterSignupNotification, addTesterToAudience, TESTFLIGHT_URL, PLAY_TESTING_URL } from "../replitAuth";
+import { setupAuth, isAuthenticated, generateResetToken, hashToken, sendUserInviteEmail, sendPasswordResetEmail, sendTesterWelcomeEmail, sendTesterSignupNotification, addTesterToAudience, TESTFLIGHT_URL, PLAY_TESTING_URL, sendSupportMessageToAdmin } from "../replitAuth";
 import { QUESTIONS as LD_QUESTIONS, INTRO_COPY as LD_INTRO, CARD_COPY as LD_CARD, getStatus as ldGetStatus, validate as ldValidate, saveAnswers as ldSave, personalLine as ldPersonalLine, aggregateForCompany as ldAggregate, periodKeyFor as ldPeriodKey } from "../loadDiagnostic";
 import { saveWaitlistSignup, addToWaitlistSegment, sendWaitlistConfirmation, sendWaitlistAdminPing, countWaitlist, STAFF_BANDS, type StaffBand } from "../waitlist";
 import { looksLikeBotSignup } from "../signupBotCheck";
@@ -131,6 +131,60 @@ async function optionalUserId(req: any): Promise<string | null> {
   return null;
 }
 
+/**
+ * Company admins only see their own company. Super admins see everything.
+ *
+ * Runs on every /api/admin request before the route itself. For a company
+ * admin it reads the company out of the URL (reports/company/<name>,
+ * rewards/company/<name>, companies/<id>) and the target user out of the URL
+ * or query (users/<id>, ?userId=) and refuses anything outside their company
+ * with 404, so the response never confirms the other company exists. List
+ * routes that have no company in the URL filter on req.companyPin instead.
+ */
+async function pinCompanyAdmin(req: any, res: any, next: any) {
+  try {
+    const userId = await optionalUserId(req);
+    if (!userId) return next(); // the route's own auth will answer 401
+    const me = await storage.getUser(userId);
+    if (!me?.isAdmin) return next(); // the route's own admin check will answer 403
+    if ((me as any).isSuperAdmin) return next();
+    const pin = { companyName: me.companyName || null, companyId: me.companyId ?? null };
+    req.companyPin = pin;
+    const notFound = () => res.status(404).json({ message: "Not found" });
+    const p: string = req.path || "";
+
+    const byName = /^\/(?:reports|rewards)\/company\/([^/]+)/.exec(p);
+    if (byName && decodeURIComponent(byName[1]) !== pin.companyName) return notFound();
+
+    const byId = /^\/companies\/(\d+)/.exec(p);
+    if (byId) {
+      const id = parseInt(byId[1], 10);
+      if (id !== pin.companyId) {
+        const c = await storage.getCompanyById(id);
+        if (!c || c.name !== pin.companyName) return notFound();
+      }
+    }
+
+    const targets: string[] = [];
+    const byUser = /^\/users\/([^/]+)/.exec(p);
+    if (byUser) targets.push(decodeURIComponent(byUser[1]));
+    if (typeof req.query?.userId === "string") targets.push(req.query.userId);
+    for (const t of targets) {
+      const target = await storage.getUser(t);
+      if (target && (target.companyName || null) !== pin.companyName) return notFound();
+    }
+    next();
+  } catch (err) {
+    console.error("pinCompanyAdmin failed:", err);
+    res.status(500).json({ message: "Authorization check failed" });
+  }
+}
+
+/** The company a list route must filter to, or null for a super admin. */
+function companyPinOf(req: any): { companyName: string | null; companyId: number | null } | null {
+  return req.companyPin ?? null;
+}
+
 // Read-guard for programme content. Public programmes are readable by anyone;
 // private (coach-built, client-only) programmes only by an admin or a user
 // enrolled in them. On denial it writes a 404 (not 403, so it never confirms a
@@ -161,6 +215,44 @@ const aiVisionRateLimit = rateLimit({
   legacyHeaders: false,
   keyGenerator: (req: any) => req?.user?.claims?.sub || ipKeyGenerator(req.ip),
   message: { message: "You've hit the hourly AI scan limit. Try again later." },
+});
+
+// Generation (programmes, workouts): the expensive calls. Per person.
+const aiGenerateRateLimit = rateLimit({
+  windowMs: 60 * 60 * 1000,
+  limit: 12,
+  standardHeaders: true,
+  legacyHeaders: false,
+  keyGenerator: (req: any) => "aigen:" + (req?.user?.claims?.sub || ipKeyGenerator(req.ip)),
+  message: { message: "You have generated a lot in the last hour. Please try again a little later." },
+});
+
+// Chat and insight calls: cheaper, but still per person, per hour and per day.
+const aiChatRateLimit = rateLimit({
+  windowMs: 60 * 60 * 1000,
+  limit: 80,
+  standardHeaders: true,
+  legacyHeaders: false,
+  keyGenerator: (req: any) => "aichat:" + (req?.user?.claims?.sub || ipKeyGenerator(req.ip)),
+  message: { message: "The coach needs a short break. Please try again in a few minutes." },
+});
+const aiDailyRateLimit = rateLimit({
+  windowMs: 24 * 60 * 60 * 1000,
+  limit: 400,
+  standardHeaders: true,
+  legacyHeaders: false,
+  keyGenerator: (req: any) => "aiday:" + (req?.user?.claims?.sub || ipKeyGenerator(req.ip)),
+  message: { message: "You have reached today's AI limit. It resets tomorrow." },
+});
+
+// Data export walks every table: three an hour per person is plenty.
+const exportRateLimit = rateLimit({
+  windowMs: 60 * 60 * 1000,
+  limit: 3,
+  standardHeaders: true,
+  legacyHeaders: false,
+  keyGenerator: (req: any) => "export:" + (req?.user?.claims?.sub || ipKeyGenerator(req.ip)),
+  message: { message: "You can download your data three times an hour. Please try again later." },
 });
 
 const aiTtsRateLimit = rateLimit({
@@ -342,6 +434,33 @@ async function uploadProgressPhotoBufferToStorage(
   return `/objects/${entityId}`;
 }
 
+/**
+ * Work out what an image really is from its first bytes, ignoring whatever
+ * name or content type the client sent. Returns null for anything that is not
+ * a JPEG, PNG, WebP, GIF or HEIC/HEIF, so a file called photo.jpg that is
+ * really an HTML page is refused before it is stored anywhere.
+ */
+function sniffImageType(buf: Buffer): { mime: string; ext: string } | null {
+  if (!buf || buf.length < 12) return null;
+  if (buf[0] === 0xff && buf[1] === 0xd8 && buf[2] === 0xff) return { mime: "image/jpeg", ext: "jpg" };
+  if (buf[0] === 0x89 && buf[1] === 0x50 && buf[2] === 0x4e && buf[3] === 0x47) return { mime: "image/png", ext: "png" };
+  if (buf.toString("ascii", 0, 4) === "RIFF" && buf.toString("ascii", 8, 12) === "WEBP") return { mime: "image/webp", ext: "webp" };
+  if (buf.toString("ascii", 0, 3) === "GIF") return { mime: "image/gif", ext: "gif" };
+  if (buf.toString("ascii", 4, 8) === "ftyp") {
+    const brand = buf.toString("ascii", 8, 12);
+    if (/^(heic|heix|hevc|heim|heis|hevm|hevs|mif1|msf1)$/.test(brand)) return { mime: "image/heic", ext: "heic" };
+  }
+  return null;
+}
+
+// Progress photos sent as a file: kept in memory just long enough to check the
+// bytes and push them to private object storage. Nothing is written to the
+// server's disk and nothing is served from a public folder.
+const progressPhotoUpload = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: 10 * 1024 * 1024, files: 1 },
+});
+
 // Configure multer for video uploads
 const videoStorage = multer.diskStorage({
   destination: (req, file, cb) => {
@@ -378,7 +497,13 @@ const imageStorage = multer.diskStorage({
   },
   filename: (req, file, cb) => {
     const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1E9);
-    cb(null, `image-${uniqueSuffix}${path.extname(file.originalname)}`);
+    // Extension from the declared image type, not the client's file name, so
+    // nothing under /uploads can ever be served as HTML or script.
+    const extByMime: Record<string, string> = {
+      'image/jpeg': '.jpg', 'image/jpg': '.jpg', 'image/png': '.png', 'image/webp': '.webp',
+      'image/gif': '.gif', 'image/heic': '.heic', 'image/heif': '.heif',
+    };
+    cb(null, `image-${uniqueSuffix}${extByMime[file.mimetype] || '.jpg'}`);
   }
 });
 
@@ -1271,6 +1396,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
     res.json(BUILD_INFO);
   });
 
+  // Company admins are confined to their own company on every admin route.
+  app.use("/api/admin", pinCompanyAdmin);
+
   // ==========================================================================
   // Notifications system: in-app feed, web-push subscribe/unsubscribe, test.
   // The notify() helper is in server/notifications.ts and is also called from
@@ -1355,6 +1483,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
     immutable: true,
     setHeaders: (res: any) => {
       res.setHeader('Cache-Control', 'public, max-age=31536000, immutable');
+      // Legacy files under /uploads are images and videos. Never let a browser
+      // guess otherwise.
+      res.setHeader('X-Content-Type-Options', 'nosniff');
     },
   };
   app.use("/uploads", express.static(path.resolve(process.cwd(), "uploads"), uploadCacheHeaders));
@@ -1522,11 +1653,15 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   // Coach/admin: does the coach currently have granted access to a client?
   // Guard helper for gating any coach-facing view of a client's data.
-  async function coachHasClientAccess(clientUserId: string): Promise<boolean> {
+  // The grant must be to THIS coach: a client who granted one coach must not
+  // be readable by every admin on the platform.
+  async function coachHasClientAccess(clientUserId: string, coachUserId?: string): Promise<boolean> {
     const [row] = await db.select().from(coachAccessRequests)
       .where(eq(coachAccessRequests.clientUserId, clientUserId))
       .orderBy(desc(coachAccessRequests.requestedAt)).limit(1);
-    return row?.status === 'granted';
+    if (row?.status !== 'granted') return false;
+    if (coachUserId && row.coachUserId && row.coachUserId !== coachUserId) return false;
+    return true;
   }
   (app as any).coachHasClientAccess = coachHasClientAccess;
 
@@ -1599,13 +1734,15 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // ── Helper: verify granted coach access before serving client data ───────
-  async function requireGrantedAccess(clientUserId: string, res: any): Promise<boolean> {
-    const [row] = await db.select({ status: coachAccessRequests.status })
+  async function requireGrantedAccess(clientUserId: string, res: any, coachUserId?: string): Promise<boolean> {
+    const [row] = await db.select({ status: coachAccessRequests.status, coachUserId: coachAccessRequests.coachUserId })
       .from(coachAccessRequests)
       .where(eq(coachAccessRequests.clientUserId, clientUserId))
       .orderBy(desc(coachAccessRequests.requestedAt))
       .limit(1);
-    if (!row || row.status !== 'granted') {
+    const grantedToMe = !!row && row.status === 'granted'
+      && (!coachUserId || !row.coachUserId || row.coachUserId === coachUserId);
+    if (!grantedToMe) {
       res.status(403).json({ message: "Coach access not granted" });
       return false;
     }
@@ -1626,7 +1763,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.get('/api/admin/coach-access/clients/:userId/bodyweight', isAuthenticated, requireAdmin, async (req: any, res) => {
     try {
       const { userId } = req.params;
-      if (!await requireGrantedAccess(userId, res)) return;
+      if (!await requireGrantedAccess(userId, res, req.user.claims.sub)) return;
       const days = Math.min(Math.max(parseInt(String(req.query.days ?? '')) || 90, 7), 365);
       const cutoff = new Date(); cutoff.setDate(cutoff.getDate() - days);
       const rows = await db.select({ date: bodyweightEntries.date, value: bodyweightEntries.weight })
@@ -1640,7 +1777,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.get('/api/admin/coach-access/clients/:userId/steps', isAuthenticated, requireAdmin, async (req: any, res) => {
     try {
       const { userId } = req.params;
-      if (!await requireGrantedAccess(userId, res)) return;
+      if (!await requireGrantedAccess(userId, res, req.user.claims.sub)) return;
       const days = Math.min(Math.max(parseInt(String(req.query.days ?? '')) || 30, 7), 365);
       const cutoff = new Date(); cutoff.setDate(cutoff.getDate() - days);
       const rows = await db.select({ date: stepEntries.date, value: stepEntries.steps })
@@ -1654,7 +1791,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.get('/api/admin/coach-access/clients/:userId/sleep', isAuthenticated, requireAdmin, async (req: any, res) => {
     try {
       const { userId } = req.params;
-      if (!await requireGrantedAccess(userId, res)) return;
+      if (!await requireGrantedAccess(userId, res, req.user.claims.sub)) return;
       const days = Math.min(Math.max(parseInt(String(req.query.days ?? '')) || 30, 7), 365);
       const cutoff = new Date(); cutoff.setDate(cutoff.getDate() - days);
       const rows = await db.select({ date: sleepEntries.date, mins: sleepEntries.durationMinutes })
@@ -1668,7 +1805,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.get('/api/admin/coach-access/clients/:userId/readiness', isAuthenticated, requireAdmin, async (req: any, res) => {
     try {
       const { userId } = req.params;
-      if (!await requireGrantedAccess(userId, res)) return;
+      if (!await requireGrantedAccess(userId, res, req.user.claims.sub)) return;
       const days = Math.min(Math.max(parseInt(String(req.query.days ?? '')) || 30, 7), 365);
       const cutoff = new Date(); cutoff.setDate(cutoff.getDate() - days);
       const cutoffStr = cutoff.toISOString().slice(0, 10);
@@ -1683,7 +1820,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.get('/api/admin/coach-access/clients/:userId/workouts', isAuthenticated, requireAdmin, async (req: any, res) => {
     try {
       const { userId } = req.params;
-      if (!await requireGrantedAccess(userId, res)) return;
+      if (!await requireGrantedAccess(userId, res, req.user.claims.sub)) return;
       const limit = Math.min(Math.max(parseInt(String(req.query.limit ?? '')) || 20, 5), 200);
       const rows = await db.select({
           id: workoutLogs.id,
@@ -1707,7 +1844,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.get('/api/admin/coach-access/clients/:userId/nutrition', isAuthenticated, requireAdmin, async (req: any, res) => {
     try {
       const { userId } = req.params;
-      if (!await requireGrantedAccess(userId, res)) return;
+      if (!await requireGrantedAccess(userId, res, req.user.claims.sub)) return;
       const days = Math.min(Math.max(parseInt(String(req.query.days ?? '')) || 30, 7), 365);
       const cutoff = new Date(); cutoff.setDate(cutoff.getDate() - days);
       // Aggregate food_logs by date
@@ -1734,7 +1871,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.get('/api/admin/coach-access/clients/:userId/caloric-intake', isAuthenticated, requireAdmin, async (req: any, res) => {
     try {
       const { userId } = req.params;
-      if (!await requireGrantedAccess(userId, res)) return;
+      if (!await requireGrantedAccess(userId, res, req.user.claims.sub)) return;
       const days = Math.min(Math.max(parseInt(String(req.query.days ?? '')) || 30, 7), 365);
       const cutoff = new Date(); cutoff.setDate(cutoff.getDate() - days);
       const rows = await db.select({ date: caloricIntakeEntries.date, value: caloricIntakeEntries.calories })
@@ -1748,7 +1885,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.get('/api/admin/coach-access/clients/:userId/photos', isAuthenticated, requireAdmin, async (req: any, res) => {
     try {
       const { userId } = req.params;
-      if (!await requireGrantedAccess(userId, res)) return;
+      if (!await requireGrantedAccess(userId, res, req.user.claims.sub)) return;
       const rows = await db.select()
         .from(progressPictures)
         .where(eq(progressPictures.userId, userId))
@@ -1761,7 +1898,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.get('/api/admin/coach-access/clients/:userId/measurements', isAuthenticated, requireAdmin, async (req: any, res) => {
     try {
       const { userId } = req.params;
-      if (!await requireGrantedAccess(userId, res)) return;
+      if (!await requireGrantedAccess(userId, res, req.user.claims.sub)) return;
       const rows = await db.select()
         .from(bodyMeasurements)
         .where(eq(bodyMeasurements.userId, userId))
@@ -1774,7 +1911,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.get('/api/admin/coach-access/clients/:userId/check-ins', isAuthenticated, requireAdmin, async (req: any, res) => {
     try {
       const { userId } = req.params;
-      if (!await requireGrantedAccess(userId, res)) return;
+      if (!await requireGrantedAccess(userId, res, req.user.claims.sub)) return;
       const days = Math.min(Math.max(parseInt(String(req.query.days ?? '')) || 60, 7), 365);
       const cutoff = new Date(); cutoff.setDate(cutoff.getDate() - days);
       const rows = await db.select({
@@ -2410,7 +2547,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
       if (!currentUser?.isAdmin) {
         return res.status(403).json({ message: "Admin access required" });
       }
-      const users = await storage.getAllUsers();
+      const pin = companyPinOf(req);
+      const users = (await storage.getAllUsers())
+        .filter(u => !pin || (u.companyName || null) === pin.companyName);
       const safeUsers = users.map(u => ({
         id: u.id,
         email: u.email,
@@ -2418,6 +2557,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         lastName: u.lastName,
         companyName: u.companyName,
         isAdmin: u.isAdmin,
+        isSuperAdmin: (u as any).isSuperAdmin ?? false,
         role: u.role,
         createdAt: u.createdAt,
       }));
@@ -2826,9 +2966,15 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(403).json({ message: "Admin access required" });
       }
 
-      const { email, firstName, lastName, companyName, isAdmin, role } = req.body;
+      const { email, firstName, lastName, isAdmin, role } = req.body;
+      let { companyName } = req.body;
       if (!email) {
         return res.status(400).json({ message: "Email is required" });
+      }
+      if (!(currentUser as any).isSuperAdmin) {
+        // A company admin can only add people to their own company, as members.
+        companyName = currentUser.companyName;
+        if (isAdmin) return res.status(403).json({ message: "Only a super admin can create admin users" });
       }
 
       const existingUser = await storage.getUserByEmail(email);
@@ -2883,14 +3029,35 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
 
       const targetId = req.params.id;
-      const { email, firstName, lastName, companyName, isAdmin, role } = req.body;
+      const { email, firstName, lastName, companyName, isAdmin, role, isSuperAdmin } = req.body;
+      const iAmSuper = !!(currentUser as any).isSuperAdmin;
 
       const updateData: any = {};
       if (email) updateData.email = email;
       if (firstName !== undefined) updateData.firstName = firstName;
       if (lastName !== undefined) updateData.lastName = lastName;
-      if (companyName !== undefined) updateData.companyName = companyName;
-      if (isAdmin !== undefined) updateData.isAdmin = isAdmin;
+      // Only a super admin may move someone to another company, make someone
+      // an admin, or hand out the super admin flag. A company admin can edit
+      // names and emails inside their own company (the /api/admin pin has
+      // already checked the target belongs to it).
+      if (companyName !== undefined) {
+        if (!iAmSuper && companyName !== currentUser.companyName) {
+          return res.status(403).json({ message: "Only a super admin can move a user to another company" });
+        }
+        updateData.companyName = companyName;
+      }
+      if (isAdmin !== undefined) {
+        if (!iAmSuper) return res.status(403).json({ message: "Only a super admin can change admin access" });
+        updateData.isAdmin = isAdmin;
+      }
+      if (isSuperAdmin !== undefined) {
+        if (!iAmSuper) return res.status(403).json({ message: "Only a super admin can change super admin access" });
+        if (targetId === userId && !isSuperAdmin) {
+          return res.status(400).json({ message: "You cannot remove your own super admin access" });
+        }
+        updateData.isSuperAdmin = !!isSuperAdmin;
+        if (isSuperAdmin) updateData.isAdmin = true;
+      }
       if (role !== undefined) updateData.role = role;
 
       const updatedUser = await storage.updateUser(targetId, updateData);
@@ -3038,8 +3205,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
         }
       }
 
-      await storage.deleteUser(targetId);
-      res.json({ success: true });
+      const result = await storage.deleteUserCompletely(targetId);
+      res.json({ success: true, deletedTables: result.deletedTables.length });
     } catch (error) {
       console.error("Error deleting user:", error);
       res.status(500).json({ message: "Failed to delete user" });
@@ -3492,6 +3659,14 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
       const search = req.query.search as string | undefined;
       const result = await storage.getCompanies(search);
+      const pin = companyPinOf(req);
+      if (pin) {
+        const only = (list: any[]) => list.filter((c: any) => c.id === pin.companyId || c.name === pin.companyName);
+        if (Array.isArray(result)) return res.json(only(result));
+        if (result && Array.isArray((result as any).companies)) {
+          return res.json({ ...(result as any), companies: only((result as any).companies) });
+        }
+      }
       res.json(result);
     } catch (error) {
       console.error("Error fetching companies:", error);
@@ -6546,7 +6721,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.get('/api/workout-logs', isAuthenticated, async (req, res) => {
     try {
       const userId = req.user.claims.sub;
-      const limit = parseInt(req.query.limit as string) || 50;
+      const limit = Math.min(Math.max(parseInt(req.query.limit as string) || 50, 1), 500);
       const logs = await storage.getUserWorkoutLogs(userId, limit);
       res.json(logs);
     } catch (error) {
@@ -8230,14 +8405,30 @@ Rules:
       };
       const todayKeyLocal = dayKeyIn(ciTz, new Date());
       const yesterdayKeyLocal = dayKeyIn(ciTz, new Date(Date.now() - 86_400_000));
-      let checkInDate = new Date();
+      // The stored check_in_date is "noon UTC on the user's local day". The
+      // lookup (getTodayCheckIn) and the unique index both work on the UTC
+      // date of this column, so it has to land on the local day key, not on
+      // the raw instant: a check-in at 01:00 in Athens is 23:00 UTC the day
+      // before, which used to file it under yesterday and collide with
+      // yesterday's row.
+      let dayKey = todayKeyLocal;
       if (req.body.checkInDate) {
         const supplied = String(req.body.checkInDate).slice(0, 10);
-        if (supplied === todayKeyLocal || supplied === yesterdayKeyLocal) {
-          const parsed = new Date(req.body.checkInDate);
-          if (!isNaN(parsed.getTime())) checkInDate = parsed;
-        }
+        if (supplied === yesterdayKeyLocal) dayKey = yesterdayKeyLocal;
       }
+      // Aim for local noon, but never leave the UTC date of the day key
+      // (that is what the lookup and the unique index use).
+      const tzOffsetMin = (() => {
+        try {
+          const f = new Intl.DateTimeFormat('en-US', { timeZone: ciTz || 'UTC', hour12: false, year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', second: '2-digit' });
+          const now = new Date();
+          const q = Object.fromEntries(f.formatToParts(now).map((x) => [x.type, x.value]));
+          const asUtc = Date.UTC(+q.year, +q.month - 1, +q.day, (+q.hour) % 24, +q.minute, +q.second);
+          return Math.round((asUtc - now.getTime()) / 60000);
+        } catch { return 0; }
+      })();
+      const hourUtc = Math.min(23, Math.max(0, Math.round(12 - tzOffsetMin / 60)));
+      const checkInDate = new Date(`${dayKey}T${String(hourUtc).padStart(2, '0')}:00:00.000Z`);
       const checkInData = insertCheckInSchema.parse({
         ...req.body,
         userId,
@@ -11218,7 +11409,7 @@ Rules:
   // - POST /api/ai/workouts/generate             (any user)  → preview workout JSON
   // - POST /api/ai/workouts/save                 (any user)  → persists personal workout
   // ==========================================================================
-  app.post('/api/ai/programmes/generate', isAuthenticated, async (req: any, res) => {
+  app.post('/api/ai/programmes/generate', isAuthenticated, aiDailyRateLimit, aiGenerateRateLimit, async (req: any, res) => {
     try {
       const userId = req.user.claims.sub;
       const requester = await storage.getUser(userId);
@@ -11262,7 +11453,7 @@ Rules:
     }
   });
 
-  app.post('/api/ai/programmes/regenerate-section', isAuthenticated, async (req: any, res) => {
+  app.post('/api/ai/programmes/regenerate-section', isAuthenticated, aiDailyRateLimit, aiGenerateRateLimit, async (req: any, res) => {
     try {
       const userId = req.user.claims.sub;
       // Open to any authenticated user: regenerates a section of an in-memory
@@ -11361,7 +11552,7 @@ Rules:
     }
   });
 
-  app.post('/api/ai/workouts/generate', isAuthenticated, async (req: any, res) => {
+  app.post('/api/ai/workouts/generate', isAuthenticated, aiDailyRateLimit, aiGenerateRateLimit, async (req: any, res) => {
     try {
       const userId = req.user.claims.sub;
       const { generateWorkoutWithAI } = await import('../ai/workoutGenerator');
@@ -12303,7 +12494,11 @@ Rules:
   app.get('/api/today-workouts', isAuthenticated, async (req: any, res) => {
     try {
       const userId = req.user.claims.sub;
-      const queryDate = req.query.date ? new Date(req.query.date) : new Date();
+      const rawDate = typeof req.query.date === 'string' ? req.query.date : '';
+      const queryDate = rawDate ? new Date(rawDate) : new Date();
+      if (rawDate && (Number.isNaN(queryDate.getTime()) || !/^\d{4}-\d{2}-\d{2}/.test(rawDate))) {
+        return res.status(400).json({ message: "date must be YYYY-MM-DD" });
+      }
       const workouts: any[] = [];
       
       // Get scheduled standalone workouts
@@ -16436,7 +16631,7 @@ Rules:
   app.get('/api/nutrition/food-history', isAuthenticated, async (req: any, res) => {
     try {
       const userId = req.user.claims.sub;
-      const limit = parseInt(req.query.limit as string) || 50;
+      const limit = Math.min(Math.max(parseInt(req.query.limit as string) || 50, 1), 500);
       const history = await storage.getUserFoodHistory(userId, limit);
       res.json(history);
     } catch (error) {
@@ -17404,7 +17599,7 @@ Keep your response concise, practical, and evidence-based. This is general guida
   app.get('/api/progress/workouts', isAuthenticated, async (req: any, res) => {
     try {
       const userId = req.user.claims.sub;
-      const limit = req.query.limit ? parseInt(req.query.limit as string) : undefined;
+      const limit = req.query.limit ? Math.min(Math.max(parseInt(req.query.limit as string) || 50, 1), 2000) : undefined;
       const workouts = await storage.getCompletedWorkoutLogs(userId, limit);
       res.json(workouts);
     } catch (error) {
@@ -17779,7 +17974,7 @@ Keep your response concise, practical, and evidence-based. This is general guida
   app.get('/api/progress/bodyweight', isAuthenticated, async (req: any, res) => {
     try {
       const userId = req.user.claims.sub;
-      const limit = req.query.limit ? parseInt(req.query.limit as string) : undefined;
+      const limit = req.query.limit ? Math.min(Math.max(parseInt(req.query.limit as string) || 50, 1), 2000) : undefined;
       const entries = await storage.getBodyweightEntries(userId, limit);
       res.json(entries);
     } catch (error) {
@@ -17879,7 +18074,7 @@ Keep your response concise, practical, and evidence-based. This is general guida
   app.get('/api/progress/measurements', isAuthenticated, async (req: any, res) => {
     try {
       const userId = req.user.claims.sub;
-      const limit = req.query.limit ? parseInt(req.query.limit as string) : undefined;
+      const limit = req.query.limit ? Math.min(Math.max(parseInt(req.query.limit as string) || 50, 1), 2000) : undefined;
       const measurements = await storage.getBodyMeasurements(userId, limit);
       res.json(measurements);
     } catch (error) {
@@ -18113,7 +18308,7 @@ Keep your response concise, practical, and evidence-based. This is general guida
   app.get('/api/progress/pictures', isAuthenticated, async (req: any, res) => {
     try {
       const userId = req.user.claims.sub;
-      const limit = req.query.limit ? parseInt(req.query.limit as string) : undefined;
+      const limit = req.query.limit ? Math.min(Math.max(parseInt(req.query.limit as string) || 50, 1), 2000) : undefined;
       const pictures = await storage.getProgressPictures(userId, limit);
       
       // Group pictures by photoSetId
@@ -18147,30 +18342,39 @@ Keep your response concise, practical, and evidence-based. This is general guida
     }
   });
 
-  app.post('/api/progress/pictures', isAuthenticated, uploadImage.single('image'), async (req: any, res) => {
+  app.post('/api/progress/pictures', isAuthenticated, progressPhotoUpload.single('image'), async (req: any, res) => {
     try {
       const userId = req.user.claims.sub;
       const { date, category, notes, photoSetId, imageUrl: base64Image } = req.body;
       
       let imageUrl: string;
       
-      // Support both file upload and base64 image data
-      if (req.file) {
-        imageUrl = `/uploads/images/${req.file.filename}`;
+      // Both routes in (a multipart file, or a base64 data URL) end up in the
+      // same place: private object storage, owned by this user, stored as the
+      // /objects/<id> path only. The bytes decide the type, not the client.
+      let buffer: Buffer | null = null;
+      if (req.file?.buffer) {
+        buffer = req.file.buffer;
       } else if (base64Image && base64Image.startsWith('data:image')) {
-        // Decode the data URL and push the bytes to private object storage,
-        // storing only the /objects/<id> path. No more megabytes of base64 in
-        // the database.
         const match = base64Image.match(/^data:(image\/[a-zA-Z0-9.+-]+);base64,(.*)$/);
         if (!match) {
           return res.status(400).json({ message: "Malformed image data" });
         }
-        const mime = match[1];
-        const buffer = Buffer.from(match[2], 'base64');
-        imageUrl = await uploadProgressPhotoBufferToStorage(buffer, mime, userId);
+        buffer = Buffer.from(match[2], 'base64');
       } else {
         return res.status(400).json({ message: "Missing image" });
       }
+      if (!buffer || buffer.length === 0) {
+        return res.status(400).json({ message: "Missing image" });
+      }
+      if (buffer.length > 10 * 1024 * 1024) {
+        return res.status(413).json({ message: "Image too large (max 10 MB)" });
+      }
+      const kind = sniffImageType(buffer);
+      if (!kind) {
+        return res.status(415).json({ message: "That file is not a supported image (JPEG, PNG, WebP or HEIC)" });
+      }
+      imageUrl = await uploadProgressPhotoBufferToStorage(buffer, kind.mime, userId);
       
       if (!date) {
         return res.status(400).json({ message: "Missing date" });
@@ -18207,7 +18411,7 @@ Keep your response concise, practical, and evidence-based. This is general guida
   app.get('/api/progress/sleep', isAuthenticated, async (req: any, res) => {
     try {
       const userId = req.user.claims.sub;
-      const limit = req.query.limit ? parseInt(req.query.limit as string) : undefined;
+      const limit = req.query.limit ? Math.min(Math.max(parseInt(req.query.limit as string) || 50, 1), 2000) : undefined;
       const entries = await storage.getSleepEntries(userId, limit);
       // Transform to include hours for frontend compatibility
       const transformedEntries = entries.map(entry => ({
@@ -18267,7 +18471,7 @@ Keep your response concise, practical, and evidence-based. This is general guida
   app.get('/api/progress/steps', isAuthenticated, async (req: any, res) => {
     try {
       const userId = req.user.claims.sub;
-      const limit = req.query.limit ? parseInt(req.query.limit as string) : undefined;
+      const limit = req.query.limit ? Math.min(Math.max(parseInt(req.query.limit as string) || 50, 1), 2000) : undefined;
       const entries = await storage.getStepEntries(userId, limit);
       res.json(entries);
     } catch (error) {
@@ -18282,7 +18486,7 @@ Keep your response concise, practical, and evidence-based. This is general guida
   app.get('/api/progress/stress', isAuthenticated, async (req: any, res) => {
     try {
       const userId = req.user.claims.sub;
-      const limit = req.query.limit ? parseInt(req.query.limit as string) : undefined;
+      const limit = req.query.limit ? Math.min(Math.max(parseInt(req.query.limit as string) || 50, 1), 2000) : undefined;
       const entries = await storage.getStressEntries(userId, limit);
       res.json(entries);
     } catch (error) {
@@ -18745,7 +18949,7 @@ Keep your response concise, practical, and evidence-based. This is general guida
   app.get('/api/breathwork/sessions', isAuthenticated, async (req: any, res) => {
     try {
       const userId = req.user.claims.sub;
-      const limit = req.query.limit ? parseInt(req.query.limit as string) : undefined;
+      const limit = req.query.limit ? Math.min(Math.max(parseInt(req.query.limit as string) || 50, 1), 2000) : undefined;
       const sessions = await storage.getBreathWorkSessionLogs(userId, limit);
       res.json(sessions);
     } catch (error) {
@@ -19077,7 +19281,7 @@ Keep your response concise, practical, and evidence-based. This is general guida
   app.get('/api/meditation/sessions', isAuthenticated, async (req: any, res) => {
     try {
       const userId = req.user.claims.sub;
-      const limit = req.query.limit ? parseInt(req.query.limit as string) : undefined;
+      const limit = req.query.limit ? Math.min(Math.max(parseInt(req.query.limit as string) || 50, 1), 2000) : undefined;
       const sessions = await storage.getMeditationSessions(userId, limit);
       res.json(sessions);
     } catch (error) {
@@ -20183,7 +20387,7 @@ Keep your response concise, practical, and evidence-based. This is general guida
     }
   });
 
-  app.post('/api/shopping-list/regenerate', isAuthenticated, async (req: any, res) => {
+  app.post('/api/shopping-list/regenerate', isAuthenticated, aiDailyRateLimit, aiGenerateRateLimit, async (req: any, res) => {
     try {
       const userId = req.user.claims.sub;
       const plan = await storage.getUserMealPlan(userId);
@@ -20685,7 +20889,7 @@ Keep your response concise, practical, and evidence-based. This is general guida
     }
   });
 
-  app.post('/api/workday/scans', isAuthenticated, async (req: any, res) => {
+  app.post('/api/workday/scans', isAuthenticated, aiDailyRateLimit, aiChatRateLimit, async (req: any, res) => {
     try {
       const userId = req.user.claims.sub;
       const validated = insertWorkdayDeskScanSchema.parse({ ...req.body, userId });
@@ -20917,7 +21121,7 @@ Keep your response concise, practical, and evidence-based. This is general guida
   });
 
   // AI Desk Setup Analyzer
-  app.post('/api/workday/analyze-desk', isAuthenticated, aiVisionRateLimit, async (req: any, res) => {
+  app.post('/api/workday/analyze-desk', isAuthenticated, aiDailyRateLimit, aiVisionRateLimit, async (req: any, res) => {
     try {
       const { imageBase64, deskType, positionType } = req.body;
       
@@ -21343,7 +21547,9 @@ Keep your response concise, practical, and evidence-based. This is general guida
       if (!currentUser?.isAdmin) {
         return res.status(403).json({ message: "Admin access required" });
       }
-      const companies = await getCompanySummaries();
+      const pin = companyPinOf(req);
+      const companies = (await getCompanySummaries())
+        .filter((c: any) => !pin || c.companyName === pin.companyName || c.name === pin.companyName);
       res.json(companies);
     } catch (error) {
       console.error("Error fetching company summaries:", error);
@@ -21453,7 +21659,7 @@ Keep your response concise, practical, and evidence-based. This is general guida
     const currentUser = await storage.getUser(req.user.claims.sub);
     if (!currentUser?.isAdmin) return { error: "Admin access required", code: 403 };
     const requested = decodeURIComponent(req.params.companyName);
-    if (currentUser.companyName && currentUser.companyName !== requested) {
+    if (!(currentUser as any).isSuperAdmin && currentUser.companyName !== requested) {
       return { error: "You can only manage your own company's rewards", code: 403 };
     }
     return { company: requested };
@@ -21953,7 +22159,7 @@ Keep your response concise, practical, and evidence-based. This is general guida
   app.get('/api/user/badges', isAuthenticated, async (req: any, res) => {
     try {
       const userId = req.user.claims.sub;
-      const limit = req.query.limit ? parseInt(req.query.limit as string) : undefined;
+      const limit = req.query.limit ? Math.min(Math.max(parseInt(req.query.limit as string) || 50, 1), 2000) : undefined;
       const userBadges = await storage.getUserBadges(userId, limit);
       res.json(userBadges);
     } catch (error) {
@@ -22118,9 +22324,12 @@ Keep your response concise, practical, and evidence-based. This is general guida
         return res.status(400).json({ message: "Subject and message are required" });
       }
       
-      // Log the support request (in production, this would send an email via Resend)
-      console.log(`Support contact from ${userId}: ${subject} - ${message}`);
-      
+      const me = await storage.getUser(userId);
+      if (!me) return res.status(404).json({ message: "Not found" });
+      const sent = await sendSupportMessageToAdmin({
+        kind: "support", user: me, subject: String(subject).slice(0, 200), body: String(message).slice(0, 5000),
+      });
+      if (!sent) return res.status(503).json({ message: "We could not send your message right now. Please email support@meridian.work." });
       res.json({ success: true, message: "Support request submitted" });
     } catch (error) {
       console.error("Error submitting support request:", error);
@@ -22137,9 +22346,13 @@ Keep your response concise, practical, and evidence-based. This is general guida
         return res.status(400).json({ message: "Description is required" });
       }
       
-      // Log the bug report (in production, this would create a ticket or send an email)
-      console.log(`Bug report from ${userId}: ${description} - Steps: ${steps || 'Not provided'}`);
-      
+      const me = await storage.getUser(userId);
+      if (!me) return res.status(404).json({ message: "Not found" });
+      const sent = await sendSupportMessageToAdmin({
+        kind: "bug", user: me, subject: String(description).slice(0, 80), body: String(description).slice(0, 5000),
+        extra: steps ? `Steps to reproduce:\n${String(steps).slice(0, 3000)}` : undefined,
+      });
+      if (!sent) return res.status(503).json({ message: "We could not send your report right now. Please email support@meridian.work." });
       res.json({ success: true, message: "Bug report submitted" });
     } catch (error) {
       console.error("Error submitting bug report:", error);
@@ -22156,9 +22369,12 @@ Keep your response concise, practical, and evidence-based. This is general guida
         return res.status(400).json({ message: "Title and description are required" });
       }
       
-      // Log the feature request (in production, this would create a ticket or send an email)
-      console.log(`Feature request from ${userId}: ${title} - ${description}`);
-      
+      const me = await storage.getUser(userId);
+      if (!me) return res.status(404).json({ message: "Not found" });
+      const sent = await sendSupportMessageToAdmin({
+        kind: "feature", user: me, subject: String(title).slice(0, 200), body: String(description).slice(0, 5000),
+      });
+      if (!sent) return res.status(503).json({ message: "We could not send your request right now. Please email support@meridian.work." });
       res.json({ success: true, message: "Feature request submitted" });
     } catch (error) {
       console.error("Error submitting feature request:", error);
@@ -22167,26 +22383,21 @@ Keep your response concise, practical, and evidence-based. This is general guida
   });
 
   // Export user data
-  app.get('/api/user/export-data', isAuthenticated, async (req: any, res) => {
+  app.get('/api/user/export-data', isAuthenticated, exportRateLimit, async (req: any, res) => {
     try {
       const userId = req.user.claims.sub;
       
-      // Gather all user data
+      // Every table that holds something about this person, with secrets
+      // stripped. See storage.exportUserData.
       const userData = {
         exportDate: new Date().toISOString(),
         userId,
         profile: publicUser(await storage.getUser(userId)),
-        workoutLogs: await storage.getWorkoutLogs(userId),
-        sleepEntries: await storage.getSleepEntries(userId),
-        foodLogs: await storage.getFoodLogs(userId, new Date().toISOString().split('T')[0]),
-        bodyMapLogs: await storage.getBodyMapLogs(userId),
-        habits: await storage.getHabits(userId),
-        goals: await storage.getGoals(userId),
-        badges: await storage.getUserBadges(userId),
+        data: await storage.exportUserData(userId),
       };
       
       res.setHeader('Content-Type', 'application/json');
-      res.setHeader('Content-Disposition', `attachment; filename="paradigm-data-${new Date().toISOString().split('T')[0]}.json"`);
+      res.setHeader('Content-Disposition', `attachment; filename="meridianwork-data-${new Date().toISOString().split('T')[0]}.json"`);
       res.json(userData);
     } catch (error) {
       console.error("Error exporting user data:", error);
@@ -22214,26 +22425,32 @@ Keep your response concise, practical, and evidence-based. This is general guida
   });
 
   // Delete account
-  app.delete('/api/user/account', isAuthenticated, async (req: any, res) => {
+  // Self-service account deletion. The app has always called
+  // /api/user/delete-account while the server only answered /api/user/account,
+  // so both paths are served. The deletion is real: every per-user row, the
+  // user row and every session, in one transaction. The response goes back
+  // before the caller's own session object is torn down.
+  const deleteOwnAccount = async (req: any, res: any) => {
     try {
       const userId = req.user.claims.sub;
-      
-      // In production, this would delete all user data from all tables
-      // For now, we'll just log it
-      console.log(`Account deletion requested for user: ${userId}`);
-      
-      // Destroy session
-      req.session.destroy((err: any) => {
-        if (err) {
-          console.error("Error destroying session:", err);
-        }
-        res.json({ success: true, message: "Account deleted" });
-      });
+      const me = await storage.getUser(userId);
+      if (!me) return res.status(404).json({ message: "Not found" });
+      if (me.isAdmin) {
+        // An admin deleting themselves from the app could lock the company out.
+        return res.status(400).json({ message: "Admin accounts are removed by another admin from the admin portal." });
+      }
+      const result = await storage.deleteUserCompletely(userId);
+      console.log(`[account] deleted user ${userId} (${result.deletedTables.length} tables)`);
+      const finish = () => res.json({ success: true, message: "Account deleted" });
+      if (req.session?.destroy) req.session.destroy(() => finish());
+      else finish();
     } catch (error) {
       console.error("Error deleting account:", error);
       res.status(500).json({ message: "Failed to delete account" });
     }
-  });
+  };
+  app.delete('/api/user/account', isAuthenticated, deleteOwnAccount);
+  app.delete('/api/user/delete-account', isAuthenticated, deleteOwnAccount);
 
   app.post('/api/auth/change-password', isAuthenticated, async (req: any, res) => {
     try {
@@ -22285,7 +22502,7 @@ Keep your response concise, practical, and evidence-based. This is general guida
   // AI Coach Chat
   // ==========================================
 
-  app.post('/api/coach/chat', isAuthenticated, async (req: any, res) => {
+  app.post('/api/coach/chat', isAuthenticated, aiDailyRateLimit, aiChatRateLimit, async (req: any, res) => {
     try {
       const userId = req.user.claims.sub;
       const { message, conversationHistory = [] } = req.body;
@@ -23221,7 +23438,7 @@ Write the opening message now.`;
   });
 
   // AI Insight Read — mobile calls this when user opens an AI-generated insight
-  app.post('/api/ai/insight-read', isAuthenticated, async (req: any, res) => {
+  app.post('/api/ai/insight-read', isAuthenticated, aiDailyRateLimit, aiChatRateLimit, async (req: any, res) => {
     try {
       const userId = req.user.claims.sub;
       const { insightType, insightKey } = req.body;
@@ -23242,7 +23459,7 @@ Write the opening message now.`;
   // AI Nutrition Insights
   // ==========================================
 
-  app.post('/api/ai/nutrition-insights', isAuthenticated, async (req: any, res) => {
+  app.post('/api/ai/nutrition-insights', isAuthenticated, aiDailyRateLimit, aiChatRateLimit, async (req: any, res) => {
     try {
       const userId = req.user.claims.sub;
       const { mode, message } = req.body;
@@ -23656,7 +23873,7 @@ ${modePrompt}`;
   // AI Workout Coach
   // ==========================================
 
-  app.post('/api/ai/workout-coach', isAuthenticated, async (req: any, res) => {
+  app.post('/api/ai/workout-coach', isAuthenticated, aiDailyRateLimit, aiChatRateLimit, async (req: any, res) => {
     try {
       const userId = req.user.claims.sub;
       const { mode, workoutId } = req.body;
@@ -23816,7 +24033,7 @@ ${modePrompt}`;
   // AI Check-in Insights
   // ==========================================
 
-  app.post('/api/ai/check-in-insights', isAuthenticated, async (req: any, res) => {
+  app.post('/api/ai/check-in-insights', isAuthenticated, aiDailyRateLimit, aiChatRateLimit, async (req: any, res) => {
     try {
       const userId = req.user.claims.sub;
       const { mode } = req.body;
@@ -23989,7 +24206,7 @@ ${modePrompt}`;
   // AI Recovery Coach (Assessment-Specific)
   // ==========================================
 
-  app.post('/api/recovery-coach/chat', isAuthenticated, async (req: any, res) => {
+  app.post('/api/recovery-coach/chat', isAuthenticated, aiDailyRateLimit, aiChatRateLimit, async (req: any, res) => {
     try {
       const userId = req.user.claims.sub;
       const { message, assessmentContext, conversationHistory = [] } = req.body;

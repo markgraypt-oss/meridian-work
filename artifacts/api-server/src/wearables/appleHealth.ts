@@ -8,8 +8,11 @@ import type { NormalisedDailyMetrics } from "./types";
 // zip-bomb / OOM attacks. Real Apple Health exports for power users top out
 // around 200-400 MB uncompressed and ~10-30x compression ratio, so this is a
 // generous safety ceiling.
-const MAX_UNCOMPRESSED_BYTES = 1024 * 1024 * 1024;
-const MAX_COMPRESSION_RATIO = 200;
+// 300 MB, not 1 GB: the XML is held as one string while it is scanned, and a
+// 1 GB string on a 4 GB server took the whole API down with it. Exports that
+// big are rare and can be trimmed to a date range before uploading.
+const MAX_UNCOMPRESSED_BYTES = 300 * 1024 * 1024;
+const MAX_COMPRESSION_RATIO = 60;
 
 export function parseAppleHealthExport(zipBuffer: Buffer): NormalisedDailyMetrics[] {
   const zip = new AdmZip(zipBuffer);
@@ -21,7 +24,7 @@ export function parseAppleHealthExport(zipBuffer: Buffer): NormalisedDailyMetric
   const declared = (exportEntry.header as any)?.size ?? 0;
   const compressed = (exportEntry.header as any)?.compressedSize ?? zipBuffer.length;
   if (declared > MAX_UNCOMPRESSED_BYTES) {
-    throw new Error(`export.xml too large (${Math.round(declared / 1024 / 1024)} MB > 1024 MB limit)`);
+    throw new Error(`export.xml too large (${Math.round(declared / 1024 / 1024)} MB > 300 MB limit)`);
   }
   if (compressed > 0 && declared / compressed > MAX_COMPRESSION_RATIO) {
     throw new Error("export.xml compression ratio exceeds safety limit (possible zip bomb)");

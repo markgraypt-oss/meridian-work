@@ -234,6 +234,54 @@ export function getSession() {
 
 const ADMIN_NOTIFICATION_EMAIL = process.env.ADMIN_NOTIFICATION_EMAIL || "no-reply@meridian.work";
 
+const escapeHtml = (v: string) => String(v)
+  .replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+
+/**
+ * Support, bug report and feature request from the app: one email to the
+ * admin inbox, with the person's name and email so they can be answered.
+ * Returns false when it could not be sent (no Resend key) so the route can say
+ * so instead of pretending.
+ */
+export async function sendSupportMessageToAdmin(input: {
+  kind: "support" | "bug" | "feature";
+  user: { id: string; email?: string | null; firstName?: string | null; lastName?: string | null; companyName?: string | null };
+  subject: string;
+  body: string;
+  extra?: string;
+}): Promise<boolean> {
+  if (!resend) {
+    console.error(`[SUPPORT] ${input.kind} message from user ${input.user.id} not sent: RESEND_API_KEY missing`);
+    return false;
+  }
+  const label = input.kind === "bug" ? "Bug report" : input.kind === "feature" ? "Feature request" : "Support request";
+  const name = [input.user.firstName, input.user.lastName].filter(Boolean).join(" ") || "Unknown";
+  try {
+    const { error } = await resend.emails.send({
+      from: "MeridianWork <no-reply@meridian.work>",
+      to: ADMIN_NOTIFICATION_EMAIL,
+      replyTo: input.user.email || undefined,
+      subject: `${label}: ${input.subject.slice(0, 120)}`,
+      html: renderBrandedEmail({
+        eyebrow: "From the app",
+        heading: label,
+        bodyHtml:
+          emailParagraph(`<strong>${escapeHtml(name)}</strong> &lt;${escapeHtml(input.user.email || "no email")}&gt;${input.user.companyName ? `, ${escapeHtml(input.user.companyName)}` : ""}`) +
+          emailParagraph(`<strong>${escapeHtml(input.subject)}</strong>`) +
+          emailParagraph(escapeHtml(input.body).replace(/\n/g, "<br>")) +
+          (input.extra ? emailParagraph(escapeHtml(input.extra).replace(/\n/g, "<br>")) : "") +
+          emailParagraph(`User id ${input.user.id}. ${new Date().toLocaleString("en-GB", { timeZone: "Europe/Madrid", timeZoneName: "short" })}`),
+        footerNote: "Reply to this email to answer them directly.",
+      }),
+    });
+    if (error) { console.error(`[SUPPORT] Resend error for ${input.kind}:`, error); return false; }
+    return true;
+  } catch (err) {
+    console.error(`[SUPPORT] Failed to send ${input.kind} message:`, err);
+    return false;
+  }
+}
+
 async function sendFirstLoginNotification(user: { id: string; email?: string | null; firstName?: string | null; lastName?: string | null; companyName?: string | null }): Promise<void> {
   if (!resend) {
     console.error("[FIRST-LOGIN] Resend not configured - skipping notification");
@@ -267,7 +315,7 @@ async function sendFirstLoginNotification(user: { id: string; email?: string | n
     if (error) {
       console.error("[FIRST-LOGIN] Failed to send notification:", error);
     } else {
-      console.log(`[FIRST-LOGIN] Notification sent for user: ${email}`);
+      console.log(`[FIRST-LOGIN] Notification sent for user ${user.id}`);
     }
   } catch (err) {
     console.error("[FIRST-LOGIN] Error sending notification:", err);
@@ -411,7 +459,8 @@ export async function setupAuth(app: Express) {
       if (!email) {
         return res.status(400).json({ message: "Email is required" });
       }
-      console.log(`[FORGOT-PASSWORD] ${String(email).toLowerCase()} ip=${req.ip} ua=${req.headers["user-agent"] || "-"} ref=${req.headers["referer"] || "-"}`);
+      // Count the request without writing the address, IP or browser to the log.
+      console.log(`[FORGOT-PASSWORD] request received (${String(email).includes("@") ? "email" : "identifier"})`);
 
       const user = await storage.getUserByEmail(email);
 

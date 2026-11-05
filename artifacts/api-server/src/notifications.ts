@@ -103,8 +103,9 @@ export async function notify(opts: NotifyOptions): Promise<NotifyResult> {
   const channelToggles = getChannelToggles(prefs, category);
 
   // 2. Quiet hours + daily cap (skipped when force=true).
-  const inQuiet = !force && isWithinQuietHours(prefs);
-  const overCap = !force && (await isOverDailyCap(userId, prefs.dailyCap ?? 8));
+  const userTz = (user as any).timezone || null;
+  const inQuiet = !force && isWithinQuietHours(prefs, userTz);
+  const overCap = !force && (await isOverDailyCap(userId, prefs.dailyCap ?? 8, userTz));
 
   // 3. In-app: always written if the user has the in-app toggle on for this
   //    category (or force). The bell + panel rely on this row existing.
@@ -268,13 +269,36 @@ function getChannelToggles(prefs: any, category: NotificationCategory) {
   };
 }
 
-function isWithinQuietHours(prefs: any): boolean {
+// Local wall-clock parts for a user's timezone. The server runs in UTC, so
+// without this "quiet from 22:00" would be 22:00 UTC, which is midnight in
+// Athens and 5 pm in New York.
+function localParts(tz: string | null, date: Date = new Date()): { minutes: number; dayStartUtc: Date } {
+  try {
+    if (tz) {
+      const fmt = new Intl.DateTimeFormat("en-GB", {
+        timeZone: tz, hour12: false, year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit",
+      });
+      const parts = Object.fromEntries(fmt.formatToParts(date).map((p) => [p.type, p.value]));
+      const hour = parseInt(parts.hour, 10) % 24;
+      const minute = parseInt(parts.minute, 10);
+      // Start of the user's local day, as a UTC instant: now minus the minutes
+      // elapsed since local midnight.
+      const minutes = hour * 60 + minute;
+      const dayStartUtc = new Date(date.getTime() - (minutes * 60 + date.getUTCSeconds()) * 1000);
+      return { minutes, dayStartUtc };
+    }
+  } catch {}
+  const dayStartUtc = new Date(date);
+  dayStartUtc.setHours(0, 0, 0, 0);
+  return { minutes: date.getHours() * 60 + date.getMinutes(), dayStartUtc };
+}
+
+function isWithinQuietHours(prefs: any, tz: string | null = null): boolean {
   if (!prefs?.quietHoursEnabled) return false;
   const start = parseTime(prefs.quietHoursStart || "22:00");
   const end = parseTime(prefs.quietHoursEnd || "07:00");
   if (start === null || end === null) return false;
-  const now = new Date();
-  const minutes = now.getHours() * 60 + now.getMinutes();
+  const { minutes } = localParts(tz);
   // Wraps midnight
   if (start > end) return minutes >= start || minutes < end;
   return minutes >= start && minutes < end;
@@ -286,10 +310,9 @@ function parseTime(t: string): number | null {
   return parseInt(m[1], 10) * 60 + parseInt(m[2], 10);
 }
 
-async function isOverDailyCap(userId: string, cap: number): Promise<boolean> {
+async function isOverDailyCap(userId: string, cap: number, tz: string | null = null): Promise<boolean> {
   if (!cap || cap <= 0) return false;
-  const since = new Date();
-  since.setHours(0, 0, 0, 0);
+  const since = localParts(tz).dayStartUtc;
   // Cap applies to *delivered* email/push only — in-app rows are uncapped.
   const [row] = await db
     .select({ c: sql<number>`count(*)` })

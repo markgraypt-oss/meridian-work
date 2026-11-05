@@ -1,6 +1,7 @@
 import type { Express } from "express";
 import express from "express";
 import multer from "multer";
+import rateLimit, { ipKeyGenerator } from "express-rate-limit";
 import crypto from "crypto";
 import { isAuthenticated } from "../replitAuth";
 import {
@@ -24,7 +25,22 @@ import type { WearableProvider } from "./types";
 
 const PROVIDERS: WearableProvider[] = ["oura", "whoop", "google_fit", "apple_health"];
 
-const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 200 * 1024 * 1024 } });
+// Apple Health export.zip. 60 MB compressed is far above a real export (most
+// are 5 to 30 MB). The XML inside is capped again in appleHealth.ts.
+const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 60 * 1024 * 1024, files: 1 } });
+
+// One export is parsed at a time, and each person gets two attempts an hour:
+// parsing holds the whole XML in memory, so two uploads at once could take the
+// server down with it.
+let appleHealthParseBusy = false;
+const appleHealthUploadLimit = rateLimit({
+  windowMs: 60 * 60 * 1000,
+  limit: 2,
+  standardHeaders: true,
+  legacyHeaders: false,
+  keyGenerator: (req: any) => "ah:" + (req.user?.claims?.sub || ipKeyGenerator(req.ip)),
+  message: { message: "Two Apple Health uploads an hour is the limit. Please try again later." },
+});
 
 // OAuth state is carried in an HMAC-signed token rather than the session,
 // because the mobile in-app browser that handles the OAuth redirect does NOT
@@ -40,7 +56,13 @@ interface OAuthStatePayload {
   expiresAt: number;
 }
 
-const OAUTH_STATE_SECRET = process.env.SESSION_SECRET || "meridian-oauth-secret";
+// The OAuth state token is signed with SESSION_SECRET. With no secret, anyone
+// could forge a state and attach their wearable to someone else's account, so
+// the server refuses to start rather than fall back to a known string.
+if (!process.env.SESSION_SECRET) {
+  throw new Error("SESSION_SECRET is not set; the wearables OAuth flow cannot be signed. Refusing to start.");
+}
+const OAUTH_STATE_SECRET: string = process.env.SESSION_SECRET;
 
 function signOAuthState(payload: OAuthStatePayload): string {
   const json = JSON.stringify(payload);
@@ -388,21 +410,26 @@ export function registerWearableRoutes(app: Express) {
   });
 
   // Apple Health: upload export.zip
-  app.post("/api/wearables/apple-health/upload", isAuthenticated, upload.single("export"), async (req: any, res) => {
+  app.post("/api/wearables/apple-health/upload", isAuthenticated, appleHealthUploadLimit, upload.single("export"), async (req: any, res) => {
+    const userId = req.user.claims.sub;
+    const file = req.file;
+    if (!file) return res.status(400).json({ message: "No file uploaded (field name 'export')" });
+    if (appleHealthParseBusy) {
+      return res.status(429).json({ message: "Another Apple Health export is being processed. Please try again in a minute." });
+    }
+    appleHealthParseBusy = true;
     try {
-      const userId = req.user.claims.sub;
-      const file = req.file;
-      if (!file) return res.status(400).json({ message: "No file uploaded (field name 'export')" });
-
       const metrics = parseAppleHealthExport(file.buffer);
       await upsertConnection(userId, "apple_health", { status: "connected" });
       const { upsertDailyMetrics } = await import("./index");
       const written = await upsertDailyMetrics(userId, "apple_health", metrics);
       await syncProvider(userId, "apple_health", { trigger: "manual" });
-      res.json({ daysParsed: metrics.length, daysWritten: written });
+      return res.json({ daysParsed: metrics.length, daysWritten: written });
     } catch (err: any) {
-      console.error("[wearables] apple health upload error", err);
-      res.status(500).json({ message: "Failed to parse Apple Health export", error: err?.message });
+      console.error("[wearables] apple health upload error", err?.message || err);
+      return res.status(500).json({ message: "Failed to parse Apple Health export", error: err?.message });
+    } finally {
+      appleHealthParseBusy = false;
     }
   });
 

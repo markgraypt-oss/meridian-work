@@ -547,6 +547,40 @@ export const SELF_HEAL_DDL: string[] = [
      updated_at timestamp DEFAULT now()
    )`,
   `CREATE UNIQUE INDEX IF NOT EXISTS load_diag_user_period_idx ON load_diagnostic_responses (user_id, period_key)`,
+  // Super admin flag. The first time it appears, every existing admin becomes
+  // a super admin, so nobody who runs the platform today loses access. From
+  // then on new admins are company admins unless a super admin promotes them.
+  `ALTER TABLE users ADD COLUMN IF NOT EXISTS is_super_admin boolean DEFAULT false`,
+  `UPDATE users SET is_super_admin = true
+     WHERE is_admin = true AND NOT EXISTS (SELECT 1 FROM users WHERE is_super_admin = true)`,
+  // Account deletion: every per-user table's user_id must cascade when the
+  // user row goes, or DELETE FROM users fails on the first child row. 26
+  // tables were created without ON DELETE CASCADE. This rewrites any user_id
+  // foreign key to users(id) that still says NO ACTION; after the first run it
+  // matches nothing and is a no-op. Only user_id columns are touched: authored
+  // content (created_by and the like) keeps whatever rule it has.
+  `DO $$
+   DECLARE r record;
+   BEGIN
+     FOR r IN
+       SELECT tc.constraint_name, tc.table_name, kcu.column_name
+       FROM information_schema.table_constraints tc
+       JOIN information_schema.key_column_usage kcu
+         ON kcu.constraint_name = tc.constraint_name AND kcu.constraint_schema = tc.table_schema
+       JOIN information_schema.referential_constraints rc
+         ON rc.constraint_name = tc.constraint_name AND rc.constraint_schema = tc.table_schema
+       JOIN information_schema.constraint_column_usage ccu
+         ON ccu.constraint_name = rc.unique_constraint_name AND ccu.constraint_schema = rc.unique_constraint_schema
+       WHERE tc.constraint_type = 'FOREIGN KEY'
+         AND tc.table_schema = 'public'
+         AND ccu.table_name = 'users' AND ccu.column_name = 'id'
+         AND kcu.column_name = 'user_id'
+         AND rc.delete_rule = 'NO ACTION'
+     LOOP
+       EXECUTE format('ALTER TABLE %I DROP CONSTRAINT %I', r.table_name, r.constraint_name);
+       EXECUTE format('ALTER TABLE %I ADD CONSTRAINT %I FOREIGN KEY (%I) REFERENCES users(id) ON DELETE CASCADE', r.table_name, r.constraint_name, r.column_name);
+     END LOOP;
+   END $$`,
 ];
 
 export async function runSchemaSelfHealOnce(): Promise<void> {

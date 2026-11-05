@@ -443,6 +443,8 @@ export interface IStorage {
   // User operations
   getUser(id: string): Promise<User | undefined>;
   destroyAllSessionsForUser(userId: string): Promise<number>;
+  deleteUserCompletely(userId: string): Promise<{ deletedTables: string[] }>;
+  exportUserData(userId: string): Promise<Record<string, any[]>>;
   getUserByEmail(email: string): Promise<User | undefined>;
   getUserByEmailWithPassword(email: string): Promise<User | undefined>;
   getUserByIdentifierWithPassword(identifier: string): Promise<User | undefined>;
@@ -1473,6 +1475,139 @@ export class DatabaseStorage implements IStorage {
 
   async deleteUser(id: string): Promise<void> {
     await db.delete(users).where(eq(users.id, id));
+  }
+
+  /**
+   * Everything the database holds about one person, table by table, for the
+   * "download my data" request. Every table with a user_id column is included
+   * automatically, so new tables are never missed, plus the workout exercise
+   * and set rows that hang off workout logs. Secrets never leave: any column
+   * whose name mentions password, token, secret or hash is dropped, and the
+   * sessions table is skipped.
+   */
+  async exportUserData(userId: string): Promise<Record<string, any[]>> {
+    const SKIP_TABLES = new Set(["sessions", "ai_call_logs"]);
+    const SECRET_COL = /password|token|secret|hash|refresh|access_key/i;
+    const MAX_ROWS = 20000;
+    const out: Record<string, any[]> = {};
+    const tables = await pool.query(
+      `SELECT table_name FROM information_schema.columns
+        WHERE table_schema = 'public' AND column_name = 'user_id'
+        ORDER BY table_name`);
+    const strip = (row: any) => {
+      const clean: any = {};
+      for (const [k, v] of Object.entries(row)) if (!SECRET_COL.test(k)) clean[k] = v;
+      return clean;
+    };
+    for (const { table_name } of tables.rows) {
+      if (SKIP_TABLES.has(table_name)) continue;
+      try {
+        const r = await pool.query(`SELECT * FROM ${table_name} WHERE user_id = $1 LIMIT ${MAX_ROWS}`, [userId]);
+        if (r.rows.length) out[table_name] = r.rows.map(strip);
+      } catch (err: any) {
+        console.error(`[export] skipped ${table_name}:`, err?.message || err);
+      }
+    }
+    try {
+      const ex = await pool.query(
+        `SELECT * FROM workout_exercise_logs WHERE workout_log_id IN (SELECT id FROM workout_logs WHERE user_id = $1) LIMIT ${MAX_ROWS}`, [userId]);
+      if (ex.rows.length) out.workout_exercise_logs = ex.rows.map(strip);
+      const sets = await pool.query(
+        `SELECT * FROM workout_set_logs WHERE exercise_log_id IN (
+           SELECT id FROM workout_exercise_logs WHERE workout_log_id IN (SELECT id FROM workout_logs WHERE user_id = $1)) LIMIT ${MAX_ROWS}`, [userId]);
+      if (sets.rows.length) out.workout_set_logs = sets.rows.map(strip);
+    } catch (err: any) {
+      console.error("[export] workout detail skipped:", err?.message || err);
+    }
+    return out;
+  }
+
+  /**
+   * Erase one person: every row that belongs to them, then the user row, then
+   * their sessions. Tables whose user_id is a real foreign key go with the
+   * user row (ON DELETE CASCADE, set up by the schema self-heal). The ones
+   * below store user_id as a plain column with no foreign key, so they are
+   * cleared here by hand first. Missing tables are skipped, so this is safe on
+   * a database that has not got every table yet.
+   */
+  async deleteUserCompletely(userId: string): Promise<{ deletedTables: string[] }> {
+    // Plain user_id columns with no foreign key to users.
+    const LOOSE_USER_TABLES = [
+      "exercise_snapshots", "bodyweight_entries", "body_measurements", "progress_pictures",
+      "sleep_entries", "step_entries", "stress_entries", "body_fat_entries", "resting_hr_entries",
+      "blood_pressure_entries", "lean_body_mass_entries", "caloric_intake_entries",
+      "caloric_burn_entries", "exercise_minutes_entries", "tester_prompt_events",
+      "load_diagnostic_responses", "wellbeing_contact_requests", "program_generations",
+      "appointments",
+    ];
+    const deletedTables: string[] = [];
+    const client = await pool.connect();
+    try {
+      await client.query("BEGIN");
+      const exists = async (table: string) => {
+        const r = await client.query("SELECT to_regclass($1) AS t", [`public.${table}`]);
+        return !!r.rows[0]?.t;
+      };
+      // Workout logs and their exercise and set rows (no foreign keys between them).
+      if (await exists("workout_logs")) {
+        if (await exists("workout_set_logs") && await exists("workout_exercise_logs")) {
+          await client.query(
+            `DELETE FROM workout_set_logs WHERE exercise_log_id IN (
+               SELECT id FROM workout_exercise_logs WHERE workout_log_id IN (
+                 SELECT id FROM workout_logs WHERE user_id = $1))`, [userId]);
+          deletedTables.push("workout_set_logs");
+        }
+        if (await exists("workout_exercise_logs")) {
+          await client.query(
+            `DELETE FROM workout_exercise_logs WHERE workout_log_id IN (
+               SELECT id FROM workout_logs WHERE user_id = $1)`, [userId]);
+          deletedTables.push("workout_exercise_logs");
+        }
+        await client.query(`DELETE FROM workout_logs WHERE user_id = $1`, [userId]);
+        deletedTables.push("workout_logs");
+      }
+      for (const table of LOOSE_USER_TABLES) {
+        if (!(await exists(table))) continue;
+        await client.query(`DELETE FROM ${table} WHERE user_id = $1`, [userId]);
+        deletedTables.push(table);
+      }
+      // Keep the AI cost ledger, but not the name on it.
+      if (await exists("ai_call_logs")) {
+        await client.query(`UPDATE ai_call_logs SET user_id = NULL WHERE user_id = $1`, [userId]);
+      }
+      if (await exists("workday_desk_references")) {
+        await client.query(`UPDATE workday_desk_references SET updated_by = NULL WHERE updated_by = $1`, [userId]);
+      }
+      // Everything with a proper foreign key cascades from here.
+      await client.query(`DELETE FROM users WHERE id = $1`, [userId]);
+      deletedTables.push("users");
+      // The person's own custom workouts and recipes (library items have no
+      // user_id). Done after the user row so their own sessions and logs that
+      // pointed at them are already gone. If anything else still points at one,
+      // keep the row but take the name off it.
+      for (const table of ["workouts", "recipes"]) {
+        if (!(await exists(table))) continue;
+        await client.query("SAVEPOINT own_content");
+        try {
+          await client.query(`DELETE FROM ${table} WHERE user_id = $1`, [userId]);
+          deletedTables.push(table);
+        } catch {
+          await client.query("ROLLBACK TO SAVEPOINT own_content");
+          await client.query(`UPDATE ${table} SET user_id = NULL WHERE user_id = $1`, [userId]);
+        }
+        await client.query("RELEASE SAVEPOINT own_content");
+      }
+      await client.query(
+        `DELETE FROM sessions WHERE sess->'passport'->'user'->'claims'->>'sub' = $1`, [userId]);
+      deletedTables.push("sessions");
+      await client.query("COMMIT");
+    } catch (err) {
+      await client.query("ROLLBACK").catch(() => {});
+      throw err;
+    } finally {
+      client.release();
+    }
+    return { deletedTables };
   }
 
   // Streak operations

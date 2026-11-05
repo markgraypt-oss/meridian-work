@@ -44,6 +44,9 @@ export const users = pgTable("users", {
   heightUnit: varchar("height_unit").default("cm"),
   profileImageUrl: varchar("profile_image_url"),
   isAdmin: boolean("is_admin").default(false),
+  // Super admins see every company. An admin without this flag is a company
+  // admin and is pinned to their own company on every /api/admin route.
+  isSuperAdmin: boolean("is_super_admin").default(false),
   role: text("role").notNull().default("user"), // 'user' or 'client' (private 1:1 coaching client)
   currentStreak: integer("current_streak").default(0),
   longestStreak: integer("longest_streak").default(0),
@@ -413,7 +416,7 @@ export const blockExercises = pgTable("block_exercises", {
 // User progress tracking
 export const userProgress = pgTable("user_progress", {
   id: serial("id").primaryKey(),
-  userId: varchar("user_id").notNull().references(() => users.id),
+  userId: varchar("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
   date: timestamp("date").notNull(),
   workoutsCompleted: integer("workouts_completed").default(0),
   sleepHours: real("sleep_hours"),
@@ -429,7 +432,7 @@ export const userProgress = pgTable("user_progress", {
 // Daily check-ins
 export const checkIns = pgTable("check_ins", {
   id: serial("id").primaryKey(),
-  userId: varchar("user_id").notNull().references(() => users.id),
+  userId: varchar("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
   checkInDate: timestamp("check_in_date").notNull(),
   week: integer("week").notNull().default(0),
   // Slider scores (1-5 scale)
@@ -497,7 +500,7 @@ export const checkIns = pgTable("check_ins", {
 // Body map logs - simplified for everyday users
 export const bodyMapLogs = pgTable("body_map_logs", {
   id: serial("id").primaryKey(),
-  userId: varchar("user_id").notNull().references(() => users.id),
+  userId: varchar("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
   bodyPart: text("body_part").notNull(),
   severity: integer("severity").notNull(), // 1-10 scale
   type: text("type"), // optional: "sore" or "stiff"
@@ -525,7 +528,7 @@ export const bodyMapLogs = pgTable("body_map_logs", {
 // User favourites (bookmarks)
 export const bookmarks = pgTable("bookmarks", {
   id: serial("id").primaryKey(),
-  userId: varchar("user_id").notNull().references(() => users.id),
+  userId: varchar("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
   contentType: text("content_type").notNull(), // 'program', 'video', 'recipe', 'workout'
   contentId: integer("content_id").notNull(),
   createdAt: timestamp("created_at").defaultNow(),
@@ -534,7 +537,7 @@ export const bookmarks = pgTable("bookmarks", {
 // Video workout progress - track where users left off in video workouts
 export const videoWorkoutProgress = pgTable("video_workout_progress", {
   id: serial("id").primaryKey(),
-  userId: varchar("user_id").notNull().references(() => users.id),
+  userId: varchar("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
   workoutId: integer("workout_id").notNull().references(() => workouts.id, { onDelete: "cascade" }),
   progressTime: real("progress_time").notNull().default(0), // seconds into the video
   duration: real("duration"), // total video duration in seconds
@@ -546,7 +549,7 @@ export const videoWorkoutProgress = pgTable("video_workout_progress", {
 // User notes
 export const userNotes = pgTable("user_notes", {
   id: serial("id").primaryKey(),
-  userId: varchar("user_id").notNull().references(() => users.id),
+  userId: varchar("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
   contentType: text("content_type").notNull(),
   contentId: integer("content_id").notNull(),
   note: text("note").notNull(),
@@ -557,7 +560,7 @@ export const userNotes = pgTable("user_notes", {
 // User program enrollments - track which programs users have enrolled in
 export const userProgramEnrollments = pgTable("user_program_enrollments", {
   id: serial("id").primaryKey(),
-  userId: varchar("user_id").notNull().references(() => users.id),
+  userId: varchar("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
   programId: integer("program_id").notNull().references(() => programs.id, { onDelete: "cascade" }),
   startDate: timestamp("start_date").notNull(),
   endDate: timestamp("end_date"), // calculated from start + program weeks, or custom
@@ -661,7 +664,7 @@ export const enrollmentBlockExercises = pgTable("enrollment_block_exercises", {
 // Injury logs - comprehensive tracking per body part
 export const injuryLogs = pgTable("injury_logs", {
   id: serial("id").primaryKey(),
-  userId: varchar("user_id").notNull().references(() => users.id),
+  userId: varchar("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
   bodyPart: text("body_part").notNull(),
   side: text("side"), // "left", "right", or null for central areas
   type: text("type").notNull(), // "sore", "stiff", "pain", "injury"
@@ -683,7 +686,7 @@ export const injuryLogs = pgTable("injury_logs", {
 export const dailySeverityLogs = pgTable("daily_severity_logs", {
   id: serial("id").primaryKey(),
   injuryLogId: integer("injury_log_id").notNull().references(() => injuryLogs.id, { onDelete: "cascade" }),
-  userId: varchar("user_id").notNull().references(() => users.id),
+  userId: varchar("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
   severity: integer("severity").notNull(), // 1-10 scale
   notes: text("notes"),
   logDate: timestamp("log_date").notNull(),
@@ -694,7 +697,7 @@ export const dailySeverityLogs = pgTable("daily_severity_logs", {
 export const recoveryActions = pgTable("recovery_actions", {
   id: serial("id").primaryKey(),
   injuryLogId: integer("injury_log_id").notNull().references(() => injuryLogs.id, { onDelete: "cascade" }),
-  userId: varchar("user_id").notNull().references(() => users.id),
+  userId: varchar("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
   actionName: text("action_name").notNull(),
   actionType: text("action_type").notNull(), // "exercise", "stretch", "therapy", "rest"
   frequency: text("frequency").notNull(), // "daily", "3x_week", "every_other_day"
@@ -708,7 +711,7 @@ export const recoveryActions = pgTable("recovery_actions", {
 export const recoveryCompliance = pgTable("recovery_compliance", {
   id: serial("id").primaryKey(),
   recoveryActionId: integer("recovery_action_id").notNull().references(() => recoveryActions.id, { onDelete: "cascade" }),
-  userId: varchar("user_id").notNull().references(() => users.id),
+  userId: varchar("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
   completedDate: timestamp("completed_date").notNull(),
   notes: text("notes"),
   createdAt: timestamp("created_at").defaultNow(),
@@ -718,7 +721,7 @@ export const recoveryCompliance = pgTable("recovery_compliance", {
 export const recoveryAlerts = pgTable("recovery_alerts", {
   id: serial("id").primaryKey(),
   injuryLogId: integer("injury_log_id").notNull().references(() => injuryLogs.id, { onDelete: "cascade" }),
-  userId: varchar("user_id").notNull().references(() => users.id),
+  userId: varchar("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
   alertType: text("alert_type").notNull(), // "no_improvement", "worsening", "positive_progress"
   alertMessage: text("alert_message").notNull(),
   isRead: boolean("is_read").default(false),
@@ -730,7 +733,7 @@ export const recoveryAlerts = pgTable("recovery_alerts", {
 // Meals/Nutrition tracking
 export const meals = pgTable("meals", {
   id: serial("id").primaryKey(),
-  userId: varchar("user_id").notNull().references(() => users.id),
+  userId: varchar("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
   date: timestamp("date").notNull(),
   mealType: text("meal_type").notNull(), // 'breakfast', 'lunch', 'dinner', 'snack'
   title: text("title").notNull(),
@@ -746,7 +749,7 @@ export const meals = pgTable("meals", {
 // Progress photos tracking
 export const progressPhotos = pgTable("progress_photos", {
   id: serial("id").primaryKey(),
-  userId: varchar("user_id").notNull().references(() => users.id),
+  userId: varchar("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
   date: timestamp("date").notNull(),
   photoType: text("photo_type").notNull(), // 'front', 'side', 'back', 'other'
   imageUrl: text("image_url").notNull(),
@@ -757,7 +760,7 @@ export const progressPhotos = pgTable("progress_photos", {
 // Body stats tracking (weight, measurements, etc.)
 export const bodyStats = pgTable("body_stats", {
   id: serial("id").primaryKey(),
-  userId: varchar("user_id").notNull().references(() => users.id),
+  userId: varchar("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
   date: timestamp("date").notNull(),
   weight: real("weight"), // kg or lbs
   bodyFat: real("body_fat"), // percentage
@@ -773,7 +776,7 @@ export const bodyStats = pgTable("body_stats", {
 // Workout sessions (completed workouts)
 export const workoutSessions = pgTable("workout_sessions", {
   id: serial("id").primaryKey(),
-  userId: varchar("user_id").notNull().references(() => users.id),
+  userId: varchar("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
   date: timestamp("date").notNull(),
   programId: integer("program_id").references(() => programs.id),
   enrollmentId: integer("enrollment_id").references(() => userProgramEnrollments.id, { onDelete: "set null" }), // link to specific enrollment
@@ -789,7 +792,7 @@ export const workoutSessions = pgTable("workout_sessions", {
 export const recoveryPlanSuggestions = pgTable("recovery_plan_suggestions", {
   id: serial("id").primaryKey(),
   bodyMapLogId: integer("body_map_log_id").references(() => bodyMapLogs.id, { onDelete: "cascade" }),
-  userId: varchar("user_id").notNull().references(() => users.id),
+  userId: varchar("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
   bodyPart: text("body_part").notNull(),
   severity: integer("severity").notNull(),
   planTitle: text("plan_title").notNull(),
@@ -809,7 +812,7 @@ export const recoveryPlanSuggestions = pgTable("recovery_plan_suggestions", {
 export const programModificationSuggestions = pgTable("program_modification_suggestions", {
   id: serial("id").primaryKey(),
   recoveryPlanId: integer("recovery_plan_id").notNull().references(() => recoveryPlanSuggestions.id, { onDelete: "cascade" }),
-  userId: varchar("user_id").notNull().references(() => users.id),
+  userId: varchar("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
   enrollmentId: integer("enrollment_id").notNull().references(() => userProgramEnrollments.id, { onDelete: "cascade" }),
   programExerciseId: integer("program_exercise_id"), // DEPRECATED: legacy FK to old program_exercises, kept for prod compatibility
   blockExerciseId: integer("block_exercise_id").references(() => programmeBlockExercises.id, { onDelete: "set null" }), // New: references block exercises
@@ -985,7 +988,7 @@ export const insertProgramModificationSuggestionSchema = createInsertSchema(prog
 // Programme modification records - tracks user consent for body map outcome modifications
 export const programmeModificationRecords = pgTable("programme_modification_records", {
   id: serial("id").primaryKey(),
-  userId: varchar("user_id").notNull().references(() => users.id),
+  userId: varchar("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
   matchedOutcomeId: integer("matched_outcome_id").notNull(), // References body_map_outcomes.id
   mainProgrammeEnrollmentId: integer("main_programme_enrollment_id").notNull().references(() => userProgramEnrollments.id, { onDelete: "cascade" }),
   bodyMapLogId: integer("body_map_log_id").references(() => bodyMapLogs.id, { onDelete: "set null" }),
@@ -2307,7 +2310,7 @@ export const breathTechniques = pgTable("breath_techniques", {
 // Breath Work Session Logs - track user completed breathing sessions
 export const breathWorkSessionLogs = pgTable("breath_work_session_logs", {
   id: serial("id").primaryKey(),
-  userId: varchar("user_id").notNull().references(() => users.id),
+  userId: varchar("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
   techniqueId: integer("technique_id").references(() => breathTechniques.id, { onDelete: "set null" }),
   routineId: integer("routine_id"), // references custom routine if used
   durationSeconds: integer("duration_seconds").notNull(),
@@ -2321,7 +2324,7 @@ export const breathWorkSessionLogs = pgTable("breath_work_session_logs", {
 // Custom Breath Routines - user-created breathing routines
 export const customBreathRoutines = pgTable("custom_breath_routines", {
   id: serial("id").primaryKey(),
-  userId: varchar("user_id").notNull().references(() => users.id),
+  userId: varchar("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
   name: text("name").notNull(),
   description: text("description"),
   totalDurationMinutes: integer("total_duration_minutes").notNull(),
@@ -2348,7 +2351,7 @@ export const breathRoutinePhases = pgTable("breath_routine_phases", {
 // Breath Favourites - bookmarked techniques
 export const breathFavourites = pgTable("breath_favourites", {
   id: serial("id").primaryKey(),
-  userId: varchar("user_id").notNull().references(() => users.id),
+  userId: varchar("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
   techniqueId: integer("technique_id").notNull().references(() => breathTechniques.id, { onDelete: "cascade" }),
   createdAt: timestamp("created_at").defaultNow(),
 });
@@ -2378,7 +2381,7 @@ export const insertBreathFavouriteSchema = createInsertSchema(breathFavourites).
 
 export const meditationSessionLogs = pgTable("meditation_session_logs", {
   id: serial("id").primaryKey(),
-  userId: varchar("user_id").notNull().references(() => users.id),
+  userId: varchar("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
   meditationTitle: text("meditation_title").notNull(),
   category: text("category").notNull(),
   durationSeconds: integer("duration_seconds").notNull(),
@@ -2387,7 +2390,7 @@ export const meditationSessionLogs = pgTable("meditation_session_logs", {
 
 export const gratitudeEntries = pgTable("gratitude_entries", {
   id: serial("id").primaryKey(),
-  userId: varchar("user_id").notNull().references(() => users.id),
+  userId: varchar("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
   content: text("content").notNull(),
   prompt: text("prompt"),
   createdAt: timestamp("created_at").defaultNow(),
@@ -2409,7 +2412,7 @@ export const insertGratitudeEntrySchema = createInsertSchema(gratitudeEntries).o
 // For 'main' type meals, sides indicates how many side dishes (0-2)
 export const mealPlans = pgTable("meal_plans", {
   id: serial("id").primaryKey(),
-  userId: varchar("user_id").notNull().references(() => users.id),
+  userId: varchar("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
   caloriesPerDay: integer("calories_per_day").notNull(),
   macroSplit: text("macro_split").notNull(), // 'balanced', 'low_carb', 'low_fat', 'high_protein'
   mealsPerDay: integer("meals_per_day").notNull().default(4), // 2-5 meals (legacy, derived from mealSlots.length)
@@ -2483,7 +2486,7 @@ export type ShoppingListItem = {
 
 export const shoppingLists = pgTable("shopping_lists", {
   id: serial("id").primaryKey(),
-  userId: varchar("user_id").notNull().references(() => users.id),
+  userId: varchar("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
   mealPlanId: integer("meal_plan_id").notNull().references(() => mealPlans.id, { onDelete: "cascade" }),
   items: jsonb("items").$type<ShoppingListItem[]>().notNull().default([]),
   aiGenerated: boolean("ai_generated").notNull().default(false),

@@ -407,17 +407,19 @@ async function buildCycleContextText(userId: string): Promise<string> {
 // so this stays consistent with the ring in every state.
 async function readFreshReadiness(userId: string) {
   const { computeAndStoreForUserDay, getTodayForUser, todayKey } = await import("../dailyReadiness");
+  let tz: string | null = null;
   try {
     const [tzRow] = await db
       .select({ timezone: users.timezone })
       .from(users)
       .where(eq(users.id, userId))
       .limit(1);
-    await computeAndStoreForUserDay(userId, todayKey(tzRow?.timezone ?? null));
+    tz = tzRow?.timezone ?? null;
+    await computeAndStoreForUserDay(userId, todayKey(tz), { tz });
   } catch (e) {
     console.error("[coach-briefing] readiness recompute failed:", e);
   }
-  return getTodayForUser(userId);
+  return getTodayForUser(userId, tz);
 }
 
 async function buildReadinessAndBaselineText(userId: string, dateKey: string): Promise<string> {

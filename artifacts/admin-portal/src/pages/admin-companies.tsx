@@ -615,7 +615,7 @@ export default function AdminCompanies() {
       const processed = await processLogo(file);
       let objectPath: string;
       try {
-        objectPath = await uploadImageFile(processed.file, { visibility: "public" });
+        objectPath = await uploadImageFile(processed.file, { visibility: "public", skipResize: true });
       } catch (e) {
         throw new Error(uploadErrorMessage(e));
       }

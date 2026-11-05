@@ -723,8 +723,14 @@ export async function gatherInputsForDay(
 export async function computeAndStoreForUserDay(
   userId: string,
   dateKey: string,
+  opts?: { tz?: string | null },
 ): Promise<ReadinessResult> {
-  const isToday = dateKey === todayKey();
+  // "Today" in the USER'S timezone. Callers pass the user's date key, so
+  // comparing it with the server's UTC date made the user's real today look
+  // like a historic day for anyone whose local date differed (Madrid
+  // 00:00-02:00, the Americas every evening): no check-in gate, no wearable
+  // hold, never locked.
+  const isToday = dateKey === todayKey(opts?.tz ?? null);
 
   // If today's row is already locked, return it as-is. No recompute.
   if (isToday) {
@@ -1007,15 +1013,47 @@ export async function getDetailHistoryForUser(
 }
 
 /** Single-row helper used by the dashboard card. */
-export async function getTodayForUser(userId: string): Promise<{
+// The raw numbers behind today's ring, read live from the same merged
+// wearable row readiness scores from. The card used to fetch these through
+// three separate progress lists that the app caches, so the score could
+// update minutes before its own Sleep / HRV / Resting HR chips did.
+export type ReadinessTodayMetrics = {
+  sleepMinutes: number | null;
+  hrvMs: number | null;
+  restingHrBpm: number | null;
+};
+
+async function todayMetricsFor(userId: string, dateKey: string): Promise<ReadinessTodayMetrics> {
+  try {
+    const { mergeMetricsPerDay, getConnectedOauthProvider, stripNonOauthPhysio } = await import("./wearables");
+    const oauthProvider = await getConnectedOauthProvider(userId);
+    const rows = await db
+      .select()
+      .from(wearableMetricsDaily)
+      .where(and(eq(wearableMetricsDaily.userId, userId), eq(wearableMetricsDaily.date, dateKey)));
+    const merged = mergeMetricsPerDay(rows as any)[0];
+    const wear = oauthProvider ? stripNonOauthPhysio(merged) : merged;
+    return {
+      sleepMinutes: wear?.sleepMinutes ?? null,
+      hrvMs: wear?.hrvMs ?? null,
+      restingHrBpm: wear?.restingHrBpm ?? null,
+    };
+  } catch {
+    return { sleepMinutes: null, hrvMs: null, restingHrBpm: null };
+  }
+}
+
+export async function getTodayForUser(userId: string, tz?: string | null): Promise<{
   date: string;
   score: number | null;
   inputCount: number;
   daysOfHistory: number;
   inputs: ReadinessInputs;
   sources: ReadinessInputSources;
+  metrics: ReadinessTodayMetrics;
 }> {
-  const today = toDateKey(new Date());
+  const today = todayKey(tz ?? null);
+  const metrics = await todayMetricsFor(userId, today);
   const [row] = await db
     .select()
     .from(dailyReadinessHistory)
@@ -1051,6 +1089,7 @@ export async function getTodayForUser(userId: string): Promise<{
         rhr: row.rhrInput ?? null,
       },
       sources: frozenSources,
+      metrics,
     };
   }
 
@@ -1062,6 +1101,7 @@ export async function getTodayForUser(userId: string): Promise<{
     daysOfHistory: Number(total[0]?.c || 0),
     inputs,
     sources,
+    metrics,
   };
 }
 

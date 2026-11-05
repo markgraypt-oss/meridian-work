@@ -21593,8 +21593,8 @@ Keep your response concise, practical, and evidence-based. This is general guida
       const userTzRow = await db.select({ timezone: users.timezone }).from(users).where(eq(users.id, userId)).limit(1);
       const userTz = userTzRow[0]?.timezone ?? null;
       const today = dr.todayKey(userTz);
-      await dr.computeAndStoreForUserDay(userId, today);
-      const data = await dr.getTodayForUser(userId);
+      await dr.computeAndStoreForUserDay(userId, today, { tz: userTz });
+      const data = await dr.getTodayForUser(userId, userTz);
       // Surface WHY the score is absent while the WHOOP/Oura hold is active,
       // so clients can label the empty ring ("Waiting for WHOOP sync").
       // Extra fields are ignored by app versions that don't know them.

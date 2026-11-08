@@ -389,7 +389,7 @@ async function buildCycleContextText(userId: string): Promise<string> {
       ? `\n- Flow: ${latestLog.flow}` : "";
 
     return `\nCYCLE TRACKER DATA (use to contextualise recovery, energy expectations, and training recommendations. Never make it the headline. Never ask about it in the closing question. Treat as supporting physiological context only):
-- Current phase: ${phase.phase} — cycle day ${phase.cycleDay} of ${settings.avgCycleLength}
+- Current phase: ${phase.phase} - cycle day ${phase.cycleDay} of ${settings.avgCycleLength}
 - Phase context: ${phaseDescriptions[phase.phase] || ""}
 - Days until next period: ${phase.daysUntilNextPeriod > 0 ? phase.daysUntilNextPeriod : "due"}${flow}${symptoms}${notes}`;
   } catch {
@@ -460,7 +460,7 @@ async function buildReadinessAndBaselineText(userId: string, dateKey: string): P
       if (b.sleepMinutesMedian != null) lines.push(`- Sleep baseline: ${b.sleepMinutesMedian} minutes (stddev ${b.sleepMinutesStddev ?? "?"} min)`);
       lines.push("RULES FOR EXTREMES: today's HRV more than 1 stddev BELOW baseline = suppressed recovery. Today's HRV well ABOVE baseline = strong recovery. Today's RHR more than 1 stddev ABOVE baseline = elevated, recovery cost. Sleep below 6h = short sleep. Sleep above 9h = unusually long sleep, possibly recovery debt or illness.");
     } else {
-      lines.push("\n(No physiological baselines yet — user is still in the first 30 days, so do not compare to baseline. Just describe today's numbers plainly.)");
+      lines.push("\n(No physiological baselines yet - user is still in the first 30 days, so do not compare to baseline. Just describe today's numbers plainly.)");
     }
 
     // Degraded-wearable note: connection broken 48h+, physio unavailable.
@@ -839,7 +839,7 @@ RULES:
 - No bullet characters inside body strings. The structure of the JSON IS the structure. Don't put dashes or bullets inside body text.
 - PLAIN LANGUAGE, NO INTERNAL JARGON. Never use the word "contribution", "driver", "input", "score" (except the Daily Readiness Score itself out of 100), or any internal sub-score number. Never write things like "HRV contribution is 6.1", "energy contribution is 4", "training load is sitting at 9.3", "sleep contribution 9.1". Those internal numbers are meaningless to the user and must never appear. Instead, translate what the number tells you into plain coaching language a normal person understands. Examples of the rewrite: instead of "HRV contribution is 6.1" write "your HRV is a touch below where it usually sits"; instead of "energy contribution is just 4" write "your energy is running low"; instead of "training load is sitting at 9.3" write "your body is still carrying a fair bit of load from recent days"; instead of "sleep contribution is 9.1" write "your sleep is doing its job". Only ever quote REAL measured values with their natural units (HRV in ms, resting HR in bpm, sleep as 7h 17m, steps as a number, the readiness score out of 100). Everything else gets described, not numbered.
 - Warm but direct. No corporate fluff. No motivational filler.
-- If CYCLE TRACKER DATA is present, use the phase to contextualise HRV, RHR, and energy readings. In luteal and late_luteal phases, HRV suppression and elevated RHR are expected hormonal variations, not alarm signals. In menstrual phase, lower energy and higher fatigue are expected. In follicular and ovulatory phases, metrics may run above baseline. You MAY reference the cycle phase naturally in a deepDive body when it is the best explanation for a metric reading — e.g. "HRV is a touch below your baseline, which is typical at this point in your cycle." Keep it one brief clause, never the headline or title of a section. NEVER lead the opener with the cycle. NEVER make a deepDive section title about the cycle. NEVER reference cycle in recommendations. NEVER ask about the cycle, period, or symptoms in the closing question.
+- If CYCLE TRACKER DATA is present, use the phase to contextualise HRV, RHR, and energy readings. In luteal and late_luteal phases, HRV suppression and elevated RHR are expected hormonal variations, not alarm signals. In menstrual phase, lower energy and higher fatigue are expected. In follicular and ovulatory phases, metrics may run above baseline. You MAY reference the cycle phase naturally in a deepDive body when it is the best explanation for a metric reading - e.g. "HRV is a touch below your baseline, which is typical at this point in your cycle." Keep it one brief clause, never the headline or title of a section. NEVER lead the opener with the cycle. NEVER make a deepDive section title about the cycle. NEVER reference cycle in recommendations. NEVER ask about the cycle, period, or symptoms in the closing question.
 - Build on the recent briefings below so you don't repeat yourself.
 - Do not include any prose outside the JSON.
 

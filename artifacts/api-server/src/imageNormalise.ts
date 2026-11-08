@@ -1,3 +1,4 @@
+import { randomUUID } from "crypto";
 import { pool } from "./db";
 import { ObjectStorageService, objectStorageClient, ObjectNotFoundError } from "./replit_integrations/object_storage";
 
@@ -179,3 +180,117 @@ export async function normaliseAllContentImages(opts: { dryRun?: boolean; limit?
 
 // Re-exported so routes can reach the client without a second import path.
 export { objectStorageClient };
+
+// ---------------------------------------------------------------------------
+// Inline (base64) images.
+//
+// On 8 Nov 2026 the programme list was found to be 1.75 MB, almost all of it
+// ten programme covers stored as base64 text inside the image_url column.
+// Every phone that opened the Movement tab downloaded, parsed, compared and
+// wrote to disk 1.6 MB of image text on every refresh, which is what made the
+// tabs and back buttons hang for seconds. An image belongs in object storage
+// and the database holds its path, never its bytes.
+// ---------------------------------------------------------------------------
+
+
+const INLINE_RE = /^data:(image\/[a-zA-Z0-9.+-]+);base64,([A-Za-z0-9+/=\s]+)$/;
+
+export function isInlineImage(value: unknown): value is string {
+  return typeof value === "string" && value.length > 32 && value.startsWith("data:image/");
+}
+
+/**
+ * Store a base64 data URL as a public object and return its /objects/... path.
+ * The bytes go through normaliseImageBuffer first, so the stored copy is the
+ * right size as well as the right place. Returns null if the text is not a
+ * readable image.
+ */
+export async function storeInlineImage(dataUrl: string, folder = "content-images"): Promise<string | null> {
+  const m = dataUrl.match(INLINE_RE);
+  if (!m) return null;
+  let buffer: Buffer = Buffer.from(m[2].replace(/\s+/g, ""), "base64");
+  let contentType = m[1].toLowerCase();
+  if (!buffer.length) return null;
+  const norm = await normaliseImageBuffer(buffer, contentType);
+  if (norm.changed) { buffer = norm.buffer; contentType = norm.contentType; }
+  const svc = new ObjectStorageService();
+  const privateDir = svc.getPrivateObjectDir();
+  const trimmedDir = privateDir.endsWith("/") ? privateDir.slice(0, -1) : privateDir;
+  const entityId = `${folder}/${randomUUID()}`;
+  const parts = `${trimmedDir}/${entityId}`.replace(/^\//, "").split("/");
+  const file = objectStorageClient.bucket(parts[0]).file(parts.slice(1).join("/"));
+  const acl = JSON.stringify({ owner: "system", visibility: "public" });
+  await file.save(buffer, { contentType, metadata: { contentType, metadata: { "custom:aclPolicy": acl } }, resumable: false });
+  await file.setMetadata({ metadata: { "custom:aclPolicy": acl } });
+  return `/objects/${entityId}`;
+}
+
+const IMAGE_FIELDS = ["imageUrl", "coverImageUrl", "thumbnailUrl", "logoUrl", "image_url", "cover_image_url"];
+
+/**
+ * Replace any inline image in the usual image fields of a request body with a
+ * stored path, in place. Used as middleware on every JSON write, so no route
+ * can save base64 into the database again. Fields that are deliberately
+ * base64 (progress photos, AI photo analysis) use other names or paths and
+ * are left alone.
+ */
+export async function replaceInlineImagesInBody(body: any): Promise<string[]> {
+  const replaced: string[] = [];
+  if (!body || typeof body !== "object") return replaced;
+  const visit = async (obj: any, depth: number) => {
+    if (!obj || typeof obj !== "object" || depth > 3) return;
+    for (const k of Object.keys(obj)) {
+      const v = obj[k];
+      if (IMAGE_FIELDS.includes(k) && isInlineImage(v)) {
+        try {
+          const path = await storeInlineImage(v);
+          if (path) { obj[k] = path; replaced.push(k); }
+        } catch (err: any) {
+          console.error("[images] could not store inline image:", err?.message || err);
+        }
+      } else if (Array.isArray(v)) {
+        for (const item of v) await visit(item, depth + 1);
+      } else if (v && typeof v === "object") {
+        await visit(v, depth + 1);
+      }
+    }
+  };
+  await visit(body, 0);
+  return replaced;
+}
+
+/**
+ * Sweep every image column in the database for inline base64 images and move
+ * them to object storage. Safe to run again at any time.
+ */
+export async function inlineImagesToStorage(opts: { dryRun?: boolean } = {}): Promise<{
+  found: number; moved: number; failed: number; details: any[];
+}> {
+  const cols = await pool.query(
+    `SELECT table_name, column_name FROM information_schema.columns
+      WHERE table_schema = 'public'
+        AND column_name IN ('image_url', 'cover_image_url', 'thumbnail_url', 'logo_url', 'profile_image_url')
+        AND data_type IN ('text', 'character varying')
+      ORDER BY table_name`);
+  let found = 0, moved = 0, failed = 0;
+  const details: any[] = [];
+  for (const { table_name, column_name } of cols.rows) {
+    const rows = await pool.query(
+      `SELECT id, ${column_name} AS url FROM ${table_name} WHERE ${column_name} LIKE 'data:image/%'`);
+    for (const { id, url } of rows.rows) {
+      found++;
+      if (opts.dryRun) { details.push({ table: table_name, id, bytes: String(url).length }); continue; }
+      try {
+        const path = await storeInlineImage(String(url));
+        if (!path) throw new Error("unreadable image data");
+        await pool.query(`UPDATE ${table_name} SET ${column_name} = $1 WHERE id = $2`, [path, id]);
+        moved++;
+        details.push({ table: table_name, id, bytes: String(url).length, path });
+      } catch (err: any) {
+        failed++;
+        details.push({ table: table_name, id, error: err?.message || String(err) });
+      }
+    }
+  }
+  return { found, moved, failed, details: details.slice(0, 200) };
+}

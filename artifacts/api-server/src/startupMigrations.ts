@@ -1860,7 +1860,7 @@ export async function stripEmDashesFromDescriptionsOnce(): Promise<void> {
       );
       const n = result.rowCount ?? 0;
       total += n;
-      console.log(`[startup-migration] strip em dashes: ${table}.${column} — ${n} row(s)`);
+      console.log(`[startup-migration] strip em dashes: ${table}.${column} - ${n} row(s)`);
     }
     console.log(`[startup-migration] strip em dashes from descriptions: ${total} row(s) updated total`);
 
@@ -2145,7 +2145,7 @@ const LAB_LIFE_STAGE_TOPICS: LifeStageTopic[] = [
     paths: [
       {
         title: "Getting Clear on What You Want",
-        description: "Before the how, the what and the why — a short, honest look at where you are and where you want to go.",
+        description: "Before the how, the what and the why - a short, honest look at where you are and where you want to go.",
         lessons: [
           "How Are You, Really?",
           "What You Want From Your Health",
@@ -2173,7 +2173,7 @@ const LAB_LIFE_STAGE_TOPICS: LifeStageTopic[] = [
     paths: [
       {
         title: "Men's Heart Health",
-        description: "The single biggest health risk for most men — and the levers that move it.",
+        description: "The single biggest health risk for most men - and the levers that move it.",
         lessons: [
           "Why Heart Health Matters",
           "Knowing Your Numbers",
@@ -2203,7 +2203,7 @@ const LAB_LIFE_STAGE_TOPICS: LifeStageTopic[] = [
     paths: [
       {
         title: "Training Through Menopause",
-        description: "What changes, why strength comes first, and how to protect your bones — capable, not fragile.",
+        description: "What changes, why strength comes first, and how to protect your bones - capable, not fragile.",
         lessons: [
           "What Changes in Peri and Menopause",
           "Why Strength Training Comes First",
@@ -2214,7 +2214,7 @@ const LAB_LIFE_STAGE_TOPICS: LifeStageTopic[] = [
       },
       {
         title: "Women's Health Essentials",
-        description: "The fundamentals, minus the myths — strength, cycle, nutrition and pelvic health.",
+        description: "The fundamentals, minus the myths - strength, cycle, nutrition and pelvic health.",
         lessons: [
           "Strength Training: Myths and Truths",
           "Training With Your Cycle",
@@ -2443,5 +2443,56 @@ export async function backfillBriefingConversationsOnce(): Promise<void> {
     console.log(`[startup-migration] briefing-conversation-backfill: created ${created} conversations`);
   } catch (e: any) {
     console.error("[startup-migration] briefing-conversation-backfill failed:", e?.message || e);
+  }
+}
+
+// ---------------------------------------------------------------------------
+// 8 Nov 2026: two one-off clean-ups, each run once per database (system_flags).
+//   1. Images stored as base64 text in image columns move to object storage
+//      (ten programme covers were 1.6 MB of the programme list).
+//   2. House style for content: no em dashes anywhere (titles included this
+//      time), British spelling. See contentStyle.ts.
+// Both are also available as admin endpoints for a re-run.
+// ---------------------------------------------------------------------------
+async function flagOnce(key: string): Promise<boolean> {
+  await pool.query(`CREATE TABLE IF NOT EXISTS system_flags (key text PRIMARY KEY, created_at timestamp DEFAULT now())`);
+  const existing = await pool.query(`SELECT 1 FROM system_flags WHERE key = $1 LIMIT 1`, [key]);
+  if ((existing.rowCount ?? 0) > 0) return false;
+  return true;
+}
+async function setFlag(key: string): Promise<void> {
+  await pool.query(`INSERT INTO system_flags (key) VALUES ($1) ON CONFLICT DO NOTHING`, [key]);
+}
+
+let hasRunInlineImages = false;
+export async function inlineImagesToStorageOnce(): Promise<void> {
+  if (hasRunInlineImages) return;
+  hasRunInlineImages = true;
+  const FLAG = 'inline-images-to-storage-v1';
+  try {
+    if (!(await flagOnce(FLAG))) return;
+    const { inlineImagesToStorage } = await import('./imageNormalise');
+    const r = await inlineImagesToStorage();
+    console.log(`[startup-migration] inline images: found ${r.found}, moved ${r.moved}, failed ${r.failed}`);
+    if (r.failed === 0) await setFlag(FLAG);
+  } catch (e: any) {
+    console.error('[startup-migration] inline images failed:', e?.message || e);
+  }
+}
+
+let hasRunHouseStyle = false;
+export async function houseStyleContentOnce(): Promise<void> {
+  if (hasRunHouseStyle) return;
+  hasRunHouseStyle = true;
+  const FLAG = 'house-style-content-v1';
+  try {
+    if (!(await flagOnce(FLAG))) return;
+    const { applyHouseStyleToContent } = await import('./contentStyle');
+    const r = await applyHouseStyleToContent();
+    console.log(`[startup-migration] house style: ${r.rowsChanged} rows changed across ${r.columns} columns in ${r.tables} tables; ${r.errors.length} errors`);
+    for (const err of r.errors.slice(0, 10)) console.warn('[startup-migration] house style skipped', err);
+    await setFlag(FLAG);
+  } catch (e: any) {
+    console.error('[startup-migration] house style failed:', e?.message || e);
   }
 }

@@ -505,7 +505,7 @@ export async function gatherInputsForDay(
         if (rhrAdj > 0 && rhr != null) rhr = clamp(rhr + rhrAdj, 0, 10);
       }
     }
-  } catch { /* cycle data unavailable — score runs as normal */ }
+  } catch { /* cycle data unavailable - score runs as normal */ }
 
   // -----------------------------------------------------------------------
   // Training Load — backward-looking (yesterday's stress), then INVERTED

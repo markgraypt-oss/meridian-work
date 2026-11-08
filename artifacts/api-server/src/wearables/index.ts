@@ -390,7 +390,7 @@ async function refreshIfNeeded(conn: WearableConnection, adapter: WearableAdapte
         await new Promise((r) => setTimeout(r, 3000));
         const [latest] = await tx.select().from(wearableConnections).where(eq(wearableConnections.id, conn.id));
         if (latest && (latest.refreshTokenEnc !== (cur ?? conn).refreshTokenEnc || !tokenExpired(latest))) {
-          console.log(`[wearables] refresh failed but row has newer/valid tokens — not condemning conn ${conn.id}`);
+          console.log(`[wearables] refresh failed but row has newer/valid tokens - not condemning conn ${conn.id}`);
           return decryptToken(latest.accessTokenEnc);
         }
         await tx.update(wearableConnections)

@@ -197,10 +197,10 @@ ${batch.map((g, i) => {
       o.primaryMuscle ? `for: ${o.primaryMuscle}` : null,
       o.level ? `level: ${o.level}` : null,
     ].filter(Boolean).join('; ') : '';
-    return `${i + 1}. exerciseId ${g.exerciseId} — ${g.exerciseName} [${g.tier === 'stop' ? 'STOPPED' : 'GO EASIER'}]${oDesc ? `\n   ${oDesc}` : ''}
+    return `${i + 1}. exerciseId ${g.exerciseId} - ${g.exerciseName} [${g.tier === 'stop' ? 'STOPPED' : 'GO EASIER'}]${oDesc ? `\n   ${oDesc}` : ''}
    Flagged because: ${g.reason}
    Shortlist (engine order):
-${g.candidates.map(c => `     id ${c.id}: ${c.name} — ${c.movementPatterns.join(', ') || 'no pattern'}; ${c.equipment.join(', ') || 'bodyweight'}${c.source === 'curated' ? '; coach-curated recovery work' : ''}. ${c.reason}`).join('\n')}`;
+${g.candidates.map(c => `     id ${c.id}: ${c.name} - ${c.movementPatterns.join(', ') || 'no pattern'}; ${c.equipment.join(', ') || 'bodyweight'}${c.source === 'curated' ? '; coach-curated recovery work' : ''}. ${c.reason}`).join('\n')}`;
   }).join('\n\n')}`;
 
   try {

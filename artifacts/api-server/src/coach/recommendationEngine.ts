@@ -100,7 +100,7 @@ export async function extractRecIntent(
 
 Available recommendation domains:
 - "learn": short educational videos, guides and learning paths (sleep, stress, nutrition habits, posture, breathwork, recovery, training principles, burnout, focus).
-- "workday": desk health content — 2-minute micro-reset movements for desk aches (neck, upper back, lower back, hips, wrists), desk working positions, ache/fix guides, rotation planning. Choose when the user mentions desk work, sitting, posture, stiffness or aches from working.
+- "workday": desk health content - 2-minute micro-reset movements for desk aches (neck, upper back, lower back, hips, wrists), desk working positions, ache/fix guides, rotation planning. Choose when the user mentions desk work, sitting, posture, stiffness or aches from working.
 - "programme": structured multi-week training programmes. Choose when the user wants a new training plan, asks what programme to do, or wants structure for their training.
 - "workout": single one-off workouts (strength, conditioning, mobility, stretching, corrective). Choose when the user wants something to do today or a quick session, not a multi-week plan.
 - "exercise": individual exercises with video tutorials. Choose when the user asks about a specific movement, muscle, or exercise alternatives.
@@ -196,7 +196,7 @@ export async function gatherRecommendationContext(
     if (state) {
       const formatted = formatUserStateBlock(state);
       if (formatted) {
-        stateBlock = `\n\nUSER STATE (live app data — personalise with this, reference it naturally):\n${formatted}`;
+        stateBlock = `\n\nUSER STATE (live app data - personalise with this, reference it naturally):\n${formatted}`;
       }
     }
 
@@ -300,7 +300,7 @@ async function buildRecommendationBlock(
   }
   if (parts.actions.length > 0) {
     sections.push(
-      "App actions (features this user has NOT set up or done yet — only suggest when genuinely relevant):\n" +
+      "App actions (features this user has NOT set up or done yet - only suggest when genuinely relevant):\n" +
         parts.actions.map((a) => `- [action:${a.key}] "${a.title}" | ${a.description}`).join("\n"),
     );
   }

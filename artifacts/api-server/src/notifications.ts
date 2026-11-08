@@ -421,7 +421,7 @@ function wellbeingEmailHtml(paragraphs: string[], footer: string): string {
 /** Email the nominated company contact. Returns false if it did not send. */
 export async function sendWellbeingContactEmail(input: WellbeingContactEmailInput): Promise<boolean> {
   if (!resend) {
-    console.warn("[wellbeing] RESEND_API_KEY not set — contact request not sent");
+    console.warn("[wellbeing] RESEND_API_KEY not set - contact request not sent");
     return false;
   }
   const employee = escapeHtml(input.employeeName);
@@ -436,7 +436,7 @@ export async function sendWellbeingContactEmail(input: WellbeingContactEmailInpu
         [
           `Hi ${contactFirst},`,
           `<strong>${employee}</strong> has used MeridianWork to ask you to get in touch with them about workload and wellbeing.`,
-          `They've taken the first step. The next one is yours — reach out to them directly over the next day or two.`,
+          `They've taken the first step. The next one is yours - reach out to them directly over the next day or two.`,
           `Just reply to this email to reach ${employee} (${escapeHtml(input.employeeEmail)}).`,
         ],
         WELLBEING_FOOTER,
@@ -446,7 +446,7 @@ export async function sendWellbeingContactEmail(input: WellbeingContactEmailInpu
         "",
         `${input.employeeName} has used MeridianWork to ask you to get in touch with them about workload and wellbeing.`,
         "",
-        "They've taken the first step. The next one is yours — reach out to them directly over the next day or two.",
+        "They've taken the first step. The next one is yours - reach out to them directly over the next day or two.",
         "",
         `Just reply to this email to reach ${input.employeeName} (${input.employeeEmail}).`,
         "",
@@ -475,7 +475,7 @@ export async function sendWellbeingTestEmail(to: string, companyName: string): P
       subject: "Test: you're set up as a wellbeing contact",
       html: wellbeingEmailHtml(
         [
-          `This is a test message — no one has requested anything.`,
+          `This is a test message - no one has requested anything.`,
           `You've been set up as a wellbeing contact for <strong>${escapeHtml(companyName)}</strong> on MeridianWork. If a team member asks for a check-in, the request will arrive at this address and you can reply to it directly to reach them.`,
           `Nothing further is needed from you right now.`,
         ],

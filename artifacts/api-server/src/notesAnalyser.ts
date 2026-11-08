@@ -87,7 +87,7 @@ Return ONLY a JSON object matching this exact schema, with no other text, no mar
 
 Rules:
 1. Use the user's exact words for all verbatim arrays. Do not paraphrase, summarise, or improve their phrasing.
-2. Empty arrays are valid. If the user mentioned no protective factors, return an empty array — do not invent them.
+2. Empty arrays are valid. If the user mentioned no protective factors, return an empty array - do not invent them.
 3. Be conservative on severity. Reserve "high" and "severe" for genuine distress. "Bit tired today" is mild. "Haven't slept properly in three weeks and I'm losing it" is high.
 4. stressorCategories: only include categories the user actually wrote about. Do not infer absent stressors.
 5. redFlagPhrases is for genuine crisis signals only (hopelessness, isolation language, wanting to give up, can't go on). Day-to-day stress complaints do NOT belong here.
@@ -248,7 +248,7 @@ export interface NotesAggregate {
   recurringPhrases: { phrase: string; count: number }[];
   chronicityCount: number;         // how many had chronicity markers
   protectiveCount: number;         // how many mentioned protective factors
-  redFlagCount: number;            // critical — any > 0 should escalate
+  redFlagCount: number;            // critical - any > 0 should escalate
   mostRecentSeverity: NotesSeverityLevel | null;
   mostRecentCategories: StressorCategory[];
   mostRecentAnalysedAt: string | null;

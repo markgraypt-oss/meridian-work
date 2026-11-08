@@ -645,7 +645,7 @@ export interface IStorage {
       originalExerciseId: number;
       originalExerciseName: string;
       originalImageUrl: string | null;
-      substitutedExerciseId: number | null; // null for a reduction — same exercise
+      substitutedExerciseId: number | null; // null for a reduction - same exercise
       substitutedExerciseName: string;
       substitutedImageUrl: string | null;
       workoutName: string;
@@ -9011,7 +9011,7 @@ export class DatabaseStorage implements IStorage {
       originalExerciseId: number;
       originalExerciseName: string;
       originalImageUrl: string | null;
-      substitutedExerciseId: number | null; // null for a reduction — same exercise
+      substitutedExerciseId: number | null; // null for a reduction - same exercise
       substitutedExerciseName: string;
       substitutedImageUrl: string | null;
       workoutName: string;

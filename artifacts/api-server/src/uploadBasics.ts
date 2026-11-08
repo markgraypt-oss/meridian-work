@@ -81,7 +81,7 @@ const SUITCASE = () => M("Dumbbell Suitcase Carry", "25 m");
 // self-contained (an authored week does NOT inherit).
 // =============================================================================
 
-const HOWTO = "HOW TO PROGRESS: work in the rep range leaving 1–2 in the tank; when you hit the top of the range on all sets with clean form, add the smallest jump next session and build back up. The featured lift steps up a variation every fortnight — only when the current one is clean. If it isn't, stay on it, or drop to the one below.";
+const HOWTO = "HOW TO PROGRESS: work in the rep range leaving 1–2 in the tank; when you hit the top of the range on all sets with clean form, add the smallest jump next session and build back up. The featured lift steps up a variation every fortnight - only when the current one is clean. If it isn't, stay on it, or drop to the one below.";
 
 // ---- SQUAT BASICS 1 ----------------------------------------------------------
 const squat1 = [
@@ -102,14 +102,14 @@ function squatDays(ladder, heavyRest) {
         BLK("main", "single", R90, [M("Machine Leg Curl", 12)]),
         BLK("main", "superset", R45, [M("Half-Kneeling Pallof Press", 8), M("Flat Dumbbell Triceps Extension - Neutral", 12)]),
       ] },
-      { name: "Hinge & Single-Leg Day", description: "Open on the hinge — push the hips back, flat back. Superset the lettered pairs.", blocks: [
+      { name: "Hinge & Single-Leg Day", description: "Open on the hinge - push the hips back, flat back. Superset the lettered pairs.", blocks: [
         WU_HINGE(),
         BLK("main", "single", R2, [M("Dumbbell RDL", 8)]),
         BLK("main", "superset", R90, [M("Seated Dumbbell Shoulder Press", 8), M("Single-Arm Dumbbell Row - 90 Degree Abduction", 10)]),
         BLK("main", "superset", R60, [M("Dumbbell Reverse Lunge", 8), M("Reverse Crunch", 12)]),
         BLK("main", "superset", R45, [M("Machine Row - Neutral", 10), M("Incline Dumbbell Curl", 10)]),
       ] },
-      { name: "Upper & Squat Volume Day", description: "Open on the upper pair. The second squat is lighter, higher-rep volume — not a second max day.", blocks: [
+      { name: "Upper & Squat Volume Day", description: "Open on the upper pair. The second squat is lighter, higher-rep volume - not a second max day.", blocks: [
         WU_UPPER(),
         BLK("main", "superset", R2, [M("Incline Dumbbell Press", 8), M("Single-Arm Dumbbell Row (High Pull)", 10)]),
         BLK("main", "single", R90, [M(ex, vol)]),
@@ -145,7 +145,7 @@ function hingeDays(ladder, heavyRest, volumeEx, volumeReps) {
   return (phase) => {
     const [ex, heavy] = ladder[phase];
     return [
-      { name: "Hinge Day", description: "The hinge is the star — done fresh and alone. Push the hips back, keep the lats tight, neutral spine.", blocks: [
+      { name: "Hinge Day", description: "The hinge is the star - done fresh and alone. Push the hips back, keep the lats tight, neutral spine.", blocks: [
         WU_HINGE(),
         BLK("main", "single", heavyRest, [M(ex, heavy)]),
         BLK("main", "superset", R90, [M("Flat Dumbbell Press", 8), M("Chest Supported Dumbbell Row", 10)]),
@@ -159,7 +159,7 @@ function hingeDays(ladder, heavyRest, volumeEx, volumeReps) {
         BLK("main", "superset", R60, [M("Dumbbell Reverse Lunge", 8), M("Reverse Crunch", 12)]),
         BLK("main", "superset", R45, [M("Machine Row - Neutral", 10), M("Incline Dumbbell Curl", 10)]),
       ] },
-      { name: "Upper & Posterior Volume Day", description: "Open on the upper pair. The second hinge piece is lighter posterior volume — no second heavy pull.", blocks: [
+      { name: "Upper & Posterior Volume Day", description: "Open on the upper pair. The second hinge piece is lighter posterior volume - no second heavy pull.", blocks: [
         WU_UPPER(),
         BLK("main", "superset", R2, [M("Incline Dumbbell Press", 8), M("Single-Arm Dumbbell Row (High Pull)", 10)]),
         BLK("main", "single", R90, [M(volumeEx, volumeReps)]),
@@ -218,7 +218,7 @@ function fullBodyDays(phase) {
       BLK("main", "single", R90, [M("Machine Leg Curl", 12)]),
       BLK("main", "superset", R45, [M("Half-Kneeling Pallof Press", 8), M("Flat Dumbbell Triceps Extension - Neutral", 12)]),
     ] },
-    { name: "Hinge Day", description: "Open on the hinge, fresh — hips back, neutral spine. Superset the lettered pairs.", blocks: [
+    { name: "Hinge Day", description: "Open on the hinge, fresh - hips back, neutral spine. Superset the lettered pairs.", blocks: [
       WU_HINGE(),
       BLK("main", "single", R2, [M(hgEx, hgR)]),
       BLK("main", "superset", R90, [M("Dumbbell Floor Press", 10), M("Single-Arm Dumbbell Row - 90 Degree Abduction", 10)]),
@@ -238,39 +238,39 @@ function fullBodyDays(phase) {
 // ---- the six programmes ------------------------------------------------------
 const SPECS = [
   {
-    title: "Squat Basics 1 — Own the Squat",
+    title: "Squat Basics 1 - Own the Squat",
     difficulty: "beginner", weeks: 8, authoredWeeks: [1, 3, 5, 7],
-    description: "Part 1 of 2. A patient 8-week build for a beginner learning to squat well — dumbbell and bodyweight only, no barbell (that's Squat Basics 2). The squat is the star: it climbs one honest step every 2 weeks (bodyweight box squat → paused goblet box squat → heels-elevated goblet → flat goblet), trained twice a week, one heavier day and one lighter volume day, because a skill is learned through frequency. " + HOWTO + " Never chase depth you can't own with a neutral spine.",
+    description: "Part 1 of 2. A patient 8-week build for a beginner learning to squat well - dumbbell and bodyweight only, no barbell (that's Squat Basics 2). The squat is the star: it climbs one honest step every 2 weeks (bodyweight box squat → paused goblet box squat → heels-elevated goblet → flat goblet), trained twice a week, one heavier day and one lighter volume day, because a skill is learned through frequency. " + HOWTO + " Never chase depth you can't own with a neutral spine.",
     week: squatDays(squat1, R2),
   },
   {
-    title: "Squat Basics 2 — Add the Bar",
+    title: "Squat Basics 2 - Add the Bar",
     difficulty: "intermediate", weeks: 8, authoredWeeks: [1, 3, 5, 7],
-    description: "Part 2 of 2 (assumes Squat Basics 1 — owns a flat DB goblet squat). Takes the owned squat onto the barbell, patiently: reload the goblet → front-loaded kettlebell rack squat to learn bracing → barbell box squat → full barbell back squat only in the last two weeks. " + HOWTO + " Keep the barbell box squat until depth and bracing are solid before the full back squat.",
+    description: "Part 2 of 2 (assumes Squat Basics 1 - owns a flat DB goblet squat). Takes the owned squat onto the barbell, patiently: reload the goblet → front-loaded kettlebell rack squat to learn bracing → barbell box squat → full barbell back squat only in the last two weeks. " + HOWTO + " Keep the barbell box squat until depth and bracing are solid before the full back squat.",
     week: squatDays(squat2, R3),
   },
   {
-    title: "Hip Hinge Basics 1 — Own the Hinge",
+    title: "Hip Hinge Basics 1 - Own the Hinge",
     difficulty: "beginner", weeks: 8, authoredWeeks: [1, 3, 5, 7],
-    description: "Part 1 of 2. Builds a bulletproof hip hinge — strictly dumbbell, no barbell and no floor pull (that's Hinge Basics 2). The hinge is the star, done fresh and alone, climbing every 2 weeks (side-loaded RDL → dumbbell RDL → supported single-leg RDL → B-stance RDL); a light glute bridge on the third day adds posterior frequency without a second heavy hinge. " + HOWTO + " Push the hips back as far as your mobility allows and stop the instant you'd round.",
+    description: "Part 1 of 2. Builds a bulletproof hip hinge - strictly dumbbell, no barbell and no floor pull (that's Hinge Basics 2). The hinge is the star, done fresh and alone, climbing every 2 weeks (side-loaded RDL → dumbbell RDL → supported single-leg RDL → B-stance RDL); a light glute bridge on the third day adds posterior frequency without a second heavy hinge. " + HOWTO + " Push the hips back as far as your mobility allows and stop the instant you'd round.",
     week: hingeDays(hinge1, R2, "Dumbbell Glute Bridge", 12),
   },
   {
-    title: "Hip Hinge Basics 2 — Add the Bar",
+    title: "Hip Hinge Basics 2 - Add the Bar",
     difficulty: "intermediate", weeks: 8, authoredWeeks: [1, 3, 5, 7],
-    description: "Part 2 of 2 (assumes Hinge Basics 1 — owns a loaded DB RDL). Takes the owned hinge onto the bar and to a deadlift — from blocks first (never floor-pull a fragile back), and only the last two weeks pull from the floor: B-stance RDL → barbell RDL → trap-bar deadlift from blocks → trap-bar deadlift. A light single-leg RDL keeps posterior frequency without a second heavy axial pull. " + HOWTO + " From blocks before the floor, RDL before the deadlift.",
+    description: "Part 2 of 2 (assumes Hinge Basics 1 - owns a loaded DB RDL). Takes the owned hinge onto the bar and to a deadlift - from blocks first (never floor-pull a fragile back), and only the last two weeks pull from the floor: B-stance RDL → barbell RDL → trap-bar deadlift from blocks → trap-bar deadlift. A light single-leg RDL keeps posterior frequency without a second heavy axial pull. " + HOWTO + " From blocks before the floor, RDL before the deadlift.",
     week: hingeDays(hinge2, R3, "Single-Leg Dumbbell RDL - Shin On Bench", 8),
   },
   {
     title: "Upper Body Basics",
     difficulty: "beginner", weeks: 6, authoredWeeks: [1, 3, 5],
-    description: "Upper-biased but complete — all six patterns across the week. Two stars climb every 2 weeks and stay sub-barbell (the barbell bench and free bent-over row are the tops of their pyramids and earn their own runway later): press push-up → incline DB → flat DB; row chest-supported → single-arm → split-stance. Each is trained twice a week, heavy and volume. No pull-ups — vertical pull is a lat pulldown throughout. " + HOWTO,
+    description: "Upper-biased but complete - all six patterns across the week. Two stars climb every 2 weeks and stay sub-barbell (the barbell bench and free bent-over row are the tops of their pyramids and earn their own runway later): press push-up → incline DB → flat DB; row chest-supported → single-arm → split-stance. Each is trained twice a week, heavy and volume. No pull-ups - vertical pull is a lat pulldown throughout. " + HOWTO,
     week: upperDays,
   },
   {
     title: "Full Body Basics",
     difficulty: "beginner", weeks: 6, authoredWeeks: [1, 3, 5],
-    description: "The balanced entry to the Basics series — learn the three foundational lifts at once, each the star of its own day, each climbing every 2 weeks, all at dumbbell/bodyweight level. No barbell (that lives in the lift-specific Part 2s). Squat box → free → flat goblet; hinge side-loaded → DB RDL → B-stance; press push-up → incline → flat DB. " + HOWTO,
+    description: "The balanced entry to the Basics series - learn the three foundational lifts at once, each the star of its own day, each climbing every 2 weeks, all at dumbbell/bodyweight level. No barbell (that lives in the lift-specific Part 2s). Squat box → free → flat goblet; hinge side-loaded → DB RDL → B-stance; press push-up → incline → flat DB. " + HOWTO,
     week: fullBodyDays,
   },
 ];
@@ -304,7 +304,7 @@ export async function runBasicsUpload() {
       }
     }
   }
-  if (missing.size) throw new Error("Aborting — unresolved names: " + [...missing].join(" | "));
+  if (missing.size) throw new Error("Aborting - unresolved names: " + [...missing].join(" | "));
 
   const dayPositions = [0, 2, 4]; // Mon / Wed / Fri, matching Foundations
 

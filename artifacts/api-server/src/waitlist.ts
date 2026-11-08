@@ -90,7 +90,7 @@ export async function sendWaitlistAdminPing(input: WaitlistInput, existing: bool
       from: "MeridianWork <no-reply@meridian.work>",
       to: ADMIN_EMAIL,
       replyTo: input.email,
-      subject: `${likelyBot ? "Likely bot, blocked. " : ""}Waitlist: ${input.company} (${name})${existing ? " — updated" : ""}`,
+      subject: `${likelyBot ? "Likely bot, blocked. " : ""}Waitlist: ${input.company} (${name})${existing ? " - updated" : ""}`,
       html: renderBrandedEmail({
         eyebrow: "Internal",
         heading: "Founding Five waitlist",

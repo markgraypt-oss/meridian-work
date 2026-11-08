@@ -692,7 +692,7 @@ export async function runMicroResetImport(opts?: { skipCaptions?: boolean }): Pr
     }
     if (existingNames.has(item.name.trim().toLowerCase())) {
       report.skippedByName.push(item.name);
-      console.log(`[micro-reset-import] skipped "${item.name}" — same name already exists in this database`);
+      console.log(`[micro-reset-import] skipped "${item.name}" - same name already exists in this database`);
       continue;
     }
     try {

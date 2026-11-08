@@ -298,7 +298,7 @@ Return ONLY this JSON: {"title": string, "body": string}`;
     return null;
   }
   // Belt and braces: strip any em/en dashes the model sneaks in.
-  const clean = (s: string) => s.replace(/[–—‒―]/g, ",").replace(/\s+,/g, ",");
+  const clean = (s: string) => s.replace(/[– - ‒―]/g, ",").replace(/\s+,/g, ",");
   return { title: clean(result.data.title), body: clean(result.data.body) };
 }
 

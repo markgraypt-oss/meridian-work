@@ -550,8 +550,8 @@ function getDriverExplanation(key: string, value: number): string {
     painLoad: (v) => v > 60 ? 'Active pain or injuries are significantly impacting your score' : v > 30 ? 'Some pain or injury areas are present' : 'Pain and injury load is minimal',
     sleepTracking: (v) => v > 60 ? 'Sleep duration and quality are poor -- a key burnout accelerator' : v > 30 ? 'Sleep patterns have room for improvement' : 'Sleep patterns are healthy',
     activity: (v) => v > 60 ? 'Daily movement is well below recommended levels' : v > 30 ? 'Daily movement could be higher' : 'Daily movement levels are good',
-    physiologicalReadiness: (v) => v > 60 ? 'Your physiology is showing significant strain — HRV suppressed and recovery scores low' : v > 30 ? 'Physiological recovery is below your personal baseline' : 'Physiological recovery is solid — your body is handling current load well',
-    strainRecoveryBalance: (v) => v > 60 ? 'High training strain repeatedly hitting low recovery — classic overreaching pattern' : v > 30 ? 'Some days of high strain on low recovery — watch the trend' : 'Training strain and recovery are well balanced',
+    physiologicalReadiness: (v) => v > 60 ? 'Your physiology is showing significant strain - HRV suppressed and recovery scores low' : v > 30 ? 'Physiological recovery is below your personal baseline' : 'Physiological recovery is solid - your body is handling current load well',
+    strainRecoveryBalance: (v) => v > 60 ? 'High training strain repeatedly hitting low recovery - classic overreaching pattern' : v > 30 ? 'Some days of high strain on low recovery - watch the trend' : 'Training strain and recovery are well balanced',
   };
   return (explanations[key] || (() => ''))(value);
 }

@@ -697,7 +697,7 @@ You are Mark, writing the "Patterns this week" section of a weekly check-in for 
 
 Week: ${fmt(weekStart)} to ${fmt(inclusiveEnd)}
 
-User data for this week (every available stream — subjective check-ins, training,
+User data for this week (every available stream - subjective check-ins, training,
 wearable physiology, lifestyle, nutrition, body map, goals, habits, and AI coach
 engagement):
 ${JSON.stringify(promptData, null, 2)}
@@ -707,16 +707,16 @@ Field guide:
 - training: sessionsCompleted vs sessionsPlanned, adherencePct, totalVolumeKg vs prevTotalVolumeKg for week-over-week load.
 - wearable physiology (only present if a device is connected; values null otherwise):
     avgSleepHours, avgStepsPerDay, avgActiveMinutesPerDay, avgRestingHr (bpm),
-    avgHrvMs (ms — higher generally better), avgCaloriesBurned (kcal/day total energy),
+    avgHrvMs (ms - higher generally better), avgCaloriesBurned (kcal/day total energy),
     avgReadinessScore (0-100, Oura), avgStrainScore (0-21, Whoop).
     wearableProviders lists the active sources.
 - body map: bodyAreasActive (acute), bodyAreasChronic (>2 weeks).
 - goals/habits: goalsOnTrackCount/goalsTotalCount, habitsWithCompletions.
 - AI coach engagement: coachConversationsThisWeek, coachUserMessagesThisWeek
-  — counts only (no titles/topics for privacy). Use as an intensity signal,
+ - counts only (no titles/topics for privacy). Use as an intensity signal,
   e.g. "high coach engagement (12 messages) alongside elevated stress".
 
-Your task — output raw JSON only, no prose, no code fences:
+Your task - output raw JSON only, no prose, no code fences:
 {
   "hero": "<one clear sentence summarising this week's dominant theme, referencing actual data>",
   "trajectoryLabel": "<one of: 'holding steady' | 'trending up' | 'declining' | 'not enough data'>",
@@ -731,7 +731,7 @@ Rules:
   "HRV dropped 12 ms on the two days you completed back-to-back strength sessions",
   "Coach engagement spiked (12 messages) on the same two days stress peaked at 4.5/5").
   If fewer than 2 genuine cross-stream patterns exist, return an empty array.
-- Treat null values as "not tracked this week" — never invent numbers.
+- Treat null values as "not tracked this week" - never invent numbers.
 - Tone: warm, honest, non-prescriptive. Never diagnose. Reference actual numbers.
 `;
 }
@@ -770,7 +770,7 @@ function buildFallbackNarrative(promptData: V2AggData["promptData"]): { narrativ
   const narrative =
     parts.length > 0
       ? `This week: ${parts.join(", ")}.`
-      : "Not enough data was logged this week to identify patterns — keep logging check-ins and activities so insights can build up.";
+      : "Not enough data was logged this week to identify patterns - keep logging check-ins and activities so insights can build up.";
 
   // Map legacy trajectory to label
   let trajectoryLabel: TrajectoryLabel = "not enough data";
@@ -976,7 +976,7 @@ export async function getOrCreateCurrentWeeklyCheckinV2(
       console.log(
         `[weekly-checkin-v2] finalizing row ${existing.id} for user ${userId} ` +
           `weekStart=${weekStart.toISOString().slice(0, 10)} ` +
-          `(generated mid-week, week now ended — one-shot completion)`,
+          `(generated mid-week, week now ended - one-shot completion)`,
       );
       const newPayload = await generateWeeklyCheckinPayloadV2(userId, weekStart);
       const updated = await storage.updateWeeklyCheckinPayload(existing.id, newPayload);

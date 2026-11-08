@@ -54,11 +54,13 @@ if (Number.isNaN(port) || port <= 0) {
       "Server listening",
     );
 
-    import("./startupMigrations").then(({ runSchemaSelfHealOnce, runProfileImageMigrationOnce, seedMeditationsOnce, seedAiPromptsOnce, repairBodyweightGoalUnitsOnce, normalizeRecipeMacrosOnce, seedBadgesV2Once, retireDroppedDeskBadgesOnce, fixHabitTemplateDescriptionsOnce, seedReadinessBadgesOnce, seedStreakLadderOnce, dedupeCheckInsOnce, backfillContentTagsOnce, revokeEmptyBurnoutBadgesOnce, revokeEmptyAiBadgesOnce, revokeInvalidPerfectRecordOnce, revokeInflatedStretchingBadgesOnce, revokeWearableOnlySelfAwareOnce, seedLabTopicCoversOnce, seedLabPathCoversOnce, seedLabLifeStageOnce, stripEmDashesFromDescriptionsOnce, restoreRecipeImagesFromUploadsOnce, reconcileBreathworkDurationsOnce, seedBreathworkTechniquesV2Once, backfillBriefingConversationsOnce }) => {
+    import("./startupMigrations").then(({ runSchemaSelfHealOnce, runProfileImageMigrationOnce, seedMeditationsOnce, seedAiPromptsOnce, repairBodyweightGoalUnitsOnce, normalizeRecipeMacrosOnce, seedBadgesV2Once, retireDroppedDeskBadgesOnce, fixHabitTemplateDescriptionsOnce, seedReadinessBadgesOnce, seedStreakLadderOnce, dedupeCheckInsOnce, backfillContentTagsOnce, revokeEmptyBurnoutBadgesOnce, revokeEmptyAiBadgesOnce, revokeInvalidPerfectRecordOnce, revokeInflatedStretchingBadgesOnce, revokeWearableOnlySelfAwareOnce, seedLabTopicCoversOnce, seedLabPathCoversOnce, seedLabLifeStageOnce, stripEmDashesFromDescriptionsOnce, restoreRecipeImagesFromUploadsOnce, reconcileBreathworkDurationsOnce, seedBreathworkTechniquesV2Once, backfillBriefingConversationsOnce, inlineImagesToStorageOnce, houseStyleContentOnce }) => {
       runSchemaSelfHealOnce()
         .catch((e: any) => logger.error({ e }, "[startup-migration] schema self-heal failed"))
         .then(() => {
           runProfileImageMigrationOnce().catch((e: any) => logger.error({ e }, "[startup-migration] profile-images failed"));
+          inlineImagesToStorageOnce().catch((e: any) => logger.error({ e }, "[startup-migration] inline-images failed"));
+          houseStyleContentOnce().catch((e: any) => logger.error({ e }, "[startup-migration] house-style failed"));
           seedMeditationsOnce().catch((e: any) => logger.error({ e }, "[startup-migration] meditations failed"));
           seedAiPromptsOnce().catch((e: any) => logger.error({ e }, "[startup-migration] ai-prompts failed"));
           repairBodyweightGoalUnitsOnce().catch((e: any) => logger.error({ e }, "[startup-migration] bodyweight-goal-repair failed"));

@@ -363,7 +363,7 @@ function describeEasier(original: ExerciseLike, candidate: ExerciseLike): string
   const muscle = original.primaryMuscle && candidate.primaryMuscle === original.primaryMuscle
     ? `, still works your ${String(original.primaryMuscle).toLowerCase()}` : '';
   return changed.length
-    ? `Same movement, one step easier — ${changed.join(', ')}${muscle}.`
+    ? `Same movement, one step easier - ${changed.join(', ')}${muscle}.`
     : `Same movement, a gentler version${muscle}.`;
 }
 

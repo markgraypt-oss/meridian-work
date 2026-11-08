@@ -204,7 +204,7 @@ const GENERIC_TARGETS: Record<string, GenericTarget> = {
     kind: "recipe",
     load: async (id) => {
       const [r] = await db.select().from(recipes).where(eq(recipes.id, id)).limit(1);
-      if (!r || r.userId) return null; // library recipes only — never touch user-owned recipes
+      if (!r || r.userId) return null; // library recipes only - never touch user-owned recipes
       const context = [r.category, Array.isArray(r.keyIngredients) ? r.keyIngredients.slice(0, 6).join(", ") : null]
         .filter(Boolean)
         .join(" | ");

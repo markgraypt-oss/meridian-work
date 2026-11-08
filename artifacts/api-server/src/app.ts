@@ -98,6 +98,23 @@ app.use((req: Request, res: Response, next: NextFunction) => {
   );
 });
 
+// No image is ever saved into the database as base64 text. Any write that
+// carries one in an image field has it moved to object storage first, and the
+// route sees the stored path instead. Progress photos handle their own (they
+// are private and owned by the user), so that path is left alone.
+app.use(async (req: Request, _res: Response, next: NextFunction) => {
+  if (!["POST", "PUT", "PATCH"].includes(req.method) || !req.path.startsWith("/api/")) return next();
+  if (req.path.startsWith("/api/progress/pictures")) return next();
+  try {
+    const { replaceInlineImagesInBody } = await import("./imageNormalise");
+    const replaced = await replaceInlineImagesInBody(req.body);
+    if (replaced.length) logger.info({ path: req.path, fields: replaced }, "[images] inline image moved to storage");
+  } catch (err: any) {
+    logger.error({ err }, "[images] inline image middleware failed");
+  }
+  next();
+});
+
 // Global error handler — catches anything that escapes route try/catch blocks
 // (including unhandled async throws in Express 5). Returns JSON so the client
 // always gets a parseable error body rather than Express's default plain-text

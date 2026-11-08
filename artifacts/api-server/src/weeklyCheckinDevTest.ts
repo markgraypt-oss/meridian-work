@@ -397,7 +397,7 @@ export async function runRetryIntegrationTest(): Promise<RetryTestReport> {
 
   // ── 1. Get first real userId (needed for FK constraint) ──────────────────
   const [firstUser] = await db.select({ id: users.id }).from(users).limit(1);
-  if (!firstUser) throw new Error("No users in DB — cannot run retry test");
+  if (!firstUser) throw new Error("No users in DB - cannot run retry test");
   const userId = firstUser.id;
 
   // Sentinel week: 2020-01-06 (Monday, 6 years ago — no real user data)
@@ -534,8 +534,8 @@ export async function runRetryIntegrationTest(): Promise<RetryTestReport> {
     const noReCallOnSecondOpen = after1GeneratedAt === after2GeneratedAt;
 
     let failReason: string | undefined;
-    if (!retryFired) failReason = `Call 1 did not flip isAI (still ${after1IsAI}) — Claude likely failed again`;
-    else if (!noReCallOnSecondOpen) failReason = `generatedAt changed between Call 1 and Call 2 — Claude was called again on second open`;
+    if (!retryFired) failReason = `Call 1 did not flip isAI (still ${after1IsAI}) - Claude likely failed again`;
+    else if (!noReCallOnSecondOpen) failReason = `generatedAt changed between Call 1 and Call 2 - Claude was called again on second open`;
 
     return {
       userId,

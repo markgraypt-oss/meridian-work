@@ -360,7 +360,7 @@ import multer from "multer";
 import path from "path";
 import fs from "fs";
 import { randomUUID } from "crypto";
-import { normaliseImageBuffer, normaliseStoredObject, normaliseAllContentImages } from "../imageNormalise";
+import { normaliseImageBuffer, normaliseStoredObject, normaliseAllContentImages, inlineImagesToStorage } from "../imageNormalise";
 import { ObjectStorageService, ObjectNotFoundError, objectStorageClient, getObjectAclPolicy } from "../replit_integrations/object_storage";
 
 /**
@@ -755,13 +755,13 @@ function buildRecommendationPrompt(intake: any, programs: any[], paths: any[], h
 
 MATCHING RULES (strict priority order):
 1. ENVIRONMENT (hard filter): Only recommend programmes matching the user's training environment. "home" users get bodyweight or home_gym programmes. "gym" users get full_gym programmes. "both" users can get any.
-2. EXPERIENCE LEVEL (HARD FILTER — NON-NEGOTIABLE): A programme's "difficulty" field must equal the user's experience level EXACTLY. Programmes whose difficulty does not match MUST BE OMITTED ENTIRELY from your output — do not include them as a recommendation, not as a secondary suggestion, not as a stretch goal, not even with recommended:false. Pretend mismatched-level programmes are not in the list. NEVER show an "advanced" or "intermediate" programme to a "beginner" user — recommending one above their level is unsafe and will be discarded by the system. NEVER show a "beginner" programme to an "advanced" user. If no programmes match the user's exact experience level, return an empty programmes list rather than substituting a mismatched level.
+2. EXPERIENCE LEVEL (HARD FILTER - NON-NEGOTIABLE): A programme's "difficulty" field must equal the user's experience level EXACTLY. Programmes whose difficulty does not match MUST BE OMITTED ENTIRELY from your output - do not include them as a recommendation, not as a secondary suggestion, not as a stretch goal, not even with recommended:false. Pretend mismatched-level programmes are not in the list. NEVER show an "advanced" or "intermediate" programme to a "beginner" user - recommending one above their level is unsafe and will be discarded by the system. NEVER show a "beginner" programme to an "advanced" user. If no programmes match the user's exact experience level, return an empty programmes list rather than substituting a mismatched level.
 3. FREQUENCY (strong preference): Programme training days/week should be within ±1 of user's chosen frequency. Exact match is best. A gap of 2 or more days/week (e.g. a 5-day programme for someone who chose 3) is a POOR match and must be strongly deprioritised.
 4. DURATION (preference): Programme duration per session should fit within the user's available time.
 5. EQUIPMENT ACCESS: "Full gym access" means all equipment is available. Otherwise, check the "requires" list for each programme and only recommend it if the user has access to all required equipment. Do not recommend programmes requiring equipment the user does not have.
 5b. EQUIPMENT UTILISATION (strong preference): If the user's equipment access lists specific kit beyond bodyweight (e.g. dumbbells, barbell, bench, bands, kettlebell), PREFER programmes that actually USE that equipment (their "requires" list is non-empty and satisfied) over pure-bodyweight programmes. A user who owns equipment wants to use it. Only recommend a bodyweight-only programme to an equipped user when no equipment-using programme fits their level and frequency.
 6. SUCCESS DATA: Some programmes include success_data showing completion rates from similar users. Prefer programmes with higher completion rates when other factors are equal. This data improves over time as more users complete programmes.
-7. PRIMARY GOAL (strong preference, NOT a hard filter): The user's primary goal maps to preferred programme "goal" values (listed below). Among programmes that pass the hard filters (environment, level, equipment), strongly prefer those whose "goal" is in the preferred list. Only if none of the level/equipment-appropriate programmes match the goal should you recommend the best remaining fit — never break the environment/level/equipment rules to chase a goal match.
+7. PRIMARY GOAL (strong preference, NOT a hard filter): The user's primary goal maps to preferred programme "goal" values (listed below). Among programmes that pass the hard filters (environment, level, equipment), strongly prefer those whose "goal" is in the preferred list. Only if none of the level/equipment-appropriate programmes match the goal should you recommend the best remaining fit - never break the environment/level/equipment rules to chase a goal match.
 
 USER TRAINING PARAMETERS:
 - Experience level: ${intake.experienceLevel || 'unknown'}
@@ -3233,6 +3233,38 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // admin only; a dry run lists what would change. Runs in the request, which
   // can take a few minutes on a big library, so the admin portal calls it
   // with a long timeout.
+  // House style for database content: no em dashes, British spelling. Dry
+  // run with ?dryRun=1 to see what would change. Safe to repeat.
+  app.post('/api/admin/content/house-style', isAuthenticated, requireAdmin, async (req: any, res) => {
+    try {
+      const me = await storage.getUser(req.user.claims.sub);
+      if (!(me as any)?.isSuperAdmin) return res.status(403).json({ message: "Super admin only" });
+      const dryRun = String(req.query.dryRun || req.body?.dryRun || '') === '1' || req.body?.dryRun === true;
+      const tables = typeof req.query.tables === 'string' ? String(req.query.tables).split(',') : undefined;
+      const { applyHouseStyleToContent } = await import('../contentStyle');
+      const result = await applyHouseStyleToContent({ dryRun, tables });
+      res.json({ dryRun, ...result });
+    } catch (error: any) {
+      console.error("Error applying house style:", error);
+      res.status(500).json({ message: "Failed to apply house style", error: error?.message });
+    }
+  });
+
+  // Move any image stored as base64 text inside the database into object
+  // storage (see imageNormalise.ts). Run once after deploy; safe to repeat.
+  app.post('/api/admin/images/inline-to-storage', isAuthenticated, requireAdmin, async (req: any, res) => {
+    try {
+      const me = await storage.getUser(req.user.claims.sub);
+      if (!(me as any)?.isSuperAdmin) return res.status(403).json({ message: "Super admin only" });
+      const dryRun = String(req.query.dryRun || req.body?.dryRun || '') === '1' || req.body?.dryRun === true;
+      const result = await inlineImagesToStorage({ dryRun });
+      res.json({ dryRun, ...result });
+    } catch (error: any) {
+      console.error("Error moving inline images:", error);
+      res.status(500).json({ message: "Failed to move inline images", error: error?.message });
+    }
+  });
+
   app.post('/api/admin/images/normalise', isAuthenticated, requireAdmin, async (req: any, res) => {
     try {
       const me = await storage.getUser(req.user.claims.sub);
@@ -5092,6 +5124,22 @@ export async function registerRoutes(app: Express): Promise<Server> {
         const resolvedDuration = est >= 5 ? est : w.duration;
         return { ...w, duration: resolvedDuration, imageUrl: w.imageUrl || null, estimatedDuration: est };
       });
+
+      // ?slim=1: the list without every exercise of every workout. The app's
+      // library screens only show title, cover, difficulty and duration, and
+      // fetch a workout's blocks when one is opened. The full list was 1 MB
+      // (0.9 MB of it exercises) and the phone parsed, compared and wrote it
+      // to disk on every refresh, which is what made the tabs hang.
+      if (String(req.query.slim || '') === '1') {
+        res.json(enriched.map((w: any) => {
+          const { exercises, blocks, generationInputs, ...rest } = w;
+          const exerciseCount = Array.isArray(blocks)
+            ? blocks.reduce((n: number, b: any) => n + (Array.isArray(b?.exercises) ? b.exercises.length : 0), 0)
+            : (Array.isArray(exercises) ? exercises.length : 0);
+          return { ...rest, exerciseCount };
+        }));
+        return;
+      }
 
       res.json(enriched);
     } catch (error) {
@@ -11032,10 +11080,20 @@ Rules:
   app.post('/api/bookmarks', isAuthenticated, async (req: any, res) => {
     try {
       const userId = req.user.claims.sub;
+      // The app said 'programme' and the web said 'program' for the same
+      // thing, so a programme hearted in the app could never be un-hearted
+      // (the delete looked for the other spelling) and never appeared in the
+      // saved list. One stored spelling from here on: 'program'.
+      const body = { ...req.body };
+      if (body.contentType === 'programme') body.contentType = 'program';
       const bookmarkData = insertBookmarkSchema.parse({
-        ...req.body,
+        ...body,
         userId,
       });
+      // Hearting twice must not create a second row.
+      const existing = await storage.getUserBookmarksByType(userId, bookmarkData.contentType);
+      const dup = existing.find(b => b.contentId === bookmarkData.contentId);
+      if (dup) return res.json(dup);
       const bookmark = await storage.createBookmark(bookmarkData);
       res.json(bookmark);
     } catch (error) {
@@ -11049,6 +11107,11 @@ Rules:
       const userId = req.user.claims.sub;
       const { contentType, contentId } = req.params;
       await storage.deleteBookmark(userId, contentType, parseInt(contentId));
+      // Remove the other spelling too, so older rows saved as 'programme'
+      // can be un-hearted.
+      if (contentType === 'program' || contentType === 'programme') {
+        await storage.deleteBookmark(userId, contentType === 'program' ? 'programme' : 'program', parseInt(contentId));
+      }
       res.json({ success: true });
     } catch (error) {
       console.error("Error deleting bookmark:", error);
@@ -11060,15 +11123,21 @@ Rules:
   app.get('/api/favorites/programs', isAuthenticated, async (req: any, res) => {
     try {
       const userId = req.user.claims.sub;
-      const bookmarks = await storage.getUserBookmarksByType(userId, 'program');
-      const programIds = bookmarks.map(b => b.contentId);
+      const bookmarks = [
+        ...(await storage.getUserBookmarksByType(userId, 'program')),
+        ...(await storage.getUserBookmarksByType(userId, 'programme')),
+      ];
+      const programIds = Array.from(new Set(bookmarks.map(b => b.contentId)));
       
       if (programIds.length === 0) {
         return res.json([]);
       }
       
       const programs = await storage.getProgramsByIds(programIds);
-      res.json(programs);
+      const withCovers = await Promise.all(
+        (programs as any[]).map(async (p) => ({ ...p, imageUrl: await resolveProgrammeImageUrl(p.imageUrl) }))
+      );
+      res.json(withCovers);
     } catch (error) {
       console.error("Error fetching favorite programs:", error);
       res.status(500).json({ message: "Failed to fetch favorite programs" });
@@ -22563,7 +22632,7 @@ Keep your response concise, practical, and evidence-based. This is general guida
       const crossCoachContext = await getCrossCoachContext(userId, 'coach_chat');
       const { text: memoryText, rows: memoriesUsed } = await getTopMemoriesWithRows(userId, 8);
       const memoryContext = memoryText
-        ? `\n\nUSER MEMORY (durable facts about this user, use to personalise — do not contradict):\n${memoryText}`
+        ? `\n\nUSER MEMORY (durable facts about this user, use to personalise - do not contradict):\n${memoryText}`
         : '';
 
       const user = await storage.getUser(userId);
@@ -22902,7 +22971,7 @@ Respond as the coach. Be personalised, reference their actual data and specific 
                 readAt: null,
                 dismissedAt: null,
                 content: {
-                  opener: `Waiting on your ${label} data. Your readiness score and briefing are held until last night's sleep and recovery come through from ${label} — open the ${label} app for a few seconds so it syncs, then check back here. Steps and activity are already flowing in the meantime.`,
+                  opener: `Waiting on your ${label} data. Your readiness score and briefing are held until last night's sleep and recovery come through from ${label} - open the ${label} app for a few seconds so it syncs, then check back here. Steps and activity are already flowing in the meantime.`,
                 },
               });
             }
@@ -23703,21 +23772,21 @@ Write the opening message now.`;
 
         // Time-of-day intent string — used heavily for next_meal so the AI weights this above all else
         const intent = hour < 10
-          ? 'BREAKFAST window. Pick something breakfast-appropriate — eggs, oats, yoghurt, smoothies. Never suggest a heavy dinner here.'
+          ? 'BREAKFAST window. Pick something breakfast-appropriate - eggs, oats, yoghurt, smoothies. Never suggest a heavy dinner here.'
           : hour < 14
           ? 'LUNCH window. A balanced main meal is appropriate.'
           : hour < 17
-          ? 'AFTERNOON SNACK window. Pick something light — under 450 kcal. No full dinners. A side, snack, or light meal only.'
+          ? 'AFTERNOON SNACK window. Pick something light - under 450 kcal. No full dinners. A side, snack, or light meal only.'
           : hour < 21
           ? 'DINNER window. A balanced main meal is appropriate.'
-          : 'LATE EVENING. Pick something LIGHT — under 350 kcal — protein-leaning, easy to digest. Never suggest a heavy meal close to bedtime.';
+          : 'LATE EVENING. Pick something LIGHT - under 350 kcal - protein-leaning, easy to digest. Never suggest a heavy meal close to bedtime.';
 
         const summaryRule = mode === 'next_meal'
-          ? `\n\nAlso write a "summary" — one short, decisive sentence (max 20 words) telling ${userName} where they stand right now and how much room they have for this meal. Example: "You've got 820 kcal and 55g protein left — a normal-sized dinner would close the day cleanly."`
+          ? `\n\nAlso write a "summary" - one short, decisive sentence (max 20 words) telling ${userName} where they stand right now and how much room they have for this meal. Example: "You've got 820 kcal and 55g protein left - a normal-sized dinner would close the day cleanly."`
           : '';
         const summaryField = mode === 'next_meal' ? `, "summary": "One-line status of where they stand"` : '';
         const pickInstruction = mode === 'next_meal'
-          ? `Pick the SINGLE BEST recipe from this candidate list for THIS moment — be decisive. Time of day matters more than perfect macro fit.`
+          ? `Pick the SINGLE BEST recipe from this candidate list for THIS moment - be decisive. Time of day matters more than perfect macro fit.`
           : `Pick the ${maxPicks} BEST recipes from this candidate list across the day.`;
 
         const recipePrompt = `${userName} has these macros LEFT today (target minus what they've already eaten):
@@ -23731,17 +23800,17 @@ INTENT: ${intent}
 ${dietaryPreference !== 'no_preference' ? `Dietary preference: ${dietaryPreference}.` : ''}
 ${excludedIngredients.length > 0 ? `Avoiding: ${excludedIngredients.join(', ')}.` : ''}
 
-These are real recipes in their library — only pick from here, never invent:
+These are real recipes in their library - only pick from here, never invent:
 ${candidateBlock}
 
 ${pickInstruction}
 
 For each pick, write one short sentence (1-2 sentences max) explaining specifically why it fits THIS user's remaining macros and the time of day. Be concrete: reference their actual numbers (e.g. "covers your remaining 38g protein gap", "light enough at this hour to avoid disturbing your sleep").${summaryRule}
 
-Respond in this exact JSON format — IDs must come from the candidate list above:
+Respond in this exact JSON format - IDs must come from the candidate list above:
 {"picks": [{"id": <recipe_id>, "reason": "Why this fits"}]${summaryField}}`;
 
-        const sysPrompt = `You are the AI Nutrition Coach for MeridianWork. You ONLY recommend recipes from the candidate list provided — never invent recipes. Output raw JSON, no markdown.${coachingContext}${userDataContext}`;
+        const sysPrompt = `You are the AI Nutrition Coach for MeridianWork. You ONLY recommend recipes from the candidate list provided - never invent recipes. Output raw JSON, no markdown.${coachingContext}${userDataContext}`;
 
         const aiResp = await aiCall({
           feature: 'nutrition',
@@ -23867,9 +23936,9 @@ Respond in this JSON format:
       const systemPrompt = `You are the AI Nutrition Coach for MeridianWork, an executive health platform. You provide personalised nutrition insights based on the user's actual tracking data.
 
 CORE RULES:
-- Always respond with valid JSON matching the requested format — no markdown, no code fences, just raw JSON
+- Always respond with valid JSON matching the requested format - no markdown, no code fences, just raw JSON
 - Never give medical nutrition advice or prescribe diets for medical conditions
-- Be practical and actionable — executives are busy, keep it simple
+- Be practical and actionable - executives are busy, keep it simple
 - Reference their actual data, not generic advice
 - Use the user's name naturally in the summary
 - Be encouraging but honest
@@ -23969,7 +24038,7 @@ Rules:
 - If readiness is below 4, recommend active recovery or rest
 - Reference specific data points (e.g. "your sleep was only 5hrs" or "your stress score was 8/10")
 - If they have active pain areas, flag exercises that may aggravate them
-- Keep it concise — 3-5 sentences max
+- Keep it concise - 3-5 sentences max
 - ${weekCount} workouts logged this week so far
 
 Respond in this JSON format:
@@ -23986,7 +24055,7 @@ Rules:
 - Reference the specific exercises in their workout to make tips targeted
 - Include focus areas (muscle groups or movement patterns to prioritise)
 - Keep each tip to 1-2 sentences
-- Be practical and time-efficient — executives are busy
+- Be practical and time-efficient - executives are busy
 
 Respond in this JSON format:
 {"summary": "Brief pre-workout overview referencing their data", "tips": ["Specific actionable tip 1", "Tip 2", "Tip 3"], "focusAreas": ["Key area 1", "Key area 2"]}`;
@@ -24000,7 +24069,7 @@ Rules:
 - If they're training heavily, mention recovery importance
 - If they have active pain areas, remind them about recovery protocols
 - Connect their training to their goals if visible
-- Keep it motivating but honest — 3-4 sentences max
+- Keep it motivating but honest - 3-4 sentences max
 - One specific actionable tip for next session
 
 Respond in this JSON format:
@@ -24013,7 +24082,7 @@ Provide personalised recovery tips based on their workout, active pain areas, st
 
 Rules:
 - Give 3-4 specific recovery actions ranked by priority
-- Consider their body map data — if they have active pain areas, prioritise those
+- Consider their body map data - if they have active pain areas, prioritise those
 - Include timing guidance (e.g. "within the next 2 hours")
 - Reference their training frequency (${weekCount} sessions this week)
 - Include focus areas for stretching/mobility
@@ -24027,9 +24096,9 @@ Respond in this JSON format:
       const systemPrompt = `You are the AI Workout Coach for MeridianWork, an executive health platform. You provide personalised training readiness assessments and exercise modifications based on the user's health data.
 
 CORE RULES:
-- Always respond with valid JSON matching the requested format — no markdown, no code fences, just raw JSON
-- Never prescribe exercises for medical conditions — suggest they consult their practitioner
-- Be practical and actionable — executives are busy
+- Always respond with valid JSON matching the requested format - no markdown, no code fences, just raw JSON
+- Never prescribe exercises for medical conditions - suggest they consult their practitioner
+- Be practical and actionable - executives are busy
 - Reference their actual data points, not generic advice
 - Use the user's name naturally
 - Be encouraging but honest about limitations
@@ -24098,7 +24167,7 @@ ${modePrompt}`;
 
 Rules:
 - Identify the clearest trend (improving, declining, stable) for each metric
-- Highlight the most significant change — what's getting better or worse
+- Highlight the most significant change - what's getting better or worse
 - Use specific data points (e.g. "your energy has dropped from 8 to 5 over 4 days")
 - If the user has written notes or reflections in their check-ins, reference them to add context to the trends
 - If data is limited, acknowledge that and give what insight you can
@@ -24140,9 +24209,9 @@ Respond in this JSON format:
       const systemPrompt = `You are the AI Wellness Insights Coach for MeridianWork, an executive health platform. You analyse check-in and health data to provide personalised wellbeing insights.
 
 CORE RULES:
-- Always respond with valid JSON matching the requested format — no markdown, no code fences, just raw JSON
+- Always respond with valid JSON matching the requested format - no markdown, no code fences, just raw JSON
 - Never diagnose medical or mental health conditions
-- Be practical and actionable — executives are busy
+- Be practical and actionable - executives are busy
 - Reference their actual data points, not generic advice
 - Use the user's name naturally
 - Be supportive and constructive, never alarmist
@@ -24298,11 +24367,11 @@ ${modePrompt}`;
       const systemPrompt = `You are a Recovery Coach within MeridianWork, an executive health platform. You help users understand their body map assessment results and provide personalised recovery guidance.
 
 CORE RECOVERY COACHING RULES:
-- Never diagnose or give medical advice — recommend seeing a professional when pain is severe or persistent
+- Never diagnose or give medical advice - recommend seeing a professional when pain is severe or persistent
 - Always prioritise pain-free performance over pushing through discomfort
-- Explain WHY certain exercises or adjustments help — educate the user
+- Explain WHY certain exercises or adjustments help - educate the user
 - Reference the specific body area, severity, and limitations from their assessment
-- Be warm, direct, and evidence-based — like a trusted physiotherapist/coach
+- Be warm, direct, and evidence-based - like a trusted physiotherapist/coach
 - Keep responses concise and actionable (3-5 sentences max unless they ask for detail)
 - When suggesting exercises or stretches, be specific about form cues
 - Connect their current issue to their broader training context when relevant

@@ -127,7 +127,7 @@ async function generateWriteup(
   model?: string,
 ): Promise<Writeup | null> {
   const clipped = transcript.slice(0, MAX_TRANSCRIPT_CHARS_FOR_AI);
-  const prompt = `You write the written companion for a wellness/fitness education video inside an executive health app. You are given the video's automatic transcript (speech-to-text, so it may have small errors — infer sensibly, never quote it verbatim). Produce clean, on-brand written content a member can read instead of, or right after, watching — especially to confirm in writing what the video covered.
+  const prompt = `You write the written companion for a wellness/fitness education video inside an executive health app. You are given the video's automatic transcript (speech-to-text, so it may have small errors - infer sensibly, never quote it verbatim). Produce clean, on-brand written content a member can read instead of, or right after, watching - especially to confirm in writing what the video covered.
 
 VIDEO
 Title: "${title}"
@@ -139,9 +139,9 @@ ${clipped}
 """
 
 Write three things:
-1. description — ONE to TWO plain sentences (max ~280 characters) that say what the video is about and who it helps. Neutral, no hype, no "in this video".
-2. summary — ONE short paragraph (3-5 sentences) covering the main thread of the video in your own words. Written for someone deciding whether to watch, or reminding themselves afterwards.
-3. keyTakeaways — 3 to 6 short bullet points, each a single concrete, standalone point or action a member should remember. No numbering, no leading dashes, one idea per bullet.
+1. description - ONE to TWO plain sentences (max ~280 characters) that say what the video is about and who it helps. Neutral, no hype, no "in this video".
+2. summary - ONE short paragraph (3-5 sentences) covering the main thread of the video in your own words. Written for someone deciding whether to watch, or reminding themselves afterwards.
+3. keyTakeaways - 3 to 6 short bullet points, each a single concrete, standalone point or action a member should remember. No numbering, no leading dashes, one idea per bullet.
 
 Rules:
 - British English. Warm, direct, practical. No filler, no "this video will".

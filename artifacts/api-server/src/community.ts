@@ -675,11 +675,11 @@ async function runLifecycleNotifications(): Promise<void> {
         const localToday = dateKeyInTz(now, p.timezone);
         let event: { key: string; title: string; body: string } | null = null;
         if (status === "upcoming" && addDaysToDateKey(localToday, 1) === c.startDate) {
-          event = { key: `challenge:${c.id}:start`, title: `${c.title} starts tomorrow`, body: "Get ready — the challenge kicks off tomorrow. Good luck!" };
+          event = { key: `challenge:${c.id}:start`, title: `${c.title} starts tomorrow`, body: "Get ready - the challenge kicks off tomorrow. Good luck!" };
         } else if (status === "active" && localToday === addDaysToDateKey(c.endDate, -1)) {
-          event = { key: `challenge:${c.id}:ending`, title: `${c.title} — final stretch`, body: "The challenge ends tomorrow. Finish strong!" };
+          event = { key: `challenge:${c.id}:ending`, title: `${c.title} - final stretch`, body: "The challenge ends tomorrow. Finish strong!" };
         } else if (status === "final") {
-          event = { key: `challenge:${c.id}:final`, title: `${c.title} — results are in`, body: "Final results are locked in. Open the challenge to see how you did." };
+          event = { key: `challenge:${c.id}:final`, title: `${c.title} - results are in`, body: "Final results are locked in. Open the challenge to see how you did." };
         }
         if (!event) continue;
         if (await alreadyNotified(p.userId, event.key)) continue;
@@ -1018,7 +1018,7 @@ export function registerCommunityRoutes(app: Express): void {
 
     const screen = await screenText(displayName);
     if (screen.rejected || screen.autoHide) {
-      return res.status(400).json({ message: "That display name isn't allowed — please pick another." });
+      return res.status(400).json({ message: "That display name isn't allowed - please pick another." });
     }
     const u = await storage.getUser(userId);
     await pool.query(
@@ -1045,7 +1045,7 @@ export function registerCommunityRoutes(app: Express): void {
     const { displayName, avatarUrl, shareActivity } = parsed.data;
     if (displayName) {
       const screen = await screenText(displayName);
-      if (screen.rejected || screen.autoHide) return res.status(400).json({ message: "That display name isn't allowed — please pick another." });
+      if (screen.rejected || screen.autoHide) return res.status(400).json({ message: "That display name isn't allowed - please pick another." });
     }
     await pool.query(
       `UPDATE community_profiles SET

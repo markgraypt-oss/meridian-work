@@ -158,11 +158,11 @@ export async function generateAiPlan(input: AiPlanInput): Promise<AiPlan | null>
     `Each day's total calories MUST sum to within +/-15% of ${input.caloriesPerDay} kcal. If catalog recipes are too small, invent a larger aiRecipe rather than leaving the day short.`,
     "",
     lockedDescription
-      ? `The following meals are LOCKED by the user — you MUST include them with the exact recipeId at the exact (dayIndex, slotIndex, isSide) position; do NOT replace them:\n${lockedDescription}`
+      ? `The following meals are LOCKED by the user - you MUST include them with the exact recipeId at the exact (dayIndex, slotIndex, isSide) position; do NOT replace them:\n${lockedDescription}`
       : "",
     "",
     allowCatalog
-      ? "PREFER recipes from the catalog (use the recipeId field). If — and only if — no catalog recipe fits a slot's needs, you MAY invent a single new recipe by setting the aiRecipe field instead of recipeId."
+      ? "PREFER recipes from the catalog (use the recipeId field). If - and only if - no catalog recipe fits a slot's needs, you MAY invent a single new recipe by setting the aiRecipe field instead of recipeId."
       : "The catalog is empty for this user's filters. You MUST invent a new recipe for every slot using the aiRecipe field.",
     "Each meal entry must contain exactly one of recipeId or aiRecipe (never both).",
     "When you invent a recipe, include realistic title, category, calories, protein, carbs, fat, ingredients (list of strings) and short instructions.",

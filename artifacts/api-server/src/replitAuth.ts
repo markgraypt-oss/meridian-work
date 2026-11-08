@@ -186,7 +186,7 @@ export async function sendTesterSignupNotification(input: { firstName: string; e
     const { error } = await resend.emails.send({
       from: "MeridianWork <no-reply@meridian.work>",
       to: ADMIN_NOTIFICATION_EMAIL,
-      subject: `${input.likelyBot ? "Likely bot, blocked. " : ""}New tester: ${input.firstName} (${input.phone === "ios" ? "iPhone" : "Android"})${input.existing ? " — existing account" : ""}`,
+      subject: `${input.likelyBot ? "Likely bot, blocked. " : ""}New tester: ${input.firstName} (${input.phone === "ios" ? "iPhone" : "Android"})${input.existing ? " - existing account" : ""}`,
       html: renderBrandedEmail({
         eyebrow: "Internal",
         heading: "New tester sign-up",

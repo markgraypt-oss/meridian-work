@@ -347,5 +347,5 @@ export function startPushNotificationScheduler(): void {
     tick().catch(() => {});
     setInterval(() => tick().catch(() => {}), TICK_INTERVAL_MS);
   }, 150_000);
-  console.log("[push-scheduler] started (body map reassessments, inactivity nudges; habit reminders disabled — device-side, per-user timezone aware)");
+  console.log("[push-scheduler] started (body map reassessments, inactivity nudges; habit reminders disabled - device-side, per-user timezone aware)");
 }

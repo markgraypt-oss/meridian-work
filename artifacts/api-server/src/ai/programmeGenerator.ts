@@ -248,7 +248,7 @@ export function buildContextHints(opts: {
     if (c.todayPlannedWorkout) parts.push(`today they have planned: "${c.todayPlannedWorkout}"`);
     if (c.recentWorkoutNames?.length) parts.push(`recent sessions: ${c.recentWorkoutNames.slice(0, 5).join(", ")}`);
     if (parts.length) {
-      lines.push(`User is currently following: ${parts.join("; ")}. Design today's session to COMPLEMENT this — avoid overlapping the same primary muscles trained today, and stay aligned with the programme's overall goal.`);
+      lines.push(`User is currently following: ${parts.join("; ")}. Design today's session to COMPLEMENT this - avoid overlapping the same primary muscles trained today, and stay aligned with the programme's overall goal.`);
     }
   }
   if (opts.workoutHistory && opts.workoutHistory.recentCount > 0) {
@@ -259,7 +259,7 @@ export function buildContextHints(opts: {
     if (h.preferredStyle) parts.push(`usual session style: ${h.preferredStyle}`);
     if (h.typicalDurationMin) parts.push(`typical length about ${h.typicalDurationMin} min`);
     if (parts.length) {
-      lines.push(`From the user's last ${h.recentCount} recorded workouts — ${parts.join("; ")}. Favour the equipment and movement styles they actually use and enjoy, and prefer exercises they already know, unless the request explicitly asks for something different.`);
+      lines.push(`From the user's last ${h.recentCount} recorded workouts - ${parts.join("; ")}. Favour the equipment and movement styles they actually use and enjoy, and prefer exercises they already know, unless the request explicitly asks for something different.`);
     }
   }
   return lines.length ? lines.join("\n") : "";

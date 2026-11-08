@@ -113,7 +113,7 @@ async function seed() {
   const bodyRows: any[] = [];
   const contributors = userIds.slice(0, 11); // 11 distinct contributors
   const lowerBack = contributors.slice(0, 6); // 6 reporters
-  const neck = contributors.slice(3, 8); // 5 reporters (overlap is fine — distinct per area)
+  const neck = contributors.slice(3, 8); // 5 reporters (overlap is fine - distinct per area)
   const shoulders = contributors.slice(8, 11); // 3 reporters (below floor, stays hidden)
 
   for (const id of lowerBack) {

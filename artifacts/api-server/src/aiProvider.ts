@@ -289,7 +289,10 @@ function looksLikeThinkingRejection(err: any): boolean {
 // when the reply starts with a thinking block.
 export function anthropicText(message: any): string {
   const blocks: any[] = Array.isArray(message?.content) ? message.content : [];
-  return blocks.filter((b) => b?.type === "text" && typeof b.text === "string").map((b) => b.text).join("");
+  const text = blocks.filter((b) => b?.type === "text" && typeof b.text === "string").map((b) => b.text).join("");
+  // House style: no em dashes in anything shown to a user. Models slip them
+  // in however often the prompt says not to, so strip them here, once.
+  return text.replace(/\s* - \s*/g, " - ");
 }
 
 function hasThinkingBlock(message: any): boolean {
@@ -511,11 +514,11 @@ export const FEATURE_DATA_SOURCES: Record<string, { domains: DataDomain[]; descr
   },
   desk_scan: {
     domains: [],
-    description: 'Image-based analysis only — no user health data needed',
+    description: 'Image-based analysis only - no user health data needed',
   },
   onboarding_recommendations: {
     domains: [],
-    description: 'Uses intake questionnaire data passed directly — no historical data needed',
+    description: 'Uses intake questionnaire data passed directly - no historical data needed',
   },
   weekly_summary: {
     domains: ['check_ins', 'workout_logs', 'hydration', 'sleep', 'steps', 'resting_hr', 'stress', 'body_map', 'habits', 'goals', 'nutrition', 'bodyweight'],
@@ -547,7 +550,7 @@ export const FEATURE_DATA_SOURCES: Record<string, { domains: DataDomain[]; descr
   },
   coach_memory_extraction: {
     domains: [],
-    description: 'Lightweight extraction of durable user facts from a single chat exchange — no historical data needed',
+    description: 'Lightweight extraction of durable user facts from a single chat exchange - no historical data needed',
   },
 };
 
@@ -1339,7 +1342,7 @@ export async function getCoachingContext(feature: string): Promise<string> {
         context += `\nRULES & CONSTRAINTS (you must always follow these):\n${globalSettings.coachingRules}\n`;
       }
       if (globalSettings.thingsToNeverDo) {
-        context += `\nTHINGS TO NEVER DO (strict boundaries — never violate these):\n${globalSettings.thingsToNeverDo}\n`;
+        context += `\nTHINGS TO NEVER DO (strict boundaries - never violate these):\n${globalSettings.thingsToNeverDo}\n`;
       }
       if (globalSettings.responseStyle) {
         context += `\nRESPONSE STYLE & FORMAT:\n${globalSettings.responseStyle}\n`;

@@ -101,7 +101,7 @@ function scaleDuration(seconds: number | null | undefined, factor: number): numb
 
 /** "4×10", "3×45s", "2 sets" — one formatter, shared with the restore list. */
 export function describeSets(sets: unknown): string {
-  if (!Array.isArray(sets) || sets.length === 0) return '—';
+  if (!Array.isArray(sets) || sets.length === 0) return ' - ';
   const first = sets[0] as SetSpec;
   if (typeof first?.duration === 'number' && (first.reps === null || first.reps === undefined || first.reps === '')) {
     return `${sets.length}×${first.duration}s`;

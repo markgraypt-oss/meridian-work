@@ -167,7 +167,7 @@ export async function emailMarkAboutAnswer(user: { email?: string | null; firstN
       emailNote("Consent given for first name + job title on meridian.work. Reply to this email to ask for the video version.");
   } else {
     const def = PROMPTS[key];
-    subject = `Tester ${key === "day7" ? "day 7" : "day 21"}: ${name} — ${answers.q1Label}`;
+    subject = `Tester ${key === "day7" ? "day 7" : "day 21"}: ${name} - ${answers.q1Label}`;
     bodyHtml =
       emailParagraph(`<strong>${esc(name)}</strong> &lt;${esc(user.email || "")}&gt; · day ${days}`) +
       emailParagraph(`<strong>${esc(def.q1.label)}</strong><br>${esc(answers.q1Label)} (${answers.q1}/${def.q1.options.length})`) +

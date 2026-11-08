@@ -98,6 +98,35 @@ app.use((req: Request, res: Response, next: NextFunction) => {
   );
 });
 
+// Response-size watchdog. On 8 Nov 2026 two endpoints were found sending
+// 1.75 MB and 1 MB to the phone on every refresh, which stalled the app for
+// seconds at a time, and nothing had flagged it. Anything over the limit is
+// logged with its path, and the biggest responses since start are kept for
+// /api/admin/response-sizes, so an oversized payload is seen before users
+// feel it.
+export const OVERSIZED_RESPONSE_BYTES = 250 * 1024;
+export const responseSizeLog: { path: string; bytes: number; at: string }[] = [];
+app.use((req: Request, res: Response, next: NextFunction) => {
+  if (!req.path.startsWith("/api/")) return next();
+  const originalJson = res.json.bind(res);
+  res.json = ((body: any) => {
+    try {
+      const bytes = Buffer.byteLength(JSON.stringify(body) ?? "");
+      if (bytes > OVERSIZED_RESPONSE_BYTES) {
+        const path = req.route?.path ? req.baseUrl + req.route.path : req.path;
+        logger.warn({ path, bytes, kb: Math.round(bytes / 1024) }, "[response-size] oversized API response");
+        const existing = responseSizeLog.find((r) => r.path === path);
+        if (existing) { if (bytes > existing.bytes) { existing.bytes = bytes; existing.at = new Date().toISOString(); } }
+        else responseSizeLog.push({ path, bytes, at: new Date().toISOString() });
+        responseSizeLog.sort((x, y) => y.bytes - x.bytes);
+        if (responseSizeLog.length > 50) responseSizeLog.length = 50;
+      }
+    } catch {}
+    return originalJson(body);
+  }) as any;
+  next();
+});
+
 // No image is ever saved into the database as base64 text. Any write that
 // carries one in an image field has it moved to object storage first, and the
 // route sees the stored path instead. Progress photos handle their own (they

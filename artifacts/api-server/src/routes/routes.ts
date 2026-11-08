@@ -3233,6 +3233,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // admin only; a dry run lists what would change. Runs in the request, which
   // can take a few minutes on a big library, so the admin portal calls it
   // with a long timeout.
+  // Biggest API responses since the server started (see app.ts watchdog).
+  app.get('/api/admin/response-sizes', isAuthenticated, requireAdmin, async (_req: any, res) => {
+    const { responseSizeLog, OVERSIZED_RESPONSE_BYTES } = await import('../app');
+    res.json({ limitBytes: OVERSIZED_RESPONSE_BYTES, oversized: responseSizeLog });
+  });
+
   // House style for database content: no em dashes, British spelling. Dry
   // run with ?dryRun=1 to see what would change. Safe to repeat.
   app.post('/api/admin/content/house-style', isAuthenticated, requireAdmin, async (req: any, res) => {

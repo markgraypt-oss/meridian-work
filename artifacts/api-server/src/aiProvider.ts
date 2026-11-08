@@ -1027,6 +1027,28 @@ export async function getUserDataContext(userId: string, feature: string): Promi
       } catch {}
     }
 
+    // Desk micro resets done in the last 14 days (Desk Health). Any surface
+    // that looks at posture, stress or body-map pain gets this, so the coach
+    // can credit what the person is already doing and point at gaps.
+    if (domains.includes('body_map') || domains.includes('stress') || domains.includes('habits')) {
+      try {
+        const { workdayBreakLogs } = await import('@workspace/db');
+        const { and, eq, gte, desc } = await import('drizzle-orm');
+        const since = new Date(Date.now() - 14 * 24 * 60 * 60 * 1000);
+        const rows = await db.select().from(workdayBreakLogs)
+          .where(and(eq(workdayBreakLogs.userId, userId), eq(workdayBreakLogs.breakType, 'micro_reset'), gte(workdayBreakLogs.loggedAt, since)))
+          .orderBy(desc(workdayBreakLogs.loggedAt)).limit(60);
+        if (rows.length > 0) {
+          const byArea: Record<string, number> = {};
+          for (const r of rows) { const k = (r.targetArea || 'general').replace(/_/g, ' '); byArea[k] = (byArea[k] || 0) + 1; }
+          const areas = Object.entries(byArea).sort((x, y) => y[1] - x[1]).map(([k, n]) => `${k} x${n}`).join(', ');
+          const last = rows[0];
+          const lastWhen = last.loggedAt ? new Date(last.loggedAt).toISOString().slice(0, 10) : 'recently';
+          context += `\n\n--- Desk Micro Resets (last 14 days) ---\n- ${rows.length} completed: ${areas}\n- Most recent: "${last.microResetName || 'micro reset'}" on ${lastWhen}${last.durationSeconds ? ` (${last.durationSeconds}s)` : ''}`;
+        }
+      } catch {}
+    }
+
     if (domains.includes('nutrition')) {
       try {
         const today = new Date();

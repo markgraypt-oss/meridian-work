@@ -3975,7 +3975,13 @@ export const legacyProgramExercises = pgTable("program_exercises", {
 export const workdayBreakLogs = pgTable("workday_break_logs", {
   id: serial("id").primaryKey(),
   userId: varchar("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
-  breakType: text("break_type").notNull().default("reminder"), // 'reminder', 'manual', 'rotation'
+  breakType: text("break_type").notNull().default("reminder"), // 'reminder', 'manual', 'rotation', 'micro_reset'
+  // Set when the break was a micro reset done from Desk Health, so the AI
+  // coach can see what the person actually did for their neck, back, hips.
+  microResetId: integer("micro_reset_id"),
+  microResetName: text("micro_reset_name"),
+  targetArea: text("target_area"),
+  durationSeconds: integer("duration_seconds"),
   loggedAt: timestamp("logged_at").defaultNow(),
   createdAt: timestamp("created_at").defaultNow(),
 });

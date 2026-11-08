@@ -311,6 +311,10 @@ export const SELF_HEAL_DDL: string[] = [
      created_at timestamp DEFAULT now()
    )`,
   `CREATE INDEX IF NOT EXISTS idx_workday_break_logs_user ON workday_break_logs (user_id)`,
+  `ALTER TABLE workday_break_logs ADD COLUMN IF NOT EXISTS micro_reset_id integer`,
+  `ALTER TABLE workday_break_logs ADD COLUMN IF NOT EXISTS micro_reset_name text`,
+  `ALTER TABLE workday_break_logs ADD COLUMN IF NOT EXISTS target_area text`,
+  `ALTER TABLE workday_break_logs ADD COLUMN IF NOT EXISTS duration_seconds integer`,
 
   // Phase 1c: physiological snapshots — per-computation early-warning evidence
   `CREATE TABLE IF NOT EXISTS physiological_snapshots (

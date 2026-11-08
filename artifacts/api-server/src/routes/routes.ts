@@ -21366,6 +21366,29 @@ Keep your response concise, practical, and evidence-based. This is general guida
     }
   });
 
+  // A micro reset finished from Desk Health. Logged as a break so the AI
+  // coach and the weekly summary can see what the person did for which area.
+  app.post('/api/workday/micro-resets/:id/complete', isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = req.user.claims.sub;
+      const id = parseInt(req.params.id);
+      const durationSeconds = Number.isFinite(Number(req.body?.durationSeconds)) ? Math.max(0, Math.round(Number(req.body.durationSeconds))) : null;
+      const reset = Number.isFinite(id) ? await storage.getWorkdayMicroResetById(id) : null;
+      const [row] = await db.insert(workdayBreakLogs).values({
+        userId,
+        breakType: 'micro_reset',
+        microResetId: Number.isFinite(id) ? id : null,
+        microResetName: reset?.name || req.body?.name || null,
+        targetArea: reset?.targetArea || req.body?.targetArea || null,
+        durationSeconds,
+      }).returning();
+      res.status(201).json(row);
+    } catch (error) {
+      console.error("Error logging micro reset:", error);
+      res.status(500).json({ message: "Failed to log micro reset" });
+    }
+  });
+
   // AI Coaching Settings CRUD routes (admin only)
   app.get('/api/admin/ai-coaching-settings', isAuthenticated, async (req: any, res) => {
     try {

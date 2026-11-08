@@ -2484,7 +2484,7 @@ let hasRunHouseStyle = false;
 export async function houseStyleContentOnce(): Promise<void> {
   if (hasRunHouseStyle) return;
   hasRunHouseStyle = true;
-  const FLAG = 'house-style-content-v1';
+  const FLAG = 'house-style-content-v2';
   try {
     if (!(await flagOnce(FLAG))) return;
     const { applyHouseStyleToContent } = await import('./contentStyle');

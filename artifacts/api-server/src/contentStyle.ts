@@ -114,13 +114,20 @@ function matchCase(src: string, out: string): string {
   return out;
 }
 
+// Built from character codes so a text sweep over this repo can never rewrite
+// them (one did, on 8 Nov 2026, and the clean-up silently matched nothing).
+const EM_DASH = String.fromCharCode(0x2014);
+const EN_DASH = String.fromCharCode(0x2013);
+const EM_DASH_RE = new RegExp("\\s*" + EM_DASH + "\\s*", "g");
+const DASH_CLASS = "[" + EM_DASH + EN_DASH + "]";
+
 /** Replace em and en dashes used as punctuation with a plain hyphen. */
 export function fixDashes(text: string): string {
   return text
-    .replace(/\s* - \s*/g, " - ")      // em dash, with or without spaces
-    .replace(/(\S)\s+–\s+(\S)/g, "$1 - $2") // spaced en dash between words
-    .replace(/(\d)–(\d)/g, "$1-$2")  // en dash in a number range
-    .replace(/–/g, "-")              // any en dash left
+    .replace(EM_DASH_RE, " - ")      // em dash, with or without spaces
+    .replace(new RegExp("(\\S)\\s+" + EN_DASH + "\\s+(\\S)", "g"), "$1 - $2") // spaced en dash between words
+    .replace(new RegExp("(\\d)" + EN_DASH + "(\\d)", "g"), "$1-$2")  // en dash in a number range
+    .replace(new RegExp(EN_DASH, "g"), "-")              // any en dash left
     .replace(/ - - /g, " - ");
 }
 
@@ -158,8 +165,8 @@ export async function applyHouseStyleToContent(opts: { dryRun?: boolean; tables?
     seenTables.add(table_name);
     try {
       const sel = isJson
-        ? `SELECT id, ${column_name}::text AS v FROM ${table_name} WHERE ${column_name}::text ~ '[—–]'`
-        : `SELECT id, ${column_name} AS v FROM ${table_name} WHERE ${column_name} ~* '[—–]|\\m(${SPELLING.map(([a]) => a).join("|")})\\M'`;
+        ? `SELECT id, ${column_name}::text AS v FROM ${table_name} WHERE ${column_name}::text ~ '${DASH_CLASS}'`
+        : `SELECT id, ${column_name} AS v FROM ${table_name} WHERE ${column_name} ~* '${DASH_CLASS}|\\m(${SPELLING.map(([a]) => a).join("|")})\\M'`;
       const rows = await pool.query(sel);
       for (const { id, v } of rows.rows) {
         if (typeof v !== "string") continue;

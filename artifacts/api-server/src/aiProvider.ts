@@ -292,7 +292,7 @@ export function anthropicText(message: any): string {
   const text = blocks.filter((b) => b?.type === "text" && typeof b.text === "string").map((b) => b.text).join("");
   // House style: no em dashes in anything shown to a user. Models slip them
   // in however often the prompt says not to, so strip them here, once.
-  return text.replace(/\s* - \s*/g, " - ");
+  return text.replace(new RegExp("\\s*" + String.fromCharCode(0x2014) + "\\s*", "g"), " - ");
 }
 
 function hasThinkingBlock(message: any): boolean {

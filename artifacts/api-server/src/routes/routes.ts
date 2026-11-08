@@ -4884,6 +4884,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
         limit: limit ? parseInt(limit as string, 10) : undefined,
         offset: offset ? parseInt(offset as string, 10) : undefined,
       });
+      // ?slim=1: the pickers only show name, thumbnail and filters, and load
+      // the instructions when one exercise is opened. The full list of ~1000
+      // exercises was 840 KB, half of it instructions text.
+      if (String(req.query.slim || '') === '1') {
+        res.json((exercises as any[]).map(({ instructions, createdAt, ...rest }) => rest));
+        return;
+      }
       res.json(exercises);
     } catch (error) {
       console.error("Error fetching exercises:", error);

@@ -122,6 +122,21 @@ function anthropicClientOptions(): { apiKey?: string; baseURL?: string } {
   };
 }
 
+// OpenAI: our own key (direct to OpenAI, under OpenAI's API business terms:
+// no training on our data by default) takes priority over the Replit AI
+// Integrations proxy, whose data terms for OpenAI are not documented. The
+// in-app privacy text relies on this. The proxy is only a fallback for when
+// OPENAI_API_KEY is not set at all. (11 Nov 2026)
+export function openaiClientOptions(): { apiKey?: string; baseURL?: string } {
+  if (process.env.OPENAI_API_KEY) {
+    return { apiKey: process.env.OPENAI_API_KEY };
+  }
+  return {
+    apiKey: process.env.AI_INTEGRATIONS_OPENAI_API_KEY,
+    baseURL: process.env.AI_INTEGRATIONS_OPENAI_BASE_URL,
+  };
+}
+
 async function analyzeWithAnthropic(
   request: VisionAnalysisRequest,
   model: string
@@ -175,10 +190,7 @@ async function analyzeWithOpenAI(
   model: string
 ): Promise<VisionAnalysisResponse> {
   const OpenAI = (await import("openai")).default;
-  const openai = new OpenAI({
-    apiKey: process.env.AI_INTEGRATIONS_OPENAI_API_KEY,
-    baseURL: process.env.AI_INTEGRATIONS_OPENAI_BASE_URL,
-  });
+  const openai = new OpenAI(openaiClientOptions());
 
   const imageUrl = request.imageBase64.startsWith("data:")
     ? request.imageBase64
@@ -413,10 +425,7 @@ async function textWithOpenAI(
   system?: string[],
 ): Promise<VisionAnalysisResponse> {
   const OpenAI = (await import("openai")).default;
-  const openai = new OpenAI({
-    apiKey: process.env.AI_INTEGRATIONS_OPENAI_API_KEY,
-    baseURL: process.env.AI_INTEGRATIONS_OPENAI_BASE_URL,
-  });
+  const openai = new OpenAI(openaiClientOptions());
 
   const systemText = (system || []).map((t) => t.trim()).filter(Boolean).join("\n\n");
   const messages: any[] = [];

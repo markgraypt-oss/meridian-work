@@ -8137,12 +8137,9 @@ Return format: {"category": "strength|cardio|hiit|mobility|recovery", "difficult
         return res.status(413).json({ message: "Those photos are too large. Try fewer or smaller ones." });
       }
 
-      const { detectImageMediaType } = await import('../aiProvider');
+      const { detectImageMediaType, openaiClientOptions } = await import('../aiProvider');
       const OpenAI = (await import('openai')).default;
-      const openai = new OpenAI({
-        apiKey: process.env.AI_INTEGRATIONS_OPENAI_API_KEY,
-        baseURL: process.env.AI_INTEGRATIONS_OPENAI_BASE_URL,
-      });
+      const openai = new OpenAI(openaiClientOptions());
 
       const excludeNote = exclude && exclude.length
         ? `\n\nDo NOT suggest any of these (already shown): ${exclude.map(t => `"${t}"`).join(', ')}.`
@@ -8289,12 +8286,9 @@ Hard rules:
         return res.status(413).json({ message: "Those photos are too large. Try fewer or smaller ones." });
       }
 
-      const { detectImageMediaType } = await import('../aiProvider');
+      const { detectImageMediaType, openaiClientOptions } = await import('../aiProvider');
       const OpenAI = (await import('openai')).default;
-      const openai = new OpenAI({
-        apiKey: process.env.AI_INTEGRATIONS_OPENAI_API_KEY,
-        baseURL: process.env.AI_INTEGRATIONS_OPENAI_BASE_URL,
-      });
+      const openai = new OpenAI(openaiClientOptions());
 
       const targetServings = servings ?? 2;
 

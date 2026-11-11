@@ -398,7 +398,8 @@ function containsBannedWord(text: string, words: string[]): string | null {
 }
 
 async function openAiModerate(text: string): Promise<{ flagged: boolean; categories?: string[] }> {
-  const apiKey = process.env.AI_INTEGRATIONS_OPENAI_API_KEY || process.env.OPENAI_API_KEY;
+  // Own key first: this calls api.openai.com directly, under OpenAI's API terms.
+  const apiKey = process.env.OPENAI_API_KEY || process.env.AI_INTEGRATIONS_OPENAI_API_KEY;
   if (!apiKey) return { flagged: false };
   try {
     const res = await fetch("https://api.openai.com/v1/moderations", {

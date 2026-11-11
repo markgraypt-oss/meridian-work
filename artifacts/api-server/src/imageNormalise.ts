@@ -274,16 +274,34 @@ export async function inlineImagesToStorage(opts: { dryRun?: boolean } = {}): Pr
       ORDER BY table_name`);
   let found = 0, moved = 0, failed = 0;
   const details: any[] = [];
+  // Not every table with an image column has an `id` column (some are keyed by
+  // user_id or similar), and selecting `id` from those threw
+  // `column "id" does not exist` and aborted the whole sweep on every boot.
+  // Use the table's own single-column primary key, else the physical row id.
+  const pkCols = await pool.query(
+    `SELECT tc.table_name, array_agg(kcu.column_name::text) AS cols
+       FROM information_schema.table_constraints tc
+       JOIN information_schema.key_column_usage kcu
+         ON kcu.constraint_name = tc.constraint_name AND kcu.table_schema = tc.table_schema
+      WHERE tc.table_schema = 'public' AND tc.constraint_type = 'PRIMARY KEY'
+      GROUP BY tc.table_name`);
+  const pkByTable = new Map<string, string>();
+  for (const r of pkCols.rows) if (r.cols?.length === 1) pkByTable.set(r.table_name, r.cols[0]);
+  const q = (ident: string) => `"${String(ident).replace(/"/g, '""')}"`;
+
   for (const { table_name, column_name } of cols.rows) {
+    const pk = pkByTable.get(table_name);
+    const keyExpr = pk ? q(pk) : "ctid";
+    const keyCast = pk ? "" : "::tid";
     const rows = await pool.query(
-      `SELECT id, ${column_name} AS url FROM ${table_name} WHERE ${column_name} LIKE 'data:image/%'`);
+      `SELECT ${keyExpr}${pk ? "" : "::text"} AS id, ${q(column_name)} AS url FROM ${q(table_name)} WHERE ${q(column_name)} LIKE 'data:image/%'`);
     for (const { id, url } of rows.rows) {
       found++;
       if (opts.dryRun) { details.push({ table: table_name, id, bytes: String(url).length }); continue; }
       try {
         const path = await storeInlineImage(String(url));
         if (!path) throw new Error("unreadable image data");
-        await pool.query(`UPDATE ${table_name} SET ${column_name} = $1 WHERE id = $2`, [path, id]);
+        await pool.query(`UPDATE ${q(table_name)} SET ${q(column_name)} = $1 WHERE ${keyExpr} = $2${keyCast}`, [path, id]);
         moved++;
         details.push({ table: table_name, id, bytes: String(url).length, path });
       } catch (err: any) {

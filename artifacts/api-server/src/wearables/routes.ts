@@ -119,11 +119,22 @@ export function registerWearableRoutes(app: Express) {
         if (!secret || !sig) {
           return res.status(401).json({ message: "Missing signature" });
         }
-        const expected = crypto.createHmac("sha256", secret).update(raw).digest("hex");
-        const a = Buffer.from(sig);
-        const b = Buffer.from(expected);
-        if (a.length !== b.length || !crypto.timingSafeEqual(a, b)) {
-          console.warn("[oura-webhook] signature mismatch");
+        // Oura signs x-oura-timestamp + raw body (no separator) with the client
+        // secret and sends an UPPERCASE hex digest. The old check signed the body
+        // alone in lowercase, so every Oura push was rejected (fixed 11 Nov 2026).
+        const ts = req.header("x-oura-timestamp") || "";
+        const hmacHex = (input: Buffer) =>
+          crypto.createHmac("sha256", secret).update(input).digest("hex").toUpperCase();
+        const given = Buffer.from(String(sig).toUpperCase());
+        const matches = (hex: string) => {
+          const b = Buffer.from(hex);
+          return given.length === b.length && crypto.timingSafeEqual(given, b);
+        };
+        const ok =
+          (ts && matches(hmacHex(Buffer.concat([Buffer.from(ts, "utf8"), raw])))) ||
+          matches(hmacHex(raw));
+        if (!ok) {
+          console.warn(`[oura-webhook] signature mismatch (timestamp ${ts ? "present" : "missing"})`);
           return res.status(401).json({ message: "Bad signature" });
         }
 

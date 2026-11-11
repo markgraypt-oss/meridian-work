@@ -71,6 +71,7 @@ export default function AdminUsers() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/admin/users"] });
       queryClient.invalidateQueries({ queryKey: ["/api/admin/company-names"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/admin/companies"] });
       setShowUserForm(false);
       resetForm();
       toast({ title: "Invite sent!", description: "They'll receive an email to set up their account." });
@@ -87,6 +88,7 @@ export default function AdminUsers() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/admin/users"] });
       queryClient.invalidateQueries({ queryKey: ["/api/admin/company-names"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/admin/companies"] });
       setShowUserForm(false);
       setEditingUser(null);
       resetForm();
@@ -285,7 +287,7 @@ export default function AdminUsers() {
               />
               {!editingUser && (
                 <p className="text-xs text-muted-foreground">
-                  They'll receive an email to set up their password
+                  They'll get an email with their set-up link and the app download links. The link lasts 7 days.
                 </p>
               )}
             </div>

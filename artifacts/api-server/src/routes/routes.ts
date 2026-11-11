@@ -2974,6 +2974,21 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // The Users page picks a company by name. Link the person to the real
+  // companies row (companyId) so the company's branding, reports and benefits
+  // apply to them, not just the name as text. "+ Create new company" on the
+  // Users page creates the company here if it does not exist yet.
+  async function resolveCompanyForUser(name: string | null | undefined): Promise<{ companyId: number | null; companyName: string | null }> {
+    const trimmed = (name ?? "").trim();
+    if (!trimmed) return { companyId: null, companyName: null };
+    const [found] = await db.select().from(companies)
+      .where(sql`lower(trim(${companies.name})) = ${trimmed.toLowerCase()}`)
+      .limit(1);
+    if (found) return { companyId: found.id, companyName: found.name };
+    const created = await storage.createCompany({ name: trimmed } as any);
+    return { companyId: created.id, companyName: created.name };
+  }
+
   app.post('/api/admin/users', isAuthenticated, async (req: any, res) => {
     try {
       const userId = req.user.claims.sub;
@@ -2998,11 +3013,15 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(400).json({ message: "User with this email already exists" });
       }
 
+      const company = await resolveCompanyForUser(companyName);
+      companyName = company.companyName;
+
       const newUser = await storage.createUser({
         email,
         firstName,
         lastName,
-        companyName,
+        companyName: company.companyName ?? undefined,
+        companyId: company.companyId ?? undefined,
         isAdmin: isAdmin || false,
         role: role || 'user',
       });
@@ -3060,7 +3079,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
         if (!iAmSuper && companyName !== currentUser.companyName) {
           return res.status(403).json({ message: "Only a super admin can move a user to another company" });
         }
-        updateData.companyName = companyName;
+        const company = await resolveCompanyForUser(companyName);
+        updateData.companyName = company.companyName;
+        updateData.companyId = company.companyId;
       }
       if (isAdmin !== undefined) {
         if (!iAmSuper) return res.status(403).json({ message: "Only a super admin can change admin access" });

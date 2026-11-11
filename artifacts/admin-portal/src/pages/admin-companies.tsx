@@ -51,7 +51,6 @@ type CompanyData = {
   brandPrimaryColor: string | null;
   brandSecondaryColor: string | null;
   brandBackgroundColor: string | null;
-  brandWelcomeMessage: string | null;
   staffChallengesEnabled: boolean | null;
 };
 
@@ -203,7 +202,7 @@ export default function AdminCompanies() {
   const [deleteWellbeingId, setDeleteWellbeingId] = useState<number | null>(null);
   const [wellbeingForm, setWellbeingForm] = useState({ name: "", role: "", email: "", isActive: true });
   const [wellbeingCopy, setWellbeingCopy] = useState({ buttonLabel: "", introText: "" });
-  const [brandForm, setBrandForm] = useState({ primary: "", secondary: "", background: "", welcome: "" });
+  const [brandForm, setBrandForm] = useState({ primary: "", secondary: "", background: "" });
 
   const [companyForm, setCompanyForm] = useState({
     name: "",
@@ -315,9 +314,8 @@ export default function AdminCompanies() {
       primary: companyDetail?.brandPrimaryColor || "",
       secondary: companyDetail?.brandSecondaryColor || "",
       background: companyDetail?.brandBackgroundColor || "",
-      welcome: companyDetail?.brandWelcomeMessage || "",
     });
-  }, [companyDetail?.id, companyDetail?.brandPrimaryColor, companyDetail?.brandSecondaryColor, companyDetail?.brandBackgroundColor, companyDetail?.brandWelcomeMessage]);
+  }, [companyDetail?.id, companyDetail?.brandPrimaryColor, companyDetail?.brandSecondaryColor, companyDetail?.brandBackgroundColor]);
 
   const updateBrandingMutation = useMutation({
     mutationFn: async (data: Record<string, unknown>) => {
@@ -962,7 +960,7 @@ export default function AdminCompanies() {
             </CardContent>
           </Card>
 
-          {/* App branding: logo, colours and welcome message the mobile app
+          {/* App branding: logo and colours the mobile app
               shows to everyone at this company instead of Meridian's own. */}
           <Card className="border-border">
             <CardHeader className="pb-2">
@@ -1036,18 +1034,6 @@ export default function AdminCompanies() {
                 );
               })}
 
-              <div>
-                <Label className="text-xs text-muted-foreground">Welcome message on the Home screen (optional)</Label>
-                <textarea
-                  className="flex min-h-[60px] w-full rounded-md border border-input bg-background px-3 py-2 text-sm mt-1 placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                  value={brandForm.welcome}
-                  maxLength={280}
-                  onChange={(e) => setBrandForm({ ...brandForm, welcome: e.target.value })}
-                  placeholder="For example, a short note from the MD about why the company is using the app."
-                />
-                <p className="text-xs text-muted-foreground mt-1">{brandForm.welcome.length}/280</p>
-              </div>
-
               <div className="rounded-lg p-3 border border-border" style={{ backgroundColor: HEX_RE.test(brandForm.background) ? brandForm.background : MERIDIAN_BACKGROUND }}>
                 <p className="text-xs text-white/70 mb-2">Preview</p>
                 <div className="flex items-center justify-center mb-3">
@@ -1075,7 +1061,6 @@ export default function AdminCompanies() {
                     brandPrimaryColor: brandForm.primary ? brandForm.primary.toUpperCase() : null,
                     brandSecondaryColor: brandForm.secondary ? brandForm.secondary.toUpperCase() : null,
                     brandBackgroundColor: brandForm.background ? brandForm.background.toUpperCase() : null,
-                    brandWelcomeMessage: brandForm.welcome.trim() || null,
                   })}
                 >
                   Save branding

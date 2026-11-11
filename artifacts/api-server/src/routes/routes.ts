@@ -1582,7 +1582,6 @@ export async function registerRoutes(app: Express): Promise<Server> {
         primaryColor: company.brandPrimaryColor || null,
         secondaryColor: company.brandSecondaryColor || null,
         backgroundColor: company.brandBackgroundColor || null,
-        welcomeMessage: company.brandWelcomeMessage || null,
       });
     } catch (error) {
       console.error("Error fetching company branding:", error);

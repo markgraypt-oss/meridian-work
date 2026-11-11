@@ -548,13 +548,27 @@ export default function AdminCompanies() {
 
   const bulkInviteMutation = useMutation({
     mutationFn: async (emails: string[]) => {
-      return apiRequest("POST", `/api/admin/companies/${selectedCompanyId}/bulk-invite`, { emails });
+      const res = await apiRequest("POST", `/api/admin/companies/${selectedCompanyId}/bulk-invite`, { emails });
+      return res.json() as Promise<{ invited: number; resent: number; failed: string[]; skipped: { email: string; reason: string }[] }>;
     },
-    onSuccess: () => {
+    onSuccess: (data) => {
       queryClient.invalidateQueries({ queryKey: ["/api/admin/companies", selectedCompanyId, "invites"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/admin/companies", selectedCompanyId] });
+      queryClient.invalidateQueries({ queryKey: ["/api/admin/companies"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/admin/users"] });
       setShowBulkInvite(false);
       setBulkInviteEmails("");
-      toast({ title: "Invitations sent successfully" });
+      const parts: string[] = [];
+      if (data.invited) parts.push(`${data.invited} invited`);
+      if (data.resent) parts.push(`${data.resent} sent a new link`);
+      const notes: string[] = [];
+      if (data.failed?.length) notes.push(`Email failed for: ${data.failed.join(", ")}`);
+      if (data.skipped?.length) notes.push(`Skipped: ${data.skipped.map((s) => `${s.email} (${s.reason})`).join(", ")}`);
+      toast({
+        title: parts.length ? parts.join(", ") : "No invites sent",
+        description: notes.length ? notes.join(". ") : undefined,
+        variant: data.failed?.length ? "destructive" : undefined,
+      });
     },
     onError: (error: any) => {
       toast({ title: "Failed to send invitations", description: error.message, variant: "destructive" });
@@ -2071,7 +2085,7 @@ export default function AdminCompanies() {
             <DialogTitle>Bulk Invite Users</DialogTitle>
           </DialogHeader>
           <div className="space-y-4">
-            <p className="text-sm text-muted-foreground">Enter email addresses, one per line or separated by commas.</p>
+            <p className="text-sm text-muted-foreground">Enter email addresses, one per line or separated by commas. Each person gets an account in this company and an email with their set-up link and the app download links. The link lasts 7 days. Anyone already invited who has not set up yet gets a new link.</p>
             <textarea
               className="flex min-h-[120px] w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
               value={bulkInviteEmails}

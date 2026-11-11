@@ -3,7 +3,7 @@ import express from "express";
 import { createServer, type Server } from "http";
 import { storage } from "../storage";
 import { db, pool } from "../db";
-import { setupAuth, isAuthenticated, generateResetToken, hashToken, sendUserInviteEmail, sendPasswordResetEmail, sendTesterWelcomeEmail, sendTesterSignupNotification, addTesterToAudience, TESTFLIGHT_URL, PLAY_TESTING_URL, sendSupportMessageToAdmin } from "../replitAuth";
+import { setupAuth, isAuthenticated, generateResetToken, hashToken, sendUserInviteEmail, sendUserInviteEmailsBatch, INVITE_LINK_DAYS, sendPasswordResetEmail, sendTesterWelcomeEmail, sendTesterSignupNotification, addTesterToAudience, TESTFLIGHT_URL, PLAY_TESTING_URL, sendSupportMessageToAdmin } from "../replitAuth";
 import { QUESTIONS as LD_QUESTIONS, INTRO_COPY as LD_INTRO, CARD_COPY as LD_CARD, getStatus as ldGetStatus, validate as ldValidate, saveAnswers as ldSave, personalLine as ldPersonalLine, aggregateForCompany as ldAggregate, periodKeyFor as ldPeriodKey } from "../loadDiagnostic";
 import { saveWaitlistSignup, addToWaitlistSegment, sendWaitlistConfirmation, sendWaitlistAdminPing, countWaitlist, STAFF_BANDS, type StaffBand } from "../waitlist";
 import { looksLikeBotSignup } from "../signupBotCheck";
@@ -3009,7 +3009,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       const token = generateResetToken();
       const hashedToken = hashToken(token);
-      const expiresAt = new Date(Date.now() + 24 * 60 * 60 * 1000);
+      const expiresAt = new Date(Date.now() + INVITE_LINK_DAYS * 24 * 60 * 60 * 1000);
 
       await storage.createPasswordResetToken({
         userId: newUser.id,
@@ -3018,7 +3018,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       });
 
       const baseUrl = `https://${req.get("host")}`;
-      const emailSent = await sendUserInviteEmail(email, token, baseUrl, firstName || undefined);
+      const emailSent = await sendUserInviteEmail(email, token, baseUrl, firstName || undefined, companyName || undefined);
 
       res.status(201).json({
         id: newUser.id,
@@ -4081,6 +4081,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // Bulk Invite. Creates each person's account inside this company (so the
+  // company's branding and reporting apply from their first login), and sends
+  // the invite email with a set-up link and the install links. Anyone already
+  // invited here who has not set up yet gets a fresh link, so this doubles as
+  // "resend". People who are set up, or who belong to another company, are
+  // skipped and listed back to the admin.
   app.post('/api/admin/companies/:id/bulk-invite', isAuthenticated, async (req: any, res) => {
     try {
       const userId = req.user.claims.sub;
@@ -4093,12 +4099,61 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const companyId = parseInt(req.params.id);
       const company = await storage.getCompanyById(companyId);
       if (!company) return res.status(404).json({ message: "Company not found" });
-      if (company.maxUsers && (company.userCount + emails.length) > company.maxUsers) {
-        return res.status(400).json({ message: `Adding ${emails.length} users would exceed the max user limit of ${company.maxUsers}` });
+
+      const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+      const cleaned: string[] = Array.from(new Set(
+        emails.map((e: any) => String(e ?? "").trim().toLowerCase()).filter((e: string) => e.length > 0),
+      ));
+      const skipped: { email: string; reason: string }[] = [];
+      const plan: { email: string; existing: any | null }[] = [];
+      for (const email of cleaned) {
+        if (!EMAIL_RE.test(email)) { skipped.push({ email, reason: "Not a valid email address" }); continue; }
+        const existing = await storage.getUserByEmail(email);
+        if (!existing) { plan.push({ email, existing: null }); continue; }
+        if (existing.companyId && existing.companyId !== companyId) {
+          skipped.push({ email, reason: "Already belongs to another company" });
+          continue;
+        }
+        if (existing.password || existing.firstLoginAt) {
+          skipped.push({
+            email,
+            reason: existing.companyId === companyId ? "Already set up" : "Already has an account. Use Add to move them into this company",
+          });
+          continue;
+        }
+        plan.push({ email, existing });
       }
-      const inviteData = emails.map((email: string) => ({ companyId, email: email.trim().toLowerCase(), status: "pending" }));
-      const invites = await storage.createCompanyInvites(inviteData);
-      res.json({ success: true, count: invites.length, invites });
+
+      const joining = plan.filter((p) => !p.existing || p.existing.companyId !== companyId).length;
+      if (company.maxUsers && (company.userCount + joining) > company.maxUsers) {
+        return res.status(400).json({ message: `Adding ${joining} users would exceed the max user limit of ${company.maxUsers}` });
+      }
+
+      const expiresAt = new Date(Date.now() + INVITE_LINK_DAYS * 24 * 60 * 60 * 1000);
+      const toSend: { email: string; token: string; firstName?: string; isNew: boolean }[] = [];
+      for (const p of plan) {
+        let user = p.existing;
+        if (!user) {
+          user = await storage.createUser({ email: p.email, companyId, companyName: company.name, role: "user" });
+        } else if (user.companyId !== companyId) {
+          await storage.assignUserToCompany(user.id, companyId);
+        }
+        const token = generateResetToken();
+        await storage.createPasswordResetToken({ userId: user.id, token: hashToken(token), expiresAt });
+        toSend.push({ email: p.email, token, firstName: user.firstName || undefined, isNew: !p.existing });
+      }
+
+      const baseUrl = `https://${req.get("host")}`;
+      const { failed } = toSend.length
+        ? await sendUserInviteEmailsBatch(toSend.map(({ email, token, firstName }) => ({ email, token, firstName })), baseUrl, company.name)
+        : { failed: [] as string[] };
+      const failedSet = new Set(failed);
+      if (toSend.length) {
+        await storage.createCompanyInvites(toSend.map((t) => ({ companyId, email: t.email, status: failedSet.has(t.email) ? "failed" : "sent" })));
+      }
+      const invited = toSend.filter((t) => t.isNew && !failedSet.has(t.email)).length;
+      const resent = toSend.filter((t) => !t.isNew && !failedSet.has(t.email)).length;
+      res.json({ success: true, count: invited + resent, invited, resent, failed, skipped });
     } catch (error) {
       console.error("Error bulk inviting:", error);
       res.status(500).json({ message: "Failed to send invites" });

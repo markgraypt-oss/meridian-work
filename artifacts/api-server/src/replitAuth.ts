@@ -55,33 +55,60 @@ export async function sendPasswordResetEmail(email: string, token: string, baseU
   }
 }
 
-export async function sendUserInviteEmail(email: string, token: string, baseUrl: string, firstName?: string): Promise<boolean> {
+// Company invites (single invite from Users, and Bulk Invite on a company).
+// The set-up link lasts INVITE_LINK_DAYS so people who open the email later in
+// the week can still get in. The email carries the install links, so after
+// setting a password people know where to get the app.
+export const INVITE_LINK_DAYS = 7;
+export const APP_STORE_URL = process.env.APP_STORE_URL || "";
+export const PLAY_STORE_URL = process.env.PLAY_STORE_URL || "";
+
+// Public store links when set (APP_STORE_URL / PLAY_STORE_URL secrets);
+// until then the TestFlight and Play testing links.
+function companyInstallLinksHtml(): string {
+  const iosUrl = APP_STORE_URL || TESTFLIGHT_URL;
+  const androidUrl = PLAY_STORE_URL || PLAY_TESTING_URL;
+  const ios = `<strong>iPhone:</strong> <a href="${iosUrl}" style="color:#a9743f;">${iosUrl}</a>`;
+  const android = androidUrl
+    ? `<strong>Android:</strong> <a href="${androidUrl}" style="color:#a9743f;">${androidUrl}</a>`
+    : `<strong>Android:</strong> the Google Play link is on its way. Your administrator will share it with you.`;
+  return `${ios}<br>${android}`;
+}
+
+function buildUserInviteEmail(email: string, token: string, baseUrl: string, firstName?: string, companyName?: string) {
+  const setupUrl = `${baseUrl}/reset-password?token=${token}&invite=true`;
+  const greeting = firstName ? `Hi ${escapeHtml(firstName)},` : "Hi,";
+  const intro = companyName
+    ? `${escapeHtml(companyName)} has invited you to MeridianWork. Three steps and you're in.`
+    : "You've been invited to join MeridianWork. Three steps and you're in.";
+  return {
+    from: "MeridianWork <no-reply@meridian.work>",
+    to: email,
+    subject: "Welcome to MeridianWork - Set Up Your Account",
+    html: renderBrandedEmail({
+      eyebrow: "Welcome",
+      heading: "Peak performance at work starts here",
+      bodyHtml:
+        emailParagraph(greeting) +
+        emailParagraph(intro) +
+        emailParagraph(`<strong>1. Set your password</strong><br>Tap the button below. The link lasts ${INVITE_LINK_DAYS} days.`) +
+        emailParagraph(`<strong>2. Install the app</strong><br>${companyInstallLinksHtml()}`) +
+        emailParagraph("<strong>3. Log in</strong><br>Use this email address and your new password. Movement, nutrition, recovery and your AI coach are all in one place.") +
+        emailNote("If the link has expired, ask your administrator to send you a new one."),
+      cta: { label: "Set up your account", url: setupUrl },
+      signature: true,
+      preheader: "Set up your MeridianWork account",
+    }),
+  };
+}
+
+export async function sendUserInviteEmail(email: string, token: string, baseUrl: string, firstName?: string, companyName?: string): Promise<boolean> {
   if (!resend) {
     console.error("Resend not configured - RESEND_API_KEY missing");
     return false;
   }
-
-  const setupUrl = `${baseUrl}/reset-password?token=${token}&invite=true`;
-  const greeting = firstName ? `Hi ${firstName},` : "Hi,";
-
   try {
-    const { error } = await resend.emails.send({
-      from: "MeridianWork <no-reply@meridian.work>",
-      to: email,
-      subject: "Welcome to MeridianWork - Set Up Your Account",
-      html: renderBrandedEmail({
-        eyebrow: "Welcome",
-        heading: "Peak performance at work starts here",
-        bodyHtml:
-          emailParagraph(greeting) +
-          emailParagraph("You've been invited to join MeridianWork. Set up your password and you're in, with movement, nutrition, recovery and your AI coach all in one place.") +
-          emailNote("This link expires in 24 hours. Any questions, just contact your administrator."),
-        cta: { label: "Set up your account", url: setupUrl },
-        signature: true,
-        preheader: "Set up your MeridianWork account",
-      }),
-    });
-
+    const { error } = await resend.emails.send(buildUserInviteEmail(email, token, baseUrl, firstName, companyName));
     if (error) {
       console.error("Failed to send invite email:", error);
       return false;
@@ -91,6 +118,38 @@ export async function sendUserInviteEmail(email: string, token: string, baseUrl:
     console.error("Error sending invite email:", err);
     return false;
   }
+}
+
+// Bulk Invite: Resend's batch endpoint, 100 emails per call, so a whole
+// company goes out in seconds without hitting the per-second rate limit.
+// Returns which addresses were handed to Resend and which failed.
+export async function sendUserInviteEmailsBatch(
+  items: { email: string; token: string; firstName?: string }[],
+  baseUrl: string,
+  companyName?: string,
+): Promise<{ sent: string[]; failed: string[] }> {
+  const sent: string[] = [];
+  const failed: string[] = [];
+  if (!resend) {
+    console.error("Resend not configured - RESEND_API_KEY missing");
+    return { sent, failed: items.map((i) => i.email) };
+  }
+  for (let i = 0; i < items.length; i += 100) {
+    const chunk = items.slice(i, i + 100);
+    try {
+      const { error } = await resend.batch.send(chunk.map((it) => buildUserInviteEmail(it.email, it.token, baseUrl, it.firstName, companyName)));
+      if (error) {
+        console.error("Failed to send invite batch:", error);
+        failed.push(...chunk.map((c) => c.email));
+      } else {
+        sent.push(...chunk.map((c) => c.email));
+      }
+    } catch (err) {
+      console.error("Error sending invite batch:", err);
+      failed.push(...chunk.map((c) => c.email));
+    }
+  }
+  return { sent, failed };
 }
 
 // ---------------------------------------------------------------------------

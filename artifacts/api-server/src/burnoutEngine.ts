@@ -49,8 +49,8 @@ interface BurnoutDataSources {
 //  - Steps/activity are all-day tracking signals: apple > google > oura > whoop.
 // Each converter picks the best provider per day for ITS metric, filling gaps
 // from the next provider down.
-const PHYSIO_PRIORITY: Record<string, number> = { oura: 4, whoop: 3, apple_health: 2, google_fit: 1 };
-const ACTIVITY_PRIORITY: Record<string, number> = { apple_health: 4, google_fit: 3, oura: 2, whoop: 1 };
+const PHYSIO_PRIORITY: Record<string, number> = { oura: 4, whoop: 3, garmin: 3, apple_health: 2, google_fit: 1 };
+const ACTIVITY_PRIORITY: Record<string, number> = { garmin: 5, apple_health: 4, google_fit: 3, oura: 2, whoop: 1 };
 // Back-compat: the HRV/RHR composite block below references WEARABLE_PRIORITY.
 // Those are physiological metrics, so it maps to the physio order.
 const WEARABLE_PRIORITY = PHYSIO_PRIORITY;

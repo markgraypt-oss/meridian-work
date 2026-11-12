@@ -819,9 +819,9 @@ export async function getUserDataContext(userId: string, feature: string): Promi
     // We prefer wearable_metrics_daily over self-reported entries because they
     // are objective device measurements; we tag the source as "from <device>".
     const PROVIDER_LABEL: Record<string, string> = {
-      oura: "Oura Ring", whoop: "WHOOP", apple_health: "Apple Health", google_fit: "Google Fit",
+      oura: "Oura Ring", whoop: "WHOOP", garmin: "Garmin", apple_health: "Apple Health", google_fit: "Google Fit",
     };
-    const PROVIDER_PRIORITY: Record<string, number> = { oura: 4, whoop: 3, apple_health: 2, google_fit: 1 };
+    const PROVIDER_PRIORITY: Record<string, number> = { oura: 4, whoop: 3, garmin: 3, apple_health: 2, google_fit: 1 };
     let wearableRows: any[] = [];
     let bestWearableDays: any[] = [];
     if (domains.includes('sleep') || domains.includes('steps') || domains.includes('resting_hr')) {

@@ -18,12 +18,14 @@ import {
   upsertConnection,
   upsertWearableWorkouts,
   getWearableWorkouts,
+  processGarminPush,
+  disconnectGarmin,
 } from "./index";
 import { z } from 'zod';
 import { parseAppleHealthExport } from "./appleHealth";
 import type { WearableProvider } from "./types";
 
-const PROVIDERS: WearableProvider[] = ["oura", "whoop", "google_fit", "apple_health"];
+const PROVIDERS: WearableProvider[] = ["oura", "whoop", "garmin", "google_fit", "apple_health"];
 
 // Apple Health export.zip. 60 MB compressed is far above a real export (most
 // are 5 to 30 MB). The XML inside is capped again in appleHealth.ts.
@@ -262,6 +264,43 @@ export function registerWearableRoutes(app: Express) {
       }
     },
   );
+  // Garmin push. Garmin POSTs JSON summaries ({ dailies: [...] },
+  // { sleeps: [...] }, { activities: [...] }, { deregistrations: [...] } ...)
+  // to this one URL, set per summary type in Garmin's endpoint tool. Pushes
+  // are not signed; each carries a garmin-client-id header, which must be
+  // ours. Garmin wants a 200 within 30 seconds and retries hourly for 7 days
+  // on anything else. Storing a push takes well under that, so it is stored
+  // first: on a database error the reply is 500 and Garmin resends, instead
+  // of the data being lost behind an early 200. If storing ever takes over
+  // 20 seconds, the 200 goes out and storing carries on.
+  app.post(
+    "/api/wearables/garmin/webhook",
+    express.json({ limit: "25mb" }),
+    async (req: any, res) => {
+      const expected = process.env.GARMIN_CLIENT_ID || "";
+      const got = String(req.header("garmin-client-id") || "");
+      if (!expected || got !== expected) {
+        console.warn(`[garmin-webhook] rejected: client id ${got ? "mismatch" : "missing"} (ip ${req.ip})`);
+        res.status(401).json({ message: "Unknown client" });
+        return;
+      }
+      let replied = false;
+      const timer = setTimeout(() => {
+        if (!replied) { replied = true; res.status(200).json({ ok: true }); }
+      }, 20_000);
+      try {
+        const r = await processGarminPush(req.body);
+        console.log(`[garmin-webhook] users=${r.users} days=${r.days} workouts=${r.workouts} unknownUsers=${r.unknownUsers} deregistered=${r.deregistered}${r.ignoredTypes.length ? ` ignored=${r.ignoredTypes.join(",")}` : ""}`);
+        if (!replied) { replied = true; res.status(200).json({ ok: true }); }
+      } catch (err: any) {
+        console.error("[garmin-webhook] store failed:", err?.message || err);
+        if (!replied) { replied = true; res.status(500).json({ message: "Store failed, please retry" }); }
+      } finally {
+        clearTimeout(timer);
+      }
+    },
+  );
+
   // Catalog: providers + whether configured
   app.get("/api/wearables/providers", isAuthenticated, async (_req, res) => {
     const out = PROVIDERS.map((p) => {
@@ -308,17 +347,18 @@ export function registerWearableRoutes(app: Express) {
     }
     const userId = req.user.claims.sub;
 
-    // Mutual exclusion: Oura and WHOOP are both full physiological providers
-    // (sleep, HRV, recovery). Allowing both at once would mean two competing
-    // sources for the same signals. Only one may be connected at a time — the
-    // user must disconnect one before connecting the other.
-    if (provider === "oura" || provider === "whoop") {
-      const other = provider === "oura" ? "whoop" : "oura";
+    // Mutual exclusion: Oura, WHOOP and Garmin are all full physiological
+    // providers (sleep, HRV, resting heart rate). Two at once would mean
+    // competing sources for the same signals, so only one may be connected at
+    // a time; the user must disconnect one before connecting another.
+    const TRACKERS: WearableProvider[] = ["oura", "whoop", "garmin"];
+    if (TRACKERS.includes(provider)) {
       const conns = await getConnections(userId);
-      const otherConn = conns.find((c) => c.provider === other && c.status === "connected");
+      const otherConn = conns.find((c) => c.provider !== provider && TRACKERS.includes(c.provider as WearableProvider) && c.status === "connected");
       if (otherConn) {
+        const other = otherConn.provider as WearableProvider;
         return res.status(409).json({
-          message: `Disconnect ${PROVIDER_LABELS[other]} first. You can only connect one of Oura or WHOOP at a time.`,
+          message: `Disconnect ${PROVIDER_LABELS[other]} first. You can only connect one of Oura, WHOOP or Garmin at a time.`,
         });
       }
     }
@@ -369,7 +409,7 @@ export function registerWearableRoutes(app: Express) {
     if (!adapter || !adapter.exchangeCode) return closeWindow("Adapter unavailable.", false);
 
     try {
-      const tokens = await adapter.exchangeCode(code!, payload!.redirectUri);
+      const tokens = await adapter.exchangeCode(code!, payload!.redirectUri, state);
       await upsertConnection(payload!.userId, provider, {
         accessToken: tokens.accessToken,
         refreshToken: tokens.refreshToken ?? null,
@@ -396,7 +436,8 @@ export function registerWearableRoutes(app: Express) {
       const userId = req.user.claims.sub;
       const provider = req.params.provider;
       const deleteData = req.query.deleteData === "1" || req.body?.deleteData === true;
-      await disconnectProvider(userId, provider, deleteData);
+      if (provider === "garmin") await disconnectGarmin(userId);
+      else await disconnectProvider(userId, provider, deleteData);
       res.json({ ok: true });
     } catch (err) {
       console.error("[wearables] disconnect error", err);

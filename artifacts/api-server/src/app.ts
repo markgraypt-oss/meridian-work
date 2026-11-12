@@ -87,6 +87,9 @@ app.use((req: Request, res: Response, next: NextFunction) => {
 const RAW_BODY_PATHS = [
   "/api/wearables/whoop/webhook",
   "/api/wearables/oura/webhook",
+  // Garmin: parsed by its own express.json with a bigger limit (summaries
+  // can carry per-15-second heart rate samples).
+  "/api/wearables/garmin/webhook",
 ];
 
 app.use((req: Request, res: Response, next: NextFunction) => {

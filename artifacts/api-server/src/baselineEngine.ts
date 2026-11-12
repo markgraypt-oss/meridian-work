@@ -35,6 +35,7 @@ const MIN_SAMPLES_FOR_CALIBRATION = 14;
 const WEARABLE_PRIORITY: Record<string, number> = {
   oura: 4,
   whoop: 3,
+  garmin: 3,
   apple_health: 2,
   google_fit: 1,
 };

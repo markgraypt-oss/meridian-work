@@ -4,12 +4,14 @@ import type { NormalisedDailyMetrics, OAuthTokens, WearableAdapter, WearableProv
 import { ouraAdapter } from "./oura";
 import { whoopAdapter } from "./whoop";
 import { googleFitAdapter } from "./googleFit";
+import { garminAdapter, garminDeleteRegistration, parseGarminPush } from "./garmin";
 import { encryptToken, decryptToken } from "./encryption";
 import { eq, and, sql, desc, gte, lte } from "drizzle-orm";
 
 export const ADAPTERS: Record<WearableProvider, WearableAdapter | null> = {
   oura: ouraAdapter,
   whoop: whoopAdapter,
+  garmin: garminAdapter,
   google_fit: googleFitAdapter,
   apple_health: null, // upload-only
 };
@@ -17,6 +19,7 @@ export const ADAPTERS: Record<WearableProvider, WearableAdapter | null> = {
 export const PROVIDER_LABELS: Record<WearableProvider, string> = {
   oura: "Oura Ring",
   whoop: "WHOOP",
+  garmin: "Garmin",
   google_fit: "Google Fit",
   apple_health: "Apple Health",
 };
@@ -467,6 +470,85 @@ async function refreshIfNeeded(conn: WearableConnection, adapter: WearableAdapte
   });
 }
 
+// ─── Garmin (push only) ─────────────────────────────────────────────────────
+// Store one Garmin push. Garmin identifies users by its own API user id, saved
+// as providerUserId when they connected. Returns counts for the log line.
+export async function processGarminPush(body: any): Promise<{ users: number; days: number; workouts: number; unknownUsers: number; deregistered: number; ignoredTypes: string[] }> {
+  const parsed = parseGarminPush(body);
+  const result = { users: 0, days: 0, workouts: 0, unknownUsers: 0, deregistered: 0, ignoredTypes: parsed.ignoredTypes };
+
+  // User removed MeridianWork in Garmin Connect (or we deleted the
+  // registration). Their Garmin data is deleted, as the privacy policy says.
+  for (const gid of parsed.deregistrations) {
+    const conn = await getConnectionByProviderUser("garmin", gid);
+    if (!conn) continue;
+    await disconnectProvider(conn.userId, "garmin", true);
+    await db.delete(wearableWorkouts).where(and(eq(wearableWorkouts.userId, conn.userId), eq(wearableWorkouts.provider, "garmin")));
+    result.deregistered++;
+  }
+
+  for (const pc of parsed.permissionChanges) {
+    const conn = await getConnectionByProviderUser("garmin", pc.userId);
+    if (!conn) continue;
+    await db.update(wearableConnections).set({ scopes: pc.permissions, updatedAt: new Date() }).where(eq(wearableConnections.id, conn.id));
+  }
+
+  const METRIC_KEYS = ["sleepMinutes", "sleepDeepMinutes", "sleepRemMinutes", "sleepLightMinutes", "sleepAwakeMinutes", "sleepScore", "hrvMs", "restingHrBpm", "steps", "activeMinutes", "caloriesBurned", "vo2MaxMlKgMin"] as const;
+  for (const [gid, batch] of parsed.byUser) {
+    const conn = await getConnectionByProviderUser("garmin", gid);
+    if (!conn || conn.status === "disconnected") {
+      result.unknownUsers++;
+      continue;
+    }
+    result.users++;
+    const metrics = batch.metrics.filter((m) => METRIC_KEYS.some((k) => (m as any)[k] != null));
+    if (metrics.length > 0) result.days += await upsertDailyMetrics(conn.userId, "garmin", metrics);
+
+    if (batch.workouts.length > 0) {
+      result.workouts += await upsertWearableWorkouts(conn.userId, "garmin", batch.workouts as any);
+      // workoutCount per day comes from the stored workouts, because Garmin
+      // pushes activities one or a few at a time.
+      const dates = [...new Set(batch.workouts.map((w) => w.localDate))];
+      for (const date of dates) {
+        const [row] = await db.select({ n: sql<number>`count(*)::int` }).from(wearableWorkouts).where(and(
+          eq(wearableWorkouts.userId, conn.userId),
+          eq(wearableWorkouts.provider, "garmin"),
+          sql`${wearableWorkouts.raw}->>'localDate' = ${date}`,
+        ));
+        await upsertDailyMetrics(conn.userId, "garmin", [{ date, workoutCount: row?.n ?? 0, raw: null }]);
+      }
+    }
+
+    // For Garmin, lastSyncAt = last push received.
+    await db.update(wearableConnections).set({
+      lastSyncAt: new Date(), lastSyncStatus: "ok", lastSyncError: null, status: "connected", updatedAt: new Date(),
+    }).where(eq(wearableConnections.id, conn.id));
+  }
+  return result;
+}
+
+// Disconnecting Garmin inside the app. Garmin's terms require calling its
+// delete-registration endpoint; after that Garmin stops sending data. The
+// user's Garmin data is deleted (privacy policy, and what we told Garmin).
+export async function disconnectGarmin(userId: string): Promise<void> {
+  try {
+    const token = await getValidAccessToken(userId, "garmin");
+    if (token) await garminDeleteRegistration(token);
+  } catch (e: any) {
+    // Still disconnect locally; log so a failed Garmin call can be followed up.
+    console.error(`[garmin] delete registration failed for ${userId}:`, e?.message || e);
+  }
+  await disconnectProvider(userId, "garmin", true);
+  await db.delete(wearableWorkouts).where(and(eq(wearableWorkouts.userId, userId), eq(wearableWorkouts.provider, "garmin")));
+}
+
+export async function getValidAccessToken(userId: string, provider: WearableProvider): Promise<string | null> {
+  const adapter = getAdapter(provider);
+  const conn = await getConnection(userId, provider);
+  if (!adapter || !conn || conn.status === "disconnected") return null;
+  return refreshIfNeeded(conn, adapter);
+}
+
 export async function syncProvider(userId: string, provider: WearableProvider, opts: { days?: number; trigger?: string } = {}): Promise<{ daysSynced: number; status: "ok" | "error"; error?: string }> {
   const adapter = getAdapter(provider);
   // 30-day backfill on initial OAuth, 7-day rolling window on scheduled/manual
@@ -493,6 +575,26 @@ export async function syncProvider(userId: string, provider: WearableProvider, o
       updatedAt: new Date(),
     }).where(and(eq(wearableConnections.userId, userId), eq(wearableConnections.provider, provider)));
   };
+
+  // Garmin is push only: its data arrives on /api/wearables/garmin/webhook and
+  // pulling is not allowed. A "sync" just keeps the token chain alive (Garmin
+  // refresh tokens last about 3 months and rotate on every use), so
+  // disconnecting can still call Garmin's delete-registration endpoint.
+  // lastSyncAt is left alone: for Garmin it means the last push received.
+  if (provider === "garmin") {
+    const gConn = await getConnection(userId, provider);
+    let token: string | null = null;
+    let err: string | undefined;
+    if (!gConn || gConn.status === "disconnected" || !adapter) err = "Not connected";
+    else {
+      token = await refreshIfNeeded(gConn, adapter);
+      if (!token) err = "Token refresh failed";
+    }
+    await db.update(wearableSyncLogs).set({
+      status: err ? "error" : "ok", completedAt: new Date(), daysSynced: 0, errorMessage: err || null,
+    }).where(eq(wearableSyncLogs.id, logRow.id));
+    return err ? { daysSynced: 0, status: "error", error: err } : { daysSynced: 0, status: "ok" };
+  }
 
   if (provider === "apple_health") {
     await finalize("ok", 0, undefined);
@@ -625,7 +727,7 @@ export async function getRecentWearableMetrics(userId: string, days = 30): Promi
     .where(and(eq(wearableMetricsDaily.userId, userId), sql`${wearableMetricsDaily.date} >= ${cutoff}`));
 
   // Provider preference: oura > whoop > apple_health > google_fit (medical-grade signal quality)
-  const PRIORITY: Record<string, number> = { oura: 4, whoop: 3, apple_health: 2, google_fit: 1 };
+  const PRIORITY: Record<string, number> = { oura: 4, whoop: 3, garmin: 3, apple_health: 2, google_fit: 1 };
   const bestProviderByDate = new Map<string, string>();
   for (const r of rows) {
     const cur = bestProviderByDate.get(r.date);
@@ -642,8 +744,10 @@ export async function getRecentWearableMetrics(userId: string, days = 30): Promi
 //  - Activity signals (steps, energy, exercise minutes) are most complete from
 //    the phone/watch all-day tracking: apple/google > oura/whoop as fallback.
 //  - Strain is a WHOOP-only metric.
-const PHYSIO_PRIORITY: Record<string, number> = { oura: 4, whoop: 3, apple_health: 2, google_fit: 1 };
-const ACTIVITY_PRIORITY: Record<string, number> = { apple_health: 4, google_fit: 3, oura: 2, whoop: 1 };
+// Garmin ranks with WHOOP for physio (one dedicated tracker at a time), and
+// FIRST for activity: a Garmin watch tracks steps all day, worn on the wrist.
+const PHYSIO_PRIORITY: Record<string, number> = { oura: 4, whoop: 3, garmin: 3, apple_health: 2, google_fit: 1 };
+const ACTIVITY_PRIORITY: Record<string, number> = { garmin: 5, apple_health: 4, google_fit: 3, oura: 2, whoop: 1 };
 
 // Which priority table each metric field uses.
 const PHYSIO_FIELDS = ['hrvMs', 'restingHrBpm', 'sleepMinutes', 'sleepDeepMinutes', 'sleepRemMinutes', 'sleepLightMinutes', 'sleepAwakeMinutes', 'sleepScore', 'vo2MaxMlKgMin', 'readinessScore'] as const;
@@ -736,7 +840,7 @@ export function mergeMetricsPerDay(rows: WearableMetricsDaily[]): MergedDailyMet
 export async function getConnectedOauthProvider(userId: string): Promise<WearableProvider | null> {
   const conns = await getConnections(userId);
   const c = conns.find(
-    (x) => (x.provider === "whoop" || x.provider === "oura") && x.status === "connected",
+    (x) => (x.provider === "whoop" || x.provider === "oura" || x.provider === "garmin") && x.status === "connected",
   );
   return (c?.provider as WearableProvider) ?? null;
 }
@@ -812,7 +916,7 @@ export function stripNonOauthPhysio<T extends MergedDailyMetric>(row: T | undefi
   if (!row) return row;
   for (const f of PHYSIO_FIELDS) {
     const src = row._sources?.[f];
-    if (src && src !== "whoop" && src !== "oura") {
+    if (src && src !== "whoop" && src !== "oura" && src !== "garmin") {
       (row as any)[f] = null;
       delete row._sources[f];
     }

@@ -1,4 +1,4 @@
-export type WearableProvider = "oura" | "whoop" | "google_fit" | "apple_health";
+export type WearableProvider = "oura" | "whoop" | "garmin" | "google_fit" | "apple_health";
 
 export interface NormalisedDailyMetrics {
   date: string; // YYYY-MM-DD
@@ -33,7 +33,9 @@ export interface WearableAdapter {
   isConfigured(): boolean;
   // OAuth providers implement these
   authUrl?(state: string, redirectUri: string): string;
-  exchangeCode?(code: string, redirectUri: string): Promise<OAuthTokens>;
+  // state: the signed OAuth state, passed so PKCE providers (Garmin) can
+  // rebuild their code verifier from it.
+  exchangeCode?(code: string, redirectUri: string, state?: string): Promise<OAuthTokens>;
   refresh?(refreshToken: string): Promise<OAuthTokens>;
   // All providers (except apple_health) implement this
   // tz: the user's IANA timezone. Providers that return instants (WHOOP) use

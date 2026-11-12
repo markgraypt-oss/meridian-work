@@ -324,7 +324,7 @@ export async function generateCalibrationReport(): Promise<CalibrationReport> {
 // warningFired is true if either flag is present.
 
 const WEARABLE_PRIORITY_SNAPSHOT: Record<string, number> = {
-  oura: 4, whoop: 3, apple_health: 2, google_fit: 1,
+  oura: 4, whoop: 3, garmin: 3, apple_health: 2, google_fit: 1,
 };
 
 function ewmaAverage(values: number[], decayFactor = 0.15): number {

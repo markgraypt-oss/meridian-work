@@ -8494,6 +8494,61 @@ Rules:
     }
   });
 
+  // Numbers for the screen shown right after a check-in: how many check-ins in
+  // total, the run of consecutive check-in days (the same count the check-in
+  // badges use), and the next check-in streak badge to aim at. Kept small and
+  // in one call so the screen can show it the moment the check-in is saved.
+  app.get('/api/check-ins/summary', isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = req.user.claims.sub;
+      const totalRes = await pool.query(
+        `SELECT COUNT(DISTINCT date_trunc('day', check_in_date))::integer AS n
+           FROM check_ins WHERE user_id = $1 AND completed = true`, [userId]);
+      const total = Number(totalRes.rows[0]?.n || 0);
+      const streakRes = await pool.query(`
+        WITH days AS (
+          SELECT DISTINCT date_trunc('day', check_in_date)::date AS d
+            FROM check_ins WHERE user_id = $1 AND completed = true
+        ),
+        grp AS (SELECT d, d - ROW_NUMBER() OVER (ORDER BY d ASC)::integer AS g FROM days),
+        latest AS (SELECT g FROM grp ORDER BY d DESC LIMIT 1)
+        SELECT CASE WHEN (SELECT MAX(d) FROM days) >= CURRENT_DATE - 1
+          THEN (SELECT COUNT(*)::integer FROM grp WHERE g = (SELECT g FROM latest)) ELSE 0 END AS streak,
+          (SELECT COALESCE(MAX(c), 0) FROM (SELECT COUNT(*)::integer AS c FROM grp GROUP BY g) x) AS longest
+      `, [userId]);
+      const streak = Number(streakRes.rows[0]?.streak || 0);
+      const longest = Number(streakRes.rows[0]?.longest || 0);
+
+      const badgeRes = await pool.query(
+        `SELECT b.id, b.name, b.icon, b.requirement, (ub.id IS NOT NULL) AS earned
+           FROM badges b
+           LEFT JOIN user_badges ub ON ub.badge_id = b.id AND ub.user_id = $1
+          WHERE b.is_active = true AND b.collection = 'current'
+            AND b.requirement LIKE '%check_in_streak%'`, [userId]);
+      const ladder = badgeRes.rows
+        .map((r: any) => {
+          let target = 0;
+          try { target = Number(JSON.parse(r.requirement)?.target) || 0; } catch {}
+          return { id: r.id, name: r.name, icon: r.icon, target, earned: !!r.earned };
+        })
+        .filter((b: any) => b.target > 0)
+        .sort((a: any, b: any) => a.target - b.target);
+      const next = ladder.find((b: any) => !b.earned && b.target > streak) || null;
+      const lastEarned = [...ladder].reverse().find((b: any) => b.earned) || null;
+
+      res.json({
+        total,
+        streak,
+        longest,
+        nextBadge: next ? { name: next.name, icon: next.icon, target: next.target, remaining: Math.max(0, next.target - streak) } : null,
+        lastBadge: lastEarned ? { name: lastEarned.name, icon: lastEarned.icon, target: lastEarned.target } : null,
+      });
+    } catch (error) {
+      console.error("Error building check-in summary:", error);
+      res.status(500).json({ message: "Failed to build check-in summary" });
+    }
+  });
+
   // Custom check-in questions (user-defined Y/N questions on the daily check-in).
   // The GET handler was missing on the deployed server, causing API 404s from the
   // mobile app (Sentry issue: withScope$argument_0 on GET /api/custom-check-in-questions).

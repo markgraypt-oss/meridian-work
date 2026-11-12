@@ -555,8 +555,10 @@ interface BriefingContextSnapshot {
 
 async function buildWearableSnapshot(userId: string): Promise<WearableDaySnapshot[]> {
   try {
-    const { getMergedDailyMetrics } = await import("../wearables");
-    const merged = await getMergedDailyMetrics(userId, 14);
+    const { getMergedDailyMetricsForAI } = await import("../wearables");
+    // ForAI: this snapshot goes into the briefing prompt, so Garmin rows only
+    // with the user's Garmin AI consent.
+    const merged = await getMergedDailyMetricsForAI(userId, 14);
     return merged
       .sort((a, b) => b.date.localeCompare(a.date))
       .map((r) => ({

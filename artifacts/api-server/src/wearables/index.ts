@@ -924,6 +924,38 @@ export function stripNonOauthPhysio<T extends MergedDailyMetric>(row: T | undefi
   return row;
 }
 
+// Garmin AI consent. Garmin's developer agreement (15.10) requires explicit
+// consent before Garmin data is processed by AI, and an easy way to withdraw
+// it. Consent is stored on the Garmin connection: meta.aiConsent =
+// { granted, at }. No Garmin connection, or consent off, means Garmin rows
+// never reach any AI prompt.
+export async function garminAiConsentGranted(userId: string): Promise<boolean> {
+  const conn = await getConnection(userId, "garmin");
+  return !!(conn && conn.status !== "disconnected" && (conn.meta as any)?.aiConsent?.granted === true);
+}
+
+export async function setGarminAiConsent(userId: string, granted: boolean): Promise<boolean> {
+  const conn = await getConnection(userId, "garmin");
+  if (!conn) return false;
+  const meta = { ...((conn.meta as any) || {}), aiConsent: { granted, at: new Date().toISOString() } };
+  await db.update(wearableConnections).set({ meta, updatedAt: new Date() }).where(eq(wearableConnections.id, conn.id));
+  console.log(`[garmin] AI consent ${granted ? "granted" : "withdrawn"} for ${userId}`);
+  return true;
+}
+
+// Use this, not getMergedDailyMetrics, for anything that goes into an AI
+// prompt (coach context, briefings). It drops Garmin rows unless the user
+// has given AI consent for Garmin.
+export async function getMergedDailyMetricsForAI(userId: string, days = 30): Promise<MergedDailyMetric[]> {
+  const cutoff = dateOnly(new Date(Date.now() - days * 24 * 60 * 60 * 1000));
+  let rows = await db.select().from(wearableMetricsDaily)
+    .where(and(eq(wearableMetricsDaily.userId, userId), sql`${wearableMetricsDaily.date} >= ${cutoff}`));
+  if (rows.some((r) => r.provider === "garmin") && !(await garminAiConsentGranted(userId))) {
+    rows = rows.filter((r) => r.provider !== "garmin");
+  }
+  return mergeMetricsPerDay(rows);
+}
+
 // Convenience: fetch + merge in one call. Returns one clean row per date with
 // per-metric source selection already applied.
 export async function getMergedDailyMetrics(userId: string, days = 30): Promise<MergedDailyMetric[]> {

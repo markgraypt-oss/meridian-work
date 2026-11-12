@@ -826,9 +826,10 @@ export async function getUserDataContext(userId: string, feature: string): Promi
     let bestWearableDays: any[] = [];
     if (domains.includes('sleep') || domains.includes('steps') || domains.includes('resting_hr')) {
       try {
-        const { getMergedDailyMetrics } = await import('./wearables');
+        const { getMergedDailyMetricsForAI } = await import('./wearables');
         // Per-metric merge: each field already sourced from its best provider.
-        bestWearableDays = (await getMergedDailyMetrics(userId, 14)).sort((a, b) => b.date.localeCompare(a.date));
+        // ForAI: Garmin rows only with the user's Garmin AI consent.
+        bestWearableDays = (await getMergedDailyMetricsForAI(userId, 14)).sort((a, b) => b.date.localeCompare(a.date));
         wearableRows = bestWearableDays;
       } catch (e) {
         console.error('[ai-context] wearable fetch failed', e);
@@ -887,7 +888,12 @@ export async function getUserDataContext(userId: string, feature: string): Promi
         // be weeks old, and it was printed without a date, so the briefing quoted
         // it as today's steps (28 Oct: "Only 372 steps logged", from 9 Oct).
         const cutoff = new Date(Date.now() - 14 * 24 * 60 * 60 * 1000);
-        const stepEntries = (await storage.getStepEntries(userId)).filter((e) => new Date(e.date) >= cutoff);
+        // step_entries are also filled from Garmin. Without Garmin AI consent
+        // they cannot stand in for the excluded Garmin rows.
+        const { getConnection: getWearableConn, garminAiConsentGranted } = await import('./wearables');
+        const garminConn = await getWearableConn(userId, 'garmin');
+        const garminBlocked = !!garminConn && garminConn.status !== 'disconnected' && !(await garminAiConsentGranted(userId));
+        const stepEntries = garminBlocked ? [] : (await storage.getStepEntries(userId)).filter((e) => new Date(e.date) >= cutoff);
         if (stepEntries.length > 0) {
           context += `\n\n--- Step Tracking (last ${stepEntries.length} entries) ---`;
           const avgSteps = stepEntries.reduce((s, e) => s + (e.steps || 0), 0) / stepEntries.length;

@@ -20,6 +20,7 @@ import {
   getWearableWorkouts,
   processGarminPush,
   disconnectGarmin,
+  setGarminAiConsent,
 } from "./index";
 import { z } from 'zod';
 import { parseAppleHealthExport } from "./appleHealth";
@@ -56,6 +57,8 @@ interface OAuthStatePayload {
   userId: string;
   redirectUri: string;
   expiresAt: number;
+  // Garmin only: the AI consent choice made on the consent step before connecting.
+  aiConsent?: boolean;
 }
 
 // The OAuth state token is signed with SESSION_SECRET. With no secret, anyone
@@ -301,6 +304,19 @@ export function registerWearableRoutes(app: Express) {
     },
   );
 
+  // Garmin AI consent switch (Wearables & Integrations). Body { granted }.
+  app.post("/api/wearables/garmin/ai-consent", isAuthenticated, async (req: any, res) => {
+    try {
+      const granted = req.body?.granted === true;
+      const ok = await setGarminAiConsent(req.user.claims.sub, granted);
+      if (!ok) { res.status(404).json({ message: "Garmin is not connected" }); return; }
+      res.json({ ok: true, aiConsent: granted });
+    } catch (err: any) {
+      console.error("[garmin] ai-consent error", err?.message || err);
+      res.status(500).json({ message: "Could not save your choice. Please try again." });
+    }
+  });
+
   // Catalog: providers + whether configured
   app.get("/api/wearables/providers", isAuthenticated, async (_req, res) => {
     const out = PROVIDERS.map((p) => {
@@ -328,6 +344,7 @@ export function registerWearableRoutes(app: Express) {
         lastSyncStatus: c.lastSyncStatus,
         lastSyncError: c.lastSyncError,
         scopes: c.scopes,
+        ...(c.provider === "garmin" ? { aiConsent: (c.meta as any)?.aiConsent?.granted === true } : {}),
       })));
     } catch (err) {
       console.error("[wearables] list connections error", err);
@@ -368,7 +385,8 @@ export function registerWearableRoutes(app: Express) {
     // the app's session cookie, so we cannot store state on req.session and
     // read it back in the callback. Instead we encode all the state into an
     // HMAC-signed token that the callback can verify without any session.
-    const signedState = signOAuthState({ provider, userId, redirectUri, expiresAt: Date.now() + 10 * 60 * 1000 });
+    const aiConsent = provider === "garmin" ? (req.query.aiConsent === "1" || req.query.aiConsent === "true") : undefined;
+    const signedState = signOAuthState({ provider, userId, redirectUri, expiresAt: Date.now() + 10 * 60 * 1000, ...(aiConsent !== undefined ? { aiConsent } : {}) });
     const url = adapter.authUrl(signedState, redirectUri);
     res.json({ url });
   });
@@ -417,6 +435,7 @@ export function registerWearableRoutes(app: Express) {
         providerUserId: tokens.providerUserId ?? null,
         scopes: tokens.scopes ?? null,
         status: "connected",
+        ...(provider === "garmin" ? { meta: { aiConsent: { granted: payload!.aiConsent === true, at: new Date().toISOString() } } } : {}),
       });
       // Initial backfill, fired after a short delay so the connection row is
       // fully committed first.

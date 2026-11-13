@@ -15886,6 +15886,66 @@ Rules:
     }
   });
 
+  // The one video to watch next, for the "Up next" card on Home. Looks across
+  // the paths the person is enrolled in, picks the one they are furthest
+  // through that still has something left (ties go to the most recently
+  // enrolled), and returns its next unwatched item. null when there is
+  // nothing to show (no paths, or every path finished), so the card hides.
+  // Kept to a few small columns: the path page's own list carries every
+  // transcript, which Home has no use for.
+  app.get('/api/learning/up-next', isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = req.user.claims.sub;
+      const assignments = await storage.getUserPathAssignments(userId);
+      if (assignments.length === 0) return res.json(null);
+      const completed = new Set(await storage.getCompletedLibraryItemIds(userId));
+      const watch = await storage.getWatchProgressMap(userId);
+
+      let best: any = null;
+      for (const a of assignments) {
+        const rows = await pool.query(
+          `SELECT l.id, l.title, l.content_type, l.content_url, l.thumbnail_url, l.mux_playback_id, l.duration, lpc.order_index
+             FROM learning_path_content lpc
+             JOIN learn_content_library l ON l.id = lpc.library_item_id
+            WHERE lpc.path_id = $1
+            ORDER BY lpc.order_index`, [a.pathId]);
+        const real = rows.rows.filter((r: any) => r.content_type !== 'coming_soon');
+        if (real.length === 0) continue;
+        const done = real.filter((r: any) => completed.has(r.id)).length;
+        const nextIdx = real.findIndex((r: any) => !completed.has(r.id));
+        if (nextIdx < 0) continue; // finished this path
+        const fraction = done / real.length;
+        if (!best || fraction > best.fraction) {
+          best = { assignment: a, real, done, nextIdx, fraction };
+        }
+      }
+      if (!best) return res.json(null);
+
+      const path = await storage.getLearningPathById(best.assignment.pathId);
+      const item = best.real[best.nextIdx];
+      return res.json({
+        pathId: best.assignment.pathId,
+        pathTitle: path?.title || 'Learning path',
+        position: best.nextIdx + 1,
+        total: best.real.length,
+        completedCount: best.done,
+        item: {
+          id: item.id,
+          title: item.title,
+          contentType: item.content_type,
+          contentUrl: item.content_url,
+          thumbnailUrl: item.thumbnail_url,
+          muxPlaybackId: item.mux_playback_id,
+          duration: item.duration,
+          watchPct: Number((watch as any)[item.id] ?? 0),
+        },
+      });
+    } catch (error) {
+      console.error("Error building up-next:", error);
+      return res.status(500).json({ message: "Failed to find the next video" });
+    }
+  });
+
   // Get user's unified content progress (all completed library items)
   app.get('/api/content-progress', isAuthenticated, async (req: any, res) => {
     try {

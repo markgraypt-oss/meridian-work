@@ -435,7 +435,7 @@ export async function sendWellbeingContactEmail(input: WellbeingContactEmailInpu
       html: wellbeingEmailHtml(
         [
           `Hi ${contactFirst},`,
-          `<strong>${employee}</strong> has used MeridianWork to ask you to get in touch with them about workload and wellbeing.`,
+          `<strong>${employee}</strong> has used MeridianWork to ask you to get in touch with them.`,
           `They've taken the first step. The next one is yours - reach out to them directly over the next day or two.`,
           `Just reply to this email to reach ${employee} (${escapeHtml(input.employeeEmail)}).`,
         ],
@@ -444,7 +444,7 @@ export async function sendWellbeingContactEmail(input: WellbeingContactEmailInpu
       text: [
         `Hi ${input.contactName.split(" ")[0] || "there"},`,
         "",
-        `${input.employeeName} has used MeridianWork to ask you to get in touch with them about workload and wellbeing.`,
+        `${input.employeeName} has used MeridianWork to ask you to get in touch with them.`,
         "",
         "They've taken the first step. The next one is yours - reach out to them directly over the next day or two.",
         "",

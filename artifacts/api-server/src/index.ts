@@ -54,7 +54,7 @@ if (Number.isNaN(port) || port <= 0) {
       "Server listening",
     );
 
-    import("./startupMigrations").then(({ runSchemaSelfHealOnce, runProfileImageMigrationOnce, seedMeditationsOnce, seedAiPromptsOnce, repairBodyweightGoalUnitsOnce, normalizeRecipeMacrosOnce, seedBadgesV2Once, retireDroppedDeskBadgesOnce, fixHabitTemplateDescriptionsOnce, seedReadinessBadgesOnce, seedStreakLadderOnce, dedupeCheckInsOnce, backfillContentTagsOnce, revokeEmptyBurnoutBadgesOnce, revokeEmptyAiBadgesOnce, revokeInvalidPerfectRecordOnce, revokeInflatedStretchingBadgesOnce, revokeWearableOnlySelfAwareOnce, seedLabTopicCoversOnce, seedLabPathCoversOnce, seedLabLifeStageOnce, stripEmDashesFromDescriptionsOnce, restoreRecipeImagesFromUploadsOnce, reconcileBreathworkDurationsOnce, seedBreathworkTechniquesV2Once, backfillBriefingConversationsOnce, inlineImagesToStorageOnce, houseStyleContentOnce }) => {
+    import("./startupMigrations").then(({ runSchemaSelfHealOnce, runProfileImageMigrationOnce, seedMeditationsOnce, seedAiPromptsOnce, repairBodyweightGoalUnitsOnce, normalizeRecipeMacrosOnce, seedBadgesV2Once, retireDroppedDeskBadgesOnce, fixHabitTemplateDescriptionsOnce, seedReadinessBadgesOnce, seedStreakLadderOnce, dedupeCheckInsOnce, backfillContentTagsOnce, revokeEmptyBurnoutBadgesOnce, revokeEmptyAiBadgesOnce, revokeInvalidPerfectRecordOnce, revokeInflatedStretchingBadgesOnce, revokeWearableOnlySelfAwareOnce, seedLabTopicCoversOnce, seedLabPathCoversOnce, seedLabLifeStageOnce, stripEmDashesFromDescriptionsOnce, restoreRecipeImagesFromUploadsOnce, reconcileBreathworkDurationsOnce, seedBreathworkTechniquesV2Once, backfillBriefingConversationsOnce, inlineImagesToStorageOnce, houseStyleContentOnce, mergeSnackRecipeDuplicatesOnce }) => {
       runSchemaSelfHealOnce()
         .catch((e: any) => logger.error({ e }, "[startup-migration] schema self-heal failed"))
         .then(() => {
@@ -85,6 +85,7 @@ if (Number.isNaN(port) || port <= 0) {
           reconcileBreathworkDurationsOnce().catch((e: any) => logger.error({ e }, "[startup-migration] breathwork-durations failed"));
           seedBreathworkTechniquesV2Once().catch((e: any) => logger.error({ e }, "[startup-migration] breathwork-techniques-v2 failed"));
           backfillBriefingConversationsOnce().catch((e: any) => logger.error({ e }, "[startup-migration] briefing-conversation-backfill failed"));
+          mergeSnackRecipeDuplicatesOnce().catch((e: any) => logger.error({ e }, "[startup-migration] snack-dupes failed"));
           // Body map movement checks: the shoulder's first set of per-movement
           // questions. Runs here, AFTER the self-heal, because it writes a
           // column the self-heal creates — on its first deploy it ran in

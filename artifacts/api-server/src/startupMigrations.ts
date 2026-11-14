@@ -2562,3 +2562,56 @@ export async function houseStyleContentOnce(): Promise<void> {
     console.error('[startup-migration] house style failed:', e?.message || e);
   }
 }
+
+// ----------------------------------------------------------------------------
+// Snack recipe duplicates (14 Nov 2026). Whey Protein Shake, Double Whey
+// Protein Shake and Protein Bar were each stored twice, once as "breakfast"
+// (260, 262, 264) and once as "snacks" (261, 263, 265). Keep the snack copy,
+// set its category to "snack" (the value the admin form uses), move every
+// reference from the breakfast copy to its twin, then delete the breakfast
+// copy. Idempotent: once 260/262/264 are gone this is a no-op.
+// ----------------------------------------------------------------------------
+let hasRunMergeSnackDupes = false;
+export async function mergeSnackRecipeDuplicatesOnce(): Promise<void> {
+  if (hasRunMergeSnackDupes) return;
+  hasRunMergeSnackDupes = true;
+  const pairs: Array<[number, number]> = [[260, 261], [262, 263], [264, 265]];
+  const client = await pool.connect();
+  try {
+    await client.query("BEGIN");
+    for (const [dup, keep] of pairs) {
+      const { rows } = await client.query(
+        `SELECT id, title FROM recipes WHERE id = ANY($1::int[]) AND user_id IS NULL`,
+        [[dup, keep]],
+      );
+      const d = rows.find((r: any) => r.id === dup);
+      const k = rows.find((r: any) => r.id === keep);
+      if (!d) continue; // already merged
+      if (!k || String(d.title).trim().toLowerCase() !== String(k.title).trim().toLowerCase()) {
+        console.warn(`[startup-migration] snack-dupes: skipped ${dup}->${keep}, twin missing or title differs`);
+        continue;
+      }
+      await client.query(`UPDATE meal_plan_meals SET recipe_id = $2 WHERE recipe_id = $1`, [dup, keep]);
+      await client.query(`UPDATE saved_meal_items SET recipe_id = $2 WHERE recipe_id = $1`, [dup, keep]);
+      await client.query(`UPDATE meal_food_entries SET source_id = $2 WHERE source_type = 'recipe' AND source_id = $1`, [dup, keep]);
+      // Favourites: drop the dup bookmark if the user already favourited the twin.
+      await client.query(
+        `DELETE FROM bookmarks b WHERE b.content_type = 'recipe' AND b.content_id = $1
+           AND EXISTS (SELECT 1 FROM bookmarks x WHERE x.user_id = b.user_id AND x.content_type = 'recipe' AND x.content_id = $2)`,
+        [dup, keep],
+      );
+      await client.query(`UPDATE bookmarks SET content_id = $2 WHERE content_type = 'recipe' AND content_id = $1`, [dup, keep]);
+      await client.query(`UPDATE recommendations SET content_id = $2 WHERE content_type = 'recipe' AND content_id = $1`, [dup, keep]);
+      await client.query(`UPDATE coach_recommendations SET item_id = $2 WHERE item_type = 'recipe' AND item_id = $1`, [dup, keep]);
+      await client.query(`UPDATE recipes SET category = 'snack' WHERE id = $1`, [keep]);
+      await client.query(`DELETE FROM recipes WHERE id = $1`, [dup]);
+      console.log(`[startup-migration] snack-dupes: merged recipe ${dup} into ${keep}`);
+    }
+    await client.query("COMMIT");
+  } catch (e: any) {
+    await client.query("ROLLBACK").catch(() => {});
+    console.error("[startup-migration] snack-dupes failed:", e?.message || e);
+  } finally {
+    client.release();
+  }
+}

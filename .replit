@@ -48,4 +48,4 @@ DAILY_READINESS_ENABLED = "true"
 channel = "stable-25_05"
 
 [objectStorage]
-defaultBucketID = "replit-objstore-deb212d3-bb3d-41c5-b53a-2fdbdc2253dd"
+defaultBucketID = "replit-objstore-56c272b1-625a-4604-9843-f10423f2dc9e"

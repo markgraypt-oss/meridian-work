@@ -614,48 +614,66 @@ const SEED_MEDITATIONS = [
 let hasRunAiPromptSeed = false;
 const SEED_AI_PROMPTS = [
   // ---------------- WORKOUT (single-session) ----------------
-  { kind: "workout", title: "20-min hotel-room reset", description: "Bodyweight strength + mobility for between meetings.", iconName: "Hotel",
-    promptBody: "Build a 20-minute bodyweight workout I can do in a hotel room. Mix push, pull and lower-body movements with mobility transitions. Keep impact low so I won't disturb the room below.",
-    prefill: { duration: 20, equipment: "bodyweight", difficulty: "intermediate", focus: "full body", notes: "low impact, no jumping" } },
-  { kind: "workout", title: "Pre-flight mobility flush", description: "15 min mobility before a long-haul flight.", iconName: "Plane",
-    promptBody: "Design a 15-minute mobility session focused on hips, thoracic spine and ankles to prep me for an 8+ hour flight.",
-    prefill: { duration: 15, equipment: "bodyweight", difficulty: "beginner", focus: "mobility", notes: "hips, T-spine, ankles" } },
-  { kind: "workout", title: "Post-flight recovery", description: "Restore circulation and posture after long travel.", iconName: "Plane",
-    promptBody: "Build a 25-minute restorative session to reverse hours of sitting after a long flight. Emphasise hip openers, decompression and gentle activation.",
-    prefill: { duration: 25, equipment: "bodyweight", difficulty: "beginner", focus: "recovery", notes: "post-travel, gentle" } },
-  { kind: "workout", title: "Lunchtime energy boost", description: "30-min full-body lift to refire focus.", iconName: "Zap",
-    promptBody: "Generate a 30-minute full-body strength workout that leaves me energised, not wrecked, for the rest of the workday.",
-    prefill: { duration: 30, equipment: "full_gym", difficulty: "intermediate", focus: "full body", notes: "leave energy in the tank" } },
-  { kind: "workout", title: "Stress-melt mobility", description: "Slow, breath-led movement to drop the day.", iconName: "Wind",
-    promptBody: "Create a 20-minute slow mobility flow with breath cues to downshift after a stressful day.",
-    prefill: { duration: 20, equipment: "bodyweight", difficulty: "beginner", focus: "mobility", notes: "calming, breath-led" } },
-  { kind: "workout", title: "Posture rescue", description: "Counter the desk hunch in 20 minutes.", iconName: "User",
-    promptBody: "Build a 20-minute corrective routine targeting upper-back, scapular control and hip flexor length to undo a long day at the desk.",
-    prefill: { duration: 20, equipment: "bodyweight", difficulty: "beginner", focus: "posture", notes: "upper back, scaps, hip flexors" } },
-  { kind: "workout", title: "Strong & quick (45 min)", description: "Compact strength session, full gym.", iconName: "Dumbbell",
-    promptBody: "Generate a 45-minute strength workout using compound lifts. Keep rest tight and pair accessories so I can finish on time.",
-    prefill: { duration: 45, equipment: "full_gym", difficulty: "intermediate", focus: "strength", notes: "compound focus, supersets ok" } },
-  { kind: "workout", title: "HIIT before breakfast", description: "Short, sharp metabolic hit.", iconName: "Flame",
-    promptBody: "Build a 20-minute HIIT session, mostly bodyweight, that I can do fasted before breakfast without trashing recovery.",
-    prefill: { duration: 20, equipment: "bodyweight", difficulty: "intermediate", focus: "conditioning", notes: "fasted-friendly" } },
-  { kind: "workout", title: "Lower-back-friendly core", description: "Build trunk strength without aggravating the back.", iconName: "Shield",
-    promptBody: "Design a 25-minute core workout that strengthens the trunk without spinal flexion. Avoid sit-ups and crunches.",
-    prefill: { duration: 25, equipment: "bodyweight", difficulty: "intermediate", focus: "core", notes: "no spinal flexion, lower-back friendly" } },
-  { kind: "workout", title: "Knee-friendly lower body", description: "Build legs without loading the knees hard.", iconName: "Footprints",
-    promptBody: "Create a 35-minute lower-body workout that avoids deep knee flexion under load. Prefer hinge patterns and isometrics.",
-    prefill: { duration: 35, equipment: "home_gym", difficulty: "intermediate", focus: "lower body", notes: "knee-friendly, prefer hinge" } },
-  { kind: "workout", title: "Shoulder-safe upper body", description: "Push/pull with shoulder-friendly variations.", iconName: "Shield",
-    promptBody: "Build a 35-minute upper-body workout using shoulder-friendly variations (neutral grip, scapular control). Avoid overhead pressing.",
-    prefill: { duration: 35, equipment: "home_gym", difficulty: "intermediate", focus: "upper body", notes: "no overhead press, neutral grip" } },
-  { kind: "workout", title: "Travel band workout", description: "Resistance band only, hotel-friendly.", iconName: "Briefcase",
-    promptBody: "Generate a 30-minute full-body workout using only a single resistance band. Cover push, pull, hinge and squat patterns.",
-    prefill: { duration: 30, equipment: "bodyweight", difficulty: "intermediate", focus: "full body", notes: "resistance band only" } },
-  { kind: "workout", title: "Active recovery walk-and-flow", description: "Easy day, low intensity.", iconName: "Heart",
-    promptBody: "Build a 30-minute easy-day session combining mobility, light loaded carries and breathwork for active recovery.",
-    prefill: { duration: 30, equipment: "bodyweight", difficulty: "beginner", focus: "recovery", notes: "low intensity" } },
-  { kind: "workout", title: "Boardroom-day quick fix", description: "12-min desk-side movement snack.", iconName: "Briefcase",
-    promptBody: "Build a 12-minute movement snack I can do in office attire next to my desk. Focus on circulation and posture.",
-    prefill: { duration: 12, equipment: "bodyweight", difficulty: "beginner", focus: "mobility", notes: "office attire, no equipment" } },
+  // Rebuilt 14 Nov 2026 from the coaching bible: plain names, prompts written
+  // so workoutGenerator's keyword parser picks the right focus, kit and time.
+  // Durations are written "45 min" (no hyphen) so the app parses them.
+  { kind: "workout", title: "Full body beginner workout with dumbbells", description: "A beginner full-body session with dumbbells and a bench.", iconName: "Dumbbell",
+    promptBody: "45 min full body, dumbbells and bench, beginner",
+    prefill: { duration: 45, equipment: "dumbbells", difficulty: "beginner", focus: "full body" } },
+  { kind: "workout", title: "Full body workout with dumbbells", description: "A full-body strength session with dumbbells and a bench.", iconName: "Dumbbell",
+    promptBody: "45 min full body, dumbbells and bench",
+    prefill: { duration: 45, equipment: "dumbbells", difficulty: "intermediate", focus: "full body" } },
+  { kind: "workout", title: "Full body gym workout", description: "A full-body strength session using the whole gym.", iconName: "Dumbbell",
+    promptBody: "60 min full body, full gym",
+    prefill: { duration: 60, equipment: "full_gym", difficulty: "intermediate", focus: "full body" } },
+  { kind: "workout", title: "Full body kettlebell workout", description: "A full-body strength session with kettlebells only.", iconName: "Dumbbell",
+    promptBody: "40 min full body, kettlebell only",
+    prefill: { duration: 40, equipment: "kettlebell", difficulty: "intermediate", focus: "full body" } },
+  { kind: "workout", title: "Full body bodyweight workout", description: "A full-body session with no equipment, for home or a hotel room.", iconName: "Home",
+    promptBody: "30 min full body, bodyweight only",
+    prefill: { duration: 30, equipment: "bodyweight", difficulty: "intermediate", focus: "full body" } },
+  { kind: "workout", title: "Full body resistance band workout", description: "A full-body session with resistance bands.", iconName: "Briefcase",
+    promptBody: "30 min full body, bands and bodyweight only",
+    prefill: { duration: 30, equipment: "bands", difficulty: "intermediate", focus: "full body" } },
+  { kind: "workout", title: "Full body machine workout", description: "A full-body session using only machines and cables.", iconName: "Dumbbell",
+    promptBody: "40 min full body, machines and cables",
+    prefill: { duration: 40, equipment: "full_gym", difficulty: "intermediate", focus: "full body" } },
+  { kind: "workout", title: "Upper body gym workout", description: "Chest, back, shoulders and arms using the whole gym.", iconName: "Dumbbell",
+    promptBody: "50 min upper body, full gym",
+    prefill: { duration: 50, equipment: "full_gym", difficulty: "intermediate", focus: "upper body" } },
+  { kind: "workout", title: "Upper body dumbbell workout", description: "Chest, back, shoulders and arms with dumbbells and a bench.", iconName: "Dumbbell",
+    promptBody: "45 min upper body, dumbbells and bench",
+    prefill: { duration: 45, equipment: "dumbbells", difficulty: "intermediate", focus: "upper body" } },
+  { kind: "workout", title: "Lower body squat workout", description: "A leg session built around a heavy squat.", iconName: "Dumbbell",
+    promptBody: "50 min lower body, full gym, squat focus",
+    prefill: { duration: 50, equipment: "full_gym", difficulty: "intermediate", focus: "lower body" } },
+  { kind: "workout", title: "Heavy hinge lower body workout", description: "A leg session built around a heavy deadlift, with hamstring and glute work.", iconName: "Dumbbell",
+    promptBody: "50 min lower body, full gym, heavy deadlift and hinge focus",
+    prefill: { duration: 50, equipment: "full_gym", difficulty: "intermediate", focus: "lower body" } },
+  { kind: "workout", title: "Lower body kettlebell workout", description: "A leg session with kettlebells only.", iconName: "Dumbbell",
+    promptBody: "40 min lower body, kettlebell only",
+    prefill: { duration: 40, equipment: "kettlebell", difficulty: "intermediate", focus: "lower body" } },
+  { kind: "workout", title: "Chest and back workout", description: "Chest presses and rows, paired together.", iconName: "Dumbbell",
+    promptBody: "45 min upper body, chest presses and rows, full gym",
+    prefill: { duration: 45, equipment: "full_gym", difficulty: "intermediate", focus: "upper body" } },
+  { kind: "workout", title: "Shoulders, arms and abs workout", description: "Shoulders, biceps and triceps, finishing with abs.", iconName: "Dumbbell",
+    promptBody: "45 min upper body, shoulders and arms, finish with abs, full gym",
+    prefill: { duration: 45, equipment: "full_gym", difficulty: "intermediate", focus: "upper body" } },
+  { kind: "workout", title: "Push workout: chest, shoulders and triceps", description: "Pressing work for chest, shoulders and triceps.", iconName: "Dumbbell",
+    promptBody: "45 min push day, chest, shoulders and triceps, full gym",
+    prefill: { duration: 45, equipment: "full_gym", difficulty: "intermediate", focus: "push" } },
+  { kind: "workout", title: "Pull workout: back and biceps", description: "Rows, pulldowns and biceps work.", iconName: "Dumbbell",
+    promptBody: "45 min pull day, rows, pulldowns and biceps, full gym",
+    prefill: { duration: 45, equipment: "full_gym", difficulty: "intermediate", focus: "pull" } },
+  { kind: "workout", title: "Glutes and hamstrings workout", description: "Hip thrusts, hinges and hamstring work.", iconName: "Dumbbell",
+    promptBody: "45 min glutes and hamstrings, full gym",
+    prefill: { duration: 45, equipment: "full_gym", difficulty: "intermediate", focus: "glutes" } },
+  { kind: "workout", title: "Conditioning workout", description: "A short, hard conditioning session using gym equipment.", iconName: "Flame",
+    promptBody: "20 min conditioning, full gym",
+    prefill: { duration: 20, equipment: "full_gym", difficulty: "intermediate", focus: "conditioning" } },
+  { kind: "workout", title: "Mobility workout", description: "Mobility for hips and upper back.", iconName: "Wind",
+    promptBody: "15 min mobility, bodyweight only, hips and thoracic",
+    prefill: { duration: 15, equipment: "bodyweight", difficulty: "beginner", focus: "mobility" } },
 
   // ---------------- PROGRAMME (multi-week) ----------------
   { kind: "programme", title: "4-week executive strength", description: "3x/week, full gym, balanced strength build.", iconName: "Dumbbell",
@@ -681,12 +699,56 @@ const SEED_AI_PROMPTS = [
     prefill: { goal: "corrective", equipment: "bodyweight", weeks: 6, daysPerWeek: 4, sessionDuration: 25, difficulty: "beginner", audience: "lower-back-sensitive users" } },
 ];
 
+// The 14 workout prompts retired on 14 Nov 2026. If any is still in the
+// table, every workout prompt is replaced with the current WORKOUT seed
+// once; after that none of these titles exist and this is a no-op.
+const RETIRED_WORKOUT_PROMPT_TITLES = new Set<string>([
+  "20-min hotel-room reset",
+  "Pre-flight mobility flush",
+  "Post-flight recovery",
+  "Lunchtime energy boost",
+  "Stress-melt mobility",
+  "Posture rescue",
+  "Strong & quick (45 min)",
+  "HIIT before breakfast",
+  "Lower-back-friendly core",
+  "Knee-friendly lower body",
+  "Shoulder-safe upper body",
+  "Travel band workout",
+  "Active recovery walk-and-flow",
+  "Boardroom-day quick fix",
+]);
+
+async function replaceRetiredWorkoutPrompts(existing: Array<{ id: number; kind: string; title: string }>): Promise<void> {
+  const workout = existing.filter((p) => p.kind === "workout");
+  if (!workout.some((p) => RETIRED_WORKOUT_PROMPT_TITLES.has(p.title))) return;
+  for (const p of workout) await storage.deleteAiPrompt(p.id);
+  let sortOrder = 0;
+  for (const p of SEED_AI_PROMPTS) {
+    if (p.kind !== "workout") continue;
+    await storage.createAiPrompt({
+      kind: p.kind,
+      title: p.title,
+      description: p.description,
+      iconName: p.iconName,
+      promptBody: p.promptBody,
+      prefill: p.prefill,
+      sortOrder: sortOrder++,
+      isActive: true,
+    });
+  }
+  console.log(`[startup-migration] replaced ${workout.length} workout prompts with ${sortOrder} new ones`);
+}
+
 export async function seedAiPromptsOnce(): Promise<void> {
   if (hasRunAiPromptSeed) return;
   hasRunAiPromptSeed = true;
   try {
     const existing = await storage.listAiPrompts(undefined, true);
-    if (existing.length > 0) return;
+    if (existing.length > 0) {
+      await replaceRetiredWorkoutPrompts(existing);
+      return;
+    }
     let workoutOrder = 0;
     let programmeOrder = 0;
     for (const p of SEED_AI_PROMPTS) {

@@ -135,6 +135,12 @@ if (Number.isNaN(port) || port <= 0) {
       seedWwiDemoOnce().catch((e: any) => logger.error({ e }, "[startup-migration] wwi-demo failed"));
     }).catch((e: any) => logger.error({ e }, "[startup-migration] wwi-demo import failed"));
 
+    // WWI showcase company (Kestrelmoor Group, 200 people, six months of data) for
+    // website screenshots. Runs once per database, guarded by a system_flags marker.
+    import("./seedWwiShowcase").then(({ seedWwiShowcaseOnce }) => {
+      seedWwiShowcaseOnce().catch((e: any) => logger.error({ e }, "[startup-migration] wwi-showcase failed"));
+    }).catch((e: any) => logger.error({ e }, "[startup-migration] wwi-showcase import failed"));
+
     // Workforce Rewards (Phase 1a): create the reward tables on boot if missing.
     import("./rewardsEngine").then(({ ensureRewardsSchemaOnce }) => {
       ensureRewardsSchemaOnce().catch((e: any) => logger.error({ e }, "[startup] rewards schema ensure failed"));

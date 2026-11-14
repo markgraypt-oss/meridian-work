@@ -10,9 +10,9 @@
  * The users have no lastActiveAt, no firstLoginAt and .invalid emails, so no
  * briefings, push notifications, weekly check-in emails or AI generation run for them.
  *
- * Run (Replit Shell):    cd artifacts/api-server && npx tsx src/seedWwiShowcase.ts
+ * Live database: seeded automatically by the deployed server on start-up
+ * (seedWwiShowcaseOnce, called from index.ts), once per database.
  * Preview numbers only:  cd artifacts/api-server && npx tsx src/seedWwiShowcase.ts --dry-run
- * Remove it again:       cd artifacts/api-server && npx tsx src/seedWwiShowcase.ts --teardown
  *
  * Deterministic: a fixed random seed means every run produces the same people and
  * the same pattern. Re-running clears the company's old activity first.
@@ -238,50 +238,86 @@ async function insertInChunks(db: any, table: any, rows: any[]) {
   for (let i = 0; i < rows.length; i += 500) await db.insert(table).values(rows.slice(i, i + 500));
 }
 
-(async () => {
-  try {
-    if (DRY_RUN) { preview(); process.exit(0); }
-    const { db } = await import("./db");
-    const { inArray } = await import("drizzle-orm");
-    const { users, checkIns, bodyMapLogs, burnoutScores } = await import("@workspace/db");
-    const ids = people.map((p) => p.id);
+async function writeAll(): Promise<void> {
+  const { db, pool } = await import("./db");
+  const { inArray } = await import("drizzle-orm");
+  const { users, checkIns, bodyMapLogs, burnoutScores } = await import("@workspace/db");
+  const ids = people.map((p) => p.id);
 
-    const clear = async () => {
-      await db.delete(checkIns).where(inArray(checkIns.userId, ids));
-      await db.delete(bodyMapLogs).where(inArray(bodyMapLogs.userId, ids));
-      await db.delete(burnoutScores).where(inArray(burnoutScores.userId, ids));
-    };
+  await db.insert(users).values(people.map((p) => ({
+    id: p.id,
+    email: `${p.firstName.toLowerCase().replace(/[^a-z]/g, "")}.${p.lastName.toLowerCase().replace(/[^a-z]/g, "")}.${p.id}@kestrelmoor.invalid`,
+    firstName: p.firstName,
+    lastName: p.lastName,
+    displayName: `${p.firstName} ${p.lastName}`,
+    companyName: COMPANY,
+    isAdmin: false,
+    role: "user",
+    onboardingCompleted: true,
+  }))).onConflictDoNothing();
 
-    if (TEARDOWN) {
-      console.log(`Removing "${COMPANY}" (${NUM_USERS} users and all their data)…`);
-      await clear();
-      await db.delete(users).where(inArray(users.id, ids));
-      console.log("Done.");
-      process.exit(0);
-    }
+  await db.delete(checkIns).where(inArray(checkIns.userId, ids));
+  await db.delete(bodyMapLogs).where(inArray(bodyMapLogs.userId, ids));
+  await db.delete(burnoutScores).where(inArray(burnoutScores.userId, ids));
 
-    console.log(`Seeding "${COMPANY}" with ${NUM_USERS} people…`);
-    await db.insert(users).values(people.map((p) => ({
-      id: p.id,
-      email: `${p.firstName.toLowerCase().replace(/[^a-z]/g, "")}.${p.lastName.toLowerCase().replace(/[^a-z]/g, "")}.${p.id}@kestrelmoor.invalid`,
-      firstName: p.firstName,
-      lastName: p.lastName,
-      displayName: `${p.firstName} ${p.lastName}`,
-      companyName: COMPANY,
-      isAdmin: false,
-      role: "user",
-      onboardingCompleted: true,
-    }))).onConflictDoNothing();
-
-    await clear();
-    await insertInChunks(db, checkIns, checkInRows);
-    await insertInChunks(db, bodyMapLogs, bodyRows);
-    await insertInChunks(db, burnoutScores, burnoutRows);
-    preview();
-    console.log(`Done. Open the admin portal, Wellbeing Index, and select "${COMPANY}".`);
-    process.exit(0);
-  } catch (e) {
-    console.error("Seed failed:", e);
-    process.exit(1);
+  // Keep serial id sequences ahead of MAX(id) (prod-safety, same as wwiDemoSeed).
+  for (const t of ["check_ins", "body_map_logs", "burnout_scores"]) {
+    await pool.query(`SELECT setval(pg_get_serial_sequence('${t}','id'), (SELECT COALESCE(MAX(id),1) FROM ${t}))`);
   }
-})();
+
+  await insertInChunks(db, checkIns, checkInRows);
+  await insertInChunks(db, bodyMapLogs, bodyRows);
+  await insertInChunks(db, burnoutScores, burnoutRows);
+}
+
+// Startup seeder: runs on the deployed server, so it writes to the live database.
+// Guarded by a system_flags marker so it runs exactly once per database.
+const SEED_FLAG = "wwi_showcase_kestrelmoor_v1";
+let hasRunShowcaseSeed = false;
+
+export async function seedWwiShowcaseOnce(): Promise<void> {
+  if (hasRunShowcaseSeed) return;
+  hasRunShowcaseSeed = true;
+  try {
+    const { pool } = await import("./db");
+    await pool.query(`CREATE TABLE IF NOT EXISTS system_flags (key text PRIMARY KEY, created_at timestamp DEFAULT now())`);
+    const flag = await pool.query(`SELECT 1 FROM system_flags WHERE key = $1 LIMIT 1`, [SEED_FLAG]);
+    if ((flag.rowCount ?? 0) > 0) {
+      console.log("[startup-migration] wwi-showcase: already seeded, skipping");
+      return;
+    }
+    await writeAll();
+    await pool.query(`INSERT INTO system_flags (key) VALUES ($1) ON CONFLICT (key) DO NOTHING`, [SEED_FLAG]);
+    console.log(`[startup-migration] wwi-showcase: seeded "${COMPANY}", ${NUM_USERS} users, ${checkInRows.length} check-ins, ${bodyRows.length} body-map logs, ${burnoutRows.length} burnout scores`);
+  } catch (e: any) {
+    console.error("[startup-migration] wwi-showcase failed:", e?.message || e);
+  }
+}
+
+// Command-line use (dry run, manual seed or teardown). Only runs when this file
+// is executed directly, never when the server imports it.
+if (process.argv[1] && /seedWwiShowcase\.ts$/.test(process.argv[1])) {
+  (async () => {
+    try {
+      if (DRY_RUN) { preview(); process.exit(0); }
+      if (TEARDOWN) {
+        const { db, pool } = await import("./db");
+        const { inArray } = await import("drizzle-orm");
+        const { users } = await import("@workspace/db");
+        console.log(`Removing "${COMPANY}" (${NUM_USERS} users and all their data)…`);
+        await db.delete(users).where(inArray(users.id, people.map((p) => p.id)));
+        await pool.query(`DELETE FROM system_flags WHERE key = $1`, [SEED_FLAG]);
+        console.log("Done.");
+        process.exit(0);
+      }
+      console.log(`Seeding "${COMPANY}" with ${NUM_USERS} people…`);
+      await writeAll();
+      preview();
+      console.log(`Done. Open the admin portal, Wellbeing Index, and select "${COMPANY}".`);
+      process.exit(0);
+    } catch (e) {
+      console.error("Seed failed:", e);
+      process.exit(1);
+    }
+  })();
+}

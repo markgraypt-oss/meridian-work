@@ -20347,9 +20347,12 @@ Keep your response concise, practical, and evidence-based. This is general guida
           } else if (m.aiRecipe) {
             // Persist AI-generated gap-fill as a real recipe so the rest of the
             // app (shopping list, mark-eaten -> food log) just works.
-            const created = await storage.createRecipe({
+            // Saved as the user's own private recipe, never into the shared
+            // library (14 Nov 2026: gap-fills were leaking into everyone's
+            // Recipes tab, including duplicates).
+            const created = await storage.createCustomRecipe(userId, {
               title: m.aiRecipe.title,
-              description: `AI-generated to fill a gap in your meal plan.`,
+              description: `Made for your meal plan.`,
               category: m.aiRecipe.category,
               totalTime: m.aiRecipe.totalTime ?? 20,
               servings: 1,
@@ -20521,9 +20524,10 @@ Keep your response concise, practical, and evidence-based. This is general guida
               maxPrepTime,
             });
             if (aiRecipe) {
-              const created = await storage.createRecipe({
+              // Private to this user, never the shared library (see above).
+              const created = await storage.createCustomRecipe(userId, {
                 title: aiRecipe.title,
-                description: 'AI-generated to fill a gap in your meal plan.',
+                description: 'Made for your meal plan.',
                 category: aiRecipe.category,
                 totalTime: aiRecipe.totalTime ?? 15,
                 servings: 1,

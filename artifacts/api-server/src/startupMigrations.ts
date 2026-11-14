@@ -2615,3 +2615,64 @@ export async function mergeSnackRecipeDuplicatesOnce(): Promise<void> {
     client.release();
   }
 }
+
+// ----------------------------------------------------------------------------
+// Beef stir-fry duplicate + gap-fill descriptions (14 Nov 2026). The meal
+// planner's AI gap-fill used to save its recipes into the shared library;
+// on 7 Jun it made "Beef Stir-Fry with Rice and Cashews" twice (13 and 255).
+// Keep 13, move every reference from 255 to it, delete 255. Then replace the
+// "AI-generated to fill a gap" description on the library survivors.
+// Idempotent: each step checks its own precondition.
+// ----------------------------------------------------------------------------
+let hasRunBeefDupeAndGapDescs = false;
+export async function mergeBeefDupeAndFixGapDescriptionsOnce(): Promise<void> {
+  if (hasRunBeefDupeAndGapDescs) return;
+  hasRunBeefDupeAndGapDescs = true;
+  const dup = 255, keep = 13;
+  const client = await pool.connect();
+  try {
+    await client.query("BEGIN");
+    const { rows } = await client.query(
+      `SELECT id, title FROM recipes WHERE id = ANY($1::int[]) AND user_id IS NULL`,
+      [[dup, keep]],
+    );
+    const d = rows.find((r: any) => r.id === dup);
+    const k = rows.find((r: any) => r.id === keep);
+    const sameDish = (t: string) => String(t).toLowerCase().replace(/[^a-z]/g, "");
+    if (d && k && sameDish(d.title) === sameDish(k.title)) {
+      await client.query(`UPDATE meal_plan_meals SET recipe_id = $2 WHERE recipe_id = $1`, [dup, keep]);
+      await client.query(`UPDATE saved_meal_items SET recipe_id = $2 WHERE recipe_id = $1`, [dup, keep]);
+      await client.query(`UPDATE meal_food_entries SET source_id = $2 WHERE source_type = 'recipe' AND source_id = $1`, [dup, keep]);
+      await client.query(
+        `DELETE FROM bookmarks b WHERE b.content_type = 'recipe' AND b.content_id = $1
+           AND EXISTS (SELECT 1 FROM bookmarks x WHERE x.user_id = b.user_id AND x.content_type = 'recipe' AND x.content_id = $2)`,
+        [dup, keep],
+      );
+      await client.query(`UPDATE bookmarks SET content_id = $2 WHERE content_type = 'recipe' AND content_id = $1`, [dup, keep]);
+      await client.query(`UPDATE recommendations SET content_id = $2 WHERE content_type = 'recipe' AND content_id = $1`, [dup, keep]);
+      await client.query(`UPDATE coach_recommendations SET item_id = $2 WHERE item_type = 'recipe' AND item_id = $1`, [dup, keep]);
+      await client.query(`DELETE FROM recipes WHERE id = $1`, [dup]);
+      console.log(`[startup-migration] beef-dupe: merged recipe ${dup} into ${keep}`);
+    }
+    const descs: Array<[number, string]> = [
+      [12, "Grilled chicken with quinoa and a tray of roasted vegetables. A simple, high-protein main."],
+      [13, "Sirloin strips stir-fried with mixed vegetables and cashews, served over jasmine rice."],
+      [14, "Salmon fillet served with sweet potato mash and green beans."],
+      [257, "Turkey meatballs in marinara sauce, served over spaghetti."],
+      [258, "Pork tenderloin with roasted potatoes and asparagus."],
+    ];
+    for (const [id, text] of descs) {
+      await client.query(
+        `UPDATE recipes SET description = $2
+           WHERE id = $1 AND user_id IS NULL AND description LIKE 'AI-generated to fill a gap%'`,
+        [id, text],
+      );
+    }
+    await client.query("COMMIT");
+  } catch (e: any) {
+    await client.query("ROLLBACK").catch(() => {});
+    console.error("[startup-migration] beef-dupe/gap-descriptions failed:", e?.message || e);
+  } finally {
+    client.release();
+  }
+}

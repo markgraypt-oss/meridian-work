@@ -2346,7 +2346,7 @@ export default function AdminPanel() {
                     <BookOpen className="h-5 w-5 text-primary" />
                     Desk Reference Photos
                   </CardTitle>
-                  <CardDescription>Choose the "ideal setup" example shown in AI Desk Analyzer</CardDescription>
+                  <CardDescription>Choose the "ideal setup" example shown in the AI Desk Scanner</CardDescription>
                 </CardHeader>
                 <CardContent>
                   <Button variant="outline" size="sm">Manage Reference Photos</Button>

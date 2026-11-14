@@ -540,7 +540,7 @@ export default function WorkdayDeskScan() {
   return (
     <div className="min-h-screen bg-background pb-24">
       <TopHeader 
-        title="AI Desk Analyzer" 
+        title="AI Desk Scanner" 
         onBack={() => navigate("/recovery/desk-health")} 
         rightActionIcon={scanId !== null ? <Trash2 className="h-5 w-5 text-red-400" /> : undefined}
         onRightAction={scanId !== null ? () => setPendingDeleteId(scanId) : undefined}
@@ -849,7 +849,7 @@ export default function WorkdayDeskScan() {
               <CardContent className="p-5">
                 <div className="flex items-center gap-2 mb-4">
                   <Target className="h-4 w-4 text-[#0cc9a9]" />
-                  <span className="text-sm font-medium text-muted-foreground uppercase tracking-wide">AI desk scan results</span>
+                  <span className="text-sm font-medium text-muted-foreground uppercase tracking-wide">AI Desk Scanner results</span>
                 </div>
 
                 <Card className="bg-background/50 border-border/50">

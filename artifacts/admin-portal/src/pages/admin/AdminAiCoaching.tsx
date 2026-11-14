@@ -91,7 +91,7 @@ const FEATURES: FeatureConfig[] = [
   },
   {
     id: 'desk_scan',
-    label: 'Desk Analyzer',
+    label: 'Desk Scanner',
     icon: Monitor,
     description: 'How the AI analyzes desk setups and provides ergonomic feedback from photos',
     fields: [
@@ -757,7 +757,7 @@ export default function AdminAiCoaching() {
                   <SelectItem value="all">All Features</SelectItem>
                   <SelectItem value="recovery_coach">Recovery Coach</SelectItem>
                   <SelectItem value="coach_chat">Coach Chat</SelectItem>
-                  <SelectItem value="desk_analyzer">Desk Analyzer</SelectItem>
+                  <SelectItem value="desk_analyzer">Desk Scanner</SelectItem>
                 </SelectContent>
               </Select>
               <Select

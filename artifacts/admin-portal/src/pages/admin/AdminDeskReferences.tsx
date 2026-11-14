@@ -115,7 +115,7 @@ export default function AdminDeskReferences() {
           <CardContent className="p-4">
             <h2 className="font-semibold text-foreground mb-1">Choose what users see as the ideal setup</h2>
             <p className="text-sm text-foreground/80">
-              These photos appear in the AI Desk Analyzer under "See an ideal setup" for each position. Upload your own to replace the default reference image.
+              These photos appear in the AI Desk Scanner under "See an ideal setup" for each position. Upload your own to replace the default reference image.
             </p>
           </CardContent>
         </Card>

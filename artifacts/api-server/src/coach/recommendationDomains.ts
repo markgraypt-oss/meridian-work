@@ -746,7 +746,7 @@ export const ACTION_REGISTRY: RecAction[] = [
   },
   {
     key: "desk_scan",
-    title: "Run an AI desk scan",
+    title: "Run the AI Desk Scanner",
     description: "camera-based ergonomic analysis of the user's desk setup with a score and priority fixes",
     route: "/recovery/desk-health/scan",
     eligible: (s) => s.workday.lastDeskScanDaysAgo === null || s.workday.lastDeskScanDaysAgo > 60,

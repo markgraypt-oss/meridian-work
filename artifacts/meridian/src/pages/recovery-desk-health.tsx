@@ -82,7 +82,7 @@ export default function RecoveryDeskHealth() {
   const features: FeatureCardProps[] = [
     {
       icon: <Sparkles className="h-6 w-6 text-white" />,
-      title: "AI Desk Scan",
+      title: "AI Desk Scanner",
       description: "Upload a photo and get AI-powered ergonomic feedback on your setup",
       href: "/recovery/desk-health/scan",
       gradient: "bg-gradient-to-br from-cyan-500 to-[#0cc9a9]"

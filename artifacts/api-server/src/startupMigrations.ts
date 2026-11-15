@@ -585,6 +585,31 @@ export const SELF_HEAL_DDL: string[] = [
        EXECUTE format('ALTER TABLE %I ADD CONSTRAINT %I FOREIGN KEY (%I) REFERENCES users(id) ON DELETE CASCADE', r.table_name, r.constraint_name, r.column_name);
      END LOOP;
    END $$`,
+  // Hand-logged workouts (done outside the app, typed in afterwards) and the
+  // device workouts a person has removed from their own list. Drizzle side:
+  // lib/db/src/schema/loggedWorkouts.ts. Read by loggedWorkouts.ts.
+  `CREATE TABLE IF NOT EXISTS manual_workouts (
+     id serial PRIMARY KEY,
+     user_id varchar NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+     activity_type text NOT NULL,
+     name text NOT NULL,
+     started_at timestamp NOT NULL,
+     duration_seconds integer NOT NULL,
+     distance_meters integer,
+     effort integer,
+     notes text,
+     exercises jsonb,
+     created_at timestamp DEFAULT now(),
+     updated_at timestamp DEFAULT now()
+   )`,
+  `CREATE INDEX IF NOT EXISTS manual_workouts_user_started_idx ON manual_workouts (user_id, started_at)`,
+  `CREATE TABLE IF NOT EXISTS dismissed_device_workouts (
+     id serial PRIMARY KEY,
+     user_id varchar NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+     wearable_workout_id integer NOT NULL,
+     created_at timestamp DEFAULT now()
+   )`,
+  `CREATE UNIQUE INDEX IF NOT EXISTS dismissed_device_workouts_user_workout_idx ON dismissed_device_workouts (user_id, wearable_workout_id)`,
 ];
 
 export async function runSchemaSelfHealOnce(): Promise<void> {
@@ -1118,6 +1143,28 @@ const BADGES_V2 = [
   { name: "Peak Performer", description: "Reached Peak readiness 10 times", category: "readiness", tier: "bronze", icon: "⭐", requirement: JSON.stringify({ type: "count", metric: "readiness_peak_days", target: 10 }), sortOrder: 194 },
   { name: "Pillar of Health", description: "Reached Peak readiness 50 times", category: "readiness", tier: "gold", icon: "💎", requirement: JSON.stringify({ type: "count", metric: "readiness_peak_days", target: 50 }), sortOrder: 195 },
   { name: "Perfect Day", description: "Scored a perfect 100 on Daily Readiness", category: "readiness", tier: "platinum", icon: "💯", requirement: JSON.stringify({ type: "count", metric: "readiness_perfect_days", target: 1 }), sortOrder: 196 },
+  // RUNNING (13). Added 15 Nov 2026. Runs are done outside the app: typed in, or
+  // recorded on a watch or phone. Both metrics are in metres and come from
+  // getRunningTotals() in loggedWorkouts.ts. The half marathon and marathon
+  // badges are set at 21 km and 42 km, which is what their descriptions say.
+  // The ultramarathon badge is a run of 100 km or more, and the 50 km badge is
+  // its own badge (Mark, 15 Nov 2026).
+  // These are worded in km. Someone who uses miles reads them in miles: the app
+  // (components/badgeText.ts) and the unlock notification (distanceUnits.ts)
+  // reword any "N km" in the name and description, so keep that pattern.
+  { name: "First 5 km run", description: "Complete a run of 5 km or more", category: "running", tier: "bronze", icon: "🏃", requirement: JSON.stringify({ type: "count", metric: "run_longest_m", target: 5000 }), sortOrder: 200 },
+  { name: "First 10 km run", description: "Complete a run of 10 km or more", category: "running", tier: "silver", icon: "🏃", requirement: JSON.stringify({ type: "count", metric: "run_longest_m", target: 10000 }), sortOrder: 201 },
+  { name: "First half marathon", description: "Complete a run of 21 km or more", category: "running", tier: "gold", icon: "🏅", requirement: JSON.stringify({ type: "count", metric: "run_longest_m", target: 21000 }), sortOrder: 202 },
+  { name: "First marathon", description: "Complete a run of 42 km or more", category: "running", tier: "platinum", icon: "🏆", requirement: JSON.stringify({ type: "count", metric: "run_longest_m", target: 42000 }), sortOrder: 203 },
+  { name: "First 50 km run", description: "Complete a run of 50 km or more", category: "running", tier: "platinum", icon: "🏃", requirement: JSON.stringify({ type: "count", metric: "run_longest_m", target: 50000 }), sortOrder: 204 },
+  { name: "First ultramarathon", description: "Complete a run of 100 km or more", category: "running", tier: "platinum", icon: "🏔️", requirement: JSON.stringify({ type: "count", metric: "run_longest_m", target: 100000 }), sortOrder: 205 },
+  { name: "50 km in total", description: "Run 50 km in total", category: "running", tier: "bronze", icon: "👟", requirement: JSON.stringify({ type: "count", metric: "run_total_m", target: 50000 }), sortOrder: 206 },
+  { name: "100 km in total", description: "Run 100 km in total", category: "running", tier: "silver", icon: "👟", requirement: JSON.stringify({ type: "count", metric: "run_total_m", target: 100000 }), sortOrder: 207 },
+  { name: "250 km in total", description: "Run 250 km in total", category: "running", tier: "gold", icon: "👟", requirement: JSON.stringify({ type: "count", metric: "run_total_m", target: 250000 }), sortOrder: 208 },
+  { name: "500 km in total", description: "Run 500 km in total", category: "running", tier: "platinum", icon: "👟", requirement: JSON.stringify({ type: "count", metric: "run_total_m", target: 500000 }), sortOrder: 209 },
+  { name: "1,000 km in total", description: "Run 1,000 km in total", category: "running", tier: "platinum", icon: "👟", requirement: JSON.stringify({ type: "count", metric: "run_total_m", target: 1000000 }), sortOrder: 210 },
+  { name: "5,000 km in total", description: "Run 5,000 km in total", category: "running", tier: "platinum", icon: "👟", requirement: JSON.stringify({ type: "count", metric: "run_total_m", target: 5000000 }), sortOrder: 211 },
+  { name: "10,000 km in total", description: "Run 10,000 km in total", category: "running", tier: "platinum", icon: "👟", requirement: JSON.stringify({ type: "count", metric: "run_total_m", target: 10000000 }), sortOrder: 212 },
 ];
 
 export async function seedBadgesV2Once(): Promise<void> {
@@ -1233,6 +1280,48 @@ export async function seedStreakLadderOnce(): Promise<void> {
     if (added) console.log(`[startup-migration] streak-ladder: added ${added} badges`);
   } catch (e: any) {
     console.error("[startup-migration] streak-ladder failed:", e?.message || e);
+  }
+}
+
+// Running badges (15 Nov 2026). Keeps the running badges in the database in
+// step with the list in BADGES_V2, by name: adds any that are missing, and
+// updates the description, tier, icon, requirement and order of any that have
+// changed. Safe on every boot. A badge renamed in the list is added as a new
+// one; the old name stays until it is retired by hand.
+export async function seedRunningBadgesOnce(): Promise<void> {
+  try {
+    const running = BADGES_V2.filter(b => b.category === 'running');
+    const existing = await pool.query(
+      `SELECT id, name, description, tier, icon, requirement, sort_order
+       FROM badges WHERE category = 'running' AND collection = 'current' AND is_active = true`
+    );
+    const byName = new Map<string, any>((existing.rows || []).map((r: any) => [String(r.name), r]));
+    let added = 0;
+    let updated = 0;
+    for (const b of running) {
+      const row = byName.get(b.name);
+      if (!row) {
+        await pool.query(
+          `INSERT INTO badges (name, description, category, tier, icon, requirement, collection, sort_order, is_active)
+           VALUES ($1, $2, $3, $4, $5, $6, 'current', $7, true)
+           ON CONFLICT DO NOTHING`,
+          [b.name, b.description, b.category, b.tier, b.icon, b.requirement, b.sortOrder]
+        );
+        added++;
+      } else if (
+        row.description !== b.description || row.tier !== b.tier || row.icon !== b.icon ||
+        row.requirement !== b.requirement || Number(row.sort_order) !== b.sortOrder
+      ) {
+        await pool.query(
+          `UPDATE badges SET description = $1, tier = $2, icon = $3, requirement = $4, sort_order = $5 WHERE id = $6`,
+          [b.description, b.tier, b.icon, b.requirement, b.sortOrder, row.id]
+        );
+        updated++;
+      }
+    }
+    if (added || updated) console.log(`[startup-migration] running-badges: added ${added}, updated ${updated}`);
+  } catch (e: any) {
+    console.error("[startup-migration] running-badges failed:", e?.message || e);
   }
 }
 

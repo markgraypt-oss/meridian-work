@@ -39,6 +39,9 @@ export interface WeeklyCheckinPayloadV2 {
       sessionsCompleted: number;
       sessionsPlanned: number;
       adherencePct: number | null;
+      // Workouts done outside the app this week (typed in, or from a watch or
+      // phone). Added 15 Nov 2026; older check-ins do not have it.
+      outsideWorkouts?: number;
       steps?: {
         avg: number;
         bestDay: { dayLabel: string; steps: number } | null;
@@ -141,6 +144,9 @@ interface V2AggData {
     sessionsCompleted: number;
     sessionsPlanned: number;
     adherencePct: number | null;
+    // Optional so callers that build this by hand (weeklyCheckinDevTest.ts) still fit.
+    // `distance` is already worded in the person's own unit: "10 km" or "6.2 miles".
+    outsideWorkouts?: Array<{ type: string; minutes: number; distance: string | null }>;
     totalVolumeKg: number;
     prevTotalVolumeKg: number;
     avgSleepHours: number | null;
@@ -308,6 +314,27 @@ export async function aggregateWeekV2(userId: string, weekStart: Date): Promise<
   const sessionsCompletedInPlan = adHocCompleted + programmeCompleted;
   const sessionsMissed = Math.max(0, sessionsPlanned - sessionsCompletedInPlan);
   const adherencePct = sessionsPlanned > 0 ? Math.round((sessionsCompletedInPlan / sessionsPlanned) * 100) : null;
+
+  // Workouts done outside the app this week: typed in by the person, or
+  // recorded on a watch or phone (rules in ./loggedWorkouts). They count in the
+  // week's workouts on the card and in the summary. They are never part of the
+  // plan, adherence, training volume or the burnout score, which stay in-app only.
+  let outsideThisWeek: Array<{ type: string; minutes: number; distance: string | null }> = [];
+  try {
+    const { listLoggedWorkouts } = await import("./loggedWorkouts");
+    const { distancePhrase } = await import("./distanceUnits");
+    const [logged, owner] = await Promise.all([
+      listLoggedWorkouts(userId, weekStart, weekEnd),
+      storage.getUser(userId),
+    ]);
+    outsideThisWeek = logged.map((w) => ({
+      type: w.activityType,
+      minutes: Math.round(w.durationSeconds / 60),
+      distance: w.distanceMeters ? distancePhrase(w.distanceMeters, owner?.distanceUnit) : null,
+    }));
+  } catch (e: any) {
+    console.warn("[weekly-checkin-v2] outside workouts fetch failed:", e?.message || e);
+  }
 
   // Previous week volume for legacy metrics
   const prevCompletions = workoutLogData.filter((w: any) => {
@@ -578,11 +605,12 @@ export async function aggregateWeekV2(userId: string, weekStart: Date): Promise<
     };
   }
 
-  if (completedThisWeek.length > 0 || sessionsPlanned > 0 || stepsBlock) {
+  if (completedThisWeek.length > 0 || outsideThisWeek.length > 0 || sessionsPlanned > 0 || stepsBlock) {
     cards.howYouMoved = {
       sessionsCompleted: completedThisWeek.length,
       sessionsPlanned,
       adherencePct,
+      outsideWorkouts: outsideThisWeek.length,
       steps: stepsBlock,
     };
   }
@@ -649,6 +677,7 @@ export async function aggregateWeekV2(userId: string, weekStart: Date): Promise<
       sessionsCompleted: completedThisWeek.length,
       sessionsPlanned,
       adherencePct,
+      outsideWorkouts: outsideThisWeek,
       totalVolumeKg: Math.round(totalVolumeKg),
       prevTotalVolumeKg: prevVolumeKg,
       avgSleepHours,
@@ -704,7 +733,11 @@ ${JSON.stringify(promptData, null, 2)}
 
 Field guide:
 - check-ins: avgMood/avgEnergy/avgStress are 1-5 scales; roughDaysCount counts days flagged with headache/sick/fatigue/anxious/overwhelmed.
-- training: sessionsCompleted vs sessionsPlanned, adherencePct, totalVolumeKg vs prevTotalVolumeKg for week-over-week load.
+- training: sessionsCompleted (workouts done in the app) vs sessionsPlanned, adherencePct, totalVolumeKg vs prevTotalVolumeKg for week-over-week load.
+- outsideWorkouts: workouts done outside the app this week (a run, a gym workout, a class), typed in by the user or recorded on a watch or phone.
+    Each has a type, minutes, and a distance where one was recorded. The distance is already in the unit this user prefers (km or miles): quote it as given, never convert it.
+    They count as workouts completed this week, on top of sessionsCompleted.
+    They are not planned workouts, so they are not in sessionsPlanned, adherencePct or totalVolumeKg. An empty list means none.
 - wearable physiology (only present if a device is connected; values null otherwise):
     avgSleepHours, avgStepsPerDay, avgActiveMinutesPerDay, avgRestingHr (bpm),
     avgHrvMs (ms - higher generally better), avgCaloriesBurned (kcal/day total energy),
@@ -728,10 +761,11 @@ Rules:
 - "trajectoryLabel": based on the overall wellbeing picture across all streams. Use "not enough data" only if fewer than 2 streams have data.
 - "patterns": 2-3 specific observations that connect two or more data streams
   (e.g. "Your three lowest-mood days all followed nights with under 6 h sleep",
-  "HRV dropped 12 ms on the two days you completed back-to-back strength sessions",
+  "HRV dropped 12 ms on the two days you completed back-to-back strength workouts",
   "Coach engagement spiked (12 messages) on the same two days stress peaked at 4.5/5").
   If fewer than 2 genuine cross-stream patterns exist, return an empty array.
 - Treat null values as "not tracked this week" - never invent numbers.
+- Wording: a completed training session is a "workout". Always write "workout" or "workouts", never "session" or "sessions".
 - Tone: warm, honest, non-prescriptive. Never diagnose. Reference actual numbers.
 `;
 }
@@ -742,8 +776,9 @@ function buildFallbackNarrative(promptData: V2AggData["promptData"]): { narrativ
     parts.push(`${promptData.checkInCount} check-in${promptData.checkInCount !== 1 ? "s" : ""} logged`);
     if (promptData.avgMood !== null) parts.push(`avg mood ${promptData.avgMood}/5`);
   }
-  if (promptData.sessionsCompleted > 0) {
-    parts.push(`${promptData.sessionsCompleted} training session${promptData.sessionsCompleted !== 1 ? "s" : ""} completed`);
+  const workoutsDone = promptData.sessionsCompleted + (promptData.outsideWorkouts?.length ?? 0);
+  if (workoutsDone > 0) {
+    parts.push(`${workoutsDone} workout${workoutsDone !== 1 ? "s" : ""} completed`);
   }
   if (promptData.avgSleepHours !== null) {
     parts.push(`avg ${promptData.avgSleepHours}h sleep per night`);

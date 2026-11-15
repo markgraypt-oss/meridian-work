@@ -13484,11 +13484,21 @@ export class DatabaseStorage implements IStorage {
       const [b] = await db.select().from(badges).where(eq(badges.id, badgeId));
       if (b) {
         const { notify } = await import("./notifications");
+        // Running badges are stored worded in km. Someone who uses miles is
+        // told about them in miles, as the app shows them on screen.
+        let badgeName = b.name;
+        let badgeDescription = b.description;
+        if (b.category === "running") {
+          const { distanceWording } = await import("./distanceUnits");
+          const owner = await this.getUser(userId);
+          badgeName = distanceWording(b.name, owner?.distanceUnit);
+          badgeDescription = distanceWording(b.description, owner?.distanceUnit);
+        }
         notify({
           userId,
           category: "admin",
-          title: `Badge unlocked: ${b.name}`,
-          body: b.description || `You earned the ${b.name} badge.`,
+          title: `Badge unlocked: ${badgeName}`,
+          body: badgeDescription || `You earned the ${badgeName} badge.`,
           data: { url: "/badges", badgeId },
           disableEmail: true,
           prefKey: "badgeAlerts",
@@ -13931,6 +13941,19 @@ export class DatabaseStorage implements IStorage {
     stats.readiness_peak_streak = readinessPeakStreak;
     stats.readiness_peak_days = readinessPeakDays;
     stats.readiness_perfect_days = readinessPerfectDays;
+
+    // ---- RUNNING ----
+    // Runs are done outside the app (typed in, or recorded on a watch or
+    // phone), so the distances come from loggedWorkouts.ts, in metres. A
+    // failure here leaves the two numbers out and every other badge unaffected.
+    try {
+      const { getRunningTotals } = await import("./loggedWorkouts");
+      const running = await getRunningTotals(userId);
+      stats.run_longest_m = running.longestMeters;
+      stats.run_total_m = running.totalMeters;
+    } catch (e) {
+      console.error("[badges] running totals failed:", e);
+    }
 
     return stats;
   }

@@ -4348,7 +4348,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Update user preferences
   const updatePreferencesSchema = z.object({
     weightUnit: z.enum(["kg", "lbs"]).optional(),
-    distanceUnit: z.enum(["km", "mi"]).optional(),
+    // The mobile app sends "miles" and the website sends "mi". Both mean miles
+    // and both are stored as sent (see distanceUnits.ts, usesMiles). Before
+    // 15 Nov 2026 "miles" was refused here, so the app could not save it.
+    distanceUnit: z.enum(["km", "mi", "miles"]).optional(),
     timeFormat: z.enum(["12h", "24h"]).optional(),
     dateFormat: z.enum(["DD/MM/YYYY", "MM/DD/YYYY", "YYYY-MM-DD"]).optional(),
     restTimerSounds: z.boolean().optional(),
@@ -25511,6 +25514,10 @@ RULES:
   // Wearables
   const { registerWearableRoutes } = await import('../wearables/routes');
   registerWearableRoutes(app);
+
+  // Workouts done outside the app: typed in by hand, or recorded on a watch or phone
+  const { registerLoggedWorkoutRoutes } = await import('../loggedWorkouts');
+  registerLoggedWorkoutRoutes(app);
 
   // ==========================================
   // AI Activity (admin observability)

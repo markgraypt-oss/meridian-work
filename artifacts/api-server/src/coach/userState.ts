@@ -1,4 +1,6 @@
 import { storage } from "../storage";
+import { listLoggedWorkouts } from "../loggedWorkouts";
+import { distancePhrase } from "../distanceUnits";
 
 // ---------------------------------------------------------------------------
 // Per-message user state snapshot for the coach recommendation engine.
@@ -36,6 +38,20 @@ export type UserStateSnapshot = {
       totalWorkouts: number;
     } | null;
     lastWorkoutDaysAgo: number | null;
+    // Workouts done OUTSIDE the app in the last 14 days, newest first: typed in
+    // by the person, or recorded on a watch or phone. Kept apart from
+    // lastWorkoutDaysAgo, which stays in-app only because other code reads it
+    // as "has done a workout in the app". Rules: ../loggedWorkouts.ts.
+    outsideWorkouts: Array<{
+      name: string;
+      daysAgo: number;
+      minutes: number;
+      // Already worded in the person's own unit: "10 km" or "6.2 miles".
+      distance: string | null;
+      effort: number | null;
+      exercises: number;
+      source: string;
+    }>;
   };
   pain: {
     // Active issues = logged in the last 14 days, most recent per body part.
@@ -96,6 +112,8 @@ export async function getUserStateSnapshot(userId: string): Promise<UserStateSna
     meditationSessions,
     breathLogs,
     mealPlan,
+    outsideLogs,
+    user,
   ] = await Promise.all([
     storage.getWorkdayUserProfile(userId).catch(() => undefined),
     storage.getWorkdayDeskScans(userId).catch(() => []),
@@ -111,6 +129,8 @@ export async function getUserStateSnapshot(userId: string): Promise<UserStateSna
     storage.getMeditationSessions(userId, 50).catch(() => []),
     storage.getBreathWorkSessionLogs(userId, 1_000).catch(() => []),
     storage.getUserMealPlan(userId).catch(() => undefined),
+    listLoggedWorkouts(userId, new Date(Date.now() - 14 * 86_400_000), new Date(Date.now() + 86_400_000)).catch(() => []),
+    storage.getUser(userId).catch(() => undefined),
   ]);
 
   // Workday
@@ -138,6 +158,15 @@ export async function getUserStateSnapshot(userId: string): Promise<UserStateSna
         }
       : null,
     lastWorkoutDaysAgo: daysAgo(lastLog?.completedAt ?? lastLog?.startedAt ?? lastLog?.createdAt),
+    outsideWorkouts: (outsideLogs || []).slice(0, 8).map((w) => ({
+      name: w.name,
+      daysAgo: daysAgo(w.startedAt) ?? 0,
+      minutes: Math.round(w.durationSeconds / 60),
+      distance: w.distanceMeters ? distancePhrase(w.distanceMeters, user?.distanceUnit) : null,
+      effort: w.effort,
+      exercises: w.exerciseCount,
+      source: w.source === "device" ? w.sourceLabel : "typed in by the user",
+    })),
   };
 
   // Pain: most recent log per body part within 14 days.
@@ -242,7 +271,14 @@ export function formatUserStateBlock(s: UserStateSnapshot): string {
   } else {
     lines.push("- Active programme: none");
   }
-  if (s.training.lastWorkoutDaysAgo !== null) lines.push(`- Last logged workout: ${s.training.lastWorkoutDaysAgo}d ago`);
+  if (s.training.lastWorkoutDaysAgo !== null) lines.push(`- Last workout done in the app: ${s.training.lastWorkoutDaysAgo}d ago`);
+  if (s.training.outsideWorkouts.length > 0) {
+    lines.push(
+      `- Workouts done outside the app (last 14d): ${s.training.outsideWorkouts
+        .map((w) => `${w.name}${w.distance ? ` ${w.distance}` : ""}, ${w.minutes} min${w.effort ? `, effort ${w.effort}/10` : ""}${w.exercises ? `, ${w.exercises} exercises` : ""} (${w.daysAgo}d ago, ${w.source})`)
+        .join("; ")}`,
+    );
+  }
 
   if (s.pain.activeIssues.length > 0) {
     lines.push(

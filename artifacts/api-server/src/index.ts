@@ -54,7 +54,7 @@ if (Number.isNaN(port) || port <= 0) {
       "Server listening",
     );
 
-    import("./startupMigrations").then(({ runSchemaSelfHealOnce, runProfileImageMigrationOnce, seedMeditationsOnce, seedAiPromptsOnce, repairBodyweightGoalUnitsOnce, normalizeRecipeMacrosOnce, seedBadgesV2Once, retireDroppedDeskBadgesOnce, fixHabitTemplateDescriptionsOnce, seedReadinessBadgesOnce, seedStreakLadderOnce, seedRunningBadgesOnce, dedupeCheckInsOnce, backfillContentTagsOnce, revokeEmptyBurnoutBadgesOnce, revokeEmptyAiBadgesOnce, revokeInvalidPerfectRecordOnce, revokeInflatedStretchingBadgesOnce, revokeWearableOnlySelfAwareOnce, seedLabTopicCoversOnce, seedLabPathCoversOnce, seedLabLifeStageOnce, stripEmDashesFromDescriptionsOnce, restoreRecipeImagesFromUploadsOnce, reconcileBreathworkDurationsOnce, seedBreathworkTechniquesV2Once, backfillBriefingConversationsOnce, inlineImagesToStorageOnce, houseStyleContentOnce, mergeSnackRecipeDuplicatesOnce, mergeBeefDupeAndFixGapDescriptionsOnce }) => {
+    import("./startupMigrations").then(({ runSchemaSelfHealOnce, runProfileImageMigrationOnce, seedMeditationsOnce, seedAiPromptsOnce, repairBodyweightGoalUnitsOnce, normalizeRecipeMacrosOnce, seedBadgesV2Once, retireDroppedDeskBadgesOnce, fixHabitTemplateDescriptionsOnce, seedReadinessBadgesOnce, seedStreakLadderOnce, seedRunningBadgesOnce, revokeBackdatedRunningBadgesOnce, dedupeCheckInsOnce, backfillContentTagsOnce, revokeEmptyBurnoutBadgesOnce, revokeEmptyAiBadgesOnce, revokeInvalidPerfectRecordOnce, revokeInflatedStretchingBadgesOnce, revokeWearableOnlySelfAwareOnce, seedLabTopicCoversOnce, seedLabPathCoversOnce, seedLabLifeStageOnce, stripEmDashesFromDescriptionsOnce, restoreRecipeImagesFromUploadsOnce, reconcileBreathworkDurationsOnce, seedBreathworkTechniquesV2Once, backfillBriefingConversationsOnce, inlineImagesToStorageOnce, houseStyleContentOnce, mergeSnackRecipeDuplicatesOnce, mergeBeefDupeAndFixGapDescriptionsOnce }) => {
       runSchemaSelfHealOnce()
         .catch((e: any) => logger.error({ e }, "[startup-migration] schema self-heal failed"))
         .then(() => {
@@ -71,6 +71,7 @@ if (Number.isNaN(port) || port <= 0) {
           seedReadinessBadgesOnce().catch((e: any) => logger.error({ e }, "[startup-migration] readiness-badges failed"));
           seedStreakLadderOnce().catch((e: any) => logger.error({ e }, "[startup-migration] streak-ladder failed"));
           seedRunningBadgesOnce().catch((e: any) => logger.error({ e }, "[startup-migration] running-badges failed"));
+          revokeBackdatedRunningBadgesOnce().catch((e: any) => logger.error({ e }, "[startup-migration] revoke backdated running badges failed"));
           dedupeCheckInsOnce().catch((e: any) => logger.error({ e }, "[startup-migration] dedupe-check-ins failed"));
           backfillContentTagsOnce().catch((e: any) => logger.error({ e }, "[startup-migration] content-tag backfill failed"));
           revokeEmptyBurnoutBadgesOnce().catch((e: any) => logger.error({ e }, "[startup-migration] revoke empty burnout badges failed"));

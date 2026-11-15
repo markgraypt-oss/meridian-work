@@ -23,7 +23,7 @@ import type { Express } from "express";
 import { z } from "zod";
 import { and, eq, gte, lt } from "drizzle-orm";
 import { db } from "./db";
-import { manualWorkouts, dismissedDeviceWorkouts, wearableWorkouts, workoutLogs } from "@workspace/db";
+import { manualWorkouts, dismissedDeviceWorkouts, users, wearableWorkouts, workoutLogs } from "@workspace/db";
 import { isAuthenticated } from "./replitAuth";
 
 export const ACTIVITY_TYPES = ["run", "cycle", "swim", "gym", "yoga", "pilates", "stretching", "class", "sport", "other"] as const;
@@ -274,14 +274,27 @@ export async function listLoggedWorkouts(userId: string, from: Date, to: Date, o
   return items.sort((a, b) => (a.startedAt < b.startedAt ? 1 : -1));
 }
 
+// The running badges only count runs done from this day on. For the first half
+// hour they were live they counted a person's whole synced history, so opening
+// the app handed out badges for runs imported from a watch months earlier.
+// Mark, 15 Nov 2026: "imported workouts should not count towards any badges".
+const RUNNING_BADGES_START = new Date("2026-11-15T00:00:00Z");
+
 /**
  * Running distance for the running badges (storage.ts, getUserBadgeStats): the
- * longest single run and the total, in metres, over all time. Runs typed in
- * and runs from a device both count (agreed with Mark, 15 Nov 2026), with the
- * same rules as the list, so a run recorded by two devices is counted once.
+ * longest single run and the total, in metres.
+ *
+ * Only runs that started on or after RUNNING_BADGES_START count, and never runs
+ * from before the person joined, so a history imported from a watch earns
+ * nothing. From then on, runs typed in and runs recorded on a device both
+ * count, with the same rules as the list (a run recorded by two devices is
+ * counted once).
  */
 export async function getRunningTotals(userId: string): Promise<{ longestMeters: number; totalMeters: number }> {
-  const all = await listLoggedWorkouts(userId, new Date(0), new Date(Date.now() + 24 * 60 * 60 * 1000), { withoutRaw: true });
+  const [owner] = await db.select({ createdAt: users.createdAt }).from(users).where(eq(users.id, userId)).limit(1);
+  const joined = owner?.createdAt ? owner.createdAt.getTime() : 0;
+  const from = new Date(Math.max(RUNNING_BADGES_START.getTime(), joined));
+  const all = await listLoggedWorkouts(userId, from, new Date(Date.now() + 24 * 60 * 60 * 1000), { withoutRaw: true });
   let longestMeters = 0;
   let totalMeters = 0;
   for (const w of all) {

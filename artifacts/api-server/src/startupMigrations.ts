@@ -1325,6 +1325,74 @@ export async function seedRunningBadgesOnce(): Promise<void> {
   }
 }
 
+let hasRunRevokeBackdatedRunningBadges = false;
+const REVOKE_BACKDATED_RUNNING_BADGES_FLAG = "revoke_backdated_running_badges_v1";
+
+// Corrective (15 Nov 2026): for the first half hour the running badges were
+// live they counted a person's whole synced history, so anyone with past runs
+// from a watch was given badges just for opening the app. They now count only
+// runs from 15 Nov 2026 on, and never from before the person joined
+// (getRunningTotals in loggedWorkouts.ts). This takes back, once, every
+// running badge that the rule as it now stands does not support. Runs once
+// per database, guarded by a system_flags marker.
+export async function revokeBackdatedRunningBadgesOnce(): Promise<void> {
+  if (hasRunRevokeBackdatedRunningBadges) return;
+  hasRunRevokeBackdatedRunningBadges = true;
+
+  try {
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS system_flags (
+        key text PRIMARY KEY,
+        created_at timestamp DEFAULT now()
+      )
+    `);
+    const existing = await pool.query(
+      `SELECT 1 FROM system_flags WHERE key = $1 LIMIT 1`,
+      [REVOKE_BACKDATED_RUNNING_BADGES_FLAG],
+    );
+    if ((existing.rowCount ?? 0) > 0) return;
+
+    const held = await pool.query(`
+      SELECT ub.id, ub.user_id, b.requirement
+      FROM user_badges ub
+      JOIN badges b ON b.id = ub.badge_id
+      WHERE b.category = 'running'
+    `);
+    const { getRunningTotals } = await import("./loggedWorkouts");
+    const totalsByUser = new Map<string, { longestMeters: number; totalMeters: number }>();
+    let removed = 0;
+    for (const row of held.rows || []) {
+      const userId = String(row.user_id);
+      let totals = totalsByUser.get(userId);
+      if (!totals) {
+        totals = await getRunningTotals(userId);
+        totalsByUser.set(userId, totals);
+      }
+      let requirement: any = null;
+      try { requirement = JSON.parse(row.requirement); } catch { continue; }
+      const target = Number(requirement?.target);
+      const have =
+        requirement?.metric === "run_longest_m" ? totals.longestMeters :
+        requirement?.metric === "run_total_m" ? totals.totalMeters : null;
+      if (have === null || !Number.isFinite(target)) continue;
+      if (have < target) {
+        await pool.query(`DELETE FROM user_badges WHERE id = $1`, [row.id]);
+        removed++;
+      }
+    }
+    console.log(`[startup-migration] revoke backdated running badges: checked ${(held.rows || []).length}, removed ${removed}`);
+
+    await pool.query(
+      `INSERT INTO system_flags (key) VALUES ($1) ON CONFLICT (key) DO NOTHING`,
+      [REVOKE_BACKDATED_RUNNING_BADGES_FLAG],
+    );
+  } catch (e: any) {
+    // The marker is not written, so this runs again on the next start.
+    hasRunRevokeBackdatedRunningBadges = false;
+    console.error("[startup-migration] revoke backdated running badges failed:", e?.message || e);
+  }
+}
+
 export async function fixHabitTemplateDescriptionsOnce(): Promise<void> {
   try {
     const stepsDesc = `Steps are the foundation of what is known as NEAT, or non-exercise activity thermogenesis. This is the energy your body burns through everything you do outside of formal training, and for most people it accounts for more daily calorie expenditure than their workouts.\n\n  Beyond fat loss, consistent walking improves cardiovascular health, regulates blood sugar, supports recovery, and meaningfully reduces all-cause mortality.\n\n  For anyone with a desk-bound role, it is one of the highest-leverage habits available. You set your own daily target based on your lifestyle and goals, and the benefits come from consistency over weeks and months.`;

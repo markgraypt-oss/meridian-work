@@ -11805,7 +11805,10 @@ Rules:
       // generator if either lookup fails.
       let burnoutScore: number | undefined;
       try {
-        const bs = await storage.getBurnoutScore(userId);
+        // Garmin connected without AI consent: the burnout score is built
+        // partly from Garmin data, so it stays out of the AI prompt.
+        const { garminWithheldFromAI } = await import('../wearables');
+        const bs = (await garminWithheldFromAI(userId)) ? null : await storage.getBurnoutScore(userId);
         if (bs && typeof bs.score === 'number') burnoutScore = bs.score;
       } catch (e: any) {
         console.warn("[ai/workouts/generate] burnout lookup failed:", e?.message);

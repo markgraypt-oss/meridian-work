@@ -424,6 +424,14 @@ async function readFreshReadiness(userId: string) {
 
 async function buildReadinessAndBaselineText(userId: string, dateKey: string): Promise<string> {
   try {
+    // Garmin connected without AI consent: the readiness score, its drivers
+    // and the baselines are built from Garmin data, so none of it goes to AI.
+    try {
+      const { garminWithheldFromAI } = await import("../wearables");
+      if (await garminWithheldFromAI(userId)) {
+        return "\nTODAY'S READINESS:\n- Not shared with the coach: the user has not allowed their Garmin data to be used by AI. Do not mention a readiness score, HRV, resting HR, sleep figures or baselines. Base the briefing on check-ins, workouts and plans only.";
+      }
+    } catch {}
     const [dr, baselines] = await Promise.all([
       readFreshReadiness(userId).catch(() => null),
       storage.getUserPhysiologicalBaselines(userId).catch(() => undefined),

@@ -934,6 +934,16 @@ export async function garminAiConsentGranted(userId: string): Promise<boolean> {
   return !!(conn && conn.status !== "disconnected" && (conn.meta as any)?.aiConsent?.granted === true);
 }
 
+// True when the user has Garmin connected but has NOT given AI consent.
+// Garmin data then stays out of AI prompts, and so do the scores MeridianWork
+// builds from it (Daily Readiness, physiological baselines, burnout score),
+// because those are derived from Garmin HRV, sleep and resting HR.
+export async function garminWithheldFromAI(userId: string): Promise<boolean> {
+  const conn = await getConnection(userId, "garmin");
+  if (!conn || conn.status === "disconnected") return false;
+  return (conn.meta as any)?.aiConsent?.granted !== true;
+}
+
 export async function setGarminAiConsent(userId: string, granted: boolean): Promise<boolean> {
   const conn = await getConnection(userId, "garmin");
   if (!conn) return false;

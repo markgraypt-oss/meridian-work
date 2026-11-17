@@ -72,6 +72,8 @@ export type UserStateSnapshot = {
     score: number | null;
     trajectory: string | null;
     recoveryMode: boolean;
+    // Garmin connected without AI consent: score is kept out of AI prompts.
+    withheldFromAI?: boolean;
   };
   habits: { topStreaks: Array<{ title: string; streak: number }> };
   goals: { activeCount: number };
@@ -211,10 +213,16 @@ export async function getUserStateSnapshot(userId: string): Promise<UserStateSna
     burnoutSettings?.recoveryModeEnabled &&
     (!burnoutSettings.recoveryModeExpiresAt || new Date(burnoutSettings.recoveryModeExpiresAt).getTime() > Date.now())
   );
+  let withheldFromAI = false;
+  try {
+    const { garminWithheldFromAI } = await import("../wearables");
+    withheldFromAI = await garminWithheldFromAI(userId);
+  } catch {}
   const burnout: UserStateSnapshot["burnout"] = {
     score: burnoutScore?.score ?? null,
     trajectory: burnoutScore?.trajectory ?? null,
     recoveryMode,
+    withheldFromAI,
   };
 
   const habitState: UserStateSnapshot["habits"] = {
@@ -292,7 +300,7 @@ export function formatUserStateBlock(s: UserStateSnapshot): string {
   }
   lines.push(`- Weekly check-in this week: ${s.checkins.weeklyDoneThisWeek ? "done" : "not yet"}`);
 
-  if (s.burnout.score !== null) {
+  if (s.burnout.score !== null && !s.burnout.withheldFromAI) {
     lines.push(`- Burnout score: ${s.burnout.score}/100 (${s.burnout.trajectory})${s.burnout.recoveryMode ? " | RECOVERY MODE ACTIVE" : ""}`);
   } else if (s.burnout.recoveryMode) {
     lines.push("- RECOVERY MODE ACTIVE");

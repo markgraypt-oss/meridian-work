@@ -372,7 +372,8 @@ export async function generateProgrammeWithAI(inputs: ProgrammeInputs, userId: s
         if (u.preferredGoals) bits.push(`prefers ${u.preferredGoals}`);
         if (bits.length) personalised.profileNote = `Target user: ${bits.join(", ")}.`;
       }
-      const burn = await storage.getBurnoutScore(inputs.targetUserId);
+      const { garminWithheldFromAI } = await import("../wearables");
+      const burn = (await garminWithheldFromAI(inputs.targetUserId)) ? null : await storage.getBurnoutScore(inputs.targetUserId);
       if (burn && typeof (burn as any).score === "number") {
         personalised.burnoutScore = (burn as any).score;
       }

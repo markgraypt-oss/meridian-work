@@ -138,7 +138,18 @@ export interface GarminWorkoutInput {
   averageHeartRate?: number | null;
   localDate: string; // the user's day the workout belongs to
   summaryId?: string | null;
+  /** "Garmin fenix 8": shown as "Recorded on Garmin fenix 8" (Garmin's attribution rule). */
+  sourceName?: string | null;
+  /** Splits and heart rate, from an activityDetails push (same shape as the phones send). */
+  detail?: GarminWorkoutDetail | null;
 }
+
+export type GarminWorkoutDetail = {
+  v: 1;
+  activeSeconds: number;
+  distance?: number[][];
+  heartRate?: number[][];
+};
 
 export interface GarminUserBatch {
   metrics: NormalisedDailyMetrics[];
@@ -163,6 +174,78 @@ const localDay = (startSecs: any, offsetSecs: any): string | null => {
   const s = num(startSecs);
   if (s == null) return null;
   return new Date((s + (num(offsetSecs) ?? 0)) * 1000).toISOString().slice(0, 10);
+};
+
+/** "fenix 8" -> "Garmin fenix 8"; no device name -> "Garmin". */
+const garminDevice = (name: any): string => {
+  const n = typeof name === "string" ? name.trim() : "";
+  if (!n) return "Garmin";
+  return /^garmin\b/i.test(n) ? n : "Garmin " + n;
+};
+
+/** At most this many points per series, the same as the phones. */
+const MAX_POINTS = 400;
+
+/**
+ * Splits and heart rate from an Activity Details summary (Activity API 2.1,
+ * section 6.3). Each sample is a moment of the activity with, among others,
+ * startTimeInSeconds, heartRate, totalDistanceInMeters (so far) and
+ * timerDurationInSeconds (timer time so far, pauses left out, which is the
+ * clock the splits use). Samples may be as often as once a second; a value
+ * holds until the next sample. Laps are not used: they are lap button or auto
+ * lap start times, which would mostly repeat the splits.
+ */
+export function garminDetailFromSamples(samples: any, startSecs: number, durationSecs: number | null): GarminWorkoutDetail | null {
+  if (!Array.isArray(samples) || samples.length === 0) return null;
+  const rows = samples
+    .filter((x: any) => x && typeof x === "object" && num(x.startTimeInSeconds) != null)
+    .sort((a: any, b: any) => a.startTimeInSeconds - b.startTimeInSeconds);
+  if (rows.length === 0) return null;
+  // Timer time when the sample gives it; otherwise time since the start.
+  const at = (x: any) => num(x.timerDurationInSeconds) ?? Math.max(0, x.startTimeInSeconds - startSecs);
+  const last = rows[rows.length - 1];
+  const activeSeconds = Math.round(Math.max(at(last), 0) || durationSecs || 0);
+  if (activeSeconds <= 0) return null;
+  const step = Math.max(5, Math.ceil(activeSeconds / MAX_POINTS));
+  const detail: GarminWorkoutDetail = { v: 1, activeSeconds };
+
+  // Distance so far: keep a point at most every `step` seconds, and the last.
+  const dist: number[][] = [[0, 0]];
+  let lastKept = 0;
+  let lastMetres = 0;
+  for (let i = 0; i < rows.length; i++) {
+    const m = num(rows[i].totalDistanceInMeters);
+    if (m == null || m < lastMetres) continue;
+    const t = Math.round(at(rows[i]));
+    lastMetres = m;
+    if (t - lastKept >= step || i === rows.length - 1) {
+      dist.push([t, Math.round(m * 10) / 10]);
+      lastKept = t;
+    }
+  }
+  if (dist.length > 2 && dist[dist.length - 1][1] > 0) detail.distance = dist;
+
+  // Heart rate: one averaged point per `step` seconds.
+  const buckets = new Map<number, { t: number; bpm: number; n: number }>();
+  for (const x of rows) {
+    const bpm = num(x.heartRate);
+    if (bpm == null || bpm <= 0) continue;
+    const t = at(x);
+    const b = Math.floor(t / step);
+    const cur = buckets.get(b) || { t: 0, bpm: 0, n: 0 };
+    cur.t += t; cur.bpm += bpm; cur.n += 1;
+    buckets.set(b, cur);
+  }
+  if (buckets.size > 0) {
+    detail.heartRate = [...buckets.entries()].sort((a, b) => a[0] - b[0])
+      .map(([, v]) => [Math.round(v.t / v.n), Math.round(v.bpm / v.n)]);
+  }
+  return detail.distance || detail.heartRate ? detail : null;
+}
+
+const roundOrNull = (v: any): number | null => {
+  const n = num(v);
+  return n != null ? Math.round(n) : null;
 };
 
 // Turn one Garmin push body into per-Garmin-user daily metrics and workouts.
@@ -273,16 +356,46 @@ export function parseGarminPush(body: any): ParsedGarminPush {
           // A multisport parent wraps its child activities; count the children only.
           if (r.isParent === true) continue;
           const dur = num(r.durationInSeconds);
+          // The table's columns are whole numbers; Garmin's distance has decimals.
           batch(uid).workouts.push({
             startedAt: new Date(start * 1000).toISOString(),
             endedAt: dur != null ? new Date((start + dur) * 1000).toISOString() : null,
             type: r.activityType ? String(r.activityType).toLowerCase() : null,
             durationMinutes: dur != null ? Math.round(dur / 60) : null,
-            distanceMeters: num(r.distanceInMeters),
-            activeEnergyKcal: num(r.activeKilocalories),
-            averageHeartRate: num(r.averageHeartRateInBeatsPerMinute),
+            distanceMeters: roundOrNull(r.distanceInMeters),
+            activeEnergyKcal: roundOrNull(r.activeKilocalories),
+            averageHeartRate: roundOrNull(r.averageHeartRateInBeatsPerMinute),
             localDate: date,
             summaryId: r.summaryId != null ? String(r.summaryId) : null,
+            sourceName: garminDevice(r.deviceName),
+          });
+        }
+        break;
+
+      // The same activity again with its samples (Activity API 2.1, 6.3):
+      // { userId, summaryId, activityId, summary: {...the activity...}, samples: [...], laps: [...] }.
+      // Stored on the same row as the activity (same start), with `detail`.
+      case "activityDetails":
+        for (const r of list as any[]) {
+          const uid = r?.userId ? String(r.userId) : null;
+          const sum = r?.summary && typeof r.summary === "object" ? r.summary : null;
+          const start = num(sum?.startTimeInSeconds);
+          const date = localDay(start, sum?.startTimeOffsetInSeconds);
+          if (!uid || !sum || start == null || !date) continue;
+          if (sum.isParent === true) continue;
+          const dur = num(sum.durationInSeconds);
+          batch(uid).workouts.push({
+            startedAt: new Date(start * 1000).toISOString(),
+            endedAt: dur != null ? new Date((start + dur) * 1000).toISOString() : null,
+            type: sum.activityType ? String(sum.activityType).toLowerCase() : null,
+            durationMinutes: dur != null ? Math.round(dur / 60) : null,
+            distanceMeters: roundOrNull(sum.distanceInMeters),
+            activeEnergyKcal: roundOrNull(sum.activeKilocalories),
+            averageHeartRate: roundOrNull(sum.averageHeartRateInBeatsPerMinute),
+            localDate: date,
+            summaryId: r.summaryId != null ? String(r.summaryId) : null,
+            sourceName: garminDevice(sum.deviceName),
+            detail: garminDetailFromSamples(r.samples, start, dur),
           });
         }
         break;

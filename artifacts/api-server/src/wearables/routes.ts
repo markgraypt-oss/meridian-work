@@ -544,6 +544,13 @@ export function registerWearableRoutes(app: Express) {
     })).max(200).optional(),
   });
 
+  // Shared by the Apple Health and Health Connect routes.
+  const workoutDetailField = z.unknown().optional().transform((d) => {
+    if (d == null) return undefined;
+    const r = workoutDetailSchema.safeParse(d);
+    return r.success ? r.data : undefined;
+  });
+
   const mobileWorkoutSchema = z.object({
     startedAt: z.string().datetime(),
     endedAt: z.string().datetime().optional().nullable(),
@@ -552,11 +559,13 @@ export function registerWearableRoutes(app: Express) {
     distanceMeters: z.number().int().nonnegative().optional().nullable(),
     activeEnergyKcal: z.number().nonnegative().optional().nullable(),
     averageHeartRate: z.number().int().nonnegative().optional().nullable(),
-    detail: z.unknown().optional().transform((d) => {
-      if (d == null) return undefined;
-      const r = workoutDetailSchema.safeParse(d);
-      return r.success ? r.data : undefined;
-    }),
+    detail: workoutDetailField,
+    // Which watch, phone or app recorded it ("Mark's Apple Watch", "WHOOP").
+    // Kept in raw; loggedWorkouts.ts turns it into "Recorded on Apple Watch".
+    // Was missing until 18 Nov 2026, so zod dropped it and every workout said
+    // "Recorded on Apple Health".
+    sourceName: z.string().max(200).optional().nullable(),
+    sourceBundleId: z.string().max(200).optional().nullable(),
   });
 
   const mobileSyncBodySchema = z.object({
@@ -692,6 +701,10 @@ export function registerWearableRoutes(app: Express) {
     distanceMeters: z.number().int().nonnegative().optional().nullable(),
     activeEnergyKcal: z.number().nonnegative().optional().nullable(),
     averageHeartRate: z.number().int().nonnegative().optional().nullable(),
+    // From 18 Nov 2026: splits and heart rate (same shape as Apple Health),
+    // and the app that recorded it, as its Android package name.
+    detail: workoutDetailField,
+    sourceName: z.string().max(200).optional().nullable(),
   });
 
   const hcSyncBodySchema = z.object({

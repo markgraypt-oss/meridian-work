@@ -724,7 +724,11 @@ export async function upsertWearableWorkouts(
         distanceMeters: values.distanceMeters,
         activeEnergyKcal: values.activeEnergyKcal,
         averageHeartRate: values.averageHeartRate,
-        raw: values.raw,
+        // Keep splits and heart rate already stored when this record has none.
+        // Garmin sends a workout's summary and its details in separate pushes,
+        // in either order; a summary arriving second must not wipe the details.
+        raw: sql`CASE WHEN jsonb_typeof(excluded.raw -> 'detail') = 'object' THEN excluded.raw
+          ELSE excluded.raw || jsonb_build_object('detail', ${wearableWorkouts.raw} -> 'detail') END`,
         updatedAt: values.updatedAt,
       },
     });

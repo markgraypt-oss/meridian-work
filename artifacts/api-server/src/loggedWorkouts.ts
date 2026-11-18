@@ -95,7 +95,11 @@ const SAME_WORKOUT_OVERLAP = 0.5;
 const norm = (t: string | null | undefined) => (t || "").toLowerCase().replace(/[^a-z]/g, "");
 
 // Never shown: walks (rule 1), and records that are not a workout in themselves.
-const NEVER = new Set(["walking", "walk", "wheelchairwalkpace", "cooldown", "transition", "play", "fishing", "hunting", "guidedbreathing"]);
+const NEVER = new Set([
+  "walking", "walk", "wheelchairwalkpace", "cooldown", "transition", "play", "fishing", "hunting", "guidedbreathing",
+  // Garmin's walks and multisport transitions (Activity API 2.1, Appendix A).
+  "casualwalking", "speedwalking", "biketoruntransition", "runtobiketransition", "swimtobiketransition",
+]);
 
 const KNOWN: Record<string, [ActivityType, string]> = {
   running: ["run", "Run"], run: ["run", "Run"], wheelchairrunpace: ["run", "Wheelchair run"],
@@ -118,6 +122,18 @@ const KNOWN: Record<string, [ActivityType, string]> = {
   hiking: ["other", "Hike"], rowing: ["other", "Rowing"], elliptical: ["other", "Elliptical"],
   stairclimbing: ["other", "Stair climbing"], stairs: ["other", "Stair climbing"], climbing: ["other", "Climbing"],
   other: ["other", "Workout"],
+  // Garmin's names (Activity API 2.1, Appendix A), lower-cased by garmin.ts.
+  indoorrunning: ["run", "Indoor run"], treadmillrunning: ["run", "Treadmill run"], streetrunning: ["run", "Run"],
+  trackrunning: ["run", "Track run"], trailrunning: ["run", "Trail run"], ultrarun: ["run", "Ultra run"],
+  virtualrun: ["run", "Virtual run"], obstaclerun: ["run", "Obstacle run"],
+  roadbiking: ["cycle", "Cycle"], mountainbiking: ["cycle", "Mountain bike"], gravelcycling: ["cycle", "Gravel ride"],
+  indoorcycling: ["cycle", "Indoor cycle"], virtualride: ["cycle", "Indoor cycle"], cyclocross: ["cycle", "Cyclocross"],
+  downhillbiking: ["cycle", "Downhill bike"], ebikefitness: ["cycle", "E-bike"], ebikemountain: ["cycle", "E-mountain bike"],
+  eenduromtb: ["cycle", "E-mountain bike"], enduromtb: ["cycle", "Mountain bike"], recumbentcycling: ["cycle", "Recumbent cycle"],
+  trackcycling: ["cycle", "Track cycle"], bmx: ["cycle", "BMX"], indoorhandcycling: ["cycle", "Hand cycle"],
+  lapswimming: ["swim", "Pool swim"], openwaterswimming: ["swim", "Open water swim"],
+  indoorrowing: ["other", "Rowing"], indoorcardio: ["class", "Cardio"], rucking: ["other", "Rucking"],
+  mobility: ["stretching", "Mobility"],
 };
 
 const SPORTS = new Set([
@@ -136,12 +152,14 @@ function humanise(raw: string): string {
 
 /** What a device's workout type is in the app, or null when it never shows. */
 export function classifyDeviceType(rawType: string | null | undefined): { activityType: ActivityType; name: string } | null {
-  const t = norm(rawType);
+  // Garmin has a "_V2" copy of some names ("TENNIS_V2", "ROWING_V2"); treat it as the name without it.
+  const raw = (rawType || "").replace(/[_\s-]*v2$/i, "");
+  const t = norm(raw);
   if (!t || NEVER.has(t) || t.startsWith("unknown")) return null;
   const known = KNOWN[t];
   if (known) return { activityType: known[0], name: known[1] };
-  if (SPORTS.has(t)) return { activityType: "sport", name: humanise(rawType || "") };
-  return { activityType: "other", name: humanise(rawType || "") };
+  if (SPORTS.has(t)) return { activityType: "sport", name: humanise(raw) };
+  return { activityType: "other", name: humanise(raw) };
 }
 
 const PROVIDER_LABEL: Record<string, string> = {
@@ -149,11 +167,33 @@ const PROVIDER_LABEL: Record<string, string> = {
   garmin: "Garmin", whoop: "WHOOP", oura: "Oura",
 };
 
+// Android sends the package name of the app that recorded the workout.
+const ANDROID_APPS: Record<string, string> = {
+  "com.sec.android.app.shealth": "Samsung Health",
+  "com.google.android.apps.fitness": "Google Fit",
+  "com.google.android.apps.healthdata": "Health Connect",
+  "com.fitbit.FitbitMobile": "Fitbit",
+  "com.garmin.android.apps.connectmobile": "Garmin Connect",
+  "com.whoop.android": "WHOOP",
+  "com.ouraring.oura": "Oura",
+  "com.strava": "Strava",
+  "com.huawei.health": "Huawei Health",
+  "com.xiaomi.wearable": "Mi Fitness",
+  "com.polar.polarflow": "Polar Flow",
+  "com.suunto.android": "Suunto",
+  "com.nike.plusgps": "Nike Run Club",
+  "com.adidas.app": "adidas Running",
+};
+
 /** "Mark's Apple Watch" -> "Apple Watch". Falls back to the provider's name. */
 function deviceSourceLabel(provider: string, raw: any): string {
   const name = typeof raw?.sourceName === "string" ? raw.sourceName.trim() : "";
+  if (ANDROID_APPS[name]) return ANDROID_APPS[name];
+  // Any other package name ("com.example.app") is not worth showing.
+  if (/^[a-z][\w]*(\.[\w]+){2,}$/i.test(name)) return PROVIDER_LABEL[provider] || humanise(provider);
   if (/apple\s*watch/i.test(name)) return "Apple Watch";
   if (/iphone/i.test(name)) return "iPhone";
+  if (/whoop/i.test(name)) return "WHOOP";
   if (name) return name.length > 24 ? name.slice(0, 24).trim() : name;
   return PROVIDER_LABEL[provider] || humanise(provider);
 }

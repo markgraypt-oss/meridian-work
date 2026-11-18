@@ -21,7 +21,7 @@
  */
 import type { Express } from "express";
 import { z } from "zod";
-import { and, eq, gte, lt } from "drizzle-orm";
+import { and, eq, gte, lt, sql } from "drizzle-orm";
 import { db } from "./db";
 import { manualWorkouts, dismissedDeviceWorkouts, users, wearableWorkouts, workoutLogs } from "@workspace/db";
 import { isAuthenticated } from "./replitAuth";
@@ -53,7 +53,36 @@ export type LoggedWorkout = {
   exerciseCount: number;
   /** Only on the single-workout read. */
   exercises?: unknown[] | null;
+  /** Only on the single-workout read of a device workout: what the app needs for splits and intervals. */
+  detail?: WorkoutDetail | null;
 };
+
+/**
+ * Inside a workout from a watch (iPhone sends it from 18 Nov 2026; checked in
+ * wearables/routes.ts and kept in wearable_workouts.raw.detail). Times are
+ * seconds of the workout with pauses taken out. The app works out the splits
+ * in the person's own unit.
+ */
+export type WorkoutDetail = {
+  v: 1;
+  activeSeconds: number;
+  distance?: number[][];
+  heartRate?: number[][];
+  intervals?: { start: number; end: number; kind: "warmup" | "work" | "recovery" | "cooldown" | null; metres?: number }[];
+};
+
+function readDetail(raw: any): WorkoutDetail | null {
+  const d = raw?.detail;
+  if (!d || d.v !== 1 || typeof d.activeSeconds !== "number") return null;
+  const series = (x: unknown) => (Array.isArray(x) ? x.filter((p) => Array.isArray(p) && p.length === 2 && p.every((n) => typeof n === "number")) : undefined);
+  const out: WorkoutDetail = { v: 1, activeSeconds: d.activeSeconds };
+  const distance = series(d.distance);
+  const heartRate = series(d.heartRate);
+  if (distance && distance.length > 1) out.distance = distance as number[][];
+  if (heartRate && heartRate.length > 0) out.heartRate = heartRate as number[][];
+  if (Array.isArray(d.intervals) && d.intervals.length > 1) out.intervals = d.intervals;
+  return out.distance || out.heartRate || out.intervals ? out : null;
+}
 
 const MIN_DEVICE_MINUTES = 10;
 /** Two workouts are "the same one" when this share of the shorter one overlaps. */
@@ -234,7 +263,12 @@ export async function listLoggedWorkouts(userId: string, from: Date, to: Date, o
   const deviceRows = async (): Promise<DeviceRow[]> => {
     const inWindow = and(eq(wearableWorkouts.userId, userId), gte(wearableWorkouts.startedAt, from), lt(wearableWorkouts.startedAt, to));
     if (opts.withoutRaw) return db.select(DEVICE_COLUMNS_WITHOUT_RAW).from(wearableWorkouts).where(inWindow);
-    return db.select().from(wearableWorkouts).where(inWindow);
+    // Only the source name from the original record: since 18 Nov 2026 it can
+    // also hold a workout's splits and heart rate, which the list never needs.
+    return db.select({
+      ...DEVICE_COLUMNS_WITHOUT_RAW,
+      raw: sql<unknown>`jsonb_build_object('sourceName', ${wearableWorkouts.raw}->>'sourceName')`,
+    }).from(wearableWorkouts).where(inWindow);
   };
   const [manual, device, dismissed, appLogs] = await Promise.all([
     db.select().from(manualWorkouts)
@@ -317,7 +351,7 @@ export async function getLoggedWorkout(userId: string, key: string): Promise<Log
   const [row] = await db.select().from(wearableWorkouts).where(and(eq(wearableWorkouts.id, id), eq(wearableWorkouts.userId, userId))).limit(1);
   if (!row) return null;
   const kind = classifyDeviceType(row.type);
-  return kind ? deviceToItem(row, kind) : null;
+  return kind ? { ...deviceToItem(row, kind), detail: readDetail(row.raw) } : null;
 }
 
 // ── Input ───────────────────────────────────────────────────────────────────

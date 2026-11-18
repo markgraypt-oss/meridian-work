@@ -526,6 +526,24 @@ export function registerWearableRoutes(app: Express) {
     vo2MaxMlKgMin: z.number().nonnegative().optional().nullable(),
   });
 
+  // Splits, intervals and heart rate inside one workout (iPhone, from 18 Nov
+  // 2026). Times are seconds of the workout with pauses taken out. Kept in
+  // wearable_workouts.raw.detail; read by loggedWorkouts.ts for the opened
+  // workout. Anything wrong with it drops the detail, never the workout.
+  const pointSchema = z.tuple([z.number().nonnegative().max(172800), z.number().nonnegative().max(2_000_000)]);
+  const workoutDetailSchema = z.object({
+    v: z.literal(1),
+    activeSeconds: z.number().int().nonnegative().max(172800),
+    distance: z.array(pointSchema).max(1000).optional(),
+    heartRate: z.array(pointSchema).max(1000).optional(),
+    intervals: z.array(z.object({
+      start: z.number().nonnegative().max(172800),
+      end: z.number().nonnegative().max(172800),
+      kind: z.enum(["warmup", "work", "recovery", "cooldown"]).nullable(),
+      metres: z.number().nonnegative().max(2_000_000).optional(),
+    })).max(200).optional(),
+  });
+
   const mobileWorkoutSchema = z.object({
     startedAt: z.string().datetime(),
     endedAt: z.string().datetime().optional().nullable(),
@@ -534,6 +552,11 @@ export function registerWearableRoutes(app: Express) {
     distanceMeters: z.number().int().nonnegative().optional().nullable(),
     activeEnergyKcal: z.number().nonnegative().optional().nullable(),
     averageHeartRate: z.number().int().nonnegative().optional().nullable(),
+    detail: z.unknown().optional().transform((d) => {
+      if (d == null) return undefined;
+      const r = workoutDetailSchema.safeParse(d);
+      return r.success ? r.data : undefined;
+    }),
   });
 
   const mobileSyncBodySchema = z.object({

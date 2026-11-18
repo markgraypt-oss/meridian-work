@@ -25065,7 +25065,9 @@ Respond as the Recovery Coach. Reference their specific assessment data and prov
       const scoreBefore = recent.scoreAtStart ?? null;
       const tierBefore = recent.tierAtStart ?? null;
       const scoreAfterValue = scoreAfter?.score ?? null;
-      const tierAfter = scoreAfter?.tier ?? null;
+      // burnout_scores has no tier column, so work the tier out from the score
+      // (it showed "-" under the after score on every report).
+      const tierAfter = scoreAfterValue !== null ? getBurnoutLevel(scoreAfterValue) : null;
       const topDriversAfter = Array.isArray(scoreAfter?.topDrivers) ? scoreAfter.topDrivers : [];
 
       // Physiological delta: average z-scores from the 7 days before start vs

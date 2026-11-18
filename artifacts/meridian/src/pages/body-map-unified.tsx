@@ -128,8 +128,10 @@ function getSeverityColor(severity: number): string {
 function generateGuidance(data: AssessmentData): GuidanceResult {
   const { bodyAreaLabel, side, severity, movementImpact, trainingImpact, primaryTrigger } = data;
   
-  const sideText = side === "both" ? "Both sides" : `${side.charAt(0).toUpperCase() + side.slice(1)} side`;
-  const areaConfirmation = `${sideText} ${bodyAreaLabel.toLowerCase()} discomfort`;
+  // Central areas (lower back, neck) skip the side step, so side can be empty.
+  const sideText = side === "both" ? "Both sides" : side ? `${side.charAt(0).toUpperCase() + side.slice(1)} side` : "";
+  const areaLower = bodyAreaLabel.toLowerCase();
+  const areaConfirmation = sideText ? `${sideText} ${areaLower} discomfort` : `${areaLower.charAt(0).toUpperCase() + areaLower.slice(1)} discomfort`;
   
   let whatsBehindThis = "";
   const bodyArea = data.bodyArea;
@@ -818,8 +820,10 @@ export default function BodyMapUnified({ onExit, initialArea, embedded = false }
   const generateGuidanceFromRules = (data: AssessmentData): GuidanceResult => {
     const { bodyAreaLabel, side, severity, movementImpact, trainingImpact, primaryTrigger } = data;
     
-    const sideText = side === "both" ? "Both sides" : `${side.charAt(0).toUpperCase() + side.slice(1)} side`;
-    const areaConfirmation = `${sideText} ${bodyAreaLabel.toLowerCase()} discomfort`;
+    // Central areas (lower back, neck) skip the side step, so side can be empty.
+    const sideText = side === "both" ? "Both sides" : side ? `${side.charAt(0).toUpperCase() + side.slice(1)} side` : "";
+    const areaLower = bodyAreaLabel.toLowerCase();
+    const areaConfirmation = sideText ? `${sideText} ${areaLower} discomfort` : `${areaLower.charAt(0).toUpperCase() + areaLower.slice(1)} discomfort`;
     
     // Check for matching outcome first (new outcomes-based system)
     const matchedOutcome = findMatchingOutcome(data);

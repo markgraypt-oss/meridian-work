@@ -319,19 +319,25 @@ export async function aggregateWeekV2(userId: string, weekStart: Date): Promise<
   // recorded on a watch or phone (rules in ./loggedWorkouts). They count in the
   // week's workouts on the card and in the summary. They are never part of the
   // plan, adherence, training volume or the burnout score, which stay in-app only.
+  // The card counts every one; the AI summary gets them without Garmin's when
+  // Garmin is connected without AI consent (Garmin agreement 15.10).
   let outsideThisWeek: Array<{ type: string; minutes: number; distance: string | null }> = [];
+  let outsideThisWeekForAI: Array<{ type: string; minutes: number; distance: string | null }> = [];
   try {
     const { listLoggedWorkouts } = await import("./loggedWorkouts");
     const { distancePhrase } = await import("./distanceUnits");
-    const [logged, owner] = await Promise.all([
+    const [logged, loggedForAI, owner] = await Promise.all([
       listLoggedWorkouts(userId, weekStart, weekEnd),
+      listLoggedWorkouts(userId, weekStart, weekEnd, { forAI: true }),
       storage.getUser(userId),
     ]);
-    outsideThisWeek = logged.map((w) => ({
+    const shape = (w: (typeof logged)[number]) => ({
       type: w.activityType,
       minutes: Math.round(w.durationSeconds / 60),
       distance: w.distanceMeters ? distancePhrase(w.distanceMeters, owner?.distanceUnit) : null,
-    }));
+    });
+    outsideThisWeek = logged.map(shape);
+    outsideThisWeekForAI = loggedForAI.map(shape);
   } catch (e: any) {
     console.warn("[weekly-checkin-v2] outside workouts fetch failed:", e?.message || e);
   }
@@ -663,6 +669,53 @@ export async function aggregateWeekV2(userId: string, weekStart: Date): Promise<
     };
   }
 
+  // ---- What the AI summary may see (Garmin agreement 15.10) ----
+  // The cards above show everything. When Garmin is connected without AI
+  // consent, the AI gets the week's wearable figures with Garmin taken out:
+  //   - Body signals (sleep, resting HR, HRV, readiness, strain) come only from
+  //     Garmin while it is connected (Apple Health / Health Connect body
+  //     signals are set aside then, as everywhere else), so the AI gets none,
+  //     apart from sleep the person typed in.
+  //   - Activity (steps, active minutes, calories) from the phone's own records
+  //     only, never Garmin's. Typed-in step entries are not used: Garmin's
+  //     steps are also written there.
+  //   - The burnout score is left out (Garmin feeds it), as the coach does.
+  // If the consent check fails, the same applies.
+  let garminWithheld = false;
+  try {
+    const { garminWithheldFromAI } = await import("./wearables");
+    garminWithheld = await garminWithheldFromAI(userId);
+  } catch {
+    garminWithheld = true;
+  }
+  const aiWearable = {
+    avgSleepHours, sleepSource, avgStepsPerDay, avgActiveMinutesPerDay, avgRestingHr, avgHrvMs,
+    avgCaloriesBurned, avgReadinessScore, avgStrainScore, wearableProviders,
+    burnoutScore, burnoutTrajectory: burnoutTrajRaw,
+  };
+  if (garminWithheld) {
+    const phoneRows = mergeMetricsPerDay(weekWearableRows.filter((r: any) => r.provider !== "garmin"));
+    const phoneAvg = (pick: (r: any) => number | null | undefined): number | null => {
+      const vals = phoneRows.map(pick).filter((v): v is number => typeof v === "number" && Number.isFinite(v) && v > 0);
+      return vals.length === 0 ? null : Math.round(vals.reduce((a, b) => a + b, 0) / vals.length);
+    };
+    const typedSleep = weekSleepEntries.filter((e: any) => e.source === "manual");
+    aiWearable.avgSleepHours = typedSleep.length > 0
+      ? Math.round((typedSleep.reduce((sum: number, e: any) => sum + Number(e.durationMinutes || 0), 0) / typedSleep.length / 60) * 10) / 10
+      : null;
+    aiWearable.sleepSource = typedSleep.length > 0 ? "manual" : null;
+    aiWearable.avgStepsPerDay = phoneAvg((r) => r.steps);
+    aiWearable.avgActiveMinutesPerDay = phoneAvg((r) => r.activeMinutes);
+    aiWearable.avgCaloriesBurned = phoneAvg((r) => r.caloriesBurned);
+    aiWearable.avgRestingHr = null;
+    aiWearable.avgHrvMs = null;
+    aiWearable.avgReadinessScore = null;
+    aiWearable.avgStrainScore = null;
+    aiWearable.wearableProviders = wearableProviders.filter((p) => p !== "garmin");
+    aiWearable.burnoutScore = null;
+    aiWearable.burnoutTrajectory = null;
+  }
+
   return {
     weekStart,
     weekEnd,
@@ -677,25 +730,25 @@ export async function aggregateWeekV2(userId: string, weekStart: Date): Promise<
       sessionsCompleted: completedThisWeek.length,
       sessionsPlanned,
       adherencePct,
-      outsideWorkouts: outsideThisWeek,
+      outsideWorkouts: outsideThisWeekForAI,
       totalVolumeKg: Math.round(totalVolumeKg),
       prevTotalVolumeKg: prevVolumeKg,
-      avgSleepHours,
-      sleepSource,
-      avgStepsPerDay,
-      avgActiveMinutesPerDay,
-      avgRestingHr,
-      avgHrvMs,
-      avgCaloriesBurned,
-      avgReadinessScore,
-      avgStrainScore,
-      wearableProviders,
+      avgSleepHours: aiWearable.avgSleepHours,
+      sleepSource: aiWearable.sleepSource,
+      avgStepsPerDay: aiWearable.avgStepsPerDay,
+      avgActiveMinutesPerDay: aiWearable.avgActiveMinutesPerDay,
+      avgRestingHr: aiWearable.avgRestingHr,
+      avgHrvMs: aiWearable.avgHrvMs,
+      avgCaloriesBurned: aiWearable.avgCaloriesBurned,
+      avgReadinessScore: aiWearable.avgReadinessScore,
+      avgStrainScore: aiWearable.avgStrainScore,
+      wearableProviders: aiWearable.wearableProviders,
       nutritionDaysTracked,
       goalsOnTrackCount: activeGoalItems.filter(g => (g.progressPct ?? 0) >= 50).length,
       goalsTotalCount: activeGoalItems.length,
       habitsWithCompletions: habitItems.length,
-      burnoutScore,
-      burnoutTrajectory: burnoutTrajRaw,
+      burnoutScore: aiWearable.burnoutScore,
+      burnoutTrajectory: aiWearable.burnoutTrajectory,
       bodyAreasActive: bodyAreas.filter(b => b.status === "active").map(b => b.bodyPart),
       bodyAreasChronic: bodyAreas.filter(b => b.status === "chronic").map(b => b.bodyPart),
       coachConversationsThisWeek: (weekCoachConversations as any[]).length,

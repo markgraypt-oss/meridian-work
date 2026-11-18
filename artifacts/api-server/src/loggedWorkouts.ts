@@ -187,7 +187,10 @@ const ANDROID_APPS: Record<string, string> = {
 
 /** "Mark's Apple Watch" -> "Apple Watch". Falls back to the provider's name. */
 function deviceSourceLabel(provider: string, raw: any): string {
-  const name = typeof raw?.sourceName === "string" ? raw.sourceName.trim() : "";
+  // "SourceProxy" is what iPhone builds before 18 Nov 2026 sent instead of the
+  // watch's name (the name of the native object, not the source). Ignore it.
+  const sent = typeof raw?.sourceName === "string" ? raw.sourceName.trim() : "";
+  const name = sent === "SourceProxy" ? "" : sent;
   if (ANDROID_APPS[name]) return ANDROID_APPS[name];
   // Any other package name ("com.example.app") is not worth showing.
   if (/^[a-z][\w]*(\.[\w]+){2,}$/i.test(name)) return PROVIDER_LABEL[provider] || humanise(provider);
@@ -296,7 +299,7 @@ function deviceToItem(w: DeviceRow, kind: { activityType: ActivityType; name: st
  * same, but a device workout's source label is then only the provider's name.
  * Used for the all-time read behind the running badges.
  */
-export async function listLoggedWorkouts(userId: string, from: Date, to: Date, opts: { withoutRaw?: boolean } = {}): Promise<LoggedWorkout[]> {
+export async function listLoggedWorkouts(userId: string, from: Date, to: Date, opts: { withoutRaw?: boolean; forAI?: boolean } = {}): Promise<LoggedWorkout[]> {
   // In-app logs are fetched a little wider than the window: one that started
   // before `from` can still overlap a device workout inside it.
   const widerFrom = new Date(from.getTime() - FOUR_HOURS);
@@ -310,7 +313,7 @@ export async function listLoggedWorkouts(userId: string, from: Date, to: Date, o
       raw: sql<unknown>`jsonb_build_object('sourceName', ${wearableWorkouts.raw}->>'sourceName')`,
     }).from(wearableWorkouts).where(inWindow);
   };
-  const [manual, device, dismissed, appLogs] = await Promise.all([
+  const [manual, deviceAll, dismissed, appLogs, garminWithheld] = await Promise.all([
     db.select().from(manualWorkouts)
       .where(and(eq(manualWorkouts.userId, userId), gte(manualWorkouts.startedAt, from), lt(manualWorkouts.startedAt, to))),
     deviceRows(),
@@ -318,7 +321,15 @@ export async function listLoggedWorkouts(userId: string, from: Date, to: Date, o
       .where(eq(dismissedDeviceWorkouts.userId, userId)),
     db.select({ startedAt: workoutLogs.startedAt, completedAt: workoutLogs.completedAt, duration: workoutLogs.duration }).from(workoutLogs)
       .where(and(eq(workoutLogs.userId, userId), eq(workoutLogs.status, "completed"), gte(workoutLogs.startedAt, widerFrom), lt(workoutLogs.startedAt, to))),
+    // Garmin agreement 15.10: Garmin data goes to AI only with the person's
+    // consent. `forAI` callers (the coach, the weekly check-in summary) get no
+    // Garmin workouts when Garmin is connected without it. If the check fails,
+    // they are left out too.
+    opts.forAI
+      ? import("./wearables").then((m) => m.garminWithheldFromAI(userId)).catch(() => true)
+      : Promise.resolve(false),
   ]);
+  const device = garminWithheld ? deviceAll.filter((w) => w.provider !== "garmin") : deviceAll;
 
   const removed = new Set(dismissed.map((d) => d.id));
   const taken: Span[] = [];

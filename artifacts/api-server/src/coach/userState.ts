@@ -131,7 +131,8 @@ export async function getUserStateSnapshot(userId: string): Promise<UserStateSna
     storage.getMeditationSessions(userId, 50).catch(() => []),
     storage.getBreathWorkSessionLogs(userId, 1_000).catch(() => []),
     storage.getUserMealPlan(userId).catch(() => undefined),
-    listLoggedWorkouts(userId, new Date(Date.now() - 14 * 86_400_000), new Date(Date.now() + 86_400_000)).catch(() => []),
+    // forAI: Garmin workouts only with the person's Garmin AI consent (agreement 15.10).
+    listLoggedWorkouts(userId, new Date(Date.now() - 14 * 86_400_000), new Date(Date.now() + 86_400_000), { forAI: true }).catch(() => []),
     storage.getUser(userId).catch(() => undefined),
   ]);
 

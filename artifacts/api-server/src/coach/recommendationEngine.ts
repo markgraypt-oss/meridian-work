@@ -318,7 +318,8 @@ async function buildRecommendationBlock(
 - Maximum 3 markers, and at most 2 from any single group. Only refs from the lists above. Never invent or guess refs.
 - Prefer items matching the user's state (equipment, experience, current programme, pain areas). Prefer content the user has not completed. If a path is assigned and in progress, prefer its "next up" video.
 - Recommend an action card only when it clearly moves the user forward on what they raised.
-- If nothing fits well, use no markers at all. A forced recommendation is worse than none.${recoveryModeRule}
+- If nothing fits well, use no markers at all. A forced recommendation is worse than none.
+- If your reply only asks the user a question to understand them better, use no markers yet; save them for the reply that gives options.${recoveryModeRule}
 - Markers are machine-read and stripped before the user sees your reply. Do not mention, quote, or explain them.`;
 
   return [header, ...sections, rules].join("\n\n");

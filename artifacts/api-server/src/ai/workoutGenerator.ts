@@ -352,6 +352,73 @@ export function expandCompactWorkout(c: CompactWorkout, inputs: WorkoutInputs): 
 }
 
 // ---------------------------------------------------------------------------
+// 3b. Fit the time asked for
+// ---------------------------------------------------------------------------
+// The app shows "Duration: est. N minutes" on the saved workout (app/wod/[id].tsx,
+// estimateFromBlocks). Mark, 18 Nov 2026: a 30-minute request came back as
+// "est. 41 minutes", because the model fills a full 6 to 9 exercise session
+// whatever the length. This works the time out the SAME way the app does and
+// trims the session until it fits. Keep the two in step.
+//   per exercise: each set 45 sec (or its time, for timed work), plus the rest
+//   after every set but the last; then 5 minutes added for warm-up and moving
+//   between exercises.
+function appRestSeconds(v: unknown): number {
+  if (typeof v === "number") return v;
+  const m = /(\d+)\s*(min|m)\b/i.exec(String(v || ""));
+  if (m) return Number.parseInt(m[1], 10) * 60;
+  const sec = /(\d+)/.exec(String(v || ""));
+  return sec ? Number.parseInt(sec[1], 10) : 0;
+}
+
+export function appEstimateMinutes(blocks: GeneratedWorkout["blocks"]): number {
+  let seconds = 0;
+  for (const b of blocks) {
+    for (const ex of b.exercises) {
+      const sets = ex.sets.length ? ex.sets : [{} as any];
+      for (const st of sets) {
+        const timed = appRestSeconds((st as any).duration);
+        seconds += timed > 0 ? timed : 45;
+      }
+      seconds += Math.max(0, sets.length - 1) * appRestSeconds(b.rest ?? 60);
+    }
+  }
+  return Math.max(5, Math.round((seconds + 5 * 60) / 60));
+}
+
+/**
+ * Trim a session to the requested minutes, the way a coach would when time is
+ * short: keep the main lift first and cut from the end (finisher, core,
+ * accessories), down to `minExercises`; then take sets off the longest
+ * exercises, never below 2. Returns the session unchanged when it already fits.
+ */
+export function fitToDuration(w: GeneratedWorkout, minutes: number, minExercises: number): GeneratedWorkout {
+  let blocks = w.blocks.map((b) => ({ ...b, exercises: b.exercises.map((ex) => ({ ...ex, sets: [...ex.sets] })) }));
+  const count = () => blocks.reduce((n, b) => n + b.exercises.length, 0);
+  const typeFor = (b: (typeof blocks)[number]) =>
+    b.blockType === "circuit" ? "circuit" : b.exercises.length === 1 ? "single" : b.exercises.length === 2 ? "superset" : "triset";
+
+  // 1. Cut exercises from the end.
+  while (appEstimateMinutes(blocks) > minutes && count() > minExercises) {
+    const last = blocks[blocks.length - 1];
+    last.exercises.pop();
+    if (last.exercises.length === 0) blocks.pop();
+    else last.blockType = typeFor(last) as any;
+  }
+  // 2. Take sets off, the exercise with the most sets first (later ones first on a tie).
+  while (appEstimateMinutes(blocks) > minutes) {
+    let pick: { b: number; e: number; n: number } | null = null;
+    blocks.forEach((b, bi) => b.exercises.forEach((ex, ei) => {
+      if (ex.sets.length > 2 && (!pick || ex.sets.length >= pick.n)) pick = { b: bi, e: ei, n: ex.sets.length };
+    }));
+    if (!pick) break;
+    const p = pick as { b: number; e: number; n: number };
+    blocks[p.b].exercises[p.e].sets.pop();
+  }
+  blocks = blocks.filter((b) => b.exercises.length > 0);
+  return { ...w, blocks };
+}
+
+// ---------------------------------------------------------------------------
 // 4. Prompt
 // ---------------------------------------------------------------------------
 
@@ -364,6 +431,7 @@ function buildRules(coachingContext: string): string {
     "Do NOT include warm-up, soft-tissue, mobility-prep or activation items: the app adds the person's warm-up separately. Start at the main compound lift (tier 4 of the method below) and stop after the finisher. Every block is a main block.",
     "Default to traditional sets: \"single\" for standalone lifts, \"superset\" for two paired exercises, \"triset\" for three. Use \"circuit\" ONLY when the request explicitly asks for a circuit, HIIT or conditioning.",
     "A full session is 6 to 9 exercises following the method's order: main compound first (heaviest, longest rest), then secondary/unilateral, then accessory supersets, then a short core/carry/finisher. Never return a thin 4 to 5 exercise session for a full-body request. Short requests (15 to 20 min) get 4 to 5 exercises.",
+    "The session MUST fit the session length, using the TIME BUDGET in the request. When time is short, keep the main compound and the secondary lift, and cut the finisher, core and accessories first.",
     "Respect the push:pull house ratio and the 'stimulate, do not annihilate' principle. Rest: 150 sec for heavy low-rep compounds, 90 sec for moderate work, 60 sec for accessories and circuits.",
     "Avoid medical claims. Do not diagnose, prescribe, or describe injuries. If a region is flagged as sore, keep load off it.",
     "Write the name and one-sentence description in Mark's voice: plain, direct, no hype, no em dashes.",
@@ -435,6 +503,7 @@ export async function generateWorkoutWithAI(inputs: WorkoutInputs, userId: strin
   const request = [
     `REQUEST: ${notes || "(no notes)"}`,
     `Session length: ${inputs.duration} minutes. Difficulty: ${inputs.difficulty}. Focus: ${focus.replace("_", " ")}.`,
+    `TIME BUDGET: ${Math.max(1, inputs.duration - 5)} minutes of working sets and rest (the app adds 5 minutes for the warm-up). Count about 45 sec for each working set (or its time, for timed work) plus the block's rest after every set except the last.`,
     allowedEquipment ? `Equipment available: ${Array.from(allowedEquipment).join(", ")}.` : "Equipment: full gym.",
     buildContextHints(inputs),
   ].filter(Boolean).join("\n");
@@ -486,7 +555,9 @@ export async function generateWorkoutWithAI(inputs: WorkoutInputs, userId: strin
     };
   }
 
-  const expanded = expandCompactWorkout(kept, inputs);
+  // Trim to the time asked for (see fitToDuration). The minimum number of
+  // exercises still wins over the clock.
+  const expanded = fitToDuration(expandCompactWorkout(kept, inputs), inputs.duration, minExercises);
   // Belt and braces: the app-facing shape is still validated against the
   // schema the rest of the codebase uses.
   const check = generatedWorkoutSchema.safeParse(expanded);

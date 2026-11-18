@@ -281,8 +281,11 @@ const CHALLENGE_COLS = `id, title, description, cover_image_url AS "coverImageUr
 
 // ---------------------------------------------------------------------------
 // Company scoping. A person sees Meridian-wide challenges (company_id NULL)
-// and their own company's. Admins see everything. Hidden challenges (reported,
-// or deleted by the creator) are never shown to members.
+// and their own company's. Hidden challenges (reported, or deleted by the
+// creator) are never shown to members. Admins can OPEN any challenge (so
+// moderation links work), but their Challenges list uses the member rule:
+// other companies' staff challenges stay out of an admin's own feed. The
+// admin screen (/api/admin/community/challenges) lists everything.
 // ---------------------------------------------------------------------------
 
 type Viewer = { userId: string; companyId: number | null; isAdmin: boolean };
@@ -1286,7 +1289,8 @@ export function registerCommunityRoutes(app: Express): void {
     const profile = await requireProfile(userId, res);
     if (!profile) return;
     const viewer = await getViewer(userId);
-    const vis = visibleChallengeSql(viewer, 2);
+    // Member rule for the list, even for admins (see Company scoping above).
+    const vis = visibleChallengeSql({ ...viewer, isAdmin: false }, 2);
     const { rows } = await pool.query(
       `SELECT ${CHALLENGE_COLS},
         (SELECT count(*)::int FROM community_challenge_participants pp WHERE pp.challenge_id = community_challenges.id AND pp.left_at IS NULL) AS "participantCount",

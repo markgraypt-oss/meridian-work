@@ -1067,6 +1067,8 @@ export async function getMyRewardsStatus(userId: string, today: Date) {
     underReview: me ? me.review_status === "flagged" : false,
     tickets,
     maxTickets: Number(program.max_tickets_per_period ?? 4),
+    // Tracked days needed this month before tickets count (the app shows "N more days to go").
+    minDays: Number(program.min_days_for_eligibility ?? 20),
     drawRun: drawn.rows.length > 0,
     wins: wins.rows,
   };

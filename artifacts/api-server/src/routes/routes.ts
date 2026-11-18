@@ -2105,7 +2105,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
             icon: selectedHabit.icon || null,
             startDate: new Date(),
             duration: 3,
-            daysOfWeek: "everyday",
+            // Capital E: the app's habit screens match "Everyday" exactly.
+            daysOfWeek: "Everyday",
           });
         } catch (err) {
           console.error("Error creating habit:", err);

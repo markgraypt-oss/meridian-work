@@ -557,6 +557,12 @@ export const SELF_HEAL_DDL: string[] = [
   `ALTER TABLE users ADD COLUMN IF NOT EXISTS is_super_admin boolean DEFAULT false`,
   `UPDATE users SET is_super_admin = true
      WHERE is_admin = true AND NOT EXISTS (SELECT 1 FROM users WHERE is_super_admin = true)`,
+  // Every-day habits must read "Everyday": the app's habit progress and edit
+  // screens match that exact word. Onboarding (and the Sarah demo seed) wrote
+  // "everyday", which showed 0% monthly completion and no days ticked on edit.
+  // Matches nothing after the first run.
+  `UPDATE habits SET days_of_week = 'Everyday'
+     WHERE lower(trim(days_of_week)) IN ('everyday', 'every day', 'daily') AND days_of_week <> 'Everyday'`,
   // Account deletion: every per-user table's user_id must cascade when the
   // user row goes, or DELETE FROM users fails on the first child row. 26
   // tables were created without ON DELETE CASCADE. This rewrites any user_id

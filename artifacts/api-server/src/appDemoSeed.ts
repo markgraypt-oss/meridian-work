@@ -833,7 +833,7 @@ async function seedAll(): Promise<void> {
     await pool.query(
       `INSERT INTO habits (user_id, template_id, title, description, category, icon, start_date, duration, days_of_week,
                            is_custom, is_active, current_streak, longest_streak, created_at)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,26,'everyday',false,true,0,0,$7)`,
+       VALUES ($1,$2,$3,$4,$5,$6,$7,26,'Everyday',false,true,0,0,$7)`,
       [DEMO_SARAH_ID, t.id, t.title, t.description, t.category, t.icon, start],
     );
   }

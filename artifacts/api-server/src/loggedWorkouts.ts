@@ -291,11 +291,14 @@ export async function listLoggedWorkouts(userId: string, from: Date, to: Date, o
     taken.push({ start, end: start + m.durationSeconds * 1000 });
   }
 
-  // Longest first, so when two devices recorded the same workout the fuller record wins.
+  // When two records are the same workout the fuller one wins: one with a
+  // distance first (a watch's run beats another app's copy of it with no
+  // distance, seen 18 Nov 2026), then the longer.
+  const hasDistance = (w: DeviceRow) => (w.distanceMeters && w.distanceMeters > 0 ? 1 : 0);
   const candidates = device
     .map((w) => ({ w, kind: classifyDeviceType(w.type), seconds: deviceDurationSeconds(w) }))
     .filter((c) => c.kind && !removed.has(c.w.id) && c.seconds >= MIN_DEVICE_MINUTES * 60)
-    .sort((a, b) => b.seconds - a.seconds);
+    .sort((a, b) => hasDistance(b.w) - hasDistance(a.w) || b.seconds - a.seconds);
 
   const items: LoggedWorkout[] = manual.map((m) => manualToItem(m, false));
   for (const c of candidates) {

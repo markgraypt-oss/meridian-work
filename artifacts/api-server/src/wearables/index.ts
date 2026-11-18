@@ -651,11 +651,36 @@ export interface MobileWorkoutInput {
   distanceMeters?: number | null;
   activeEnergyKcal?: number | null;
   averageHeartRate?: number | null;
+  detail?: { distance?: unknown[]; intervals?: unknown[] } | null;
+}
+
+/**
+ * How much a workout record holds, to choose between two with the same start.
+ * Apple Health often has two copies of one workout: the watch's own, and one
+ * another app (WHOOP) wrote with the same start time but no distance, splits
+ * or intervals. Seen on Mark's runs, 18 Nov 2026.
+ */
+function workoutRichness(w: MobileWorkoutInput): number[] {
+  const splits = Array.isArray(w.detail?.distance) && w.detail!.distance!.length > 1 ? 1 : 0;
+  const distance = w.distanceMeters && w.distanceMeters > 0 ? 1 : 0;
+  const intervals = Array.isArray(w.detail?.intervals) && w.detail!.intervals!.length > 1 ? 1 : 0;
+  return [splits, distance, intervals, w.durationMinutes ?? 0, w.activeEnergyKcal ?? 0];
+}
+
+function richerWorkout(a: MobileWorkoutInput, b: MobileWorkoutInput): MobileWorkoutInput {
+  const ra = workoutRichness(a);
+  const rb = workoutRichness(b);
+  for (let i = 0; i < ra.length; i++) {
+    if (ra[i] !== rb[i]) return ra[i] > rb[i] ? a : b;
+  }
+  return a;
 }
 
 /**
  * Idempotently upsert per-workout records from a mobile HealthKit sync.
  * Unique constraint: (userId, provider, startedAt).
+ * Two records in one batch with the same start would land on the same row,
+ * the second overwriting the first, so only the richer of them is kept.
  * Returns the count of rows inserted or updated.
  */
 export async function upsertWearableWorkouts(
@@ -663,11 +688,18 @@ export async function upsertWearableWorkouts(
   provider: WearableProvider,
   workouts: MobileWorkoutInput[],
 ): Promise<number> {
-  let count = 0;
+  const byStart = new Map<number, MobileWorkoutInput>();
   for (const w of workouts) {
     if (!w.startedAt) continue;
+    const t = new Date(w.startedAt).getTime();
+    if (isNaN(t)) continue;
+    const seen = byStart.get(t);
+    byStart.set(t, seen ? richerWorkout(seen, w) : w);
+  }
+
+  let count = 0;
+  for (const w of byStart.values()) {
     const startedAt = new Date(w.startedAt);
-    if (isNaN(startedAt.getTime())) continue;
 
     const values: any = {
       userId,

@@ -1111,6 +1111,73 @@ export async function teardownSarahDemo(opts: { keepFlag?: boolean } = {}): Prom
 // Start-up: seed once, then keep the account current.
 // ---------------------------------------------------------------------------
 let started = false;
+const REPMAX_FLAG = "app_demo_sarah_repmax_v1";
+
+// One-off: real 1, 5 and 10-rep sets on her goblet squat, so 1RM, 5RM and 10RM
+// on its PR page show numbers. 10 x 16 kg mid-block; on the latest session the
+// last set becomes 22 kg x 5, followed by a single at 24 kg.
+async function addGobletRepMaxes(): Promise<void> {
+  const done = await pool.query(`SELECT 1 FROM system_flags WHERE key = $1 LIMIT 1`, [REPMAX_FLAG]);
+  if ((done.rowCount ?? 0) > 0) return;
+  const { rows: lib } = await pool.query(`SELECT id FROM exercise_library WHERE name = 'Dumbbell Goblet Squat' LIMIT 1`);
+  if (!lib[0]) return;
+  const libId = lib[0].id as number;
+  const { rows: logs } = await pool.query(
+    `SELECT wel.id AS "exLogId", wl.id AS "logId", MAX(s.actual_weight) AS top, MAX(s.set_number) AS "lastSet"
+       FROM workout_logs wl
+       JOIN workout_exercise_logs wel ON wel.workout_log_id = wl.id
+       JOIN workout_set_logs s ON s.exercise_log_id = wel.id
+      WHERE wl.user_id = $1 AND wl.status = 'completed' AND wel.exercise_library_id = $2
+      GROUP BY wel.id, wl.id, wl.completed_at
+      ORDER BY wl.completed_at DESC`,
+    [DEMO_SARAH_ID, libId],
+  );
+  if (logs.length < 2) return;
+  const latest = logs[0];
+  const mid = logs.slice(1).find((r: any) => Number(r.top) === 16) ?? logs[Math.floor(logs.length / 2)];
+
+  await pool.query(
+    `UPDATE workout_set_logs SET actual_reps = 10 WHERE exercise_log_id = $1 AND set_number = $2`,
+    [mid.exLogId, mid.lastSet],
+  );
+  await pool.query(
+    `UPDATE workout_set_logs SET actual_reps = 5, actual_weight = 22, set_difficulty_rating = 'hard'
+      WHERE exercise_log_id = $1 AND set_number = $2`,
+    [latest.exLogId, latest.lastSet],
+  );
+  await pool.query(
+    `INSERT INTO workout_set_logs (exercise_log_id, set_number, target_reps, actual_reps, actual_weight,
+                                   is_completed, side, set_difficulty_rating, created_at)
+     SELECT exercise_log_id, set_number + 1, '1', 1, 24, true, 'bilateral', 'hard', created_at
+       FROM workout_set_logs WHERE exercise_log_id = $1 AND set_number = $2`,
+    [latest.exLogId, latest.lastSet],
+  );
+
+  // Keep the workout totals and the exercise snapshot in line with the new sets.
+  await pool.query(
+    `UPDATE workout_logs wl SET auto_calculated_volume = sub.vol
+       FROM (SELECT wel.workout_log_id AS id, SUM(COALESCE(s.actual_weight, 0) * COALESCE(s.actual_reps, 0)) AS vol
+               FROM workout_exercise_logs wel JOIN workout_set_logs s ON s.exercise_log_id = wel.id
+              WHERE wel.workout_log_id = ANY($1::int[]) GROUP BY wel.workout_log_id) sub
+      WHERE wl.id = sub.id`,
+    [[latest.logId, mid.logId]],
+  );
+  await pool.query(
+    `UPDATE exercise_snapshots es SET best_reps = sub.br, best_weight = sub.bw, best_volume = sub.bv,
+            last_reps = 1, last_weight = 24, updated_at = now()
+       FROM (SELECT MAX(s.actual_reps) AS br, MAX(s.actual_weight) AS bw,
+                    MAX(COALESCE(s.actual_weight, 0) * COALESCE(s.actual_reps, 0)) AS bv
+               FROM workout_set_logs s
+               JOIN workout_exercise_logs wel ON wel.id = s.exercise_log_id
+               JOIN workout_logs wl ON wl.id = wel.workout_log_id
+              WHERE wl.user_id = $1 AND wel.exercise_library_id = $2) sub
+      WHERE es.user_id = $1 AND es.exercise_library_id = $2`,
+    [DEMO_SARAH_ID, libId],
+  );
+  await pool.query(`INSERT INTO system_flags (key) VALUES ($1) ON CONFLICT (key) DO NOTHING`, [REPMAX_FLAG]);
+  console.log("[app-demo] goblet squat rep maxes added");
+}
+
 export async function startSarahDemo(): Promise<void> {
   if (started) return;
   started = true;
@@ -1133,6 +1200,7 @@ export async function startSarahDemo(): Promise<void> {
     } else {
       await topUpSarahDemo("startup");
     }
+    await addGobletRepMaxes().catch((e: any) => console.error("[app-demo] rep maxes failed:", e?.message || e));
     const timer = setInterval(() => { topUpSarahDemo("timer"); }, TOP_UP_EVERY_MS);
     (timer as any).unref?.();
   } catch (e: any) {

@@ -26,6 +26,9 @@ import { z } from 'zod';
 import { parseAppleHealthExport } from "./appleHealth";
 import type { WearableProvider } from "./types";
 
+// Same id as appDemoSeed.ts (kept here so the hot sync path needs no import).
+const DEMO_SARAH_ID = "demo-sarah";
+
 const PROVIDERS: WearableProvider[] = ["oura", "whoop", "garmin", "google_fit", "apple_health"];
 
 // Apple Health export.zip. 60 MB compressed is far above a real export (most
@@ -573,6 +576,16 @@ export function registerWearableRoutes(app: Express) {
     try {
       const userId = req.user.claims.sub;
 
+      // App demo account (Sarah): never store what the phone sends. The phone's
+      // "health connected" flag is device-wide, so whoever is signed in on that
+      // phone would otherwise get its owner's health data. Top the demo up instead.
+      if (userId === DEMO_SARAH_ID) {
+        const { topUpSarahDemo } = await import("../appDemoSeed");
+        const r = await topUpSarahDemo("apple-health-sync");
+        res.json({ daysWritten: Math.max(1, r.daysFilled), workoutsWritten: 0, latestSyncedDate: r.latestKey });
+        return;
+      }
+
       const parsed = mobileSyncBodySchema.safeParse(req.body);
       if (!parsed.success) {
         return res.status(400).json({ message: "Invalid sync payload", errors: parsed.error.flatten() });
@@ -666,6 +679,14 @@ export function registerWearableRoutes(app: Express) {
   app.post("/api/wearables/health-connect/sync", isAuthenticated, async (req: any, res) => {
     try {
       const userId = req.user.claims.sub;
+
+      // App demo account (Sarah): same rule as the Apple Health route above.
+      if (userId === DEMO_SARAH_ID) {
+        const { topUpSarahDemo } = await import("../appDemoSeed");
+        const r = await topUpSarahDemo("health-connect-sync");
+        res.json({ daysWritten: Math.max(1, r.daysFilled), workoutsWritten: 0, latestSyncedDate: r.latestKey });
+        return;
+      }
 
       const parsed = hcSyncBodySchema.safeParse(req.body);
       if (!parsed.success) {

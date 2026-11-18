@@ -763,6 +763,17 @@ export async function computeAndStoreForUserDay(
     }
   }
 
+  // App demo account (Sarah): write today's wearable row first, shaped by
+  // today's check-in, so the demo's score follows what was entered.
+  if (isToday && userId === "demo-sarah") {
+    try {
+      const { syncDemoTodayWearable } = await import("./appDemoSeed");
+      await syncDemoTodayWearable(userId, dateKey);
+    } catch (e: any) {
+      console.warn("[daily-readiness] demo wearable top-up failed:", e?.message || e);
+    }
+  }
+
   // HOLD: with WHOOP/Oura connected, today's readiness is NOT computed until
   // that provider's physio data for today has been imported. Apple/Google
   // never stand in (see stripNonOauthPhysio), and a partial score computed

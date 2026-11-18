@@ -145,6 +145,15 @@ if (Number.isNaN(port) || port <= 0) {
       seedWwiShowcaseOnce().catch((e: any) => logger.error({ e }, "[startup-migration] wwi-showcase failed"));
     }).catch((e: any) => logger.error({ e }, "[startup-migration] wwi-showcase import failed"));
 
+    // App demo account (Sarah, mark+sarah@meridian.work) for App page screenshots.
+    // Seeds once per database, then keeps the account current every few hours.
+    // Waits a minute so the other start-up migrations and seeds finish first.
+    setTimeout(() => {
+      import("./appDemoSeed").then(({ startSarahDemo }) => {
+        startSarahDemo().catch((e: any) => logger.error({ e }, "[startup-migration] app-demo failed"));
+      }).catch((e: any) => logger.error({ e }, "[startup-migration] app-demo import failed"));
+    }, 60_000);
+
     // Workforce Rewards (Phase 1a): create the reward tables on boot if missing.
     import("./rewardsEngine").then(({ ensureRewardsSchemaOnce }) => {
       ensureRewardsSchemaOnce().catch((e: any) => logger.error({ e }, "[startup] rewards schema ensure failed"));

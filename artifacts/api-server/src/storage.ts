@@ -420,6 +420,7 @@ import {
   type UserPhysiologicalBaselines,
 } from "@workspace/db";
 import { db, pool } from "./db";
+import { calculateServerWorkoutDuration } from "./workoutDuration";
 import { describeSets } from "./programmeReduction";
 import { eq, ne, desc, and, ilike, or, gte, lte, inArray, lt, gt, asc, sql, isNull, isNotNull, aliasedTable, type SQL } from "drizzle-orm";
 
@@ -3523,7 +3524,14 @@ export class DatabaseStorage implements IStorage {
         exercises,
         blocks: blocks.length > 0 ? blocks : undefined,
         exerciseCount: mainExerciseCount || exercises.length,
-        estimatedDuration: Math.round(exercises.length * 1.75),
+        // From sets, reps and rest, after any swaps and reductions.
+        estimatedDuration: exercises.length > 0
+          ? calculateServerWorkoutDuration({
+              workoutType: ew.workoutType, duration: ew.duration,
+              intervalRounds: ew.intervalRounds, intervalRestAfterRound: ew.intervalRestAfterRound,
+              exercises: blocks,
+            })
+          : 0,
       };
       workouts.push(workoutObj);
     }
@@ -7656,9 +7664,14 @@ export class DatabaseStorage implements IStorage {
     const templateExerciseCounts = new Map<string, number>();
     const templateTotalExerciseCounts = new Map<string, number>();
     const templateFirstMainImage = new Map<string, string>();
+    // Minutes for each workout, from its sets, reps and rest.
+    const durationByWorkoutId = new Map<number, number>();
 
     for (const { workout } of results) {
       const allBlocks = blocksByWorkout.get(workout.id) || [];
+      if (allBlocks.some((b: any) => (b.exercises || []).length > 0)) {
+        durationByWorkoutId.set(workout.id, calculateServerWorkoutDuration({ ...workout, exercises: allBlocks }));
+      }
       let mainCount = 0;
       let totalCount = 0;
       for (const block of allBlocks) {
@@ -7686,7 +7699,7 @@ export class DatabaseStorage implements IStorage {
     const workoutsWithDetails = results.map(({ workout, weekNumber, dayPosition }) => {
       const exerciseCount = templateExerciseCounts.get(workout.name) || 0;
       const totalExercises = templateTotalExerciseCounts.get(workout.name) || 0;
-      const estimatedDuration = Math.round(totalExercises * 1.75);
+      const estimatedDuration = durationByWorkoutId.get(workout.id) ?? Math.round(totalExercises * 1.75);
       const firstMainExerciseImage = templateFirstMainImage.get(workout.name) || null;
 
       return {

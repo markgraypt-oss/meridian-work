@@ -2,6 +2,7 @@ import type { Express } from "express";
 import express from "express";
 import { createServer, type Server } from "http";
 import { storage } from "../storage";
+import { parseDurationToSecondsServer, parseRestServer, perSetWorkSeconds, resolveRoundCount, SET_TRANSITION_SECONDS, calculateServerWorkoutDuration } from "../workoutDuration";
 import { db, pool } from "../db";
 import { setupAuth, isAuthenticated, generateResetToken, hashToken, sendUserInviteEmail, sendUserInviteEmailsBatch, INVITE_LINK_DAYS, sendPasswordResetEmail, sendTesterWelcomeEmail, sendTesterSignupNotification, addTesterToAudience, TESTFLIGHT_URL, PLAY_TESTING_URL, sendSupportMessageToAdmin } from "../replitAuth";
 import { QUESTIONS as LD_QUESTIONS, INTRO_COPY as LD_INTRO, CARD_COPY as LD_CARD, getStatus as ldGetStatus, validate as ldValidate, saveAnswers as ldSave, personalLine as ldPersonalLine, aggregateForCompany as ldAggregate, periodKeyFor as ldPeriodKey } from "../loadDiagnostic";
@@ -1127,137 +1128,6 @@ function getRuleBasedRecommendations(intake: any, programs: any[], paths: any[],
   const topHabits = scoredHabits.slice(0, 3);
 
   return { programs: topPrograms, path: matchedPath, habits: topHabits };
-}
-
-function parseDurationToSecondsServer(duration?: string | number): number {
-  if (!duration) return 0;
-  if (typeof duration === 'number') return duration;
-  const lower = duration.toLowerCase();
-  let total = 0;
-  const minMatch = lower.match(/(\d+)\s*min/);
-  if (minMatch) total += parseInt(minMatch[1]) * 60;
-  const secMatch = lower.match(/(\d+)\s*sec/);
-  if (secMatch) total += parseInt(secMatch[1]);
-  if (!minMatch && !secMatch) {
-    const numMatch = duration.match(/(\d+)/);
-    if (numMatch) total = parseInt(numMatch[1]);
-  }
-  return total;
-}
-
-function parseRestServer(rest?: string): number {
-  if (!rest) return 0;
-  const match = rest.match(/(\d+)/);
-  if (!match) return 0;
-  const value = parseInt(match[1]);
-  if (rest.toLowerCase().includes('min')) return value * 60;
-  return value;
-}
-
-// Seconds of actual work for ONE set of an exercise, using its first set as the
-// representative spec (sets are uniform in practice, and the UI shows the first
-// set's reps/duration too). Timer exercises use their target seconds; rep
-// exercises approximate ~3s per rep with a small floor so a 1-3 rep set is not
-// counted as ~zero.
-function perSetWorkSeconds(exercise: any): number {
-  const sets = Array.isArray(exercise?.sets) && exercise.sets.length > 0 ? exercise.sets : [{}];
-  const first = sets[0] || {};
-  const isTimer = exercise?.durationType === 'timer' || exercise?.durationType === 'time';
-  if (isTimer) {
-    const secs = parseDurationToSecondsServer(first.duration || exercise?.duration || exercise?.targetDuration);
-    // Cap a single interval at 10 min so a stray/garbage value can't blow up.
-    return Math.min(600, secs > 0 ? secs : 30);
-  }
-  // Cap reps at 60 so a bad value (e.g. reps stored as a big number) is bounded.
-  const reps = parseInt(String(first.reps ?? exercise?.reps ?? ''), 10) || 10;
-  return Math.max(8, Math.min(60, reps) * 3);
-}
-
-// How many times an exercise/round is repeated, resolved the SAME way the app
-// displays the set/round count: regular uses the sets-array length; interval
-// uses the block's round count; circuit uses the workout-level round count
-// first. Falls back to the sets-array length when a round count is absent.
-function resolveRoundCount(workout: any, block: any): number {
-  const wt = workout?.workoutType || 'regular';
-  const firstEx = (block?.exercises || [])[0];
-  const setsLen = Array.isArray(firstEx?.sets) && firstEx.sets.length > 0 ? firstEx.sets.length : 1;
-  const raw = wt === 'circuit'
-    ? (workout?.intervalRounds || block?.rounds || setsLen)
-    : wt === 'interval'
-      ? (block?.rounds || setsLen)
-      : setsLen;
-  // Cap rounds at 20 — no real session has more, so a bad round count is bounded.
-  return Math.max(1, Math.min(20, raw));
-}
-
-// Setup / transition time counted on every straight set, on top of the reps.
-const SET_TRANSITION_SECONDS = 10;
-
-function calculateServerWorkoutDuration(workout: any): number {
-  const workoutType = workout?.workoutType || 'regular';
-  // Video workouts are timed by their media, not by sets/reps.
-  if (workoutType === 'video') return workout?.duration || 0;
-
-  const rawExercises = workout?.exercises || [];
-  const isBlockFormat = rawExercises.length > 0 && rawExercises[0]?.exercises;
-  const blocks: any[] = isBlockFormat
-    ? rawExercises
-    : [{ section: 'main', blockType: 'single', exercises: rawExercises }];
-
-  let totalSeconds = 0;
-
-  for (const block of blocks) {
-    // Standalone rest blocks contribute only their own rest time.
-    if (block?.blockType === 'rest') {
-      totalSeconds += parseRestServer(block.rest) || 30;
-      continue;
-    }
-    const exs = block?.exercises || [];
-    if (exs.length === 0) continue;
-
-    const section = block?.section || 'main';
-    const isWarmup = section === 'warmup' || section === 'warm_up';
-    // Circuit/interval MAIN work: every exercise is done once per round and the
-    // whole set of exercises repeats for `rounds`, with a short rest between
-    // rounds. Warm-ups are always straight sets, even inside an interval workout.
-    const circuitStyle = !isWarmup &&
-      (workoutType === 'interval' || workoutType === 'circuit' || block?.blockType === 'circuit');
-
-    if (circuitStyle) {
-      const rounds = Math.max(1, resolveRoundCount(workout, block));
-      let roundWork = 0;
-      for (const ex of exs) roundWork += perSetWorkSeconds(ex);
-      // "rest after round" is ONE rest after completing all exercises in the
-      // round (per the schema), so it applies between rounds — NOT once per
-      // exercise. Multiplying by the exercise count was the bug that inflated
-      // circuits. Capped at 5 min in case of a stray value.
-      const restBetweenRounds = Math.min(300, workoutType === 'circuit'
-        ? parseRestServer(workout?.intervalRestAfterRound)
-        : parseRestServer(block?.restAfterRound));
-      totalSeconds += rounds * roundWork
-        + Math.max(0, rounds - 1) * restBetweenRounds
-        + parseRestServer(block?.rest);
-    } else {
-      // Straight sets (regular blocks and all warm-ups). One "round" is every
-      // exercise in the block performed once; a single-exercise block just
-      // repeats that exercise for its set count.
-      const rounds = Math.max(1, resolveRoundCount({ workoutType: 'regular' }, block));
-      let roundWork = 0;
-      // ~10s of setup / re-rack "white space" is real work time on every set,
-      // on top of the reps or the timer.
-      for (const ex of exs) roundWork += perSetWorkSeconds(ex) + SET_TRANSITION_SECONDS;
-      const rest = Math.min(300, parseRestServer(block?.rest)); // cap a stray rest at 5 min
-      // Rest counted once PER SET (not per gap): the recovery after each set
-      // plus the transition between exercises. For 3 lifts x 5 sets at 3 min
-      // that is 15 x 3 = 45 min of rest — the bulk of a strength session, which
-      // the old estimate dropped almost entirely.
-      totalSeconds += rounds * roundWork + rounds * rest;
-    }
-  }
-
-  // Final safety cap: nothing in this app is a 2-hour session, so a computed
-  // value above 120 min means the underlying data is off — bound it either way.
-  return Math.max(1, Math.min(120, Math.ceil(totalSeconds / 60)));
 }
 
 // Summarise what a user actually trains, from their recent completed workout
@@ -5840,6 +5710,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
         blocks,
         programmeType,
         programId,
+        // From sets, reps and rest, so the workout page shows a real time.
+        estimatedDuration: (blocks || []).some((b: any) => (b.exercises || []).length > 0)
+          ? calculateServerWorkoutDuration({ ...workout, exercises: blocks })
+          : 0,
       });
     } catch (error) {
       console.error("Error fetching programme workout:", error);
@@ -5887,6 +5761,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
         blocks,
         programmeType,
         enrollmentId,
+        estimatedDuration: (blocks || []).some((b: any) => (b.exercises || []).length > 0)
+          ? calculateServerWorkoutDuration({ ...workout, exercises: blocks })
+          : 0,
       });
     } catch (error) {
       console.error("Error fetching enrolled workout:", error);

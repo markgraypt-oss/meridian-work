@@ -14343,6 +14343,11 @@ Rules:
         .set({ dayId, updatedAt: new Date() })
         .where(eq(programmeWorkouts.id, workoutId))
         .returning();
+
+      // Moving a workout changes how many days of the week have one. This
+      // route never recounted, so a programme whose two workouts were spread
+      // over two days on the Schedule tab still said "1 x a week" in the app.
+      await storage.updateProgrammeTrainingDays(targetDay.programId);
       
       res.json(updated);
     } catch (error) {

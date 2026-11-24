@@ -1399,6 +1399,34 @@ export async function revokeBackdatedRunningBadgesOnce(): Promise<void> {
   }
 }
 
+// Workouts a week, for every programme, counted from week 1: the number of
+// days that have a workout. The stored number went stale whenever a workout
+// was moved to another day (that route did not recount until 24 Nov 2026).
+// One cheap statement, safe to run on every start, and it only touches
+// programmes whose stored number is wrong. Programmes with no week 1 workouts
+// are left alone.
+export async function recountProgrammeTrainingDays(): Promise<void> {
+  try {
+    const r = await pool.query(`
+      UPDATE programs p
+      SET training_days_per_week = c.n
+      FROM (
+        SELECT pw.program_id, COUNT(DISTINCT pd.position)::int AS n
+        FROM program_weeks pw
+        JOIN program_days pd ON pd.week_id = pw.id
+        JOIN programme_workouts w ON w.day_id = pd.id
+        WHERE pw.week_number = 1
+        GROUP BY pw.program_id
+      ) c
+      WHERE c.program_id = p.id
+        AND p.training_days_per_week IS DISTINCT FROM c.n
+    `);
+    console.log(`[startup-migration] programme workouts a week: corrected ${r.rowCount ?? 0}`);
+  } catch (e: any) {
+    console.error("[startup-migration] programme workouts a week recount failed:", e?.message || e);
+  }
+}
+
 export async function fixHabitTemplateDescriptionsOnce(): Promise<void> {
   try {
     const stepsDesc = `Steps are the foundation of what is known as NEAT, or non-exercise activity thermogenesis. This is the energy your body burns through everything you do outside of formal training, and for most people it accounts for more daily calorie expenditure than their workouts.\n\n  Beyond fat loss, consistent walking improves cardiovascular health, regulates blood sugar, supports recovery, and meaningfully reduces all-cause mortality.\n\n  For anyone with a desk-bound role, it is one of the highest-leverage habits available. You set your own daily target based on your lifestyle and goals, and the benefits come from consistency over weeks and months.`;

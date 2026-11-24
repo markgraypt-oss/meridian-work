@@ -7715,8 +7715,9 @@ export class DatabaseStorage implements IStorage {
     return workoutsWithDetails;
   }
 
-  // Helper to update programme's trainingDaysPerWeek based on unique workout names
-  private async updateProgrammeTrainingDays(programId: number): Promise<void> {
+  // Helper to update programme's trainingDaysPerWeek based on unique workout names.
+  // Public so the "move a workout to another day" route can recount too.
+  async updateProgrammeTrainingDays(programId: number): Promise<void> {
     // Count unique occupied day positions in week 1 (days that have at least one workout)
     const week1 = await db
       .select({ id: programWeeks.id })

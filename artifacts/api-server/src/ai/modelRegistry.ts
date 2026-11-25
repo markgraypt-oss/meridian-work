@@ -38,7 +38,7 @@ export const CHEAP_MODEL: Record<string, string> = {
 // cheaper ones: a briefing written by Haiku beats no briefing.
 const FALLBACKS: Record<string, string[]> = {
   anthropic: envList("AI_MODEL_FALLBACKS", ["claude-sonnet-5-5", "claude-haiku-5-5", "claude-haiku-4-5"]),
-  openai: envList("AI_MODEL_FALLBACKS_OPENAI", ["gpt-5.2", "gpt-5.1", "gpt-5-mini", "gpt-4.1"]),
+  openai: envList("AI_MODEL_FALLBACKS_OPENAI", ["gpt-5.2", "gpt-5.1", "gpt-4.1"]),
 };
 
 /** Candidate models for one call, in order: the configured one, then the chain. */
